@@ -1,0 +1,7 @@
+.vscode/**
+test/**
+src/**
+**/*.map
+tsconfig.json
+jest.config.js
+node_modules/**

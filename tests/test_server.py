@@ -5,6 +5,15 @@ from fastapi.testclient import TestClient
 from backend.server import app
 
 
+@pytest.fixture(autouse=True)
+def clear_sessions():
+    """Ensure _sessions is empty at the start of each test."""
+    import backend.server as srv
+    srv._sessions.clear()
+    yield
+    srv._sessions.clear()
+
+
 client = TestClient(app)
 
 

@@ -14,7 +14,12 @@ def read_file(
     offset: Optional[int] = None,
     limit: Optional[int] = None,
 ) -> str:
-    lines = _resolve(workspace, path).read_text().splitlines()
+    try:
+        lines = _resolve(workspace, path).read_text().splitlines()
+    except FileNotFoundError:
+        return f"error: file not found: {path}"
+    except (PermissionError, OSError) as e:
+        return f"error: {e}"
     if offset is not None:
         lines = lines[offset - 1:]
     if limit is not None:
@@ -23,10 +28,13 @@ def read_file(
 
 
 def write_file(workspace: str, path: str, content: str) -> str:
-    full = _resolve(workspace, path)
-    full.parent.mkdir(parents=True, exist_ok=True)
-    full.write_text(content)
-    return f"wrote {path}"
+    try:
+        full = _resolve(workspace, path)
+        full.parent.mkdir(parents=True, exist_ok=True)
+        full.write_text(content)
+        return f"wrote {path}"
+    except (PermissionError, OSError) as e:
+        return f"error: {e}"
 
 
 def run_bash(workspace: str, command: str, timeout: int = 30) -> str:
@@ -124,6 +132,7 @@ TOOL_DEFINITIONS = [
                 "type": "object",
                 "properties": {
                     "command": {"type": "string"},
+                    "timeout": {"type": "integer", "description": "Timeout in seconds (default 30)"},
                 },
                 "required": ["command"],
             },
@@ -184,7 +193,7 @@ def dispatch(workspace: str, name: str, args: dict) -> str:
     if name == "write_file":
         return write_file(workspace, args["path"], args["content"])
     if name == "run_bash":
-        return run_bash(workspace, args["command"])
+        return run_bash(workspace, args["command"], timeout=args.get("timeout", 30))
     if name == "list_dir":
         return list_dir(workspace, args["path"])
     if name == "grep":

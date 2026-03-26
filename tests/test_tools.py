@@ -31,6 +31,11 @@ def test_read_file_limit_only(ws):
     assert read_file(ws, "f.txt", limit=2) == "a\nb"
 
 
+def test_read_file_missing_returns_error(ws):
+    result = read_file(ws, "nonexistent.txt")
+    assert result.startswith("error:")
+
+
 # --- write_file ---
 
 def test_write_file_creates_file(ws):
@@ -46,6 +51,16 @@ def test_write_file_creates_nested_dirs(ws):
 def test_write_file_returns_confirmation(ws):
     result = write_file(ws, "x.txt", "y")
     assert "x.txt" in result
+
+
+def test_write_file_returns_error_on_permission_denied(ws, monkeypatch):
+    # monkeypatch mkdir to raise PermissionError
+    original_mkdir = Path.mkdir
+    def fake_mkdir(self, *args, **kwargs):
+        raise PermissionError("permission denied")
+    monkeypatch.setattr(Path, "mkdir", fake_mkdir)
+    result = write_file(ws, "sub/file.txt", "content")
+    assert result.startswith("error:")
 
 
 # --- run_bash ---

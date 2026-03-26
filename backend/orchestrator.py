@@ -3,7 +3,7 @@ from typing import AsyncGenerator
 
 import httpx
 
-from .models import Classification, Complexity, PLANNER, route, escalate
+from .models import Classification, Complexity, TaskType, PLANNER, route, escalate
 from .agent import run_agent
 from .prompts import CLASSIFIER_SYSTEM, VERIFIER_SYSTEM
 
@@ -33,7 +33,6 @@ async def _call_json(model: str, system: str, user: str) -> dict:
 
 async def classify(message: str) -> Classification:
     data = await _call_json(PLANNER, CLASSIFIER_SYSTEM, message)
-    from .models import TaskType
     return Classification(
         complexity=Complexity(data["complexity"]),
         task_type=TaskType(data["task_type"]),
@@ -86,6 +85,9 @@ async def run(
         if attempt < 2:
             messages.append({"role": "user", "content": f"Revise: {corrections}"})
         else:
+            # Escalation: announce the new model to the client as a signal.
+            # The caller (server) can issue a follow-up /chat request which
+            # will re-classify and route with fresh context.
             new_model = escalate(model)
             if new_model != model:
                 model = new_model

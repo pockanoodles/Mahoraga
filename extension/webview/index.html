@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy"
+    content="default-src 'none';
+             style-src ${cspSource} 'unsafe-inline';
+             font-src https://fonts.gstatic.com;
+             script-src 'nonce-${nonce}';">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap">
+  <link rel="stylesheet" href="${highlightCssUri}">
+  <link rel="stylesheet" href="${styleUri}">
+  <title>Ollama</title>
+</head>
+<body>
+  <header class="header">
+    <span class="header-title">◈ ollama-runtime</span>
+    <span class="model-badge" id="modelBadge"></span>
+  </header>
+
+  <div class="messages" id="messages"></div>
+
+  <div class="tool-status" id="toolStatus"></div>
+
+  <footer class="input-area">
+    <textarea id="input" placeholder="ask anything..." rows="1"></textarea>
+    <button id="sendBtn" title="Send (Enter)">↵</button>
+  </footer>
+
+  <script nonce="${nonce}" src="${highlightJsUri}"></script>
+  <script nonce="${nonce}" src="${utilsJsUri}"></script>
+  <script nonce="${nonce}" src="${chatJsUri}"></script>
+</body>
+</html>

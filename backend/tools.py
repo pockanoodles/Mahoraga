@@ -38,18 +38,21 @@ def write_file(workspace: str, path: str, content: str) -> str:
 
 
 def run_bash(workspace: str, command: str, timeout: int = 30) -> str:
-    result = subprocess.run(
-        command,
-        shell=True,
-        cwd=workspace,
-        capture_output=True,
-        text=True,
-        timeout=timeout,
-    )
-    output = result.stdout
-    if result.returncode != 0:
-        output += result.stderr
-    return output
+    try:
+        result = subprocess.run(
+            command,
+            shell=True,
+            cwd=workspace,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+        output = result.stdout
+        if result.returncode != 0:
+            output += result.stderr
+        return output
+    except subprocess.TimeoutExpired:
+        return f"error: command timed out after {timeout}s"
 
 
 def list_dir(workspace: str, path: str) -> str:

@@ -3,11 +3,9 @@ from typing import AsyncGenerator
 
 import httpx
 
-from .models import Classification, Complexity, TaskType, PLANNER, route, escalate
+from .models import Classification, Complexity, TaskType, PLANNER, OLLAMA_URL, route, escalate
 from .agent import run_agent
 from .prompts import CLASSIFIER_SYSTEM, VERIFIER_SYSTEM
-
-OLLAMA_URL = "http://localhost:11434"
 
 
 async def _call_json(model: str, system: str, user: str) -> dict:

@@ -138,3 +138,33 @@ async def test_run_escalates_after_three_failures(tmp_path):
     # Should escalate on third failure
     assert "qwen2.5-coder:14b" in models_used
     assert any(e["type"] == "model" and e["model"] == "qwen3:14b" for e in events)
+
+
+@pytest.mark.asyncio
+async def test_run_escalation_is_signal_only(tmp_path):
+    """Escalated model event is a signal to the client — the escalated model
+    does NOT execute within the same pipeline call. The caller must re-issue
+    the request to use the escalated model."""
+    ws = str(tmp_path)
+
+    models_used = []
+
+    async def mock_agent(model, messages, workspace, **kwargs):
+        models_used.append(model)
+        yield {"type": "token", "content": "attempt"}
+        yield {"type": "done"}
+
+    async def always_revise(msg, resp):
+        return {"verdict": "REVISE", "corrections": "still wrong"}
+
+    with (
+        patch("backend.orchestrator.classify", _fake_classify("medium")),
+        patch("backend.orchestrator.run_agent", side_effect=mock_agent),
+        patch("backend.orchestrator.verify", always_revise),
+    ):
+        events = [e async for e in run("hard task", ws, [])]
+
+    # The escalated model (qwen3:14b) is announced but never executed
+    assert "qwen3:14b" not in models_used  # escalated model did NOT run
+    model_events = [e for e in events if e["type"] == "model"]
+    assert any(e["model"] == "qwen3:14b" for e in model_events)  # but event was emitted

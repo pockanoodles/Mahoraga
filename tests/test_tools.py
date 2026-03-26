@@ -81,6 +81,11 @@ def test_run_bash_captures_stderr_on_failure(ws):
     assert len(result.strip()) > 0  # some error output
 
 
+def test_run_bash_timeout_returns_error(ws):
+    result = run_bash(ws, "sleep 10", timeout=1)
+    assert "timed out" in result
+
+
 # --- list_dir ---
 
 def test_list_dir_shows_files_and_dirs(ws):

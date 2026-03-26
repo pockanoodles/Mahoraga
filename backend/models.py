@@ -43,3 +43,6 @@ def escalate(model: str) -> str:
     if model == SENIOR_WORKER:
         return PLANNER
     return PLANNER
+
+
+OLLAMA_URL = "http://localhost:11434"

@@ -3,10 +3,9 @@ from typing import AsyncGenerator
 
 import httpx
 
+from .models import OLLAMA_URL
 from .prompts import CODER_SYSTEM
 from .tools import TOOL_DEFINITIONS, dispatch
-
-OLLAMA_URL = "http://localhost:11434"
 
 
 async def run_agent(

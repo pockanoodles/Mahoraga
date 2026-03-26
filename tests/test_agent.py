@@ -55,6 +55,7 @@ class FakeClient:
 
 # --- Tests ---
 
+@pytest.mark.asyncio
 async def test_agent_streams_tokens(tmp_path):
     ws = str(tmp_path)
     responses = [
@@ -71,6 +72,7 @@ async def test_agent_streams_tokens(tmp_path):
     assert events[-1]["type"] == "done"
 
 
+@pytest.mark.asyncio
 async def test_agent_executes_tool_and_continues(tmp_path):
     ws = str(tmp_path)
     Path(ws, "note.txt").write_text("secret content")
@@ -94,6 +96,7 @@ async def test_agent_executes_tool_and_continues(tmp_path):
     assert any("secret content" in t["content"] for t in token_events)
 
 
+@pytest.mark.asyncio
 async def test_agent_respects_max_iterations(tmp_path):
     ws = str(tmp_path)
     # Every response is a tool call — agent should stop after max_iterations

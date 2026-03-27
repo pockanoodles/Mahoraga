@@ -64,7 +64,7 @@ async def test_agent_streams_tokens(tmp_path):
             _line(" world"),
         )
     ]
-    with patch("backend.agent.httpx.AsyncClient", return_value=FakeClient(responses)):
+    with patch("backend.agent._client", FakeClient(responses)):
         events = [e async for e in run_agent("qwen2.5-coder:7b", [{"role": "user", "content": "hi"}], ws)]
 
     tokens = [e for e in events if e["type"] == "token"]
@@ -84,7 +84,7 @@ async def test_agent_executes_tool_and_continues(tmp_path):
         _line("The file says: secret content"),
     )
 
-    with patch("backend.agent.httpx.AsyncClient", return_value=FakeClient([tool_call_response, final_response])):
+    with patch("backend.agent._client", FakeClient([tool_call_response, final_response])):
         events = [e async for e in run_agent("qwen2.5-coder:7b", [{"role": "user", "content": "read note.txt"}], ws)]
 
     tool_events = [e for e in events if e["type"] == "tool_call"]
@@ -104,7 +104,7 @@ async def test_agent_respects_max_iterations(tmp_path):
         _line(tool_calls=[{"function": {"name": "list_dir", "arguments": {"path": "."}}}]),
     )
 
-    with patch("backend.agent.httpx.AsyncClient", return_value=FakeClient([one_tool_call] * 5)):
+    with patch("backend.agent._client", FakeClient([one_tool_call] * 5)):
         events = [e async for e in run_agent("qwen2.5-coder:7b", [{"role": "user", "content": "loop"}], ws, max_iterations=3)]
 
     # Must terminate with done

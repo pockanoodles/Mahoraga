@@ -8,6 +8,7 @@ from .prompts import CODER_SYSTEM
 from .tools import TOOL_DEFINITIONS, dispatch
 
 _TOOL_NAMES = {t["function"]["name"] for t in TOOL_DEFINITIONS}
+_client = httpx.AsyncClient(timeout=120)
 
 
 def _extract_tool_call(content: str):
@@ -44,39 +45,36 @@ async def run_agent(
         tool_calls = []
         content_parts = []
 
-        async with httpx.AsyncClient(timeout=120) as client:
-            async with client.stream(
-                "POST",
-                f"{OLLAMA_URL}/api/chat",
-                json={
-                    "model": model,
-                    "messages": msgs,
-                    "tools": TOOL_DEFINITIONS,
-                    "stream": True,
-                    "keep_alive": KEEP_ALIVE,
-                    "options": {"num_ctx": NUM_CTX},
-                },
-            ) as resp:
-                async for line in resp.aiter_lines():
-                    if not line:
-                        continue
-                    chunk = json.loads(line)
-                    msg = chunk.get("message", {})
+        async with _client.stream(
+            "POST",
+            f"{OLLAMA_URL}/api/chat",
+            json={
+                "model": model,
+                "messages": msgs,
+                "tools": TOOL_DEFINITIONS,
+                "stream": True,
+                "keep_alive": KEEP_ALIVE,
+                "options": {"num_ctx": NUM_CTX},
+            },
+        ) as resp:
+            async for line in resp.aiter_lines():
+                if not line:
+                    continue
+                chunk = json.loads(line)
+                msg = chunk.get("message", {})
 
-                    if msg.get("content"):
-                        content_parts.append(msg["content"])
-                        yield {"type": "token", "content": msg["content"]}
+                if msg.get("content"):
+                    content_parts.append(msg["content"])
+                    yield {"type": "token", "content": msg["content"]}
 
-                    if msg.get("tool_calls"):
-                        tool_calls.extend(msg["tool_calls"])
+                if msg.get("tool_calls"):
+                    tool_calls.extend(msg["tool_calls"])
 
         joined = "".join(content_parts)
 
         # Emit plan event if the response begins with a PLAN block
-        plan_prefix_match = "PLAN" in joined[:1500]
-        if plan_prefix_match:
+        if "PLAN" in joined[:1500]:
             plan_start = joined.find("PLAN")
-            # Grab through the next blank line, or the rest of content if no blank line
             blank_line = joined.find("\n\n", plan_start)
             if blank_line != -1:
                 plan_text = joined[plan_start:blank_line].strip()

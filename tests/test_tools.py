@@ -1,6 +1,6 @@
 import pytest
 from pathlib import Path
-from backend.tools import read_file, write_file, run_bash, list_dir, grep, glob_files, dispatch
+from backend.tools import read_file, write_file, run_bash, list_dir, grep, glob_files, dispatch, edit_file
 
 
 @pytest.fixture
@@ -12,23 +12,31 @@ def ws(tmp_path):
 
 def test_read_file_returns_content(ws):
     Path(ws, "hello.txt").write_text("line1\nline2\nline3")
-    assert read_file(ws, "hello.txt") == "line1\nline2\nline3"
+    result = read_file(ws, "hello.txt")
+    assert "line1" in result
+    assert "line2" in result
+    assert "   1│" in result  # line numbers present
 
 
 def test_read_file_offset_and_limit(ws):
     Path(ws, "f.txt").write_text("a\nb\nc\nd")
-    # offset=2 means start at line 2 (1-indexed), limit=2 means 2 lines
-    assert read_file(ws, "f.txt", offset=2, limit=2) == "b\nc"
+    result = read_file(ws, "f.txt", offset=2, limit=2)
+    assert "   2│ b" in result
+    assert "   3│ c" in result
 
 
 def test_read_file_offset_only(ws):
     Path(ws, "f.txt").write_text("a\nb\nc")
-    assert read_file(ws, "f.txt", offset=2) == "b\nc"
+    result = read_file(ws, "f.txt", offset=2)
+    assert "   2│ b" in result
+    assert "   3│ c" in result
 
 
 def test_read_file_limit_only(ws):
     Path(ws, "f.txt").write_text("a\nb\nc")
-    assert read_file(ws, "f.txt", limit=2) == "a\nb"
+    result = read_file(ws, "f.txt", limit=2)
+    assert "   1│ a" in result
+    assert "   2│ b" in result
 
 
 def test_read_file_missing_returns_error(ws):
@@ -67,13 +75,15 @@ def test_write_file_returns_error_on_permission_denied(ws, monkeypatch):
 
 def test_run_bash_captures_stdout(ws):
     result = run_bash(ws, "echo hello")
-    assert result.strip() == "hello"
+    assert "hello" in result
+    assert "exit: 0" in result
 
 
 def test_run_bash_cwd_is_workspace(ws):
     Path(ws, "marker.txt").write_text("x")
     result = run_bash(ws, "ls")
     assert "marker.txt" in result
+    assert "exit: 0" in result
 
 
 def test_run_bash_captures_stderr_on_failure(ws):
@@ -148,9 +158,39 @@ def test_glob_files_no_match_returns_message(ws):
 def test_dispatch_routes_to_correct_tool(ws):
     Path(ws, "f.txt").write_text("hi")
     result = dispatch(ws, "read_file", {"path": "f.txt"})
-    assert result == "hi"
+    assert "hi" in result  # content present (with line number prefix)
 
 
 def test_dispatch_unknown_tool(ws):
     result = dispatch(ws, "unknown_tool", {})
     assert "unknown tool" in result
+
+
+# --- edit_file ---
+
+def test_edit_file_replaces_exact_match(ws):
+    Path(ws, "f.py").write_text("def foo():\n    return 1\n")
+    result = edit_file(ws, "f.py", "return 1", "return 2")
+    assert result == "edited f.py"
+    assert Path(ws, "f.py").read_text() == "def foo():\n    return 2\n"
+
+def test_edit_file_errors_on_not_found(ws):
+    Path(ws, "f.py").write_text("x = 1\n")
+    result = edit_file(ws, "f.py", "x = 99", "x = 2")
+    assert result.startswith("error:")
+
+def test_edit_file_errors_on_multiple_matches(ws):
+    Path(ws, "f.py").write_text("x = 1\nx = 1\n")
+    result = edit_file(ws, "f.py", "x = 1", "x = 2")
+    assert result.startswith("error:")
+
+def test_edit_file_replace_all(ws):
+    Path(ws, "f.py").write_text("x = 1\nx = 1\n")
+    result = edit_file(ws, "f.py", "x = 1", "x = 2", replace_all=True)
+    assert "2 replacements" in result
+    assert Path(ws, "f.py").read_text() == "x = 2\nx = 2\n"
+
+def test_dispatch_edit_file(ws):
+    Path(ws, "g.py").write_text("a = 1\n")
+    result = dispatch(ws, "edit_file", {"path": "g.py", "old_string": "a = 1", "new_string": "a = 2"})
+    assert result == "edited g.py"

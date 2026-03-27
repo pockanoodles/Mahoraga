@@ -3,12 +3,12 @@ from typing import AsyncGenerator
 
 import httpx
 
-from .models import Classification, Complexity, TaskType, PLANNER, OLLAMA_URL, route, escalate
+from .models import Classification, Complexity, TaskType, PLANNER, FAST_WORKER, CLASSIFIER_CTX, OLLAMA_URL, route, escalate
 from .agent import run_agent
 from .prompts import CLASSIFIER_SYSTEM, VERIFIER_SYSTEM
 
 
-async def _call_json(model: str, system: str, user: str) -> dict:
+async def _call_json(model: str, system: str, user: str, num_ctx: int = None) -> dict:
     """Non-streaming Ollama call that returns parsed JSON from the response."""
     async with httpx.AsyncClient(timeout=60) as client:
         resp = await client.post(
@@ -20,6 +20,7 @@ async def _call_json(model: str, system: str, user: str) -> dict:
                     {"role": "user", "content": user},
                 ],
                 "stream": False,
+                **({"options": {"num_ctx": num_ctx}} if num_ctx else {}),
             },
         )
         content = resp.json()["message"]["content"].strip()
@@ -30,7 +31,7 @@ async def _call_json(model: str, system: str, user: str) -> dict:
 
 
 async def classify(message: str) -> Classification:
-    data = await _call_json(PLANNER, CLASSIFIER_SYSTEM, message)
+    data = await _call_json(FAST_WORKER, CLASSIFIER_SYSTEM, message, num_ctx=CLASSIFIER_CTX)
     return Classification(
         complexity=Complexity(data["complexity"]),
         task_type=TaskType(data["task_type"]),
@@ -39,7 +40,7 @@ async def classify(message: str) -> Classification:
 
 async def verify(message: str, response: str) -> dict:
     prompt = f"Task: {message}\n\nAgent response:\n{response}"
-    return await _call_json(PLANNER, VERIFIER_SYSTEM, prompt)
+    return await _call_json(FAST_WORKER, VERIFIER_SYSTEM, prompt, num_ctx=CLASSIFIER_CTX)
 
 
 async def run(
@@ -55,7 +56,8 @@ async def run(
     model = route(classification)
     yield {"type": "model", "model": model}
 
-    messages = list(history) + [{"role": "user", "content": message}]
+    trimmed = history[-24:] if len(history) > 24 else history
+    messages = trimmed + [{"role": "user", "content": message}]
 
     for attempt in range(3):
         # 3. Execute

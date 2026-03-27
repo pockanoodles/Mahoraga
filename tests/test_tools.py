@@ -194,3 +194,8 @@ def test_dispatch_edit_file(ws):
     Path(ws, "g.py").write_text("a = 1\n")
     result = dispatch(ws, "edit_file", {"path": "g.py", "old_string": "a = 1", "new_string": "a = 2"})
     assert result == "edited g.py"
+
+
+def test_list_dir_missing_returns_error(ws):
+    result = list_dir(ws, "nonexistent_dir")
+    assert result.startswith("error:")

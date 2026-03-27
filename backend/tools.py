@@ -57,7 +57,6 @@ def run_bash(workspace: str, command: str, timeout: int = 30) -> str:
             timeout=timeout,
         )
         output = result.stdout + result.stderr
-        output += f"\nexit: {result.returncode}"
         lines = output.splitlines()
         truncated = False
         if len(lines) > 300:
@@ -66,6 +65,7 @@ def run_bash(workspace: str, command: str, timeout: int = 30) -> str:
         result_str = "\n".join(lines)
         if truncated:
             result_str += "\n[output truncated at 300 lines]"
+        result_str += f"\nexit: {result.returncode}"
         return result_str
     except subprocess.TimeoutExpired:
         return f"error: command timed out after {timeout}s"
@@ -87,6 +87,8 @@ def list_dir(workspace: str, path: str) -> str:
 
 def edit_file(workspace: str, path: str, old_string: str, new_string: str, replace_all: bool = False) -> str:
     """Surgical patch — replace old_string with new_string in an existing file."""
+    if not old_string:
+        return "error: old_string must not be empty"
     try:
         full = _resolve(workspace, path)
         content = full.read_text()
@@ -146,7 +148,7 @@ TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "read_file",
-            "description": "Read a file. Returns file content.",
+            "description": "Read a file. Returns file content. Returns up to 300 lines per call. Use offset/limit to page through larger files.",
             "parameters": {
                 "type": "object",
                 "properties": {

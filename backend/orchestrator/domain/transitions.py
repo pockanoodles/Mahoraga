@@ -29,12 +29,11 @@ _LEGAL_ATTEMPT_TRANSITIONS: dict[AttemptStatus, frozenset[AttemptStatus]] = {
     AttemptStatus.cancelled:  frozenset(),
 }
 
-_ESCALATION_LIMIT = 2
+ESCALATION_LIMIT = 2
 
-_ATTEMPT_TERMINAL = frozenset({
-    AttemptStatus.completed, AttemptStatus.failed,
-    AttemptStatus.blocked, AttemptStatus.escalated, AttemptStatus.cancelled,
-})
+_ATTEMPT_TERMINAL = frozenset(
+    s for s, targets in _LEGAL_ATTEMPT_TRANSITIONS.items() if not targets
+)
 
 
 class IllegalTransition(ValueError):
@@ -64,7 +63,7 @@ def transition_attempt(attempt: TaskAttempt, new_status: AttemptStatus) -> TaskA
 
 def can_escalate(task: Task) -> bool:
     """Domain rule: can this task be escalated to a different worker?"""
-    return task.escalation_count < _ESCALATION_LIMIT
+    return task.escalation_count < ESCALATION_LIMIT
 
 
 def verify_done_criteria(task: Task, summary: str) -> bool:

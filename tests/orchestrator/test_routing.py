@@ -50,6 +50,9 @@ def test_non_code_type_defaults_to_claude():
 
 
 # should_escalate()
+# NOTE: should_escalate does NOT check task.status — DB status is stale ("running")
+# at the point _process_result calls it. Callers are responsible for only invoking
+# this on the failure path. Completed/cancelled task guards live in _process_result.
 
 def test_escalates_on_failure():
     t = _task("Fix bug", assigned_worker="extension", status="failed")

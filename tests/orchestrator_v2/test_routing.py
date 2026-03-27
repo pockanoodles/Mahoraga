@@ -55,3 +55,40 @@ def test_worker_adapter_requires_abstract_methods():
     """WorkerAdapter cannot be instantiated directly."""
     with pytest.raises(TypeError):
         WorkerAdapter()
+
+
+from backend.orchestrator.workers.registry import WorkerRegistry, WorkerNotFoundError
+
+
+def test_registry_register_and_get():
+    reg = WorkerRegistry()
+    worker = _ConcreteWorker()
+    reg.register(worker)
+    assert reg.get("test") is worker
+
+
+def test_registry_get_missing_raises():
+    reg = WorkerRegistry()
+    with pytest.raises(WorkerNotFoundError):
+        reg.get("nonexistent")
+
+
+def test_registry_list_all_returns_registered():
+    reg = WorkerRegistry()
+    reg.register(_ConcreteWorker())
+    workers = reg.list_all()
+    assert len(workers) == 1
+    assert workers[0].id == "test"
+
+
+def test_registry_list_all_empty():
+    reg = WorkerRegistry()
+    assert reg.list_all() == []
+
+
+async def test_registry_health_all():
+    reg = WorkerRegistry()
+    reg.register(_ConcreteWorker())
+    results = await reg.health_all()
+    assert "test" in results
+    assert results["test"].healthy is True

@@ -3,12 +3,12 @@ from typing import AsyncGenerator
 
 import httpx
 
-from .models import Classification, Complexity, TaskType, PLANNER, FAST_WORKER, CLASSIFIER_CTX, OLLAMA_URL, route, escalate
+from .models import Classification, Complexity, TaskType, FAST_WORKER, CLASSIFIER_CTX, OLLAMA_URL, route, escalate
 from .agent import run_agent
 from .prompts import CLASSIFIER_SYSTEM, VERIFIER_SYSTEM
 
 
-async def _call_json(model: str, system: str, user: str, num_ctx: int = None) -> dict:
+async def _call_json(model: str, system: str, user: str, num_ctx: int | None = None) -> dict:
     """Non-streaming Ollama call that returns parsed JSON from the response."""
     async with httpx.AsyncClient(timeout=60) as client:
         resp = await client.post(

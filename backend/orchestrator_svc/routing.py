@@ -32,9 +32,13 @@ def route(task: Task) -> str:
 
 
 def should_escalate(task: Task) -> bool:
-    """Return True if a failed or blocked task should be re-routed to Claude."""
+    """Return True if a failed task should be re-routed to Claude.
+
+    NOTE: Callers must only invoke this on the failure path.
+    Status is not checked — DB status is stale ('running') at call time.
+    """
     if task.assigned_worker == "claude":
         return False
     if task.escalation_count >= 2:
         return False
-    return task.status in ("failed", "blocked")
+    return True

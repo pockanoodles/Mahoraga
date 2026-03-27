@@ -66,7 +66,3 @@ def test_no_escalate_if_already_claude():
 def test_no_escalate_beyond_two():
     t = _task("Fix bug", assigned_worker="extension", status="failed", escalation_count=2)
     assert should_escalate(t) is False
-
-def test_no_escalate_completed_task():
-    t = _task("Fix bug", assigned_worker="extension", status="completed")
-    assert should_escalate(t) is False

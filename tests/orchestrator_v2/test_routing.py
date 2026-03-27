@@ -3,6 +3,7 @@ import pytest
 from typing import AsyncIterator
 from backend.orchestrator.workers.base import WorkerAdapter, WorkerEvent, WorkerHealth
 from backend.orchestrator.domain.models import Task, TaskAttempt
+from backend.orchestrator.workers.registry import WorkerRegistry, WorkerNotFoundError
 
 
 class _ConcreteWorker(WorkerAdapter):
@@ -57,9 +58,6 @@ def test_worker_adapter_requires_abstract_methods():
         WorkerAdapter()
 
 
-from backend.orchestrator.workers.registry import WorkerRegistry, WorkerNotFoundError
-
-
 def test_registry_register_and_get():
     reg = WorkerRegistry()
     worker = _ConcreteWorker()
@@ -92,3 +90,4 @@ async def test_registry_health_all():
     results = await reg.health_all()
     assert "test" in results
     assert results["test"].healthy is True
+    assert results["test"].worker_id == "test"

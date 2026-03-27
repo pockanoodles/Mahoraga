@@ -1,4 +1,5 @@
 from __future__ import annotations
+import asyncio
 from .base import WorkerAdapter, WorkerHealth
 
 
@@ -23,4 +24,6 @@ class WorkerRegistry:
         return list(self._workers.values())
 
     async def health_all(self) -> dict[str, WorkerHealth]:
-        return {w.id: await w.health() for w in self._workers.values()}
+        workers = list(self._workers.values())
+        results = await asyncio.gather(*(w.health() for w in workers))
+        return {w.id: r for w, r in zip(workers, results)}

@@ -1,6 +1,6 @@
 from __future__ import annotations
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import Any, Literal
 
 
 @dataclass
@@ -16,9 +16,9 @@ class Task:
     ] = "pending"
     parent_id: str | None = None
     assigned_worker: str | None = None
-    context: dict = field(default_factory=dict)
+    context: dict[str, Any] = field(default_factory=dict)
     constraints: list[str] = field(default_factory=list)
-    artifacts: list[dict] = field(default_factory=list)
+    artifacts: list[dict[str, Any]] = field(default_factory=list)
     validator_profile: list[str] = field(default_factory=list)
     escalation_count: int = 0
 
@@ -29,14 +29,14 @@ class WorkerResult:
     worker_id: str
     status: Literal["completed", "failed", "blocked", "cancelled"]
     summary: str
-    artifacts: list[dict] = field(default_factory=list)
-    validator_results: list[dict] = field(default_factory=list)
+    artifacts: list[dict[str, Any]] = field(default_factory=list)
+    validator_results: list[dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass
 class Event:
-    type: str
+    event_type: str
     task_id: str
     ts: float
     worker_id: str | None = None
-    content: dict = field(default_factory=dict)
+    content: dict[str, Any] = field(default_factory=dict)

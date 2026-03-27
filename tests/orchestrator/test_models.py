@@ -45,7 +45,7 @@ def test_worker_result_defaults():
 
 def test_event_fields():
     ts = time.time()
-    e = Event(type="task.created", task_id="t1", ts=ts)
+    e = Event(event_type="task.created", task_id="t1", ts=ts)
     assert e.worker_id is None
     assert e.content == {}
     assert e.ts == ts
@@ -53,7 +53,7 @@ def test_event_fields():
 
 def test_event_with_worker():
     e = Event(
-        type="task.assigned",
+        event_type="task.assigned",
         task_id="t1",
         worker_id="extension",
         content={"reason": "bounded task"},

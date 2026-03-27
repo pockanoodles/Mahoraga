@@ -1,7 +1,7 @@
 from __future__ import annotations
 from ..domain.models import Task
 from ..workers.base import WorkerAdapter
-from ..workers.registry import WorkerRegistry
+from ..workers.registry import WorkerRegistry, WorkerNotFoundError
 
 
 class NoCapableWorker(Exception):
@@ -25,7 +25,7 @@ def assign_worker(
             worker = registry.get(task.preferred_worker_type)
             if _capable(worker, task.required_capabilities):
                 return worker.id
-        except Exception:
+        except WorkerNotFoundError:
             pass
 
     # Fall back to capability matching across all registered workers

@@ -180,3 +180,36 @@ def test_assign_worker_exclude_skips_worker():
     reg = _reg(_EditWorker(), _ClaudeWorker())
     result = assign_worker(task, reg, exclude={"extension"})
     assert result == "claude"
+
+
+# Escalation tests
+from backend.orchestrator.routing.escalation import should_escalate
+from backend.orchestrator.domain.transitions import ESCALATION_LIMIT
+
+
+def test_should_escalate_true_when_next_worker_available():
+    task = make_task_with(required_capabilities=["file_editing"], escalation_count=0)
+    reg = _reg(_EditWorker(), _ClaudeWorker())
+    assert should_escalate(task, reg, attempted={"extension"}) is True
+
+
+def test_should_escalate_false_at_escalation_limit():
+    task = make_task_with(
+        required_capabilities=["file_editing"],
+        escalation_count=ESCALATION_LIMIT,
+    )
+    reg = _reg(_EditWorker(), _ClaudeWorker())
+    assert should_escalate(task, reg, attempted={"extension"}) is False
+
+
+def test_should_escalate_false_no_next_worker():
+    task = make_task_with(required_capabilities=["deep_reasoning"], escalation_count=0)
+    reg = _reg(_ClaudeWorker())
+    # claude already attempted, no other worker has deep_reasoning
+    assert should_escalate(task, reg, attempted={"claude"}) is False
+
+
+def test_should_escalate_false_no_workers():
+    task = make_task_with(required_capabilities=[], escalation_count=0)
+    reg = WorkerRegistry()
+    assert should_escalate(task, reg, attempted=set()) is False

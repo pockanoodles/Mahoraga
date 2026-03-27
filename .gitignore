@@ -4,3 +4,4 @@ __pycache__/
 .pytest_cache/
 extension/node_modules/
 extension/out/
+.worktrees/

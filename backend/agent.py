@@ -7,12 +7,13 @@ from .models import OLLAMA_URL, NUM_CTX, KEEP_ALIVE
 from .prompts import CODER_SYSTEM
 from .tools import TOOL_DEFINITIONS, dispatch
 
+_TOOL_NAMES = {t["function"]["name"] for t in TOOL_DEFINITIONS}
+
 
 def _extract_tool_call(content: str):
     """Extract tool call JSON embedded in text output."""
     decoder = json.JSONDecoder()
     idx = 0
-    _TOOL_NAMES = {t["function"]["name"] for t in TOOL_DEFINITIONS}
     while idx < len(content):
         start = content.find("{", idx)
         if start == -1:
@@ -69,25 +70,26 @@ async def run_agent(
                     if msg.get("tool_calls"):
                         tool_calls.extend(msg["tool_calls"])
 
-        # Emit plan event if PLAN block detected in content
         joined = "".join(content_parts)
-        if "PLAN" in joined[:1500] and "- Read:" in joined:
+
+        # Emit plan event if the response begins with a PLAN block
+        plan_prefix_match = "PLAN" in joined[:1500]
+        if plan_prefix_match:
             plan_start = joined.find("PLAN")
-            verify_idx = joined.find("- Verify:")
-            if verify_idx != -1:
-                end = joined.find("\n", verify_idx + len("- Verify:"))
-                plan_text = joined[plan_start:end].strip() if end != -1 else joined[plan_start:].strip()
+            # Grab through the next blank line, or the rest of content if no blank line
+            blank_line = joined.find("\n\n", plan_start)
+            if blank_line != -1:
+                plan_text = joined[plan_start:blank_line].strip()
             else:
                 plan_text = joined[plan_start:].strip()
             yield {"type": "plan", "content": plan_text}
 
         # Text-mode tool call fallback for models that embed JSON in content
         if not tool_calls:
-            joined = "".join(content_parts)
             parsed = _extract_tool_call(joined)
             if parsed:
                 tool_calls = [parsed]
-                content_parts = []  # suppress raw JSON from being shown as a token
+                content_parts = []  # clear so raw JSON is not included in the assistant turn history
 
         if not tool_calls:
             yield {"type": "done"}

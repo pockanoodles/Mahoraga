@@ -2,7 +2,7 @@ import json
 import pytest
 from pathlib import Path
 from unittest.mock import patch
-from backend.agent import run_agent
+from backend.agent import run_agent, _extract_tool_call
 
 
 # --- Helpers to build fake Ollama NDJSON stream lines ---
@@ -111,3 +111,24 @@ async def test_agent_respects_max_iterations(tmp_path):
     assert events[-1]["type"] == "done"
     tool_events = [e for e in events if e["type"] == "tool_call"]
     assert len(tool_events) <= 3
+
+
+def test_extract_tool_call_finds_json_in_text():
+    content = 'Let me read the file. {"name": "read_file", "arguments": {"path": "main.py"}}'
+    result = _extract_tool_call(content)
+    assert result is not None
+    assert result["function"]["name"] == "read_file"
+    assert result["function"]["arguments"] == {"path": "main.py"}
+
+def test_extract_tool_call_ignores_unknown_tools():
+    content = '{"name": "delete_everything", "arguments": {}}'
+    result = _extract_tool_call(content)
+    assert result is None
+
+def test_extract_tool_call_returns_none_on_plain_text():
+    result = _extract_tool_call("No tool call here, just text.")
+    assert result is None
+
+def test_extract_tool_call_handles_malformed_json():
+    result = _extract_tool_call("{broken json{{{")
+    assert result is None

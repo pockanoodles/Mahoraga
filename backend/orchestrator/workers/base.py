@@ -1,7 +1,7 @@
 from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import AsyncIterator, TYPE_CHECKING
+from typing import Any, AsyncGenerator, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from ..domain.models import Task, TaskAttempt
@@ -10,7 +10,7 @@ if TYPE_CHECKING:
 @dataclass
 class WorkerEvent:
     type: str
-    payload: dict = field(default_factory=dict)
+    payload: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -32,7 +32,7 @@ class WorkerAdapter(ABC):
     @abstractmethod
     async def execute(
         self, attempt: "TaskAttempt", task: "Task"
-    ) -> AsyncIterator[WorkerEvent]: ...
+    ) -> AsyncGenerator[WorkerEvent, None]: ...
 
     @abstractmethod
     async def cancel(self, attempt_id: str) -> None: ...

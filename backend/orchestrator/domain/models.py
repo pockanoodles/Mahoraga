@@ -1,7 +1,7 @@
 from __future__ import annotations
 import time
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
 
 
@@ -148,7 +148,7 @@ class Run:
             mission_id=mission_id,
             plan_id=plan_id,
             mode=mode,
-            status=RunStatus.paused,
+            status=RunStatus.paused,  # Runs start paused; explicit orch run start required
             created_at=now,
             updated_at=now,
         )

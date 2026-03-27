@@ -39,6 +39,9 @@ CREATE TABLE IF NOT EXISTS events (
     ts REAL NOT NULL
 );
 
+CREATE INDEX IF NOT EXISTS idx_events_task_id ON events(task_id);
+CREATE INDEX IF NOT EXISTS idx_events_task_id_ts ON events(task_id, ts);
+
 CREATE TABLE IF NOT EXISTS results (
     task_id TEXT PRIMARY KEY,
     worker_id TEXT NOT NULL,

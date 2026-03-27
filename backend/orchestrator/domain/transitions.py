@@ -10,7 +10,7 @@ _LEGAL_TASK_TRANSITIONS: dict[TaskStatus, frozenset[TaskStatus]] = {
         TaskStatus.completed, TaskStatus.blocked,
         TaskStatus.failed, TaskStatus.cancelled,
     }),
-    TaskStatus.blocked:     frozenset({TaskStatus.ready, TaskStatus.cancelled}),
+    TaskStatus.blocked:     frozenset({TaskStatus.ready, TaskStatus.failed, TaskStatus.cancelled}),
     TaskStatus.failed:      frozenset({TaskStatus.ready, TaskStatus.cancelled}),
     TaskStatus.completed:   frozenset(),
     TaskStatus.cancelled:   frozenset(),

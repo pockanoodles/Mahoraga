@@ -91,3 +91,92 @@ async def test_registry_health_all():
     assert "test" in results
     assert results["test"].healthy is True
     assert results["test"].worker_id == "test"
+
+
+# Routing tests
+import dataclasses as dc
+from backend.orchestrator.routing.router import assign_worker, NoCapableWorker
+
+
+class _EditWorker(_ConcreteWorker):
+    @property
+    def id(self) -> str:
+        return "extension"
+
+    @property
+    def capabilities(self) -> list[str]:
+        return ["file_editing", "cheap_repetitive"]
+
+
+class _ClaudeWorker(_ConcreteWorker):
+    @property
+    def id(self) -> str:
+        return "claude"
+
+    @property
+    def capabilities(self) -> list[str]:
+        return ["file_editing", "deep_reasoning", "planning", "review"]
+
+
+def _reg(*workers) -> WorkerRegistry:
+    reg = WorkerRegistry()
+    for w in workers:
+        reg.register(w)
+    return reg
+
+
+def make_task_with(**kwargs) -> Task:
+    t = Task.new(run_id="r1", title="T", goal="G")
+    return dc.replace(t, **kwargs) if kwargs else t
+
+
+def test_assign_worker_matches_capability():
+    task = make_task_with(required_capabilities=["deep_reasoning"])
+    reg = _reg(_EditWorker(), _ClaudeWorker())
+    assert assign_worker(task, reg) == "claude"
+
+
+def test_assign_worker_no_required_caps_returns_first():
+    task = make_task_with(required_capabilities=[])
+    reg = _reg(_EditWorker(), _ClaudeWorker())
+    # Returns first registered worker
+    assert assign_worker(task, reg) in ("extension", "claude")
+
+
+def test_assign_worker_preferred_type_used_first():
+    task = make_task_with(
+        required_capabilities=["file_editing"],
+        preferred_worker_type="claude",
+    )
+    reg = _reg(_EditWorker(), _ClaudeWorker())
+    assert assign_worker(task, reg) == "claude"
+
+
+def test_assign_worker_preferred_type_excluded_falls_back():
+    task = make_task_with(
+        required_capabilities=["file_editing"],
+        preferred_worker_type="claude",
+    )
+    reg = _reg(_EditWorker(), _ClaudeWorker())
+    assert assign_worker(task, reg, exclude={"claude"}) == "extension"
+
+
+def test_assign_worker_no_capable_worker_raises():
+    task = make_task_with(required_capabilities=["cheap_repetitive"])
+    reg = _reg(_ClaudeWorker())  # claude has no cheap_repetitive
+    with pytest.raises(NoCapableWorker):
+        assign_worker(task, reg)
+
+
+def test_assign_worker_all_excluded_raises():
+    task = make_task_with(required_capabilities=["file_editing"])
+    reg = _reg(_EditWorker(), _ClaudeWorker())
+    with pytest.raises(NoCapableWorker):
+        assign_worker(task, reg, exclude={"extension", "claude"})
+
+
+def test_assign_worker_exclude_skips_worker():
+    task = make_task_with(required_capabilities=["file_editing"])
+    reg = _reg(_EditWorker(), _ClaudeWorker())
+    result = assign_worker(task, reg, exclude={"extension"})
+    assert result == "claude"

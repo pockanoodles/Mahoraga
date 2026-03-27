@@ -1,63 +1,48 @@
+# tests/orchestrator/test_models.py
 import time
-from orchestrator.core.models import Task, WorkerResult, Event
+from backend.orchestrator_svc.models import Task, WorkerResult, Event
 
 
-def test_task_defaults():
-    t = Task(id="t1", title="Add test", goal="Add a test for foo()", task_type="code")
-    assert t.status == "pending"
-    assert t.priority == "normal"
-    assert t.parent_id is None
-    assert t.assigned_worker is None
-    assert t.escalation_count == 0
-    assert t.context == {}
-    assert t.constraints == []
-    assert t.artifacts == []
-    assert t.validator_profile == []
+def test_task_new_generates_uuid():
+    task = Task.new(title="Fix bug", goal="Fix the login bug", task_type="code")
+    assert len(task.id) == 36
+    assert task.status == "pending"
+    assert task.escalation_count == 0
+    assert task.priority == "normal"
+    assert task.parent_id is None
+    assert isinstance(task.created_at, float)
 
 
-def test_task_with_all_fields():
-    t = Task(
-        id="t2",
-        title="Refactor auth",
-        goal="Refactor the auth module",
-        task_type="refactor",
+def test_task_new_accepts_optional_fields():
+    task = Task.new(
+        title="Plan refactor",
+        goal="Plan auth module refactor",
+        task_type="plan",
         priority="high",
-        status="running",
-        parent_id="p1",
-        assigned_worker="extension",
-        context={"workspace": "/tmp/proj"},
-        constraints=["no breaking changes"],
-        artifacts=[{"path": "auth.py", "diff": "..."}],
-        validator_profile=["lint", "tests"],
-        escalation_count=1,
+        parent_id="parent-123",
     )
-    assert t.parent_id == "p1"
-    assert t.priority == "high"
-    assert t.context["workspace"] == "/tmp/proj"
-    assert t.escalation_count == 1
+    assert task.priority == "high"
+    assert task.parent_id == "parent-123"
+
+
+def test_task_mutable_defaults_are_not_shared():
+    t1 = Task.new(title="T1", goal="G1", task_type="code")
+    t2 = Task.new(title="T2", goal="G2", task_type="code")
+    t1.artifacts.append({"file": "app.py"})
+    assert t2.artifacts == []
 
 
 def test_worker_result_defaults():
-    r = WorkerResult(task_id="t1", worker_id="extension", status="completed", summary="Done")
-    assert r.artifacts == []
-    assert r.validator_results == []
-
-
-def test_event_fields():
-    ts = time.time()
-    e = Event(event_type="task.created", task_id="t1", ts=ts)
-    assert e.worker_id is None
-    assert e.content == {}
-    assert e.ts == ts
-
-
-def test_event_with_worker():
-    e = Event(
-        event_type="task.assigned",
-        task_id="t1",
-        worker_id="extension",
-        content={"reason": "bounded task"},
-        ts=1.0,
+    result = WorkerResult(
+        task_id="t1", worker_id="extension", status="completed", summary="Fixed it"
     )
-    assert e.worker_id == "extension"
-    assert e.content["reason"] == "bounded task"
+    assert result.artifacts == []
+    assert result.validator_results == []
+    assert isinstance(result.created_at, float)
+
+
+def test_event_defaults():
+    event = Event(type="task.created", task_id="t1")
+    assert event.worker_id is None
+    assert event.content == {}
+    assert isinstance(event.ts, float)

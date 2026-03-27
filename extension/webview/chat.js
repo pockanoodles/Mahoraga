@@ -43,7 +43,7 @@ function appendToken(bubble, token) {
 }
 
 function finalizeMessage(bubble) {
-  bubble.innerHTML = renderMarkdown(escapeHtml(currentText), hljs);
+  bubble.innerHTML = renderMarkdown(currentText, hljs);
   scrollToBottom();
   currentText = '';
 }
@@ -63,6 +63,18 @@ window.addEventListener('message', (event) => {
   const e = event.data;
 
   switch (e.type) {
+    case 'history':
+      for (const msg of e.messages) {
+        if (msg.role === 'user') {
+          appendUserMessage(msg.content);
+        } else if (msg.role === 'assistant') {
+          const bubble = createAgentBubble();
+          bubble.innerHTML = renderMarkdown(msg.content, hljs);
+        }
+      }
+      scrollToBottom();
+      break;
+
     case 'model':
       modelBadgeEl.textContent = formatModelBadge(e.model);
       break;

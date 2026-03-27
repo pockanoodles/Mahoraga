@@ -6,9 +6,9 @@ FAST_WORKER = "qwen2.5-coder:7b"
 SENIOR_WORKER = "qwen2.5-coder:14b"
 PLANNER = "qwen3:14b"
 
-NUM_CTX = 32768  # agent context window (workers)
+NUM_CTX = 32768       # agent context window (workers)
 CLASSIFIER_CTX = 4096  # classify + verify calls (shorter prompts)
-KEEP_ALIVE = 300  # unload after 5min idle
+KEEP_ALIVE = 300       # unload after 5min idle
 
 
 class Complexity(str, Enum):
@@ -36,7 +36,6 @@ def route(classification: Classification) -> str:
     if classification.complexity == Complexity.SIMPLE:
         return FAST_WORKER
     # medium and complex both execute with the senior coder
-    # (for complex: qwen3 plans, but 14b-coder does the actual coding)
     return SENIOR_WORKER
 
 

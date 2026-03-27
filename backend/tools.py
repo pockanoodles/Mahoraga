@@ -46,6 +46,26 @@ def write_file(workspace: str, path: str, content: str) -> str:
         return f"error: {e}"
 
 
+def edit_file(workspace: str, path: str, old_string: str, new_string: str) -> str:
+    """Surgical patch — replace one exact occurrence of old_string with new_string."""
+    try:
+        full = _resolve(workspace, path)
+        content = full.read_text()
+    except FileNotFoundError:
+        return f"error: file not found: {path}"
+    except (PermissionError, OSError) as e:
+        return f"error: {e}"
+
+    count = content.count(old_string)
+    if count == 0:
+        return f"error: old_string not found in {path} — read the file first and match exactly"
+    if count > 1:
+        return f"error: old_string matches {count} locations in {path} — include more surrounding context to make it unique"
+
+    full.write_text(content.replace(old_string, new_string, 1))
+    return f"edited {path}"
+
+
 def run_bash(workspace: str, command: str, timeout: int = 30) -> str:
     try:
         result = subprocess.run(
@@ -163,8 +183,24 @@ TOOL_DEFINITIONS = [
     {
         "type": "function",
         "function": {
+            "name": "edit_file",
+            "description": "Surgical edit — replace one exact occurrence of old_string with new_string in an existing file. Fails if old_string is not found or matches multiple locations. Always prefer this over write_file for existing files.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string"},
+                    "old_string": {"type": "string", "description": "Exact text to replace. Must be unique in the file — include surrounding lines for context if needed."},
+                    "new_string": {"type": "string", "description": "Text to replace it with."},
+                },
+                "required": ["path", "old_string", "new_string"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "write_file",
-            "description": "Write content to a file. Creates parent directories if needed.",
+            "description": "Write content to a file. Use for NEW files only. For existing files, use edit_file instead.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -259,6 +295,8 @@ def dispatch(workspace: str, name: str, args: dict) -> str:
     """Execute a tool by name with the given args dict."""
     if name == "read_file":
         return read_file(workspace, args["path"], args.get("offset"), args.get("limit"))
+    if name == "edit_file":
+        return edit_file(workspace, args["path"], args["old_string"], args["new_string"])
     if name == "write_file":
         return write_file(workspace, args["path"], args["content"])
     if name == "run_bash":

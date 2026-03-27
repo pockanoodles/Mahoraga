@@ -2,7 +2,7 @@ import json
 import pytest
 from unittest.mock import patch, AsyncMock
 from backend.orchestrator import run
-from backend.models import Complexity
+from backend.models import Complexity, SENIOR_WORKER, PLANNER
 
 
 def _fake_classify(complexity: str, task_type: str = "code"):
@@ -136,8 +136,8 @@ async def test_run_escalates_after_three_failures(tmp_path):
         events = [e async for e in run("hard task", ws, [])]
 
     # Should escalate on third failure
-    assert "qwen2.5-coder:14b" in models_used
-    assert any(e["type"] == "model" and e["model"] == "qwen3:14b" for e in events)
+    assert SENIOR_WORKER in models_used
+    assert any(e["type"] == "model" and e["model"] == PLANNER for e in events)
 
 
 @pytest.mark.asyncio
@@ -164,7 +164,7 @@ async def test_run_escalation_is_signal_only(tmp_path):
     ):
         events = [e async for e in run("hard task", ws, [])]
 
-    # The escalated model (qwen3:14b) is announced but never executed
-    assert "qwen3:14b" not in models_used  # escalated model did NOT run
+    # The planner is announced as escalation signal but never executed
+    assert PLANNER not in models_used  # planner did NOT run
     model_events = [e for e in events if e["type"] == "model"]
-    assert any(e["model"] == "qwen3:14b" for e in model_events)  # but event was emitted
+    assert any(e["model"] == PLANNER for e in model_events)  # but event was emitted

@@ -61,6 +61,8 @@ export class OllamaPanel implements vscode.WebviewViewProvider {
         await this._handleChat(msg.message);
       }
     });
+
+    this._loadHistory(webviewView.webview);
   }
 
   private _buildHtml(webview: vscode.Webview): string {
@@ -82,6 +84,19 @@ export class OllamaPanel implements vscode.WebviewViewProvider {
       .replace(/\$\{chatJsUri\}/g, uri('chat.js'));
 
     return html;
+  }
+
+  private async _loadHistory(webview: vscode.Webview): Promise<void> {
+    const workspace = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '/tmp';
+    try {
+      const response = await fetch(`${BACKEND_URL}/history?workspace=${encodeURIComponent(workspace)}`);
+      const data = await response.json() as { messages: Array<{ role: string; content: string }> };
+      if (data.messages.length > 0) {
+        webview.postMessage({ type: 'history', messages: data.messages });
+      }
+    } catch {
+      // backend not running yet — panel will work, just no history
+    }
   }
 
   private async _handleChat(message: string): Promise<void> {

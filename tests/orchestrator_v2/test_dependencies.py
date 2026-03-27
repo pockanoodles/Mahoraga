@@ -143,3 +143,17 @@ def test_deps_pointing_outside_graph_are_ignored():
     dep = Dependency(task_id="external-id", type=DependencyType.completion)
     t1 = make_task("t1", deps=[dep])
     detect_cycles([t1])  # must not raise
+
+
+def test_diamond_dag_no_false_positive():
+    """A diamond-shaped DAG (shared common ancestor) must not trigger a false positive.
+    t4 → t1, t4 → t2, t1 → t3, t2 → t3  (t3 is the shared ancestor)
+    """
+    t3 = make_task("t3")
+    t1 = make_task("t1", deps=[Dependency(task_id="t3", type=DependencyType.completion)])
+    t2 = make_task("t2", deps=[Dependency(task_id="t3", type=DependencyType.completion)])
+    t4 = make_task("t4", deps=[
+        Dependency(task_id="t1", type=DependencyType.completion),
+        Dependency(task_id="t2", type=DependencyType.completion),
+    ])
+    detect_cycles([t3, t1, t2, t4])  # must not raise

@@ -13,7 +13,7 @@ from ..routing.escalation import should_escalate
 from . import approvals
 
 # Terminal WorkerEvent types the executor acts on
-_TERMINAL = frozenset({"attempt.completed", "attempt.failed", "attempt.blocked", "attempt.escalated"})
+_TERMINAL = frozenset({"attempt.completed", "attempt.failed", "attempt.blocked"})
 
 
 async def run_task(task_id: str, store: Store, registry: WorkerRegistry) -> None:
@@ -33,6 +33,10 @@ async def run_task(task_id: str, store: Store, registry: WorkerRegistry) -> None
         try:
             worker_id = assign_worker(task, registry, exclude=attempted)
         except NoCapableWorker:
+            # ready → in_progress → blocked (direct ready→blocked is not a legal transition)
+            if task.status == TaskStatus.ready:
+                task = transition_task(task, TaskStatus.in_progress)
+                await store.tasks.update_status(task.id, task.status)
             task = transition_task(task, TaskStatus.blocked)
             await store.tasks.update_status(task.id, task.status)
             await store.events.append(

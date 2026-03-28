@@ -241,3 +241,31 @@ async def test_executor_unlocks_downstream_on_completion(store):
 
     ds = await store.tasks.get(downstream.id)
     assert ds.status == TaskStatus.ready
+
+
+async def test_executor_no_capable_worker_blocks_immediately(store):
+    """When no worker can handle the task from the start, it blocks immediately with no attempt."""
+    # Task requires a capability that no registered worker has
+    worker = MockWorker("extension", ["file_editing"], [])
+    reg = _reg(worker)
+    _, task_id = await _setup(store, required_capabilities=["deep_reasoning"])
+    await run_task(task_id, store, reg)
+    task = await store.tasks.get(task_id)
+    assert task.status == TaskStatus.blocked
+    # No attempt was ever created (task was blocked before assignment)
+    attempts = await store.tasks.list_attempts(task_id)
+    assert len(attempts) == 0
+
+
+async def test_executor_dispatch_events_published(store):
+    """ATTEMPT_ASSIGNED and ATTEMPT_STARTED events are published during dispatch."""
+    worker = MockWorker("extension", ["file_editing"], [
+        WorkerEvent("attempt.completed", {"summary": "done"}),
+    ])
+    reg = _reg(worker)
+    _, task_id = await _setup(store)
+    await run_task(task_id, store, reg)
+    events = await store.events.list_by_task(task_id)
+    event_types = [e.type for e in events]
+    assert ev_types.ATTEMPT_ASSIGNED in event_types
+    assert ev_types.ATTEMPT_STARTED in event_types

@@ -161,6 +161,23 @@ async def test_health_ok():
     assert h.healthy is True
 
 
+async def test_execute_unknown_poll_status():
+    """Unknown poll status yields attempt.failed (not infinite loop)."""
+    task = make_task()
+    attempt = make_attempt()
+
+    with patch("backend.orchestrator.workers.extension.asyncio.sleep", new=AsyncMock()):
+        with patch("backend.orchestrator.workers.extension.httpx.AsyncClient") as MockClient:
+            MockClient.return_value = _mock_client([{"status": "mystery_state"}])
+            w = ExtensionWorker()
+            events = [ev async for ev in w.execute(attempt, task)]
+
+    failed = [e for e in events if e.type == "attempt.failed"]
+    assert len(failed) == 1
+    assert failed[0].payload["error_code"] == "unknown_status"
+    assert "mystery_state" in failed[0].payload["error"]
+
+
 async def test_health_down_on_error():
     async def bad_get(*a, **kw):
         raise httpx.ConnectError("refused")

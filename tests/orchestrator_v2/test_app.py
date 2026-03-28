@@ -156,6 +156,19 @@ async def test_get_task_attempts(store, registry, client):
     assert isinstance(resp.json(), list)
 
 
+async def test_execute_task_queued(store, registry, client):
+    _, _, run = await _make_run(store)
+    task = Task.new(run_id=run.id, title="T", goal="G")
+    task = dataclasses.replace(task, status=TaskStatus.ready)
+    await store.tasks.save(task)
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+        resp = await ac.post(f"/tasks/{task.id}/run")
+    assert resp.status_code == 202
+    data = resp.json()
+    assert data["task_id"] == task.id
+    assert data["status"] == "queued"
+
+
 async def test_execute_task_non_ready_returns_409(store, registry, client):
     _, _, run = await _make_run(store)
     import dataclasses as dc

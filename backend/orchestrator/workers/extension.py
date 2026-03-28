@@ -86,7 +86,16 @@ class ExtensionWorker(WorkerAdapter):
                         payload={"reason": data.get("reason", "")},
                     )
                     return
-                # status == "running" — keep polling
+                elif status not in ("running", "pending"):
+                    yield WorkerEvent(
+                        type="attempt.failed",
+                        payload={
+                            "error_code": "unknown_status",
+                            "error": f"Unknown poll status: {status!r}",
+                        },
+                    )
+                    return
+                # status in ("running", "pending") — keep polling
         finally:
             await client.aclose()
 

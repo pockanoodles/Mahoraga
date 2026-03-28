@@ -137,13 +137,14 @@ async def run_task(task_id: str, store: Store, registry: WorkerRegistry) -> None
             return
 
         # attempt.failed — try escalation
+        escalating = should_escalate(task, registry, attempted)
+        final_attempt_status = AttemptStatus.escalated if escalating else AttemptStatus.failed
         await store.tasks.update_attempt_result(
-            attempt.id, AttemptStatus.failed,
+            attempt.id, final_attempt_status,
             summary="", error_code=error_code, blocking_reason=blocking_reason,
         )
 
-        if should_escalate(task, registry, attempted):
-            await store.tasks.update_attempt_status(attempt.id, AttemptStatus.escalated)
+        if escalating:
             await store.tasks.increment_escalation(task.id)
             task = await store.tasks.get(task.id)  # reload escalation_count
             await store.events.append(

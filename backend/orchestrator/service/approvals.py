@@ -8,7 +8,14 @@ from ..store.base import Store
 async def request_approval(
     run_id: str, task_id: str, attempt_id: str, store: Store
 ) -> None:
-    """Record approval.requested event. Task must already be blocked."""
+    """Record approval.requested event. Task must be in blocked status."""
+    task = await store.tasks.get(task_id)
+    if task is None:
+        raise ValueError(f"Task {task_id!r} not found")
+    if task.status != TaskStatus.blocked:
+        raise ValueError(
+            f"Task {task_id!r} is not blocked (status={task.status.value!r})"
+        )
     event = ev_types.make_event(
         run_id, ev_types.APPROVAL_REQUESTED,
         task_id=task_id, attempt_id=attempt_id,

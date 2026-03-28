@@ -84,3 +84,29 @@ async def test_grant_approval_task_not_found_raises(store):
 async def test_reject_approval_task_not_found_raises(store):
     with pytest.raises(ValueError, match="not found"):
         await reject_approval("run-x", "nonexistent-task-id", store)
+
+
+async def test_request_approval_task_not_found_raises(store):
+    with pytest.raises(ValueError, match="not found"):
+        await request_approval("run-x", "nonexistent-task-id", "attempt-1", store)
+
+
+async def test_request_approval_non_blocked_raises(store):
+    _, run = await _make_run(store)
+    # Create a ready task (not blocked)
+    import dataclasses as dc
+    task = Task.new(run_id=run.id, title="T", goal="G")
+    task = dc.replace(task, status=TaskStatus.ready)
+    await store.tasks.save(task)
+    with pytest.raises(ValueError, match="not blocked"):
+        await request_approval(run.id, task.id, "attempt-1", store)
+
+
+async def test_request_approval_records_attempt_id_on_event(store):
+    _, run = await _make_run(store)
+    task = await _blocked_task(store, run.id)
+    await request_approval(run.id, task.id, "my-attempt-id", store)
+    events = await store.events.list_by_task(task.id)
+    approval_events = [e for e in events if e.type == ev_types.APPROVAL_REQUESTED]
+    assert len(approval_events) == 1
+    assert approval_events[0].attempt_id == "my-attempt-id"

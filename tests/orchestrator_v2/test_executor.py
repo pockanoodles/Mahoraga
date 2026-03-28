@@ -1,0 +1,243 @@
+import dataclasses
+import pytest
+from typing import AsyncIterator
+from backend.orchestrator.store.base import Store
+from backend.orchestrator.domain.models import (
+    Task, TaskStatus, TaskAttempt, Mission, Plan, Run, RunMode,
+)
+from backend.orchestrator.domain import events as ev_types
+from backend.orchestrator.workers.base import WorkerAdapter, WorkerEvent, WorkerHealth
+from backend.orchestrator.workers.registry import WorkerRegistry
+from backend.orchestrator.service.executor import run_task
+
+
+# ── test doubles ─────────────────────────────────────────────────────────────
+
+class MockWorker(WorkerAdapter):
+    def __init__(self, worker_id: str, capabilities: list[str], events: list[WorkerEvent]):
+        self._id = worker_id
+        self._caps = capabilities
+        self._events = events
+        self.execute_called = 0
+
+    @property
+    def id(self) -> str:
+        return self._id
+
+    @property
+    def capabilities(self) -> list[str]:
+        return self._caps
+
+    async def execute(self, attempt: TaskAttempt, task: Task) -> AsyncIterator[WorkerEvent]:
+        self.execute_called += 1
+        for ev in self._events:
+            yield ev
+
+    async def cancel(self, attempt_id: str) -> None:
+        pass
+
+    async def health(self) -> WorkerHealth:
+        return WorkerHealth(worker_id=self.id, healthy=True)
+
+
+# ── fixtures ─────────────────────────────────────────────────────────────────
+
+@pytest.fixture
+async def store():
+    s = await Store.connect(":memory:")
+    yield s
+    await s.close()
+
+
+async def _setup(store: Store, **task_kwargs) -> tuple[str, str]:
+    """Create mission + plan + run + task in store. Return (run_id, task_id)."""
+    m = Mission.new(title="M", goal="G")
+    p = Plan.new(mission_id=m.id)
+    r = Run.new(mission_id=m.id, plan_id=p.id, mode=RunMode.direct)
+    await store.missions.save(m)
+    await store.missions.save_plan(p)
+    await store.missions.save_run(r)
+
+    defaults = dict(run_id=r.id, title="T", goal="G", required_capabilities=["file_editing"])
+    defaults.update(task_kwargs)
+    task = Task.new(**defaults)
+    task = dataclasses.replace(task, status=TaskStatus.ready)
+    await store.tasks.save(task)
+    return r.id, task.id
+
+
+def _reg(*workers) -> WorkerRegistry:
+    reg = WorkerRegistry()
+    for w in workers:
+        reg.register(w)
+    return reg
+
+
+# ── happy path ────────────────────────────────────────────────────────────────
+
+async def test_executor_happy_path_task_completed(store):
+    worker = MockWorker("extension", ["file_editing"], [
+        WorkerEvent("attempt.completed", {"summary": "done it"}),
+    ])
+    reg = _reg(worker)
+    _, task_id = await _setup(store)
+
+    await run_task(task_id, store, reg)
+
+    task = await store.tasks.get(task_id)
+    assert task.status == TaskStatus.completed
+
+
+async def test_executor_happy_path_publishes_task_completed_event(store):
+    worker = MockWorker("extension", ["file_editing"], [
+        WorkerEvent("attempt.completed", {"summary": "done"}),
+    ])
+    reg = _reg(worker)
+    _, task_id = await _setup(store)
+
+    await run_task(task_id, store, reg)
+
+    events = await store.events.list_by_task(task_id)
+    event_types = [e.type for e in events]
+    assert ev_types.TASK_COMPLETED in event_types
+
+
+async def test_executor_attempt_saved(store):
+    worker = MockWorker("extension", ["file_editing"], [
+        WorkerEvent("attempt.completed", {"summary": "done"}),
+    ])
+    reg = _reg(worker)
+    _, task_id = await _setup(store)
+    await run_task(task_id, store, reg)
+    attempts = await store.tasks.list_attempts(task_id)
+    assert len(attempts) == 1
+    assert attempts[0].worker_id == "extension"
+
+
+# ── escalation ────────────────────────────────────────────────────────────────
+
+async def test_executor_escalates_on_failure(store):
+    extension = MockWorker("extension", ["file_editing"], [
+        WorkerEvent("attempt.failed", {"error_code": "timeout", "error": "timed out"}),
+    ])
+    claude = MockWorker("claude", ["file_editing", "deep_reasoning"], [
+        WorkerEvent("attempt.completed", {"summary": "fixed it"}),
+    ])
+    reg = _reg(extension, claude)
+    _, task_id = await _setup(store)
+
+    await run_task(task_id, store, reg)
+
+    task = await store.tasks.get(task_id)
+    assert task.status == TaskStatus.completed
+    assert task.escalation_count == 1
+    attempts = await store.tasks.list_attempts(task_id)
+    assert len(attempts) == 2
+
+
+async def test_executor_escalation_attempt_marked_escalated(store):
+    extension = MockWorker("extension", ["file_editing"], [
+        WorkerEvent("attempt.failed", {"error_code": "err"}),
+    ])
+    claude = MockWorker("claude", ["file_editing", "deep_reasoning"], [
+        WorkerEvent("attempt.completed", {"summary": "ok"}),
+    ])
+    reg = _reg(extension, claude)
+    _, task_id = await _setup(store)
+    await run_task(task_id, store, reg)
+    attempts = await store.tasks.list_attempts(task_id)
+    from backend.orchestrator.domain.models import AttemptStatus
+    assert attempts[0].status == AttemptStatus.escalated
+
+
+# ── no escalation path ────────────────────────────────────────────────────────
+
+async def test_executor_blocks_when_no_escalation_path(store):
+    worker = MockWorker("extension", ["file_editing"], [
+        WorkerEvent("attempt.failed", {"error_code": "err", "error": "bad"}),
+    ])
+    reg = _reg(worker)  # Only one worker, no escalation possible
+    _, task_id = await _setup(store)
+    await run_task(task_id, store, reg)
+    task = await store.tasks.get(task_id)
+    assert task.status == TaskStatus.blocked
+
+
+async def test_executor_blocks_publishes_approval_requested(store):
+    worker = MockWorker("extension", ["file_editing"], [
+        WorkerEvent("attempt.failed", {"error_code": "err"}),
+    ])
+    reg = _reg(worker)
+    _, task_id = await _setup(store)
+    await run_task(task_id, store, reg)
+    task = await store.tasks.get(task_id)
+    events = await store.events.list_by_task(task_id)
+    assert any(e.type == ev_types.APPROVAL_REQUESTED for e in events)
+
+
+# ── worker blocked ────────────────────────────────────────────────────────────
+
+async def test_executor_worker_blocked_blocks_task(store):
+    worker = MockWorker("extension", ["file_editing"], [
+        WorkerEvent("attempt.blocked", {"reason": "needs human input"}),
+    ])
+    reg = _reg(worker)
+    _, task_id = await _setup(store)
+    await run_task(task_id, store, reg)
+    task = await store.tasks.get(task_id)
+    assert task.status == TaskStatus.blocked
+
+
+# ── stream ends without terminal event ───────────────────────────────────────
+
+async def test_executor_empty_stream_treated_as_failure(store):
+    worker = MockWorker("extension", ["file_editing"], [])  # yields nothing
+    reg = _reg(worker)
+    _, task_id = await _setup(store)
+    await run_task(task_id, store, reg)
+    task = await store.tasks.get(task_id)
+    # No escalation path, so blocked
+    assert task.status == TaskStatus.blocked
+
+
+# ── done_criteria not met ─────────────────────────────────────────────────────
+
+async def test_executor_done_criteria_not_met_treats_as_failure(store):
+    worker = MockWorker("extension", ["file_editing"], [
+        WorkerEvent("attempt.completed", {"summary": ""}),  # empty summary fails v1 check
+    ])
+    reg = _reg(worker)
+    _, task_id = await _setup(store)
+    await run_task(task_id, store, reg)
+    task = await store.tasks.get(task_id)
+    # No next worker to escalate to → blocked
+    assert task.status == TaskStatus.blocked
+
+
+# ── downstream unlock ─────────────────────────────────────────────────────────
+
+async def test_executor_unlocks_downstream_on_completion(store):
+    m = Mission.new(title="M", goal="G")
+    p = Plan.new(mission_id=m.id)
+    r = Run.new(mission_id=m.id, plan_id=p.id, mode=RunMode.direct)
+    await store.missions.save(m)
+    await store.missions.save_plan(p)
+    await store.missions.save_run(r)
+
+    upstream = Task.new(run_id=r.id, title="Upstream", goal="G", required_capabilities=["file_editing"])
+    upstream = dataclasses.replace(upstream, status=TaskStatus.ready)
+    await store.tasks.save(upstream)
+
+    from backend.orchestrator.domain.models import Dependency, DependencyType
+    downstream = Task.new(run_id=r.id, title="Downstream", goal="G",
+                          dependencies=[Dependency(task_id=upstream.id, type=DependencyType.completion)])
+    await store.tasks.save(downstream)
+
+    worker = MockWorker("extension", ["file_editing"], [
+        WorkerEvent("attempt.completed", {"summary": "done"}),
+    ])
+    reg = _reg(worker)
+    await run_task(upstream.id, store, reg)
+
+    ds = await store.tasks.get(downstream.id)
+    assert ds.status == TaskStatus.ready

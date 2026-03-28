@@ -2,8 +2,7 @@ from __future__ import annotations
 import typer
 import httpx
 
-app = typer.Typer()
-_BASE = "http://localhost:8001"
+from . import BASE_URL as _BASE
 
 
 def status(run_id: str = typer.Argument(None)):

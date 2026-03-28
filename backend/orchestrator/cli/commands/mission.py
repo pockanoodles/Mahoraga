@@ -4,7 +4,7 @@ import httpx
 from typing import Optional
 
 app = typer.Typer(name="mission", help="Manage missions")
-_BASE = "http://localhost:8001"
+from . import BASE_URL as _BASE
 
 
 @app.command("new")

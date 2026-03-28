@@ -3,7 +3,7 @@ import typer
 import httpx
 
 app = typer.Typer(name="task", help="Inspect and manage tasks")
-_BASE = "http://localhost:8001"
+from . import BASE_URL as _BASE
 
 
 @app.command("list")
@@ -31,14 +31,14 @@ def task_show(task_id: str):
 
 
 @app.command("retry")
-def task_retry(task_id: str, run_id: str = typer.Option(..., "--run", "-r")):
+def task_retry(task_id: str):
     resp = httpx.post(f"{_BASE}/tasks/{task_id}/run", timeout=10)
     resp.raise_for_status()
     typer.echo(f"Task {task_id} queued for retry.")
 
 
 @app.command("cancel")
-def task_cancel(task_id: str, run_id: str = typer.Option(..., "--run", "-r")):
+def task_cancel(task_id: str):
     resp = httpx.delete(f"{_BASE}/tasks/{task_id}", timeout=10)
     resp.raise_for_status()
     typer.echo(f"Task {task_id} cancelled.")

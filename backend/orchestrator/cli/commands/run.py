@@ -3,7 +3,7 @@ import typer
 import httpx
 
 app = typer.Typer(name="run", help="Manage runs")
-_BASE = "http://localhost:8001"
+from . import BASE_URL as _BASE
 
 
 @app.command("start")

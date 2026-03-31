@@ -174,3 +174,17 @@ class MissionStore:
             )
             for r in rows
         ]
+
+    async def list_all_runs(self) -> list[Run]:
+        async with self._conn.execute(
+            "SELECT * FROM runs ORDER BY created_at DESC"
+        ) as cur:
+            rows = await cur.fetchall()
+        return [
+            Run(
+                id=r["id"], mission_id=r["mission_id"], plan_id=r["plan_id"],
+                mode=RunMode(r["mode"]), status=RunStatus(r["status"]),
+                created_at=r["created_at"], updated_at=r["updated_at"],
+            )
+            for r in rows
+        ]

@@ -14,6 +14,8 @@ from ..workers.extension import ExtensionWorker
 from ..workers.registry import WorkerRegistry
 from .approvals import grant_approval, reject_approval
 from .executor import run_task as _run_task
+from ..workers.ollama import OllamaWorker
+from .run_executor import run_run
 
 # ── singletons (replaced via dependency_overrides in tests) ──────────────────
 
@@ -48,6 +50,10 @@ async def lifespan(app: FastAPI):
         _registry.register(ClaudeWorker(api_key=api_key))
     _registry.register(ExtensionWorker(
         base_url=os.getenv("EXTENSION_URL", "http://localhost:3000")
+    ))
+    _registry.register(OllamaWorker(
+        model=os.getenv("OLLAMA_MODEL", "qwen3:8b"),
+        base_url=os.getenv("OLLAMA_URL", "http://localhost:11434"),
     ))
 
     # Orphan recovery: tasks left in_progress from a crashed previous run
@@ -140,3 +146,45 @@ async def workers_health(registry: RegistryDep):
     results = await registry.health_all()
     return {worker_id: {"worker_id": h.worker_id, "healthy": h.healthy, "detail": h.detail}
             for worker_id, h in results.items()}
+
+
+@app.post("/runs/{plan_id}/start", status_code=202)
+async def start_run(
+    plan_id: str,
+    background_tasks: BackgroundTasks,
+    store: StoreDep,
+    registry: RegistryDep,
+):
+    plan = await store.missions.get_plan(plan_id)
+    if not plan:
+        raise HTTPException(status_code=404, detail="Plan not found")
+    from ..domain.models import Run, RunMode
+    run = Run.new(mission_id=plan.mission_id, plan_id=plan_id, mode=RunMode.direct)
+    await store.missions.save_run(run)
+    background_tasks.add_task(run_run, run.id, store, registry)
+    return {"run_id": run.id, "status": "queued"}
+
+
+@app.get("/runs/{run_id}")
+async def get_run(run_id: str, store: StoreDep):
+    run = await store.missions.get_run(run_id)
+    if not run:
+        raise HTTPException(status_code=404, detail="Run not found")
+    return run
+
+
+@app.get("/runs")
+async def list_runs(store: StoreDep, mission_id: str | None = None):
+    if mission_id:
+        return await store.missions.list_runs(mission_id)
+    return await store.missions.list_all_runs()
+
+
+@app.delete("/runs/{run_id}")
+async def cancel_run(run_id: str, store: StoreDep):
+    run = await store.missions.get_run(run_id)
+    if not run:
+        raise HTTPException(status_code=404, detail="Run not found")
+    from ..domain.models import RunStatus
+    await store.missions.update_run_status(run_id, RunStatus.cancelled)
+    return {"run_id": run_id, "status": "cancelled"}

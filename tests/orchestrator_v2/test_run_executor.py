@@ -1,4 +1,3 @@
-import dataclasses
 import pytest
 from typing import AsyncIterator
 from backend.orchestrator.store.base import Store
@@ -176,6 +175,7 @@ async def test_run_run_no_run_completed_event_on_failure(store):
 
     events = await store.events.list_by_run(r.id)
     assert not any(e.type == ev_types.RUN_COMPLETED for e in events)
+    assert any(e.type == ev_types.RUN_FAILED for e in events)
 
 
 async def test_run_run_raises_on_unknown_run_id(store):

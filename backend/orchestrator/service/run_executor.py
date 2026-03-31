@@ -56,8 +56,8 @@ async def run_run(run_id: str, store: Store, registry: WorkerRegistry) -> RunSta
     final = RunStatus.completed if all_completed else RunStatus.failed
 
     await store.missions.update_run_status(run_id, final)
-    if final == RunStatus.completed:
-        await store.events.append(ev.make_event(run_id, ev.RUN_COMPLETED))
+    event_type = ev.RUN_COMPLETED if final == RunStatus.completed else ev.RUN_FAILED
+    await store.events.append(ev.make_event(run_id, event_type))
 
     return final
 

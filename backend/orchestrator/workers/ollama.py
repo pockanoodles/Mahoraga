@@ -4,7 +4,7 @@ from typing import AsyncGenerator
 import httpx
 
 from ..domain.models import Task, TaskAttempt
-from .base import WorkerAdapter, WorkerEvent, WorkerHealth
+from .base import WorkerAdapter, WorkerEvent, WorkerHealth, _build_prompt
 
 
 class OllamaWorker(WorkerAdapter):
@@ -59,14 +59,3 @@ class OllamaWorker(WorkerAdapter):
             return WorkerHealth(worker_id=self.id, healthy=True)
         except httpx.HTTPError as exc:
             return WorkerHealth(worker_id=self.id, healthy=False, detail=str(exc))
-
-
-def _build_prompt(task: Task) -> str:
-    lines = [f"# Task: {task.title}", f"\n## Goal\n{task.goal}"]
-    if task.context_refs:
-        lines.append("\n## Context\n" + "\n".join(f"- {ref}" for ref in task.context_refs))
-    if task.constraints:
-        lines.append("\n## Constraints\n" + "\n".join(f"- {c}" for c in task.constraints))
-    if task.done_criteria:
-        lines.append(f"\n## Done Criteria\n{task.done_criteria}")
-    return "\n".join(lines)

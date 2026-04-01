@@ -178,3 +178,56 @@ async def test_execute_task_non_ready_returns_409(store, registry, client):
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
         resp = await ac.post(f"/tasks/{task.id}/run")
     assert resp.status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_create_mission(store, registry, client):
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+        resp = await ac.post("/missions", json={
+            "title": "Build REST API",
+            "goal": "Create a user authentication API",
+            "background": "",
+            "success_condition": "All endpoints return correct responses",
+        })
+    assert resp.status_code == 201
+    data = resp.json()
+    assert "id" in data
+    assert data["title"] == "Build REST API"
+
+
+@pytest.mark.asyncio
+async def test_list_missions_empty(store, registry, client):
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+        resp = await ac.get("/missions")
+    assert resp.status_code == 200
+    assert resp.json() == []
+
+
+@pytest.mark.asyncio
+async def test_get_mission_not_found(store, registry, client):
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+        resp = await ac.get("/missions/nonexistent")
+    assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_create_plan(store, registry, client):
+    # Create a mission first
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+        m_resp = await ac.post("/missions", json={
+            "title": "Test Mission",
+            "goal": "Test goal",
+        })
+    assert m_resp.status_code == 201
+    mission_id = m_resp.json()["id"]
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+        resp = await ac.post("/plans", json={
+            "mission_id": mission_id,
+            "mode": "direct",
+        })
+    assert resp.status_code == 201
+    data = resp.json()
+    assert "plan_id" in data
+    assert "run_id" in data
+    assert data["run_status"] == "paused"

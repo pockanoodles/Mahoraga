@@ -6,7 +6,7 @@ from typing import Annotated
 from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException
 from pydantic import BaseModel
 
-from ..domain.models import Run, RunMode, RunStatus, TaskStatus
+from ..domain.models import Mission, Plan, Run, RunMode, RunStatus, TaskStatus
 from ..domain.transitions import IllegalTransition
 from ..store.base import Store
 from ..workers.claude import ClaudeWorker
@@ -71,6 +71,18 @@ app = FastAPI(title="Orchestrator v2", lifespan=lifespan)
 
 class ApprovalRequest(BaseModel):
     run_id: str
+
+
+class CreateMissionRequest(BaseModel):
+    title: str
+    goal: str
+    background: str = ""
+    success_condition: str = ""
+
+
+class CreatePlanRequest(BaseModel):
+    mission_id: str
+    mode: str = "direct"
 
 
 # ── routes ────────────────────────────────────────────────────────────────────
@@ -186,3 +198,69 @@ async def cancel_run(run_id: str, store: StoreDep):
         raise HTTPException(status_code=404, detail="Run not found")
     await store.missions.update_run_status(run_id, RunStatus.cancelled)
     return {"run_id": run_id, "status": "cancelled"}
+
+
+# ── missions ──────────────────────────────────────────────────────────────────
+
+@app.post("/missions", status_code=201)
+async def create_mission(req: CreateMissionRequest, store: StoreDep):
+    mission = Mission.new(
+        title=req.title,
+        goal=req.goal,
+        background=req.background,
+        success_condition=req.success_condition,
+    )
+    await store.missions.save(mission)
+    return {"id": mission.id, "title": mission.title, "status": mission.status}
+
+
+@app.get("/missions/{mission_id}")
+async def get_mission(mission_id: str, store: StoreDep):
+    mission = await store.missions.get(mission_id)
+    if not mission:
+        raise HTTPException(status_code=404, detail="Mission not found")
+    return {"id": mission.id, "title": mission.title, "goal": mission.goal,
+            "background": mission.background, "success_condition": mission.success_condition,
+            "status": mission.status}
+
+
+@app.get("/missions")
+async def list_missions(store: StoreDep):
+    missions = await store.missions.list()
+    return [{"id": m.id, "title": m.title, "status": m.status} for m in missions]
+
+
+# ── plans ─────────────────────────────────────────────────────────────────────
+
+@app.post("/plans", status_code=201)
+async def create_plan(req: CreatePlanRequest, store: StoreDep):
+    mission = await store.missions.get(req.mission_id)
+    if not mission:
+        raise HTTPException(status_code=404, detail="Mission not found")
+    plan = Plan.new(mission_id=req.mission_id)
+    run = Run.new(mission_id=req.mission_id, plan_id=plan.id, mode=RunMode(req.mode))
+    await store.missions.save_plan(plan)
+    await store.missions.save_run(run)
+    return {"plan_id": plan.id, "run_id": run.id, "run_status": run.status}
+
+
+@app.get("/plans/{plan_id}")
+async def get_plan(plan_id: str, store: StoreDep):
+    plan = await store.missions.get_plan(plan_id)
+    if not plan:
+        raise HTTPException(status_code=404, detail="Plan not found")
+    return {"id": plan.id, "mission_id": plan.mission_id, "status": plan.status,
+            "version": plan.version}
+
+
+@app.get("/plans")
+async def list_plans(store: StoreDep, mission_id: str | None = None):
+    if mission_id:
+        plans = await store.missions.list_plans(mission_id)
+    else:
+        plans = []
+        missions = await store.missions.list()
+        for m in missions:
+            plans.extend(await store.missions.list_plans(m.id))
+    return [{"id": p.id, "mission_id": p.mission_id, "status": p.status,
+             "version": p.version} for p in plans]

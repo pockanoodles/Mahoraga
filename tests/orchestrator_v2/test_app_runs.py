@@ -64,7 +64,7 @@ async def _make_plan(store: Store) -> tuple[Mission, Plan]:
 async def test_start_run_creates_and_returns_run_id(store, client_setup):
     _, p = await _make_plan(store)
 
-    with patch("backend.orchestrator.service.app.run_run", new=AsyncMock()):
+    with patch("backend.orchestrator.service.app._run_run", new=AsyncMock()):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
             resp = await ac.post(f"/runs/{p.id}/start")
 

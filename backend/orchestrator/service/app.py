@@ -6,7 +6,7 @@ from typing import Annotated
 from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException
 from pydantic import BaseModel
 
-from ..domain.models import TaskStatus
+from ..domain.models import Run, RunMode, RunStatus, TaskStatus
 from ..domain.transitions import IllegalTransition
 from ..store.base import Store
 from ..workers.claude import ClaudeWorker
@@ -15,7 +15,7 @@ from ..workers.registry import WorkerRegistry
 from .approvals import grant_approval, reject_approval
 from .executor import run_task as _run_task
 from ..workers.ollama import OllamaWorker
-from .run_executor import run_run
+from .run_executor import run_run as _run_run
 
 # ── singletons (replaced via dependency_overrides in tests) ──────────────────
 
@@ -158,10 +158,9 @@ async def start_run(
     plan = await store.missions.get_plan(plan_id)
     if not plan:
         raise HTTPException(status_code=404, detail="Plan not found")
-    from ..domain.models import Run, RunMode
     run = Run.new(mission_id=plan.mission_id, plan_id=plan_id, mode=RunMode.direct)
     await store.missions.save_run(run)
-    background_tasks.add_task(run_run, run.id, store, registry)
+    background_tasks.add_task(_run_run, run.id, store, registry)
     return {"run_id": run.id, "status": "queued"}
 
 
@@ -185,6 +184,5 @@ async def cancel_run(run_id: str, store: StoreDep):
     run = await store.missions.get_run(run_id)
     if not run:
         raise HTTPException(status_code=404, detail="Run not found")
-    from ..domain.models import RunStatus
     await store.missions.update_run_status(run_id, RunStatus.cancelled)
     return {"run_id": run_id, "status": "cancelled"}

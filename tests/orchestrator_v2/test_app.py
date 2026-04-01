@@ -231,3 +231,10 @@ async def test_create_plan(store, registry, client):
     assert "plan_id" in data
     assert "run_id" in data
     assert data["run_status"] == "paused"
+
+
+@pytest.mark.asyncio
+async def test_create_plan_mission_not_found(store, registry, client):
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+        resp = await ac.post("/plans", json={"mission_id": "nonexistent", "mode": "direct"})
+    assert resp.status_code == 404

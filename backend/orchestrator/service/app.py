@@ -237,8 +237,12 @@ async def create_plan(req: CreatePlanRequest, store: StoreDep):
     mission = await store.missions.get(req.mission_id)
     if not mission:
         raise HTTPException(status_code=404, detail="Mission not found")
+    try:
+        mode = RunMode(req.mode)
+    except ValueError:
+        raise HTTPException(status_code=422, detail=f"Invalid mode {req.mode!r}. Valid values: {[m.value for m in RunMode]}")
     plan = Plan.new(mission_id=req.mission_id)
-    run = Run.new(mission_id=req.mission_id, plan_id=plan.id, mode=RunMode(req.mode))
+    run = Run.new(mission_id=req.mission_id, plan_id=plan.id, mode=mode)
     await store.missions.save_plan(plan)
     await store.missions.save_run(run)
     return {"plan_id": plan.id, "run_id": run.id, "run_status": run.status}

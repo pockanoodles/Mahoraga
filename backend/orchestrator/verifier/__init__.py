@@ -1,1 +1,3 @@
-# Imports added after verifier.py is created (Task 2)
+from .verifier import Verifier, VerificationResult, VerifierError
+
+__all__ = ["Verifier", "VerificationResult", "VerifierError"]

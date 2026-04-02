@@ -1,9 +1,10 @@
 """Lobster-style deterministic executor for driving tasks through their lifecycle."""
 from __future__ import annotations
+import dataclasses
 
 from ..domain import events as ev_types
 from ..domain import dependencies
-from ..domain.models import Task, TaskAttempt, TaskStatus, AttemptStatus
+from ..domain.models import Artifact, Task, TaskAttempt, TaskStatus, AttemptStatus
 from ..domain.transitions import transition_task, verify_done_criteria
 from ..store.base import Store
 from ..workers.base import WorkerEvent
@@ -62,6 +63,9 @@ async def run_task(task_id: str, store: Store, registry: WorkerRegistry) -> None
         )
 
         # ── DISPATCH ────────────────────────────────────────────────────────
+        upstream = await _collect_upstream_outputs(task, store)
+        dispatch_task = dataclasses.replace(task, context_refs=task.context_refs + upstream) if upstream else task
+
         worker = registry.get(worker_id)
         await store.tasks.update_attempt_status(attempt.id, AttemptStatus.running)
         await store.events.append(
@@ -73,7 +77,7 @@ async def run_task(task_id: str, store: Store, registry: WorkerRegistry) -> None
 
         # ── STREAM ──────────────────────────────────────────────────────────
         outcome: WorkerEvent | None = None
-        async for w_ev in worker.execute(attempt, task):
+        async for w_ev in worker.execute(attempt, dispatch_task):
             if w_ev.type in _TERMINAL:
                 outcome = w_ev
                 break
@@ -102,6 +106,10 @@ async def run_task(task_id: str, store: Store, registry: WorkerRegistry) -> None
                 )
                 task = transition_task(task, TaskStatus.completed)
                 await store.tasks.update_status(task.id, task.status)
+                await store.artifacts.save(Artifact.new(
+                    run_id=task.run_id, task_id=task.id, attempt_id=attempt.id,
+                    type="text_output", location={"content": summary},
+                ))
                 await store.events.append(
                     ev_types.make_event(task.run_id, ev_types.TASK_COMPLETED, task_id=task.id)
                 )
@@ -164,6 +172,18 @@ async def run_task(task_id: str, store: Store, registry: WorkerRegistry) -> None
         )
         await approvals.request_approval(task.run_id, task.id, attempt.id, store)
         return
+
+
+async def _collect_upstream_outputs(task: Task, store: Store) -> list[str]:
+    """Return text summaries from all completed dependency tasks."""
+    results = []
+    for dep in task.dependencies:
+        for artifact in await store.artifacts.list_by_task(dep.task_id):
+            if artifact.type == "text_output":
+                content = artifact.location.get("content", "")
+                if content:
+                    results.append(content)
+    return results
 
 
 async def _unlock_downstream(completed_task: Task, store: Store) -> None:

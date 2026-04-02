@@ -4,6 +4,7 @@ from typing import AsyncIterator
 from backend.orchestrator.store.base import Store
 from backend.orchestrator.domain.models import (
     Task, TaskStatus, TaskAttempt, Mission, Plan, Run, RunMode,
+    Dependency, DependencyType,
 )
 from backend.orchestrator.domain import events as ev_types
 from backend.orchestrator.workers.base import WorkerAdapter, WorkerEvent, WorkerHealth
@@ -269,3 +270,97 @@ async def test_executor_dispatch_events_published(store):
     event_types = [e.type for e in events]
     assert ev_types.ATTEMPT_ASSIGNED in event_types
     assert ev_types.ATTEMPT_STARTED in event_types
+
+
+# ── context propagation ────────────────────────────────────────────────────────
+
+class CapturingWorker(WorkerAdapter):
+    """Worker that records every task object it receives."""
+    def __init__(self, worker_id: str, capabilities: list[str], events: list[WorkerEvent]):
+        self._id = worker_id
+        self._caps = capabilities
+        self._events = events
+        self.received_tasks: list[Task] = []
+
+    @property
+    def id(self) -> str:
+        return self._id
+
+    @property
+    def capabilities(self) -> list[str]:
+        return self._caps
+
+    async def execute(self, attempt: TaskAttempt, task: Task) -> AsyncIterator[WorkerEvent]:
+        self.received_tasks.append(task)
+        for ev in self._events:
+            yield ev
+
+    async def cancel(self, attempt_id: str) -> None:
+        pass
+
+    async def health(self) -> WorkerHealth:
+        return WorkerHealth(worker_id=self.id, healthy=True)
+
+
+async def _setup_pair(store: Store) -> tuple[str, str, str]:
+    """Create a run with task A and task B (depends on A). Return (run_id, a_id, b_id)."""
+    m = Mission.new(title="M", goal="G")
+    p = Plan.new(mission_id=m.id)
+    r = Run.new(mission_id=m.id, plan_id=p.id, mode=RunMode.direct)
+    await store.missions.save(m)
+    await store.missions.save_plan(p)
+    await store.missions.save_run(r)
+
+    task_a = Task.new(run_id=r.id, title="Task A", goal="Do A", required_capabilities=["file_editing"])
+    task_a = dataclasses.replace(task_a, status=TaskStatus.ready)
+    await store.tasks.save(task_a)
+
+    task_b = Task.new(run_id=r.id, title="Task B", goal="Do B", required_capabilities=["file_editing"])
+    task_b = dataclasses.replace(task_b, status=TaskStatus.ready, dependencies=[
+        Dependency(task_id=task_a.id, type=DependencyType.completion)
+    ])
+    await store.tasks.save(task_b)
+
+    return r.id, task_a.id, task_b.id
+
+
+async def test_executor_saves_artifact_on_completion(store):
+    worker = MockWorker("extension", ["file_editing"], [
+        WorkerEvent("attempt.completed", {"summary": "the output"}),
+    ])
+    _, task_id = await _setup(store)
+    await run_task(task_id, store, _reg(worker))
+
+    artifacts = await store.artifacts.list_by_task(task_id)
+    assert len(artifacts) == 1
+    assert artifacts[0].type == "text_output"
+    assert artifacts[0].location["content"] == "the output"
+
+
+async def test_executor_injects_upstream_output_into_dependent_task(store):
+    _, task_a_id, task_b_id = await _setup_pair(store)
+
+    # Complete task A with a known summary
+    worker_a = MockWorker("extension", ["file_editing"], [
+        WorkerEvent("attempt.completed", {"summary": "result from A"}),
+    ])
+    await run_task(task_a_id, store, _reg(worker_a))
+
+    # Run task B — capture what task object it receives
+    worker_b = CapturingWorker("extension", ["file_editing"], [
+        WorkerEvent("attempt.completed", {"summary": "result from B"}),
+    ])
+    await run_task(task_b_id, store, _reg(worker_b))
+
+    assert len(worker_b.received_tasks) == 1
+    assert "result from A" in worker_b.received_tasks[0].context_refs
+
+
+async def test_executor_no_upstream_leaves_context_refs_unchanged(store):
+    capturing = CapturingWorker("extension", ["file_editing"], [
+        WorkerEvent("attempt.completed", {"summary": "done"}),
+    ])
+    _, task_id = await _setup(store, context_refs=["existing ref"])
+    await run_task(task_id, store, _reg(capturing))
+
+    assert capturing.received_tasks[0].context_refs == ["existing ref"]

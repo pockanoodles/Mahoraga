@@ -16,6 +16,7 @@ from .approvals import grant_approval, reject_approval
 from .executor import run_task as _run_task
 from ..workers.ollama import OllamaWorker
 from .run_executor import run_run as _run_run
+from ..planning.planner import generate_tasks, OllamaUnavailable, PlannerError
 
 # ── singletons (replaced via dependency_overrides in tests) ──────────────────
 
@@ -255,6 +256,34 @@ async def get_plan(plan_id: str, store: StoreDep):
         raise HTTPException(status_code=404, detail="Plan not found")
     return {"id": plan.id, "mission_id": plan.mission_id, "status": plan.status,
             "version": plan.version}
+
+
+@app.post("/missions/{mission_id}/generate", status_code=201)
+async def generate_plan(mission_id: str, store: StoreDep):
+    mission = await store.missions.get(mission_id)
+    if not mission:
+        raise HTTPException(status_code=404, detail="Mission not found")
+
+    plan = Plan.new(mission_id=mission_id)
+    run = Run.new(mission_id=mission_id, plan_id=plan.id, mode=RunMode.direct)
+    await store.missions.save_plan(plan)
+    await store.missions.save_run(run)
+
+    try:
+        tasks = await generate_tasks(mission, run_id=run.id)
+    except OllamaUnavailable as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+    except PlannerError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+
+    for task in tasks:
+        await store.tasks.save(task)
+
+    return {
+        "plan_id": plan.id,
+        "run_id": run.id,
+        "tasks": [{"id": t.id, "title": t.title, "goal": t.goal} for t in tasks],
+    }
 
 
 @app.get("/plans")

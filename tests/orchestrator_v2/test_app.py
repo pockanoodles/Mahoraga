@@ -1,5 +1,6 @@
 import dataclasses
 import pytest
+from unittest.mock import AsyncMock, patch
 from httpx import AsyncClient, ASGITransport
 from backend.orchestrator.store.base import Store
 from backend.orchestrator.domain.models import (
@@ -237,4 +238,36 @@ async def test_create_plan(store, registry, client):
 async def test_create_plan_mission_not_found(store, registry, client):
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
         resp = await ac.post("/plans", json={"mission_id": "nonexistent", "mode": "direct"})
+    assert resp.status_code == 404
+
+@pytest.mark.asyncio
+async def test_generate_plan_creates_tasks(store, registry, client):
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+        m_resp = await ac.post("/missions", json={"title": "Build API", "goal": "Make endpoints"})
+    mission_id = m_resp.json()["id"]
+
+    stub_tasks = [
+        Task.new(run_id="stub", title="Set up project", goal="Create structure"),
+        Task.new(run_id="stub", title="Write code", goal="Implement feature"),
+    ]
+
+    with patch(
+        "backend.orchestrator.service.app.generate_tasks",
+        new=AsyncMock(return_value=stub_tasks),
+    ):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+            resp = await ac.post(f"/missions/{mission_id}/generate")
+
+    assert resp.status_code == 201
+    data = resp.json()
+    assert "plan_id" in data
+    assert "run_id" in data
+    assert len(data["tasks"]) == 2
+    assert data["tasks"][0]["title"] == "Set up project"
+
+
+@pytest.mark.asyncio
+async def test_generate_plan_mission_not_found(store, registry, client):
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+        resp = await ac.post("/missions/nonexistent/generate")
     assert resp.status_code == 404

@@ -43,7 +43,10 @@ class WorkerAdapter(ABC):
 
     @abstractmethod
     async def execute(
-        self, attempt: "TaskAttempt", task: "Task"
+        self,
+        attempt: "TaskAttempt",
+        task: "Task",
+        feedback: str | None = None,
     ) -> AsyncGenerator[WorkerEvent, None]: ...
 
     @abstractmethod
@@ -51,3 +54,7 @@ class WorkerAdapter(ABC):
 
     @abstractmethod
     async def health(self) -> WorkerHealth: ...
+
+    def clear_history(self, task_id: str) -> None:
+        """Clear per-task conversation state. Stateless workers ignore this."""
+        pass

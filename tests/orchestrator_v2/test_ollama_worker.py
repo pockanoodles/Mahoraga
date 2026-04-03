@@ -170,3 +170,180 @@ async def test_health_returns_unhealthy_when_ollama_down():
     assert h.worker_id == "ollama:qwen3:8b"
     assert h.healthy is False
     assert "refused" in h.detail
+
+
+async def test_execute_first_call_sends_single_user_message():
+    """First call sends exactly 1 message (the task prompt)."""
+    captured_payload = {}
+
+    async def fake_post(url, **kwargs):
+        captured_payload.update(kwargs.get("json", {}))
+        resp = MagicMock()
+        resp.raise_for_status = MagicMock()
+        resp.json = MagicMock(return_value={
+            "model": "qwen3:8b",
+            "message": {"role": "assistant", "content": "Task completed"},
+            "done": True,
+        })
+        return resp
+
+    client = MagicMock()
+    client.post = AsyncMock(side_effect=fake_post)
+    client.__aenter__ = AsyncMock(return_value=client)
+    client.__aexit__ = AsyncMock(return_value=False)
+
+    with patch("backend.orchestrator.workers.ollama.httpx.AsyncClient") as MockClient:
+        MockClient.return_value = client
+        w = OllamaWorker()
+        task = make_task()
+        attempt = make_attempt()
+        events = [ev async for ev in w.execute(attempt, task)]
+
+    assert len(captured_payload["messages"]) == 1
+    assert captured_payload["messages"][0]["role"] == "user"
+
+
+async def test_execute_retry_appends_feedback_to_history():
+    """Retry with feedback: payload has 3 messages [user, assistant, user]."""
+    captured_payloads = []
+    call_count = [0]
+
+    async def fake_post(url, **kwargs):
+        call_count[0] += 1
+        # Deep copy to avoid mutation issues
+        messages = [dict(m) for m in kwargs.get("json", {})["messages"]]
+        captured_payloads.append(messages)
+
+        # Return different content on first vs second call
+        content = "Task completed" if call_count[0] == 1 else "Fixed based on feedback"
+        resp = MagicMock()
+        resp.raise_for_status = MagicMock()
+        resp.json = MagicMock(return_value={
+            "model": "qwen3:8b",
+            "message": {"role": "assistant", "content": content},
+            "done": True,
+        })
+        return resp
+
+    client = MagicMock()
+    client.post = AsyncMock(side_effect=fake_post)
+    client.__aenter__ = AsyncMock(return_value=client)
+    client.__aexit__ = AsyncMock(return_value=False)
+
+    with patch("backend.orchestrator.workers.ollama.httpx.AsyncClient") as MockClient:
+        MockClient.return_value = client
+        w = OllamaWorker()
+        task = make_task()
+        attempt = make_attempt()
+
+        # First call
+        events = [ev async for ev in w.execute(attempt, task)]
+
+        # Retry with feedback
+        events = [ev async for ev in w.execute(attempt, task, feedback="Missing X")]
+
+    # First call should have 1 message
+    assert len(captured_payloads[0]) == 1
+    assert captured_payloads[0][0]["role"] == "user"
+
+    # Second call should have 3 messages
+    assert len(captured_payloads[1]) == 3
+    assert captured_payloads[1][0]["role"] == "user"
+    assert captured_payloads[1][1]["role"] == "assistant"
+    assert captured_payloads[1][1]["content"] == "Task completed"
+    assert captured_payloads[1][2]["role"] == "user"
+    assert captured_payloads[1][2]["content"] == "Missing X"
+
+
+async def test_execute_second_retry_has_five_messages():
+    """Two retries → 5 messages in history."""
+    captured_payloads = []
+
+    async def fake_post(url, **kwargs):
+        captured_payloads.append(kwargs.get("json", {})["messages"][:])
+        resp = MagicMock()
+        resp.raise_for_status = MagicMock()
+        resp.json = MagicMock(return_value={
+            "model": "qwen3:8b",
+            "message": {"role": "assistant", "content": "Updated response"},
+            "done": True,
+        })
+        return resp
+
+    client = MagicMock()
+    client.post = AsyncMock(side_effect=fake_post)
+    client.__aenter__ = AsyncMock(return_value=client)
+    client.__aexit__ = AsyncMock(return_value=False)
+
+    with patch("backend.orchestrator.workers.ollama.httpx.AsyncClient") as MockClient:
+        MockClient.return_value = client
+        w = OllamaWorker()
+        task = make_task()
+        attempt = make_attempt()
+
+        # First call
+        events = [ev async for ev in w.execute(attempt, task)]
+
+        # First retry
+        events = [ev async for ev in w.execute(attempt, task, feedback="First feedback")]
+
+        # Second retry
+        events = [ev async for ev in w.execute(attempt, task, feedback="Second feedback")]
+
+    # Verify progression: 1, 3, 5 messages
+    assert len(captured_payloads[0]) == 1
+    assert len(captured_payloads[1]) == 3
+    assert len(captured_payloads[2]) == 5
+    # Final state: user, assistant, user, assistant, user
+    assert captured_payloads[2][0]["role"] == "user"
+    assert captured_payloads[2][1]["role"] == "assistant"
+    assert captured_payloads[2][2]["role"] == "user"
+    assert captured_payloads[2][3]["role"] == "assistant"
+    assert captured_payloads[2][4]["role"] == "user"
+
+
+async def test_clear_history_resets_task_state():
+    """After clear_history(), next call with feedback is treated as fresh (1 message)."""
+    captured_payloads = []
+
+    async def fake_post(url, **kwargs):
+        captured_payloads.append(kwargs.get("json", {})["messages"][:])
+        resp = MagicMock()
+        resp.raise_for_status = MagicMock()
+        resp.json = MagicMock(return_value={
+            "model": "qwen3:8b",
+            "message": {"role": "assistant", "content": "Fresh start"},
+            "done": True,
+        })
+        return resp
+
+    client = MagicMock()
+    client.post = AsyncMock(side_effect=fake_post)
+    client.__aenter__ = AsyncMock(return_value=client)
+    client.__aexit__ = AsyncMock(return_value=False)
+
+    with patch("backend.orchestrator.workers.ollama.httpx.AsyncClient") as MockClient:
+        MockClient.return_value = client
+        w = OllamaWorker()
+        task = make_task()
+        attempt = make_attempt()
+
+        # First call
+        events = [ev async for ev in w.execute(attempt, task)]
+
+        # Retry with feedback
+        events = [ev async for ev in w.execute(attempt, task, feedback="Try again")]
+
+        # Clear history
+        w.clear_history(task.id)
+
+        # Next call with feedback should be treated as first call (1 message)
+        events = [ev async for ev in w.execute(attempt, task, feedback="New feedback")]
+
+    # Before clear: 1, 3 messages
+    assert len(captured_payloads[0]) == 1
+    assert len(captured_payloads[1]) == 3
+
+    # After clear with feedback: should be 1 message (treated as first call)
+    assert len(captured_payloads[2]) == 1
+    assert captured_payloads[2][0]["role"] == "user"

@@ -58,10 +58,23 @@ async def lifespan(app: FastAPI):
 
     api_key = os.getenv("ANTHROPIC_API_KEY")
     if api_key:
-        _registry.register(ClaudeWorker(api_key=api_key))
+        _registry.register(ClaudeWorker(api_key=api_key))  # claude:sonnet
+        _registry.register(ClaudeWorker(
+            api_key=api_key,
+            model="claude-opus-4-6",
+            worker_id="claude:opus",
+            capabilities=["complex_reasoning", "deep_reasoning", "general"],
+        ))
         _verifier = Verifier(client=anthropic.Anthropic(api_key=api_key))
     else:
-        _verifier = Verifier(client=anthropic.Anthropic())
+        # No Anthropic key: Ollama-only mode with passthrough verifier
+        class _PassthroughVerifier(Verifier):
+            def __init__(self) -> None:
+                pass
+            async def verify(self, task, output):
+                from ..verifier.verifier import VerificationResult
+                return VerificationResult(score=10, passed=True, feedback="", action="pass")
+        _verifier = _PassthroughVerifier()
     _registry.register(ExtensionWorker(
         base_url=os.getenv("EXTENSION_URL", "http://localhost:3000")
     ))

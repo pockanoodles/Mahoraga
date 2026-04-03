@@ -6,9 +6,12 @@ from typing import Annotated
 from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException
 from pydantic import BaseModel
 
+import anthropic
+
 from ..domain.models import Mission, Plan, Run, RunMode, RunStatus, TaskStatus
 from ..domain.transitions import IllegalTransition
 from ..store.base import Store
+from ..verifier.verifier import Verifier
 from ..workers.claude import ClaudeWorker
 from ..workers.extension import ExtensionWorker
 from ..workers.registry import WorkerRegistry
@@ -22,6 +25,7 @@ from ..planning.planner import generate_tasks, OllamaUnavailable, PlannerError
 
 _store: Store | None = None
 _registry: WorkerRegistry | None = None
+_verifier: Verifier | None = None
 
 
 def get_store() -> Store:
@@ -34,27 +38,36 @@ def get_registry() -> WorkerRegistry:
     return _registry
 
 
+def get_verifier() -> Verifier:
+    assert _verifier is not None, "Verifier not initialised"
+    return _verifier
+
+
 StoreDep = Annotated[Store, Depends(get_store)]
 RegistryDep = Annotated[WorkerRegistry, Depends(get_registry)]
+VerifierDep = Annotated[Verifier, Depends(get_verifier)]
 
 
 # ── lifespan ─────────────────────────────────────────────────────────────────
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global _store, _registry
+    global _store, _registry, _verifier
     _store = await Store.connect()
     _registry = WorkerRegistry()
 
     api_key = os.getenv("ANTHROPIC_API_KEY")
     if api_key:
         _registry.register(ClaudeWorker(api_key=api_key))
+        _verifier = Verifier(client=anthropic.Anthropic(api_key=api_key))
+    else:
+        _verifier = Verifier(client=anthropic.Anthropic())
     _registry.register(ExtensionWorker(
         base_url=os.getenv("EXTENSION_URL", "http://localhost:3000")
     ))
     _registry.register(OllamaWorker(
         model=os.getenv("OLLAMA_MODEL", "qwen3:8b"),
-        base_url=os.getenv("OLLAMA_URL", "http://localhost:11434"),
+        base_url=os.getenv("OLLAMA_URL", "http://127.0.0.1:11434"),
     ))
 
     # Orphan recovery: tasks left in_progress from a crashed previous run
@@ -144,13 +157,14 @@ async def execute_task(
     background_tasks: BackgroundTasks,
     store: StoreDep,
     registry: RegistryDep,
+    verifier: VerifierDep,
 ):
     task = await store.tasks.get(task_id)
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
     if task.status not in (TaskStatus.ready, TaskStatus.blocked):
         raise HTTPException(status_code=409, detail="Task is not in a runnable state")
-    background_tasks.add_task(_run_task, task_id, store, registry)
+    background_tasks.add_task(_run_task, task_id, store, registry, verifier)
     return {"task_id": task_id, "status": "queued"}
 
 
@@ -167,13 +181,27 @@ async def start_run(
     background_tasks: BackgroundTasks,
     store: StoreDep,
     registry: RegistryDep,
+    verifier: VerifierDep,
 ):
     plan = await store.missions.get_plan(plan_id)
     if not plan:
         raise HTTPException(status_code=404, detail="Plan not found")
-    run = Run.new(mission_id=plan.mission_id, plan_id=plan_id, mode=RunMode.direct)
-    await store.missions.save_run(run)
-    background_tasks.add_task(_run_run, run.id, store, registry)
+
+    # Reuse the paused run created by /generate if it has tasks, otherwise create fresh
+    existing_runs = await store.missions.list_runs(plan.mission_id)
+    run = None
+    for r in existing_runs:
+        if r.plan_id == plan_id and r.status == RunStatus.paused:
+            tasks = await store.tasks.list_by_run(r.id)
+            if tasks:
+                run = r
+                break
+
+    if run is None:
+        run = Run.new(mission_id=plan.mission_id, plan_id=plan_id, mode=RunMode.direct)
+        await store.missions.save_run(run)
+
+    background_tasks.add_task(_run_run, run.id, store, registry, verifier)
     return {"run_id": run.id, "status": "queued"}
 
 

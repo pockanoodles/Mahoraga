@@ -1,6 +1,6 @@
 import dataclasses
 import pytest
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 from httpx import AsyncClient, ASGITransport
 from backend.orchestrator.store.base import Store
 from backend.orchestrator.domain.models import (
@@ -8,8 +8,16 @@ from backend.orchestrator.domain.models import (
 )
 from backend.orchestrator.workers.registry import WorkerRegistry
 from backend.orchestrator.workers.base import WorkerAdapter, WorkerEvent, WorkerHealth
-from backend.orchestrator.service.app import app, get_store, get_registry
+from backend.orchestrator.service.app import app, get_store, get_registry, get_verifier
+from backend.orchestrator.verifier.verifier import Verifier, VerificationResult
 from typing import AsyncIterator
+
+
+def _make_pass_verifier() -> Verifier:
+    result = VerificationResult(score=9, passed=True, feedback="", action="pass")
+    v = MagicMock(spec=Verifier)
+    v.verify = AsyncMock(return_value=result)
+    return v
 
 
 # ── test double ───────────────────────────────────────────────────────────────
@@ -23,7 +31,7 @@ class _OkWorker(WorkerAdapter):
     def capabilities(self) -> list[str]:
         return ["file_editing"]
 
-    async def execute(self, attempt, task) -> AsyncIterator[WorkerEvent]:
+    async def execute(self, attempt, task, feedback=None) -> AsyncIterator[WorkerEvent]:
         yield WorkerEvent("attempt.completed", {"summary": "done"})
 
     async def cancel(self, attempt_id: str) -> None:
@@ -51,8 +59,10 @@ def registry():
 
 @pytest.fixture
 def client(store, registry):
+    verifier = _make_pass_verifier()
     app.dependency_overrides[get_store] = lambda: store
     app.dependency_overrides[get_registry] = lambda: registry
+    app.dependency_overrides[get_verifier] = lambda: verifier
     yield  # client created per test via httpx.AsyncClient
     app.dependency_overrides.clear()
 

@@ -1,5 +1,6 @@
 import pytest
 from typing import AsyncIterator
+from unittest.mock import AsyncMock, MagicMock
 from backend.orchestrator.store.base import Store
 from backend.orchestrator.domain.models import (
     Mission, Plan, Run, RunMode, RunStatus,
@@ -9,6 +10,17 @@ from backend.orchestrator.domain import events as ev_types
 from backend.orchestrator.workers.base import WorkerAdapter, WorkerEvent, WorkerHealth
 from backend.orchestrator.workers.registry import WorkerRegistry
 from backend.orchestrator.service.run_executor import run_run
+from backend.orchestrator.verifier.verifier import Verifier, VerificationResult
+
+
+def _pass_verifier() -> Verifier:
+    result = VerificationResult(score=9, passed=True, feedback="", action="pass")
+    v = MagicMock(spec=Verifier)
+    v.verify = AsyncMock(return_value=result)
+    return v
+
+
+_PASS_VERIFIER = _pass_verifier()
 
 
 class MockWorker(WorkerAdapter):
@@ -25,7 +37,7 @@ class MockWorker(WorkerAdapter):
     def capabilities(self) -> list[str]:
         return self._caps
 
-    async def execute(self, attempt, task) -> AsyncIterator[WorkerEvent]:
+    async def execute(self, attempt, task, feedback=None) -> AsyncIterator[WorkerEvent]:
         for ev in self._events:
             yield ev
 
@@ -74,7 +86,7 @@ async def test_run_run_single_task_completed(store):
     task = Task.new(run_id=r.id, title="T", goal="G", required_capabilities=["file_editing"])
     await store.tasks.save(task)
 
-    final = await run_run(r.id, store, _ok_worker())
+    final = await run_run(r.id, store, _ok_worker(), _PASS_VERIFIER)
 
     assert final == RunStatus.completed
     t = await store.tasks.get(task.id)
@@ -86,7 +98,7 @@ async def test_run_run_updates_run_status_to_completed(store):
     task = Task.new(run_id=r.id, title="T", goal="G", required_capabilities=["file_editing"])
     await store.tasks.save(task)
 
-    await run_run(r.id, store, _ok_worker())
+    await run_run(r.id, store, _ok_worker(), _PASS_VERIFIER)
 
     updated_run = await store.missions.get_run(r.id)
     assert updated_run.status == RunStatus.completed
@@ -97,7 +109,7 @@ async def test_run_run_emits_run_started_event(store):
     task = Task.new(run_id=r.id, title="T", goal="G", required_capabilities=["file_editing"])
     await store.tasks.save(task)
 
-    await run_run(r.id, store, _ok_worker())
+    await run_run(r.id, store, _ok_worker(), _PASS_VERIFIER)
 
     events = await store.events.list_by_run(r.id)
     assert any(e.type == ev_types.RUN_STARTED for e in events)
@@ -108,7 +120,7 @@ async def test_run_run_emits_run_completed_event(store):
     task = Task.new(run_id=r.id, title="T", goal="G", required_capabilities=["file_editing"])
     await store.tasks.save(task)
 
-    await run_run(r.id, store, _ok_worker())
+    await run_run(r.id, store, _ok_worker(), _PASS_VERIFIER)
 
     events = await store.events.list_by_run(r.id)
     assert any(e.type == ev_types.RUN_COMPLETED for e in events)
@@ -127,7 +139,7 @@ async def test_run_run_linear_chain(store):
     await store.tasks.save(task_a)
     await store.tasks.save(task_b)
 
-    final = await run_run(r.id, store, _ok_worker())
+    final = await run_run(r.id, store, _ok_worker(), _PASS_VERIFIER)
 
     assert final == RunStatus.completed
     a = await store.tasks.get(task_a.id)
@@ -145,7 +157,7 @@ async def test_run_run_parallel_tasks(store):
     await store.tasks.save(task_a)
     await store.tasks.save(task_b)
 
-    final = await run_run(r.id, store, _ok_worker())
+    final = await run_run(r.id, store, _ok_worker(), _PASS_VERIFIER)
 
     assert final == RunStatus.completed
     a = await store.tasks.get(task_a.id)
@@ -159,7 +171,7 @@ async def test_run_run_returns_failed_when_task_fails(store):
     task = Task.new(run_id=r.id, title="T", goal="G", required_capabilities=["file_editing"])
     await store.tasks.save(task)
 
-    final = await run_run(r.id, store, _fail_worker())
+    final = await run_run(r.id, store, _fail_worker(), _PASS_VERIFIER)
 
     assert final == RunStatus.failed
     updated_run = await store.missions.get_run(r.id)
@@ -171,7 +183,7 @@ async def test_run_run_no_run_completed_event_on_failure(store):
     task = Task.new(run_id=r.id, title="T", goal="G", required_capabilities=["file_editing"])
     await store.tasks.save(task)
 
-    await run_run(r.id, store, _fail_worker())
+    await run_run(r.id, store, _fail_worker(), _PASS_VERIFIER)
 
     events = await store.events.list_by_run(r.id)
     assert not any(e.type == ev_types.RUN_COMPLETED for e in events)
@@ -181,13 +193,13 @@ async def test_run_run_no_run_completed_event_on_failure(store):
 async def test_run_run_raises_on_unknown_run_id(store):
     reg = WorkerRegistry()
     with pytest.raises(ValueError, match="not found"):
-        await run_run("nonexistent", store, reg)
+        await run_run("nonexistent", store, reg, _PASS_VERIFIER)
 
 
 async def test_run_run_empty_task_list(store):
     """Run with no tasks completes immediately."""
     _, _, r = await _make_run(store)
 
-    final = await run_run(r.id, store, WorkerRegistry())
+    final = await run_run(r.id, store, WorkerRegistry(), _PASS_VERIFIER)
 
     assert final == RunStatus.completed

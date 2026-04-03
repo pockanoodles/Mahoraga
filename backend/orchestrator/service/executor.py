@@ -1,3 +1,4 @@
+# backend/orchestrator/service/executor.py
 """Lobster-style deterministic executor for driving tasks through their lifecycle."""
 from __future__ import annotations
 import dataclasses
@@ -5,52 +6,60 @@ import dataclasses
 from ..domain import events as ev_types
 from ..domain import dependencies
 from ..domain.models import Artifact, Task, TaskAttempt, TaskStatus, AttemptStatus
-from ..domain.transitions import transition_task, verify_done_criteria
+from ..domain.transitions import transition_task
 from ..store.base import Store
+from ..verifier.verifier import Verifier, VerifierError
+from ..verifier.config import MAX_SOFT_RETRIES
 from ..workers.base import WorkerEvent
 from ..workers.registry import WorkerRegistry
 from ..routing.router import assign_worker, NoCapableWorker
 from ..routing.escalation import should_escalate
 from . import approvals
 
-# Terminal WorkerEvent types the executor acts on
 _TERMINAL = frozenset({"attempt.completed", "attempt.failed", "attempt.blocked"})
 
 
-async def run_task(task_id: str, store: Store, registry: WorkerRegistry) -> None:
+async def run_task(
+    task_id: str,
+    store: Store,
+    registry: WorkerRegistry,
+    verifier: Verifier,
+) -> None:
     """Drive one task from ready → terminal using a Lobster-style deterministic loop.
 
-    Steps per attempt: assign → dispatch → stream → verify → escalate/complete/block
-    All state decisions delegate to domain layer. No business logic here.
+    Steps per attempt: assign → dispatch → stream → verify → soft-retry/escalate/complete/block
     """
     task = await store.tasks.get(task_id)
     if task is None:
         raise ValueError(f"Task {task_id!r} not found")
 
     attempted: set[str] = set()
+    soft_retry_count: dict[str, int] = {}
+    _retry_worker_id: str | None = None   # set on soft retry to force same worker
+    _retry_feedback: str | None = None    # verifier feedback to inject on retry
 
     while True:
         # ── ASSIGN ──────────────────────────────────────────────────────────
-        try:
-            worker_id = assign_worker(task, registry, exclude=attempted)
-        except NoCapableWorker:
-            # ready → in_progress → blocked (direct ready→blocked is not a legal transition)
-            if task.status == TaskStatus.ready:
-                task = transition_task(task, TaskStatus.in_progress)
+        if _retry_worker_id:
+            worker_id = _retry_worker_id
+        else:
+            try:
+                worker_id = assign_worker(task, registry, exclude=attempted)
+            except NoCapableWorker:
+                if task.status == TaskStatus.ready:
+                    task = transition_task(task, TaskStatus.in_progress)
+                    await store.tasks.update_status(task.id, task.status)
+                task = transition_task(task, TaskStatus.blocked)
                 await store.tasks.update_status(task.id, task.status)
-            task = transition_task(task, TaskStatus.blocked)
-            await store.tasks.update_status(task.id, task.status)
-            await store.events.append(
-                ev_types.make_event(task.run_id, ev_types.TASK_BLOCKED, task_id=task.id)
-            )
-            await approvals.request_approval(task.run_id, task.id, "", store)
-            return
+                await store.events.append(
+                    ev_types.make_event(task.run_id, ev_types.TASK_BLOCKED, task_id=task.id)
+                )
+                await approvals.request_approval(task.run_id, task.id, "", store)
+                return
 
         attempt = TaskAttempt.new(task_id=task.id, worker_id=worker_id)
         await store.tasks.save_attempt(attempt)
-        attempted.add(worker_id)
 
-        # Only transition to in_progress if not already there (e.g. after escalation loop)
         if task.status != TaskStatus.in_progress:
             task = transition_task(task, TaskStatus.in_progress)
             await store.tasks.update_status(task.id, task.status)
@@ -77,11 +86,10 @@ async def run_task(task_id: str, store: Store, registry: WorkerRegistry) -> None
 
         # ── STREAM ──────────────────────────────────────────────────────────
         outcome: WorkerEvent | None = None
-        async for w_ev in worker.execute(attempt, dispatch_task):
+        async for w_ev in worker.execute(attempt, dispatch_task, feedback=_retry_feedback):
             if w_ev.type in _TERMINAL:
                 outcome = w_ev
                 break
-            # Forward non-terminal events to log if they're valid event types
             if w_ev.type in ev_types.ALL_EVENT_TYPES:
                 await store.events.append(
                     ev_types.make_event(
@@ -90,6 +98,10 @@ async def run_task(task_id: str, store: Store, registry: WorkerRegistry) -> None
                         task_id=task.id, attempt_id=attempt.id,
                     )
                 )
+
+        # Reset retry state after consuming it
+        _retry_feedback = None
+        _retry_worker_id = None
 
         if outcome is None:
             outcome = WorkerEvent(
@@ -100,7 +112,16 @@ async def run_task(task_id: str, store: Store, registry: WorkerRegistry) -> None
         # ── VERIFY ──────────────────────────────────────────────────────────
         if outcome.type == "attempt.completed":
             summary = outcome.payload.get("summary", "")
-            if verify_done_criteria(task, summary):
+
+            try:
+                result = await verifier.verify(task, summary)
+                result_action = result.action
+                result_feedback = result.feedback
+            except VerifierError:
+                result_action = "escalate"
+                result_feedback = "verifier error — escalating to next worker"
+
+            if result_action == "pass":
                 await store.tasks.update_attempt_result(
                     attempt.id, AttemptStatus.completed, summary=summary,
                 )
@@ -113,15 +134,27 @@ async def run_task(task_id: str, store: Store, registry: WorkerRegistry) -> None
                 await store.events.append(
                     ev_types.make_event(task.run_id, ev_types.TASK_COMPLETED, task_id=task.id)
                 )
+                worker.clear_history(task.id)
                 await _unlock_downstream(task, store)
                 return
-            # Done criteria not met → treat as failure
+
+            if result_action == "retry" and soft_retry_count.get(worker_id, 0) < MAX_SOFT_RETRIES:
+                await store.tasks.update_attempt_result(
+                    attempt.id, AttemptStatus.failed,
+                    summary="", error_code="verification_retry",
+                    blocking_reason=result_feedback,
+                )
+                soft_retry_count[worker_id] = soft_retry_count.get(worker_id, 0) + 1
+                _retry_worker_id = worker_id
+                _retry_feedback = result_feedback
+                continue  # loop back — same worker, feedback injected via history
+
+            # Verification failed (score 0-3 or retries exhausted) → treat as attempt.failed
+            worker.clear_history(task.id)
+            soft_retry_count = {}
             outcome = WorkerEvent(
                 type="attempt.failed",
-                payload={
-                    "error_code": "done_criteria_not_met",
-                    "error": f"done_criteria not satisfied. summary={summary!r}",
-                },
+                payload={"error_code": "verification_failed", "error": result_feedback},
             )
 
         # ── ESCALATE or BLOCK ────────────────────────────────────────────────
@@ -144,7 +177,6 @@ async def run_task(task_id: str, store: Store, registry: WorkerRegistry) -> None
             await approvals.request_approval(task.run_id, task.id, attempt.id, store)
             return
 
-        # attempt.failed — try escalation
         escalating = should_escalate(task, registry, attempted)
         final_attempt_status = AttemptStatus.escalated if escalating else AttemptStatus.failed
         await store.tasks.update_attempt_result(
@@ -153,18 +185,17 @@ async def run_task(task_id: str, store: Store, registry: WorkerRegistry) -> None
         )
 
         if escalating:
+            attempted.add(worker_id)
             await store.tasks.increment_escalation(task.id)
-            task = await store.tasks.get(task.id)  # reload escalation_count
+            task = await store.tasks.get(task.id)
             await store.events.append(
                 ev_types.make_event(
                     task.run_id, ev_types.ATTEMPT_ESCALATED,
                     task_id=task.id, attempt_id=attempt.id,
                 )
             )
-            # task remains in_progress; loop back to assign next worker
             continue
 
-        # No escalation path → block and request approval
         task = transition_task(task, TaskStatus.blocked)
         await store.tasks.update_status(task.id, task.status)
         await store.events.append(
@@ -175,7 +206,6 @@ async def run_task(task_id: str, store: Store, registry: WorkerRegistry) -> None
 
 
 async def _collect_upstream_outputs(task: Task, store: Store) -> list[str]:
-    """Return text summaries from all completed dependency tasks."""
     results = []
     for dep in task.dependencies:
         for artifact in await store.artifacts.list_by_task(dep.task_id):
@@ -187,7 +217,6 @@ async def _collect_upstream_outputs(task: Task, store: Store) -> list[str]:
 
 
 async def _unlock_downstream(completed_task: Task, store: Store) -> None:
-    """Transition pending tasks to ready when their dependencies are now satisfied."""
     all_tasks = await store.tasks.list_by_run(completed_task.run_id)
     artifacts = await store.artifacts.list_by_run(completed_task.run_id)
     artifact_task_ids = {a.task_id for a in artifacts}

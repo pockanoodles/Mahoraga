@@ -6,6 +6,7 @@ from ..domain import dependencies, events as ev
 from ..domain.models import RunStatus, TaskStatus
 from ..domain.transitions import transition_task
 from ..store.base import Store
+from ..verifier.verifier import Verifier
 from ..workers.registry import WorkerRegistry
 from .executor import run_task
 
@@ -15,7 +16,7 @@ _TERMINAL_TASK = frozenset({
 })
 
 
-async def run_run(run_id: str, store: Store, registry: WorkerRegistry) -> RunStatus:
+async def run_run(run_id: str, store: Store, registry: WorkerRegistry, verifier: Verifier) -> RunStatus:
     """Drive an entire Run from paused → terminal using wave execution.
 
     Seeds all pending tasks with no unmet dependencies to ready, then
@@ -44,7 +45,7 @@ async def run_run(run_id: str, store: Store, registry: WorkerRegistry) -> RunSta
         if ready:
             for t in ready:
                 dispatched.add(t.id)
-            await asyncio.gather(*[run_task(t.id, store, registry) for t in ready])
+            await asyncio.gather(*[run_task(t.id, store, registry, verifier) for t in ready])
         elif not any(t.status == TaskStatus.in_progress for t in tasks):
             # No ready tasks, nothing running — stuck on blocked/pending with unresolvable deps
             break

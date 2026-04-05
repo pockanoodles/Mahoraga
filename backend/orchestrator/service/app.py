@@ -5,13 +5,20 @@ from contextlib import asynccontextmanager
 from typing import Annotated
 
 from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException
+from fastapi.responses import HTMLResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 import anthropic
 
+from ..adaptive.store import AdaptiveStore
+from ..channels.base import ChannelMessage
+from ..channels.web import _STATIC_DIR
 from ..domain.models import Mission, Plan, Run, RunMode, RunStatus, TaskStatus
 from ..domain.transitions import IllegalTransition
+from ..gateway import Gateway
 from ..store.base import Store
+from ..tracking.ledger import CostLedger
 from ..verifier.verifier import Verifier
 from ..workers.claude import ClaudeWorker
 from ..workers.registry import WorkerRegistry
@@ -25,6 +32,9 @@ from ..planning.planner import generate_tasks, PlannerError
 _store: Store | None = None
 _registry: WorkerRegistry | None = None
 _verifier: Verifier | None = None
+_gateway: Gateway | None = None
+_adaptive_store: AdaptiveStore | None = None
+_cost_ledger: CostLedger | None = None
 
 
 def get_store() -> Store:
@@ -42,9 +52,15 @@ def get_verifier() -> Verifier:
     return _verifier
 
 
+def get_gateway() -> Gateway:
+    assert _gateway is not None, "Gateway not initialised"
+    return _gateway
+
+
 StoreDep = Annotated[Store, Depends(get_store)]
 RegistryDep = Annotated[WorkerRegistry, Depends(get_registry)]
 VerifierDep = Annotated[Verifier, Depends(get_verifier)]
+GatewayDep = Annotated[Gateway, Depends(get_gateway)]
 
 
 # ── lifespan ─────────────────────────────────────────────────────────────────
@@ -56,7 +72,7 @@ async def lifespan(app: FastAPI):
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
         force=True,
     )
-    global _store, _registry, _verifier
+    global _store, _registry, _verifier, _gateway, _adaptive_store, _cost_ledger
     _store = await Store.connect()
     _registry = WorkerRegistry()
 
@@ -84,11 +100,65 @@ async def lifespan(app: FastAPI):
     for orphan in await _store.tasks.list_by_status(TaskStatus.in_progress):
         await _store.tasks.update_status(orphan.id, TaskStatus.failed)
 
+    # Adaptive store + cost ledger share the same DB connection as the main store
+    _adaptive_store = AdaptiveStore(_store._conn)
+    await _adaptive_store.migrate()
+
+    _cost_ledger = CostLedger(_store._conn)
+    await _cost_ledger.migrate()
+
+    _gateway = Gateway(
+        store=_store,
+        registry=_registry,
+        verifier=_verifier,
+        adaptive_store=_adaptive_store,
+        cost_ledger=_cost_ledger,
+    )
+
     yield
     await _store.close()
 
 
 app = FastAPI(title="Orchestrator v2", lifespan=lifespan)
+
+# ── web chat routes ───────────────────────────────────────────────────────────
+
+
+class _ChatRequest(BaseModel):
+    message: str
+    user_id: str = "web-user"
+
+
+@app.get("/", response_class=HTMLResponse)
+async def serve_index() -> HTMLResponse:
+    index_path = _STATIC_DIR / "index.html"
+    if not index_path.exists():
+        return HTMLResponse(content="<html><body><h1>Mahoraga</h1></body></html>")
+    return HTMLResponse(content=index_path.read_text())
+
+
+@app.post("/chat")
+async def chat(request: _ChatRequest, gateway: GatewayDep) -> StreamingResponse:
+    msg = ChannelMessage.new(
+        user_id=request.user_id,
+        channel="web",
+        text=request.message,
+    )
+
+    async def event_stream():
+        try:
+            async for chunk in gateway.handle_message(msg):
+                yield f"data: {chunk}\n\n"
+        except Exception as exc:
+            yield f"data: [ERROR] {exc}\n\n"
+        yield "data: [DONE]\n\n"
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+
+# Mount static files if the static directory exists
+if _STATIC_DIR.exists():
+    app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
 
 
 # ── request / response models ─────────────────────────────────────────────────

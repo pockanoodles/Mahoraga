@@ -357,7 +357,7 @@ async def generate_plan(mission_id: str, store: StoreDep):
     try:
         tasks = await generate_tasks(mission, run_id=run.id)
     except NotImplementedError as exc:
-        raise HTTPException(status_code=503, detail=str(exc))
+        raise HTTPException(status_code=501, detail=str(exc))
     except PlannerError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
 

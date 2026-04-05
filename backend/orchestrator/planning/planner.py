@@ -12,7 +12,6 @@ class PlannerError(RuntimeError):
 async def generate_tasks(
     mission: Mission,
     run_id: str,
-    **kwargs,
 ) -> list[Task]:
     """Decompose a mission into Task objects using an LLM planner.
 

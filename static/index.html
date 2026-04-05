@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mahoraga</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <div class="layout">
+    <header>
+      <h1>Mahoraga</h1>
+      <p class="subtitle">The Adapting AI</p>
+    </header>
+
+    <main id="messages" class="messages" aria-live="polite"></main>
+
+    <footer>
+      <form id="chat-form" class="input-row" autocomplete="off">
+        <input
+          id="user-input"
+          type="text"
+          placeholder="Message Mahoraga…"
+          aria-label="Message"
+          required
+        />
+        <button type="submit" id="send-btn">Send</button>
+      </form>
+    </footer>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

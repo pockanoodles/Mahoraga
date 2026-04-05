@@ -27,9 +27,27 @@ source .venv/bin/activate
 echo "venv active"
 
 # ── Environment file ─────────────────────────────────────────────────────────
-if [ ! -f ".env" ] && [ -f ".env.example" ]; then
-  cp .env.example .env
-  echo "Created .env from .env.example — fill in your API keys before running."
+if [ ! -f ".env" ]; then
+  if [ -f ".env.example" ]; then
+    cp .env.example .env
+    echo "Created .env from .env.example — fill in your ANTHROPIC_API_KEY before running."
+  else
+    echo "Warning: no .env or .env.example found — create .env with your API keys." >&2
+  fi
+fi
+
+# ── Validate API key ──────────────────────────────────────────────────────────
+# Load .env if it exists so we can check the key
+if [ -f ".env" ]; then
+  # shellcheck disable=SC2046
+  export $(grep -v '^#' .env | grep -v '^$' | xargs) 2>/dev/null || true
+fi
+
+if [ -z "${ANTHROPIC_API_KEY:-}" ]; then
+  echo ""
+  echo "WARNING: ANTHROPIC_API_KEY is not set."
+  echo "  Edit .env and add: ANTHROPIC_API_KEY=sk-ant-..."
+  echo ""
 fi
 
 # ── Dependencies ─────────────────────────────────────────────────────────────
@@ -41,15 +59,25 @@ echo "Dependencies installed"
 mkdir -p "$HOME/.mahoraga"
 echo "Data directory: ~/.mahoraga"
 
-# ── Environment checks (non-blocking) ────────────────────────────────────────
-if [ -z "${ANTHROPIC_API_KEY:-}" ]; then
-  echo "WARNING: ANTHROPIC_API_KEY not set — set it in .env or the environment"
-fi
+# ── Database init ─────────────────────────────────────────────────────────────
+echo "Initializing database..."
+.venv/bin/python -c "
+import asyncio
+from pathlib import Path
+Path.home().joinpath('.mahoraga').mkdir(exist_ok=True)
+from backend.orchestrator.store.base import Store
+async def init():
+    store = await Store.connect()
+    await store.close()
+asyncio.run(init())
+"
+echo "Database ready"
 
-# ── Start ────────────────────────────────────────────────────────────────────
+# ── Ready ─────────────────────────────────────────────────────────────────────
 echo ""
-echo "Starting Mahoraga on http://127.0.0.1:8000"
-exec uvicorn backend.orchestrator.service.app:app \
-  --host 127.0.0.1 \
-  --port 8000 \
-  --reload
+echo "Setup complete. To start Mahoraga:"
+echo ""
+echo "  .venv/bin/python -m uvicorn backend.orchestrator.service.app:app --host 0.0.0.0 --port 8000"
+echo ""
+echo "Then open http://localhost:8000"
+echo ""

@@ -7,7 +7,7 @@ from .tasks import TaskStore
 from .artifacts import ArtifactStore
 from .events import EventStore
 
-DEFAULT_DB_PATH = Path.home() / ".ollama-runtime" / "orchestrator_v2.db"
+DEFAULT_DB_PATH = Path.home() / ".mahoraga" / "mahoraga.db"
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS missions (

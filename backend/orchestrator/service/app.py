@@ -14,13 +14,11 @@ from ..domain.transitions import IllegalTransition
 from ..store.base import Store
 from ..verifier.verifier import Verifier
 from ..workers.claude import ClaudeWorker
-from ..workers.extension import ExtensionWorker
 from ..workers.registry import WorkerRegistry
 from .approvals import grant_approval, reject_approval
 from .executor import run_task as _run_task
-from ..workers.ollama import OllamaWorker
 from .run_executor import run_run as _run_run
-from ..planning.planner import generate_tasks, OllamaUnavailable, PlannerError
+from ..planning.planner import generate_tasks, PlannerError
 
 # ── singletons (replaced via dependency_overrides in tests) ──────────────────
 
@@ -73,7 +71,7 @@ async def lifespan(app: FastAPI):
         ))
         _verifier = Verifier(client=anthropic.Anthropic(api_key=api_key))
     else:
-        # No Anthropic key: Ollama-only mode with passthrough verifier
+        # No Anthropic key: passthrough verifier (dev/test mode only)
         class _PassthroughVerifier(Verifier):
             def __init__(self) -> None:
                 pass
@@ -81,13 +79,6 @@ async def lifespan(app: FastAPI):
                 from ..verifier.verifier import VerificationResult
                 return VerificationResult(score=10, passed=True, feedback="", action="pass")
         _verifier = _PassthroughVerifier()
-    _registry.register(ExtensionWorker(
-        base_url=os.getenv("EXTENSION_URL", "http://localhost:3000")
-    ))
-    _registry.register(OllamaWorker(
-        model=os.getenv("OLLAMA_MODEL", "qwen3:8b"),
-        base_url=os.getenv("OLLAMA_URL", "http://127.0.0.1:11434"),
-    ))
 
     # Orphan recovery: tasks left in_progress from a crashed previous run
     for orphan in await _store.tasks.list_by_status(TaskStatus.in_progress):
@@ -365,7 +356,7 @@ async def generate_plan(mission_id: str, store: StoreDep):
 
     try:
         tasks = await generate_tasks(mission, run_id=run.id)
-    except OllamaUnavailable as exc:
+    except NotImplementedError as exc:
         raise HTTPException(status_code=503, detail=str(exc))
     except PlannerError as exc:
         raise HTTPException(status_code=422, detail=str(exc))

@@ -12,7 +12,7 @@ minor=$(echo "$version" | cut -d. -f2)
 if [ "$major" -lt 3 ] || ([ "$major" -eq 3 ] && [ "$minor" -lt 12 ]); then
   echo "Error: Python 3.12+ required, found $version" >&2; exit 1
 fi
-echo "✓ Python $version"
+echo "Python $version"
 
 # ── Virtualenv ───────────────────────────────────────────────────────────────
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -24,21 +24,26 @@ if [ ! -d ".venv" ]; then
 fi
 # shellcheck source=/dev/null
 source .venv/bin/activate
-echo "✓ venv active"
+echo "venv active"
+
+# ── Environment file ─────────────────────────────────────────────────────────
+if [ ! -f ".env" ] && [ -f ".env.example" ]; then
+  cp .env.example .env
+  echo "Created .env from .env.example — fill in your API keys before running."
+fi
 
 # ── Dependencies ─────────────────────────────────────────────────────────────
 echo "Installing dependencies..."
-pip install -r requirements.txt
-echo "✓ Dependencies installed"
+pip install -r requirements.txt -q
+echo "Dependencies installed"
+
+# ── Data directory ────────────────────────────────────────────────────────────
+mkdir -p "$HOME/.mahoraga"
+echo "Data directory: ~/.mahoraga"
 
 # ── Environment checks (non-blocking) ────────────────────────────────────────
 if [ -z "${ANTHROPIC_API_KEY:-}" ]; then
-  echo "⚠  ANTHROPIC_API_KEY not set — Claude workers will be unavailable"
-fi
-
-OLLAMA_URL="${OLLAMA_URL:-http://127.0.0.1:11434}"
-if ! curl -sf "$OLLAMA_URL/api/tags" > /dev/null 2>&1; then
-  echo "⚠  Ollama not reachable at $OLLAMA_URL — OllamaWorker will be unavailable"
+  echo "WARNING: ANTHROPIC_API_KEY not set — set it in .env or the environment"
 fi
 
 # ── Start ────────────────────────────────────────────────────────────────────

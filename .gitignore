@@ -1,7 +1,8 @@
 .venv/
+venv/
 __pycache__/
 *.pyc
 .pytest_cache/
-extension/node_modules/
-extension/out/
+*.db
+.env
 .worktrees/

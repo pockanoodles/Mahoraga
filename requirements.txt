@@ -6,3 +6,4 @@ anthropic>=0.40.0
 pytest==8.3.3
 pytest-asyncio==0.24.0
 typer[all]>=0.12
+python-dotenv>=1.0.0

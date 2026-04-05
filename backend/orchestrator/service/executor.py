@@ -2,6 +2,7 @@
 """Lobster-style deterministic executor for driving tasks through their lifecycle."""
 from __future__ import annotations
 import dataclasses
+import logging
 
 from ..domain import events as ev_types
 from ..domain import dependencies
@@ -15,6 +16,8 @@ from ..workers.registry import WorkerRegistry
 from ..routing.router import assign_worker, NoCapableWorker
 from ..routing.escalation import should_escalate
 from . import approvals
+
+logger = logging.getLogger(__name__)
 
 _TERMINAL = frozenset({"attempt.completed", "attempt.failed", "attempt.blocked"})
 
@@ -70,6 +73,7 @@ async def run_task(
                 payload={"worker_id": worker_id},
             )
         )
+        logger.info("task %s assigned to worker %s", task.id, worker_id)
 
         # ── DISPATCH ────────────────────────────────────────────────────────
         upstream = await _collect_upstream_outputs(task, store)
@@ -83,6 +87,7 @@ async def run_task(
                 task_id=task.id, attempt_id=attempt.id,
             )
         )
+        logger.info("attempt %s started", attempt.id)
 
         # ── STREAM ──────────────────────────────────────────────────────────
         outcome: WorkerEvent | None = None
@@ -121,6 +126,8 @@ async def run_task(
                 result_action = "escalate"
                 result_feedback = "verifier error — escalating to next worker"
 
+            logger.info("verifier action=%s task=%s attempt=%s", result_action, task.id, attempt.id)
+
             if result_action == "pass":
                 await store.tasks.update_attempt_result(
                     attempt.id, AttemptStatus.completed, summary=summary,
@@ -134,6 +141,7 @@ async def run_task(
                 await store.events.append(
                     ev_types.make_event(task.run_id, ev_types.TASK_COMPLETED, task_id=task.id)
                 )
+                logger.info("task %s completed", task.id)
                 worker.clear_history(task.id)
                 await _unlock_downstream(task, store)
                 return
@@ -147,6 +155,11 @@ async def run_task(
                 soft_retry_count[worker_id] = soft_retry_count.get(worker_id, 0) + 1
                 _retry_worker_id = worker_id
                 _retry_feedback = result_feedback
+                logger.warning(
+                    "soft retry %d/%d for task %s: %s",
+                    soft_retry_count[worker_id], MAX_SOFT_RETRIES,
+                    task.id, result_feedback[:100],
+                )
                 continue  # loop back — same worker, feedback injected via history
 
             # Verification failed (score 0-3 or retries exhausted) → treat as attempt.failed
@@ -194,6 +207,7 @@ async def run_task(
                     task_id=task.id, attempt_id=attempt.id,
                 )
             )
+            logger.warning("escalating task %s from %s", task.id, worker_id)
             continue
 
         task = transition_task(task, TaskStatus.blocked)
@@ -202,6 +216,7 @@ async def run_task(
             ev_types.make_event(task.run_id, ev_types.TASK_BLOCKED, task_id=task.id)
         )
         await approvals.request_approval(task.run_id, task.id, attempt.id, store)
+        logger.error("task %s blocked/failed: %s", task.id, blocking_reason[:100])
         return
 
 

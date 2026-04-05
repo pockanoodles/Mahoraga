@@ -1,4 +1,5 @@
 from __future__ import annotations
+import logging
 import os
 from contextlib import asynccontextmanager
 from typing import Annotated
@@ -52,6 +53,11 @@ VerifierDep = Annotated[Verifier, Depends(get_verifier)]
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+        force=True,
+    )
     global _store, _registry, _verifier
     _store = await Store.connect()
     _registry = WorkerRegistry()

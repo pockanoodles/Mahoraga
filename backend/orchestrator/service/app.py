@@ -118,6 +118,26 @@ class CreatePlanRequest(BaseModel):
     mode: str = "direct"
 
 
+class LogEventItem(BaseModel):
+    id: str
+    type: str
+    task_id: str | None
+    attempt_id: str | None
+    ts: float
+
+
+class LogRunItem(BaseModel):
+    id: str
+    mission_id: str
+    status: str
+    created_at: float
+    events: list[LogEventItem]
+
+
+class LogsResponse(BaseModel):
+    runs: list[LogRunItem]
+
+
 # ── routes ────────────────────────────────────────────────────────────────────
 
 @app.get("/tasks/{task_id}")
@@ -237,6 +257,33 @@ async def list_runs(store: StoreDep, mission_id: str | None = None):
     if mission_id:
         return await store.missions.list_runs(mission_id)
     return await store.missions.list_all_runs()
+
+
+@app.get("/logs", response_model=LogsResponse)
+async def get_logs(store: StoreDep, limit: int = 5) -> LogsResponse:
+    limit = min(limit, 20)
+    all_runs = await store.missions.list_all_runs()  # already DESC by created_at
+    runs = all_runs[:limit]
+    run_items = []
+    for run in runs:
+        events = await store.events.list_by_run(run.id)
+        run_items.append(LogRunItem(
+            id=run.id,
+            mission_id=run.mission_id,
+            status=run.status.value,
+            created_at=run.created_at,
+            events=[
+                LogEventItem(
+                    id=e.id,
+                    type=e.type,
+                    task_id=e.task_id,
+                    attempt_id=e.attempt_id,
+                    ts=e.ts,
+                )
+                for e in events
+            ],
+        ))
+    return LogsResponse(runs=run_items)
 
 
 @app.delete("/runs/{run_id}")

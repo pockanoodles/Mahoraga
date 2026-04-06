@@ -32,6 +32,18 @@ Open **http://localhost:8000** and start chatting.
 2. Add `TELEGRAM_BOT_TOKEN=your-token-here` to `.env`
 3. Restart Mahoraga — your bot is live
 
+## Interface
+
+The web UI runs at **http://localhost:8000**. Two columns:
+
+- **Chat** — send instructions, see streamed responses with markdown and syntax-highlighted code
+- **Ops sidebar** (drag to resize, hide with `‹`) — three panels:
+  - **Workflow** — live task graph showing mission progress as an animated vine. Each node is a task; the active task glows blue. Hover for task name, status, elapsed time, and which model handled it.
+  - **Recent** — structured activity log. Click any entry to expand and see the full exchange and cost.
+  - **Cost bar** — session and total spend at a glance. Hover for per-model breakdown.
+
+Click **⚙** to open Settings (read-only — change values in `.env` and restart).
+
 ## How It Works
 
 ```

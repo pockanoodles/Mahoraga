@@ -4,31 +4,103 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Mahoraga</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/static/style.css" />
 </head>
 <body>
   <div class="layout">
-    <header>
-      <h1>Mahoraga</h1>
-      <p class="subtitle">The Adapting AI</p>
-    </header>
 
-    <main id="messages" class="messages" aria-live="polite"></main>
-
-    <footer>
-      <form id="chat-form" class="input-row" autocomplete="off">
-        <input
+    <!-- Chat column -->
+    <div class="chat-col" id="chat-col">
+      <div class="chat-header">
+        <span class="chat-header-title">Mahoraga</span>
+        <button class="icon-btn" id="settings-btn" title="Settings">⚙</button>
+      </div>
+      <div class="messages" id="messages" aria-live="polite"></div>
+      <div class="input-area">
+        <textarea
           id="user-input"
-          type="text"
           placeholder="Message Mahoraga…"
+          rows="1"
           aria-label="Message"
-          required
-        />
-        <button type="submit" id="send-btn">Send</button>
-      </form>
-    </footer>
+        ></textarea>
+        <button class="send-btn" id="send-btn" aria-label="Send">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+            <path d="M2 8h12M8 2l6 6-6 6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </button>
+      </div>
+    </div>
+
+    <!-- Resize divider -->
+    <div class="divider" id="divider">
+      <div class="divider-handle"></div>
+    </div>
+
+    <!-- Sidebar ops panel -->
+    <div class="sidebar" id="sidebar">
+      <div class="sidebar-header">
+        <span class="sidebar-title">Ops</span>
+        <button class="icon-btn" id="sidebar-collapse-btn" title="Collapse sidebar">‹</button>
+      </div>
+
+      <!-- Vine chart section -->
+      <div class="sidebar-section" id="vine-section">
+        <div class="section-header">
+          <span class="section-title">Workflow</span>
+          <button class="section-chevron" data-section="vine">▾</button>
+        </div>
+        <div class="section-body" id="vine-body">
+          <div id="vine-container">
+            <svg id="vine-svg" width="100%" height="300"></svg>
+            <div id="vine-empty" class="vine-empty">No active mission</div>
+          </div>
+          <div id="vine-tooltip" class="vine-tooltip" style="display:none"></div>
+        </div>
+      </div>
+
+      <!-- Logs section -->
+      <div class="sidebar-section" id="logs-section">
+        <div class="section-header">
+          <span class="section-title">Recent</span>
+          <button class="section-chevron" data-section="logs">▾</button>
+        </div>
+        <div class="section-body" id="logs-body">
+          <div id="logs-list" class="logs-list"></div>
+          <div id="logs-empty" class="logs-empty" style="display:none">No recent activity.</div>
+        </div>
+      </div>
+
+      <!-- Cost bar — pinned to bottom -->
+      <div class="cost-bar" id="cost-bar">
+        <span class="cost-label" id="cost-session">Session: $0.000</span>
+        <div class="cost-track">
+          <div class="cost-fill" id="cost-fill"></div>
+        </div>
+        <span class="cost-label" id="cost-total">Total: $0.000</span>
+        <div class="cost-tooltip" id="cost-tooltip"></div>
+      </div>
+    </div>
+
   </div>
 
+  <!-- Settings drawer -->
+  <div class="drawer-overlay" id="drawer-overlay" style="display:none"></div>
+  <div class="settings-drawer" id="settings-drawer" style="display:none">
+    <div class="drawer-header">
+      <span class="drawer-title">Settings</span>
+      <button class="icon-btn" id="drawer-close-btn">✕</button>
+    </div>
+    <div class="drawer-body" id="drawer-body">
+      <p class="drawer-loading">Loading…</p>
+    </div>
+  </div>
+
+  <script src="/static/resize.js"></script>
   <script src="/static/app.js"></script>
+  <script src="/static/sidebar.js"></script>
+  <script src="/static/settings.js"></script>
 </body>
 </html>

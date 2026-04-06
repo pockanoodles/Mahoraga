@@ -395,9 +395,10 @@ async def get_active_mission(store: StoreDep):
         elapsed = 0.0
         if attempts:
             latest = attempts[-1]
-            ref_time = latest.started_at or latest.ended_at
-            if ref_time is not None:
-                elapsed = round(time.time() - ref_time, 1)
+            if latest.ended_at is not None and latest.started_at is not None:
+                elapsed = round(latest.ended_at - latest.started_at, 1)
+            elif latest.started_at is not None:
+                elapsed = round(time.time() - latest.started_at, 1)
 
         task_items.append({
             "id": task.id,

@@ -126,8 +126,8 @@ class Gateway:
                     yield summary
 
         # ── 7. Adaptive learning (fire-and-forget) ───────────────────────────
+        full_response = "\n".join(response_chunks)
         if self._adaptive is not None:
-            full_response = "\n".join(response_chunks)
             try:
                 new_adaptations = await self._learner.analyze_interaction(
                     user_message=msg.text,
@@ -149,3 +149,28 @@ class Gateway:
                         pass  # never let a bad adaptation record break anything
             except Exception:
                 pass  # learning must never break responses
+
+        # ── Persist chat log entry ────────────────────────────────────────────
+        import uuid as _uuid
+        import time as _time_log
+        try:
+            from .store.chat_log import ChatLogEntry
+            last_worker_id = ""
+            for task in saved_tasks:
+                attempts = await self._store.tasks.list_attempts(task.id)
+                completed = [a for a in attempts if a.status.value == "completed"]
+                if completed:
+                    last_worker_id = completed[-1].worker_id
+            log_entry = ChatLogEntry(
+                id=str(_uuid.uuid4()),
+                user_id=msg.user_id,
+                mission_id=mission.id,
+                user_message=msg.text,
+                assistant_response=full_response,
+                worker_id=last_worker_id,
+                cost_usd=0.0,
+                created_at=_time_log.time(),
+            )
+            await self._store.chat_log.save(log_entry)
+        except Exception:
+            pass  # never let logging break responses

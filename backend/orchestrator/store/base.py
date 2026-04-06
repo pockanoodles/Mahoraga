@@ -6,6 +6,7 @@ from .missions import MissionStore
 from .tasks import TaskStore
 from .artifacts import ArtifactStore
 from .events import EventStore
+from .chat_log import ChatLogStore
 
 DEFAULT_DB_PATH = Path.home() / ".mahoraga" / "mahoraga.db"
 
@@ -125,6 +126,7 @@ class Store:
         self.tasks = TaskStore(conn)
         self.artifacts = ArtifactStore(conn)
         self.events = EventStore(conn)
+        self.chat_log = ChatLogStore(conn)
 
     async def close(self) -> None:
         await self._conn.close()
@@ -134,4 +136,6 @@ class Store:
         conn = await aiosqlite.connect(db_path)
         conn.row_factory = aiosqlite.Row
         await migrate(conn)
-        return cls(conn)
+        store = cls(conn)
+        await store.chat_log.migrate()
+        return store

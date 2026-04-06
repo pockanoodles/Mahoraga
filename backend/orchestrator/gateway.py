@@ -11,12 +11,14 @@ from .adaptive.learner import Learner
 from .adaptive.models import AdaptationCategory, UserAdaptation, UserProfile
 from .adaptive.profile import build_profile_prompt
 from .channels.base import ChannelMessage
+from .config import MahoragaConfig
 from .domain.models import Mission, Plan, Run, RunMode, RunStatus, TaskStatus
 from .planning.planner import PlannerError, generate_tasks
 from .service.executor import run_task
 from .store.base import Store
 from .store.chat_log import ChatLogEntry
 from .workers.registry import WorkerRegistry
+from .workers.router import TaskRouter
 from .verifier.verifier import Verifier
 
 logger = logging.getLogger(__name__)
@@ -32,6 +34,7 @@ class Gateway:
         verifier: Verifier,
         adaptive_store=None,
         cost_ledger=None,
+        config: MahoragaConfig | None = None,
     ) -> None:
         self._store = store
         self._registry = registry
@@ -39,6 +42,8 @@ class Gateway:
         self._adaptive = adaptive_store
         self._cost_ledger = cost_ledger
         self._learner = Learner()
+        self._config = config or MahoragaConfig()
+        self._router = TaskRouter()
 
     async def handle_message(self, msg: ChannelMessage) -> AsyncGenerator[str, None]:
         """Process a channel message through the full pipeline.
@@ -77,6 +82,14 @@ class Gateway:
             logger.error("gateway: planner error for mission %s: %s", mission.id, exc)
             yield f"[Planner error: {exc}]"
             return
+
+        # ── Route tasks to Ollama workers if ollama backend ───────────────
+        active_backend = self._config.get("active_backend")
+        if active_backend == "ollama":
+            tasks = [
+                dataclasses.replace(t, preferred_worker_type=self._router.route(t, "ollama"))
+                for t in tasks
+            ]
 
         # ── 4. Create Plan + Run ─────────────────────────────────────────────
         plan = Plan.new(mission_id=mission.id)

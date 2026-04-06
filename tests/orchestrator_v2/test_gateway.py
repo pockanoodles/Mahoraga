@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import time
 import uuid
+import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from backend.orchestrator.channels.base import ChannelMessage
@@ -201,3 +202,66 @@ async def test_gateway_plan_and_run_are_saved():
 
     store.missions.save_plan.assert_awaited_once()
     store.missions.save_run.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_gateway_sets_preferred_worker_for_ollama_backend(store, tmp_path):
+    """When active_backend is ollama, gateway sets preferred_worker_type on tasks."""
+    from backend.orchestrator.config import MahoragaConfig
+    from backend.orchestrator.workers.registry import WorkerRegistry
+    from backend.orchestrator.workers.base import WorkerAdapter, WorkerEvent, WorkerHealth
+    from backend.orchestrator.domain.models import Task, TaskAttempt
+    from backend.orchestrator.gateway import Gateway
+    from backend.orchestrator.verifier.verifier import Verifier, VerificationResult
+    from backend.orchestrator.channels.base import ChannelMessage
+    from typing import AsyncIterator
+    from unittest.mock import AsyncMock, MagicMock, patch
+
+    # Config pointing to ollama
+    cfg_path = tmp_path / "config.json"
+    cfg_path.write_text('{"active_backend": "ollama", "ollama_base_url": "http://localhost:11434"}')
+    cfg = MahoragaConfig(path=cfg_path)
+
+    # Worker that accepts any task
+    class _AnyWorker(WorkerAdapter):
+        @property
+        def id(self): return "ollama:general"
+        @property
+        def capabilities(self): return ["general", "code_generation", "analysis"]
+        async def execute(self, attempt, task, feedback=None) -> AsyncIterator[WorkerEvent]:
+            yield WorkerEvent("attempt.completed", {"summary": "done"})
+        async def cancel(self, attempt_id): pass
+        async def health(self): return WorkerHealth(worker_id="ollama:general", healthy=True)
+
+    registry = WorkerRegistry()
+    registry.register(_AnyWorker())
+
+    verifier = MagicMock(spec=Verifier)
+    verifier.verify = AsyncMock(
+        return_value=VerificationResult(score=9, passed=True, feedback="", action="pass")
+    )
+
+    saved_tasks: list[Task] = []
+    original_save = store.tasks.save
+
+    async def capture_save(task):
+        saved_tasks.append(task)
+        return await original_save(task)
+
+    store.tasks.save = capture_save
+
+    # Patch generate_tasks to return a single code task
+    with patch(
+        "backend.orchestrator.gateway.generate_tasks",
+        new_callable=AsyncMock,
+        return_value=[
+            Task.new(run_id="__pending__", title="Write function", goal="implement fibonacci")
+        ],
+    ):
+        gw = Gateway(store=store, registry=registry, verifier=verifier, config=cfg)
+        msg = ChannelMessage.new(user_id="test", channel="web", text="write fibonacci")
+        chunks = [c async for c in gw.handle_message(msg)]
+
+    assert any(t.preferred_worker_type is not None for t in saved_tasks), \
+        "Expected gateway to set preferred_worker_type for ollama tasks"
+    assert saved_tasks[0].preferred_worker_type == "ollama:coder"

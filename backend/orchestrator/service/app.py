@@ -20,6 +20,7 @@ from ..domain.models import Mission, Plan, Run, RunMode, RunStatus, TaskStatus
 from ..domain.transitions import IllegalTransition
 from ..gateway import Gateway
 from ..store.base import Store
+from ..store.chat_log import ChatLogStore
 from ..tracking.ledger import CostLedger
 from ..verifier.verifier import Verifier
 from ..workers.claude import ClaudeWorker
@@ -424,6 +425,25 @@ async def get_active_mission(store: StoreDep):
             "status": active_run.status.value,
         },
         "tasks": task_items,
+    }
+
+
+@app.get("/logs/recent")
+async def logs_recent(store: StoreDep, user_id: str = "web-user", limit: int = 20):
+    limit = min(limit, 50)
+    entries = await store.chat_log.list_recent(user_id=user_id, limit=limit)
+    return {
+        "entries": [
+            {
+                "id": e.id,
+                "user_message": e.user_message,
+                "assistant_response": e.assistant_response,
+                "worker_id": e.worker_id,
+                "cost_usd": e.cost_usd,
+                "created_at": e.created_at,
+            }
+            for e in entries
+        ]
     }
 
 

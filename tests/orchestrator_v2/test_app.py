@@ -353,3 +353,20 @@ async def test_missions_active_returns_tasks(store, registry):
     assert data["tasks"][0]["status"] == "in_progress"
 
     app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_logs_recent_empty(store, registry):
+    app.dependency_overrides[get_store] = lambda: store
+    app.dependency_overrides[get_registry] = lambda: registry
+    app.dependency_overrides[get_verifier] = lambda: _make_pass_verifier()
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.get("/logs/recent")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["entries"] == []
+
+    app.dependency_overrides.clear()

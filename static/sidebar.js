@@ -6,6 +6,14 @@
     '#87CEEB', '#F0A500', '#20B2AA', '#CD853F', '#6495ED',
   ];
 
+  function esc(str) {
+    return String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
   function agentColor(workerId) {
     if (!workerId) return '#3a3a5a';
     let hash = 0;
@@ -341,12 +349,12 @@
         <div class="log-entry-row">
           <span class="log-time">${formatTime(entry.created_at)}</span>
           <span class="log-chip">${shortWorker}</span>
-          <span class="log-summary">${summary}</span>
+          <span class="log-summary">${esc(summary)}</span>
         </div>
         <div class="log-detail">
-          <div class="log-detail-user">"${entry.user_message}"</div>
-          <div class="log-detail-response">${entry.assistant_response.slice(0, 400)}${entry.assistant_response.length > 400 ? '…' : ''}</div>
-          <div class="log-detail-cost">$${entry.cost_usd.toFixed(4)} · ${entry.worker_id || 'unknown'}</div>
+          <div class="log-detail-user">"${esc(entry.user_message)}"</div>
+          <div class="log-detail-response">${esc(entry.assistant_response.slice(0, 400))}${entry.assistant_response.length > 400 ? '…' : ''}</div>
+          <div class="log-detail-cost">$${entry.cost_usd.toFixed(4)} · ${esc(entry.worker_id || 'unknown')}</div>
         </div>
       `;
       el.addEventListener('click', () => el.classList.toggle('expanded'));

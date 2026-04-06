@@ -1,56 +1,55 @@
-// static/settings.js
 (() => {
   const settingsBtn = document.getElementById('settings-btn');
-  const overlay = document.getElementById('drawer-overlay');
   const drawer = document.getElementById('settings-drawer');
-  const closeBtn = document.getElementById('drawer-close-btn');
+  const overlay = document.getElementById('drawer-overlay');
   const drawerBody = document.getElementById('drawer-body');
+  const closeBtn = document.getElementById('drawer-close-btn');
 
   function openDrawer() {
-    overlay.style.display = 'block';
     drawer.style.display = 'flex';
-    requestAnimationFrame(() => drawer.classList.add('open'));
+    overlay.style.display = 'block';
     loadSettings();
   }
 
   function closeDrawer() {
-    drawer.classList.remove('open');
-    setTimeout(() => {
-      overlay.style.display = 'none';
-      drawer.style.display = 'none';
-    }, 250);
+    drawer.style.display = 'none';
+    overlay.style.display = 'none';
   }
 
   async function loadSettings() {
     drawerBody.innerHTML = '<p class="drawer-loading">Loading…</p>';
     try {
-      const res = await fetch('/settings');
-      if (!res.ok) throw new Error(res.statusText);
-      const s = await res.json();
+      const [sRes, bRes] = await Promise.all([
+        fetch('/settings'),
+        fetch('/settings/backend'),
+      ]);
+      const s = await sRes.json();
+      const b = await bRes.json();
 
       drawerBody.innerHTML = `
-        <div class="settings-row">
-          <span class="settings-label">Executor Model</span>
-          <span class="settings-value">${s.executor_model}</span>
+        <div class="drawer-section">
+          <div class="drawer-section-label">BACKEND</div>
+          <div class="drawer-row"><span>Active</span><span>${b.active_backend === 'claude' ? 'Claude' : 'Ollama'}</span></div>
         </div>
-        <div class="settings-row">
-          <span class="settings-label">Anthropic API Key</span>
-          <span class="settings-value">${s.anthropic_api_key}</span>
+        <div class="drawer-section">
+          <div class="drawer-section-label">CLAUDE</div>
+          <div class="drawer-row"><span>API Key</span><span class="drawer-mono">${s.anthropic_api_key}</span></div>
+          <div class="drawer-row"><span>Planner</span><span class="drawer-mono">claude-haiku-4-5</span></div>
+          <div class="drawer-row"><span>Executor</span><span class="drawer-mono">claude-sonnet-4-6</span></div>
         </div>
-        <div class="settings-row">
-          <span class="settings-label">Telegram Token</span>
-          <span class="settings-value">${s.telegram_token}</span>
+        <div class="drawer-section">
+          <div class="drawer-section-label">OLLAMA</div>
+          <div class="drawer-row"><span>URL</span><span class="drawer-mono">${b.ollama_base_url}</span></div>
+          <div class="drawer-section-label drawer-sub-label">ROUTING TABLE</div>
+          <div class="drawer-row"><span>planner</span><span class="drawer-mono">qwen3.5:2b</span></div>
+          <div class="drawer-row"><span>fast</span><span class="drawer-mono">qwen3.5:2b</span></div>
+          <div class="drawer-row"><span>coder</span><span class="drawer-mono">qwen2.5-coder:7b</span></div>
+          <div class="drawer-row"><span>general</span><span class="drawer-mono">qwen3.5:9b</span></div>
         </div>
-        <div class="settings-row">
-          <span class="settings-label">Brave API Key</span>
-          <span class="settings-value">${s.brave_api_key}</span>
-        </div>
-        <p class="settings-note">
-          To change settings, update your <code>.env</code> file and restart Mahoraga.
-        </p>
+        <p class="drawer-hint">To change settings, edit your .env file and restart Mahoraga.</p>
       `;
     } catch (err) {
-      drawerBody.innerHTML = `<p class="drawer-loading">Failed to load settings: ${err.message}</p>`;
+      drawerBody.innerHTML = `<p class="drawer-loading">Failed to load settings.</p>`;
     }
   }
 

@@ -519,3 +519,41 @@ html, body { height: 100%; overflow: hidden; }
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* ── Settings drawer sections ── */
+.drawer-section {
+  margin-bottom: 20px;
+}
+.drawer-section-label {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  margin-bottom: 6px;
+}
+.drawer-sub-label {
+  margin-top: 12px;
+}
+.drawer-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 5px 0;
+  font-size: 13px;
+  color: var(--text-primary);
+  border-bottom: 1px solid var(--divider);
+}
+.drawer-row:last-child {
+  border-bottom: none;
+}
+.drawer-mono {
+  font-family: var(--font-mono, monospace);
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.drawer-hint {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 16px;
+}

@@ -447,6 +447,30 @@ async def logs_recent(store: StoreDep, user_id: str = "web-user", limit: int = 2
     }
 
 
+@app.get("/settings")
+async def get_settings():
+    """Return current configuration (read-only). Sensitive values are masked."""
+
+    def mask(val: str | None) -> str:
+        if not val:
+            return "(not set)"
+        if len(val) <= 8:
+            return "••••••••"
+        return val[:4] + "••••" + val[-4:]
+
+    api_key = os.getenv("ANTHROPIC_API_KEY")
+    tg_token = os.getenv("TELEGRAM_BOT_TOKEN")
+    brave_key = os.getenv("BRAVE_API_KEY")
+
+    return {
+        "executor_model": "claude-sonnet-4-6",
+        "anthropic_api_key": mask(api_key),
+        "telegram_token": mask(tg_token),
+        "brave_api_key": mask(brave_key),
+        "configured": bool(api_key),
+    }
+
+
 @app.delete("/runs/{run_id}")
 async def cancel_run(run_id: str, store: StoreDep):
     run = await store.missions.get_run(run_id)

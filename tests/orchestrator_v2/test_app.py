@@ -303,3 +303,53 @@ async def test_cost_summary_empty(store, registry):
     assert data["breakdown"] == []
 
     app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_missions_active_none(store, registry):
+    app.dependency_overrides[get_store] = lambda: store
+    app.dependency_overrides[get_registry] = lambda: registry
+    app.dependency_overrides[get_verifier] = lambda: _make_pass_verifier()
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.get("/missions/active")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["mission"] is None
+    assert data["tasks"] == []
+
+    app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_missions_active_returns_tasks(store, registry):
+    mission = Mission.new(title="Test", goal="Do something")
+    await store.missions.save(mission)
+
+    plan = Plan.new(mission_id=mission.id)
+    run = Run.new(mission_id=mission.id, plan_id=plan.id, mode=RunMode.direct)
+    await store.missions.save_plan(plan)
+    await store.missions.save_run(run)
+
+    task = Task.new(run_id=run.id, title="Step 1", goal="Do step 1")
+    task = dataclasses.replace(task, status=TaskStatus.in_progress)
+    await store.tasks.save(task)
+
+    app.dependency_overrides[get_store] = lambda: store
+    app.dependency_overrides[get_registry] = lambda: registry
+    app.dependency_overrides[get_verifier] = lambda: _make_pass_verifier()
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.get("/missions/active")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["mission"]["id"] == mission.id
+    assert len(data["tasks"]) == 1
+    assert data["tasks"][0]["title"] == "Step 1"
+    assert data["tasks"][0]["status"] == "in_progress"
+
+    app.dependency_overrides.clear()

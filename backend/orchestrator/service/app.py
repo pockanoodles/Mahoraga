@@ -1,6 +1,7 @@
 from __future__ import annotations
 import datetime
 import logging
+import time
 import os
 from contextlib import asynccontextmanager
 from typing import Annotated
@@ -365,6 +366,63 @@ async def cost_summary(store: StoreDep, user_id: str = "web-user"):
         "session_usd": round(session_usd, 6),
         "total_usd": round(total_usd, 6),
         "breakdown": breakdown,
+    }
+
+
+@app.get("/missions/active")
+async def get_active_mission(store: StoreDep):
+    """Return the most recently active mission's task graph for the vine chart."""
+    all_runs = await store.missions.list_all_runs()
+    active_run = None
+    for run in all_runs:
+        if run.status in (RunStatus.active, RunStatus.paused):
+            active_run = run
+            break
+
+    if active_run is None:
+        return {"mission": None, "run": None, "tasks": []}
+
+    mission = await store.missions.get(active_run.mission_id)
+    tasks = await store.tasks.list_by_run(active_run.id)
+
+    task_items = []
+    for task in tasks:
+        attempts = await store.tasks.list_attempts(task.id)
+        worker_id = ""
+        if attempts:
+            worker_id = attempts[-1].worker_id
+
+        elapsed = 0.0
+        if attempts:
+            latest = attempts[-1]
+            ref_time = latest.started_at or latest.ended_at
+            if ref_time is not None:
+                elapsed = round(time.time() - ref_time, 1)
+
+        task_items.append({
+            "id": task.id,
+            "title": task.title,
+            "status": task.status.value,
+            "parent_task_id": task.parent_task_id,
+            "dependencies": [
+                {"task_id": d.task_id, "type": d.type.value}
+                for d in task.dependencies
+            ],
+            "worker_id": worker_id,
+            "elapsed_seconds": elapsed,
+        })
+
+    return {
+        "mission": {
+            "id": mission.id,
+            "title": mission.title,
+            "goal": mission.goal,
+        } if mission else None,
+        "run": {
+            "id": active_run.id,
+            "status": active_run.status.value,
+        },
+        "tasks": task_items,
     }
 
 

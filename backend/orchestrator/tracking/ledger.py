@@ -76,3 +76,31 @@ class CostLedger:
         ) as cur:
             row = await cur.fetchone()
             return float(row[0])
+
+    async def cost_by_model(
+        self,
+        user_id: str,
+        since: float | None = None,
+    ) -> list[dict]:
+        """Return per-model cost breakdown for a user, optionally since a timestamp."""
+        if since is not None:
+            query = """
+                SELECT model, COALESCE(SUM(cost_usd), 0.0) as total
+                FROM cost_ledger
+                WHERE user_id = ? AND created_at >= ?
+                GROUP BY model
+                ORDER BY total DESC
+            """
+            params = (user_id, since)
+        else:
+            query = """
+                SELECT model, COALESCE(SUM(cost_usd), 0.0) as total
+                FROM cost_ledger
+                WHERE user_id = ?
+                GROUP BY model
+                ORDER BY total DESC
+            """
+            params = (user_id,)
+        async with self._conn.execute(query, params) as cur:
+            rows = await cur.fetchall()
+        return [{"model": row[0], "cost_usd": float(row[1])} for row in rows]

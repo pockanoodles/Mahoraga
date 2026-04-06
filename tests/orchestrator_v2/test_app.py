@@ -281,3 +281,25 @@ async def test_generate_plan_mission_not_found(store, registry, client):
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
         resp = await ac.post("/missions/nonexistent/generate")
     assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_cost_summary_empty(store, registry):
+    app.dependency_overrides[get_store] = lambda: store
+    app.dependency_overrides[get_registry] = lambda: registry
+    app.dependency_overrides[get_verifier] = lambda: _make_pass_verifier()
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.get("/cost/summary")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "session_usd" in data
+    assert "total_usd" in data
+    assert "breakdown" in data
+    assert data["session_usd"] == 0.0
+    assert data["total_usd"] == 0.0
+    assert data["breakdown"] == []
+
+    app.dependency_overrides.clear()

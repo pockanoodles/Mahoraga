@@ -1,4 +1,5 @@
 from __future__ import annotations
+import datetime
 import logging
 import os
 from contextlib import asynccontextmanager
@@ -345,6 +346,26 @@ async def get_logs(store: StoreDep, limit: int = 5) -> LogsResponse:
             ],
         ))
     return LogsResponse(runs=run_items)
+
+
+@app.get("/cost/summary")
+async def cost_summary(store: StoreDep, user_id: str = "web-user"):
+    if _cost_ledger is None:
+        return {"session_usd": 0.0, "total_usd": 0.0, "breakdown": []}
+
+    today_start = datetime.datetime.utcnow().replace(
+        hour=0, minute=0, second=0, microsecond=0
+    ).timestamp()
+
+    session_usd = await _cost_ledger.cost_since(user_id=user_id, since=today_start)
+    total_usd = await _cost_ledger.total_cost(user_id=user_id)
+    breakdown = await _cost_ledger.cost_by_model(user_id=user_id, since=today_start)
+
+    return {
+        "session_usd": round(session_usd, 6),
+        "total_usd": round(total_usd, 6),
+        "breakdown": breakdown,
+    }
 
 
 @app.delete("/runs/{run_id}")

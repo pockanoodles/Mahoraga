@@ -1,6 +1,6 @@
 /* ── Reset ── */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-html, body { height: 100%; overflow: hidden; }
+html, body { height: 100%; overflow: hidden; font-family: var(--font-ui); color: var(--text-primary); }
 
 /* ── Design Tokens ── */
 :root {
@@ -212,24 +212,51 @@ html, body { height: 100%; overflow: hidden; }
 
 /* ── Backend toggle chip ── */
 .backend-chip {
+  appearance: none;
+  -webkit-appearance: none;
   font-family: var(--font-ui);
-  font-size: 12px;
-  font-weight: 500;
-  padding: 4px 10px;
-  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  padding: 4px 10px 4px 8px;
+  border-radius: 20px;
   border: 1px solid var(--divider);
   cursor: pointer;
-  transition: background 0.15s, color 0.15s;
+  transition: background 0.2s, color 0.2s, border-color 0.2s;
   background: var(--bg-surface);
   color: var(--text-muted);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  line-height: 1;
+}
+.backend-chip::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  flex-shrink: 0;
+  transition: background 0.2s;
 }
 .backend-chip.chip-active {
+  background: rgba(0, 122, 255, 0.12);
+  color: var(--accent);
+  border-color: rgba(0, 122, 255, 0.3);
+}
+.backend-chip.chip-active::before {
   background: var(--accent);
-  color: #fff;
-  border-color: var(--accent);
+}
+.backend-chip.chip-ollama {
+  background: rgba(63, 185, 80, 0.1);
+  color: var(--success);
+  border-color: rgba(63, 185, 80, 0.3);
+}
+.backend-chip.chip-ollama::before {
+  background: var(--success);
 }
 .backend-chip:hover {
-  opacity: 0.85;
+  opacity: 0.8;
 }
 
 /* ── Divider ── */
@@ -258,9 +285,10 @@ html, body { height: 100%; overflow: hidden; }
 .sidebar {
   display: flex;
   flex-direction: column;
+  height: 100%;
+  overflow: hidden;
   background: var(--bg-sidebar);
   border-right: 1px solid var(--divider);
-  overflow: hidden;
   transition: width 0.2s ease;
   flex-shrink: 0;
 }
@@ -287,6 +315,32 @@ html, body { height: 100%; overflow: hidden; }
 .sidebar-section {
   border-bottom: 1px solid var(--divider);
   flex-shrink: 0;
+}
+#vine-section {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+#vine-section .section-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+#vine-container {
+  flex: 1;
+  min-height: 120px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  position: relative;
+}
+#vine-svg {
+  flex: 1;
+  min-height: 120px;
+  display: block;
+  overflow: visible;
 }
 .section-header {
   display: flex;
@@ -321,12 +375,14 @@ html, body { height: 100%; overflow: hidden; }
 
 /* ── Vine Chart ── */
 .vine-empty {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   font-family: var(--font-ui);
   font-size: 12px;
   color: var(--text-muted);
-  text-align: center;
-  padding: 24px 14px;
-  display: none;
+  min-height: 80px;
 }
 .vine-tooltip {
   position: absolute;

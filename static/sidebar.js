@@ -36,14 +36,43 @@
     return `M ${x1} ${y1} C ${x1} ${midY}, ${x2} ${midY}, ${x2} ${y2}`;
   }
 
-  // ── Tree layout ──────────────────────────────────────────────────────────
+  // ── Tree / Pipeline layout ───────────────────────────────────────────────
 
-  function buildLayout(tasks, containerWidth) {
-    const NODE_R = 14;
-    const LEVEL_H = 90;
+  function buildLayout(tasks, containerWidth, containerHeight) {
+    const NODE_R = 7;
+    const SPINE_X = 22;          // x position of the vertical spine line
+    const STEP_Y = 56;           // vertical spacing between nodes
+    const PADDING_TOP = 20;
+    const LABEL_X = SPINE_X + NODE_R + 10;
+
     const taskMap = Object.fromEntries(tasks.map(t => [t.id, t]));
 
-    // Build children map from parent_task_id
+    // Check if there are real parent relationships
+    const hasBranching = tasks.some(t => t.parent_task_id);
+
+    if (!hasBranching) {
+      // ── Pipeline mode: vertical single-column layout ──
+      const positions = {};
+      tasks.forEach((task, i) => {
+        positions[task.id] = {
+          x: SPINE_X,
+          y: PADDING_TOP + i * STEP_Y,
+          labelX: LABEL_X,
+          labelY: PADDING_TOP + i * STEP_Y,
+        };
+      });
+      const svgHeight = Math.max(tasks.length * STEP_Y + PADDING_TOP, containerHeight || 120);
+      return {
+        positions, taskMap,
+        children: {},
+        roots: tasks.map(t => t.id),
+        svgHeight, NODE_R,
+        spineX: SPINE_X,
+        mode: 'pipeline',
+      };
+    }
+
+    // ── Tree mode: existing BFS level layout ──
     const children = {};
     const roots = [];
     for (const task of tasks) {
@@ -55,15 +84,9 @@
       }
     }
 
-    // If no parent relationships, treat all tasks as roots in a linear chain
-    if (roots.length === 0 && tasks.length > 0) {
-      tasks.forEach(t => roots.push(t.id));
-    }
-
-    // Assign levels via BFS
     const level = {};
     const queue = [...roots];
-    roots.forEach(id => level[id] = 0);
+    roots.forEach(id => (level[id] = 0));
     const visited = new Set(roots);
     while (queue.length) {
       const id = queue.shift();
@@ -75,12 +98,10 @@
         }
       }
     }
-    // Any node not reached by BFS gets level 0
     for (const task of tasks) {
       if (level[task.id] === undefined) level[task.id] = 0;
     }
 
-    // Group by level
     const byLevel = {};
     for (const task of tasks) {
       const l = level[task.id];
@@ -88,7 +109,7 @@
       byLevel[l].push(task.id);
     }
 
-    // Assign x positions: evenly spaced
+    const LEVEL_H = 80;
     const positions = {};
     for (const [l, ids] of Object.entries(byLevel)) {
       const count = ids.length;
@@ -96,15 +117,16 @@
         positions[id] = {
           x: ((i + 1) / (count + 1)) * containerWidth,
           y: parseInt(l) * LEVEL_H + NODE_R + 20,
+          labelX: ((i + 1) / (count + 1)) * containerWidth,
+          labelY: parseInt(l) * LEVEL_H + NODE_R + 20,
         };
       });
     }
 
-    // Total SVG height
     const maxLevel = Math.max(...Object.keys(byLevel).map(Number), 0);
     const svgHeight = (maxLevel + 1) * LEVEL_H + NODE_R * 2 + 40;
 
-    return { positions, children, roots, taskMap, svgHeight, NODE_R };
+    return { positions, children, roots, taskMap, svgHeight, NODE_R, mode: 'tree' };
   }
 
   // ── Vine renderer ────────────────────────────────────────────────────────
@@ -125,45 +147,73 @@
     svg.style.display = 'block';
     vineEmpty.style.display = 'none';
 
-    const containerWidth = svg.parentElement.clientWidth || 280;
-    const { positions, children, taskMap, svgHeight, NODE_R } = buildLayout(tasks, containerWidth);
+    const containerWidth = svg.parentElement?.clientWidth || 260;
+    const containerHeight = svg.parentElement?.clientHeight || 200;
+    const layout = buildLayout(tasks, containerWidth, containerHeight);
+    const { positions, children, taskMap, svgHeight, NODE_R, mode, spineX } = layout;
 
+    svg.setAttribute('width', containerWidth);
     svg.setAttribute('height', svgHeight);
     svg.setAttribute('viewBox', `0 0 ${containerWidth} ${svgHeight}`);
+    svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
 
-    // Draw edges first (behind nodes)
-    const edgeGroup = svgEl('g', { class: 'edges' });
-    for (const [parentId, childIds] of Object.entries(children)) {
-      const p = positions[parentId];
-      if (!p) continue;
-      for (const childId of childIds) {
-        const c = positions[childId];
-        if (!c) continue;
-        const childTask = taskMap[childId];
-        const isActive = childTask?.status === 'in_progress';
-        const isDone = childTask?.status === 'done' || childTask?.status === 'completed';
-        const isFailed = childTask?.status === 'failed';
+    // ── Defs (glow filter) ──────────────────────────────────────────────────
+    const defs = svgEl('defs');
+    const glowFilter = svgEl('filter', { id: 'node-glow', x: '-80%', y: '-80%', width: '260%', height: '260%' });
+    const blur = svgEl('feGaussianBlur', { in: 'SourceGraphic', stdDeviation: '3.5', result: 'blur' });
+    const merge = svgEl('feMerge');
+    merge.appendChild(svgEl('feMergeNode', { in: 'blur' }));
+    merge.appendChild(svgEl('feMergeNode', { in: 'SourceGraphic' }));
+    glowFilter.appendChild(blur);
+    glowFilter.appendChild(merge);
+    defs.appendChild(glowFilter);
+    svg.appendChild(defs);
 
-        let stroke = '#3a3a5a';
-        let opacity = '0.5';
-        if (isActive) { stroke = '#007AFF'; opacity = '0.9'; }
-        else if (isDone) { stroke = '#3fb950'; opacity = '0.3'; }
-        else if (isFailed) { stroke = '#f85149'; opacity = '0.6'; }
-
-        const path = svgEl('path', {
-          d: bezierPath(p.x, p.y + NODE_R, c.x, c.y - NODE_R),
-          stroke,
-          'stroke-width': isActive ? '2' : '1.5',
-          fill: 'none',
-          opacity,
-        });
-        edgeGroup.appendChild(path);
-      }
+    // ── Pipeline spine line ─────────────────────────────────────────────────
+    if (mode === 'pipeline' && tasks.length > 1) {
+      const firstPos = positions[tasks[0].id];
+      const lastPos = positions[tasks[tasks.length - 1].id];
+      const spine = svgEl('line', {
+        x1: spineX, y1: firstPos.y,
+        x2: spineX, y2: lastPos.y,
+        stroke: '#2a2a40',
+        'stroke-width': '2',
+      });
+      svg.appendChild(spine);
     }
-    svg.appendChild(edgeGroup);
 
-    // Draw nodes
-    const nodeGroup = svgEl('g', { class: 'nodes' });
+    // ── Tree edges (bezier) ──────────────────────────────────────────────────
+    if (mode === 'tree') {
+      const edgeGroup = svgEl('g');
+      for (const [parentId, childIds] of Object.entries(children)) {
+        const p = positions[parentId];
+        if (!p) continue;
+        for (const childId of childIds) {
+          const c = positions[childId];
+          if (!c) continue;
+          const childTask = taskMap[childId];
+          const isActive = childTask?.status === 'in_progress';
+          const isDone = childTask?.status === 'done' || childTask?.status === 'completed';
+          const isFailed = childTask?.status === 'failed';
+
+          let stroke = '#2a2a40';
+          if (isActive) stroke = 'rgba(0,122,255,0.6)';
+          else if (isDone) stroke = 'rgba(63,185,80,0.25)';
+          else if (isFailed) stroke = 'rgba(248,81,73,0.4)';
+
+          const path = svgEl('path', {
+            d: bezierPath(p.x, p.y + NODE_R, c.x, c.y - NODE_R),
+            stroke, 'stroke-width': '1.5', fill: 'none',
+          });
+          edgeGroup.appendChild(path);
+        }
+      }
+      svg.appendChild(edgeGroup);
+    }
+
+    // ── Nodes ────────────────────────────────────────────────────────────────
+    const nodeGroup = svgEl('g');
+
     for (const task of tasks) {
       const pos = positions[task.id];
       if (!pos) continue;
@@ -172,113 +222,118 @@
       const isDone = task.status === 'done' || task.status === 'completed';
       const isFailed = task.status === 'failed';
 
-      // Outer ring color
-      let ringColor = '#3a3a5a';
-      if (isActive) ringColor = '#007AFF';
-      else if (isDone) ringColor = '#3fb950';
-      else if (isFailed) ringColor = '#f85149';
+      const ringColor = isActive ? '#007AFF'
+        : isDone ? '#3fb950'
+        : isFailed ? '#f85149'
+        : '#3a3a5a';
 
-      // Inner fill: agent color
-      const fillColor = task.worker_id ? agentColor(task.worker_id) : '#2a2a3e';
+      const fillColor = task.worker_id ? agentColor(task.worker_id) : '#1e1e2e';
+      const nodeOpacity = isDone ? 0.5 : 1;
 
-      // Glow filter for active nodes
+      const g = svgEl('g', { style: 'cursor:pointer' });
+
+      // Pulse rings for active nodes
       if (isActive) {
-        const filterId = `glow-${task.id.slice(0, 6)}`;
-        const defs = svg.querySelector('defs') || svg.insertBefore(svgEl('defs'), svg.firstChild);
-        const filter = svgEl('filter', { id: filterId, x: '-50%', y: '-50%', width: '200%', height: '200%' });
-        const feGaussianBlur = svgEl('feGaussianBlur', { stdDeviation: '3', result: 'coloredBlur' });
-        const feMerge = svgEl('feMerge');
-        feMerge.appendChild(svgEl('feMergeNode', { in: 'coloredBlur' }));
-        feMerge.appendChild(svgEl('feMergeNode', { in: 'SourceGraphic' }));
-        filter.appendChild(feGaussianBlur);
-        filter.appendChild(feMerge);
-        defs.appendChild(filter);
-
-        // Animated outer ring
-        const pulseCircle = svgEl('circle', {
-          cx: pos.x, cy: pos.y,
-          r: NODE_R + 5,
-          fill: 'none',
-          stroke: '#007AFF',
-          'stroke-width': '1.5',
-          opacity: '0.4',
-        });
-        const animate = svgEl('animate', {
-          attributeName: 'r',
-          from: NODE_R + 2, to: NODE_R + 9,
-          dur: '1.5s', repeatCount: 'indefinite',
-        });
-        const animateOp = svgEl('animate', {
-          attributeName: 'opacity',
-          from: '0.4', to: '0',
-          dur: '1.5s', repeatCount: 'indefinite',
-        });
-        pulseCircle.appendChild(animate);
-        pulseCircle.appendChild(animateOp);
-        nodeGroup.appendChild(pulseCircle);
+        for (let ring = 0; ring < 2; ring++) {
+          const pulse = svgEl('circle', {
+            cx: pos.x, cy: pos.y,
+            r: NODE_R + 4,
+            fill: 'none',
+            stroke: '#007AFF',
+            'stroke-width': '1',
+            opacity: '0',
+          });
+          const delay = ring * 0.75;
+          pulse.innerHTML = `
+            <animate attributeName="r" from="${NODE_R + 2}" to="${NODE_R + 14}" dur="1.5s" begin="${delay}s" repeatCount="indefinite"/>
+            <animate attributeName="opacity" from="0.5" to="0" dur="1.5s" begin="${delay}s" repeatCount="indefinite"/>
+          `;
+          g.appendChild(pulse);
+        }
       }
 
-      // Outer ring
-      const outerCircle = svgEl('circle', {
+      // Node circle
+      const circle = svgEl('circle', {
         cx: pos.x, cy: pos.y, r: NODE_R,
         fill: fillColor,
         stroke: ringColor,
-        'stroke-width': isActive ? '2.5' : '2',
-        opacity: isDone ? '0.55' : '1',
-        filter: isActive ? `url(#glow-${task.id.slice(0, 6)})` : '',
+        'stroke-width': isActive ? '2.5' : '1.5',
+        opacity: nodeOpacity,
+        filter: isActive ? 'url(#node-glow)' : '',
       });
+      g.appendChild(circle);
 
-      // Hover events
-      const g = svgEl('g', { class: 'node-group', style: 'cursor:pointer' });
-      g.appendChild(outerCircle);
-
-      // Label below node
-      const label = svgEl('text', {
-        x: pos.x, y: pos.y + NODE_R + 12,
-        'text-anchor': 'middle',
-        'font-family': 'var(--font-ui, system-ui)',
-        'font-size': '9',
-        fill: isDone ? '#6b6b8a' : '#e8e8f0',
-      });
-      const taskTitle = (task.title || '').length > 18
-        ? task.title.slice(0, 16) + '…'
-        : (task.title || '');
-      label.textContent = taskTitle;
-      g.appendChild(label);
-
-      if (task.worker_id) {
-        const workerLabel = svgEl('text', {
-          x: pos.x, y: pos.y + NODE_R + 22,
-          'text-anchor': 'middle',
-          'font-family': 'var(--font-mono, monospace)',
-          'font-size': '7',
-          fill: agentColor(task.worker_id),
-          opacity: '0.8',
+      // Pipeline mode: label to the RIGHT of the node
+      if (mode === 'pipeline') {
+        const titleEl = svgEl('text', {
+          x: pos.labelX + 4, y: pos.labelY - 2,
+          'font-family': 'var(--font-ui, system-ui)',
+          'font-size': '11',
+          'font-weight': isDone ? '400' : '500',
+          fill: isDone ? '#5a5a72' : isActive ? '#e8e8f0' : '#9090aa',
         });
-        const shortWorker = task.worker_id.replace('claude:', '').replace('ollama:', '');
-        workerLabel.textContent = shortWorker;
-        g.appendChild(workerLabel);
+        const title = (task.title || '').length > 22
+          ? task.title.slice(0, 20) + '…'
+          : (task.title || '');
+        titleEl.textContent = title;
+        g.appendChild(titleEl);
+
+        if (task.worker_id) {
+          const workerEl = svgEl('text', {
+            x: pos.labelX + 4, y: pos.labelY + 11,
+            'font-family': 'var(--font-mono, monospace)',
+            'font-size': '9',
+            fill: agentColor(task.worker_id),
+            opacity: isDone ? '0.5' : '0.8',
+          });
+          workerEl.textContent = task.worker_id.replace('claude:', '').replace('ollama:', '');
+          g.appendChild(workerEl);
+        }
+      } else {
+        // Tree mode: label below
+        const titleEl = svgEl('text', {
+          x: pos.x, y: pos.y + NODE_R + 12,
+          'text-anchor': 'middle',
+          'font-family': 'var(--font-ui, system-ui)',
+          'font-size': '9',
+          fill: isDone ? '#5a5a72' : '#e8e8f0',
+        });
+        titleEl.textContent = (task.title || '').length > 14
+          ? task.title.slice(0, 12) + '…'
+          : (task.title || '');
+        g.appendChild(titleEl);
+
+        if (task.worker_id) {
+          const workerEl = svgEl('text', {
+            x: pos.x, y: pos.y + NODE_R + 22,
+            'text-anchor': 'middle',
+            'font-family': 'var(--font-mono, monospace)',
+            'font-size': '7',
+            fill: agentColor(task.worker_id),
+            opacity: '0.7',
+          });
+          workerEl.textContent = task.worker_id.replace('claude:', '').replace('ollama:', '');
+          g.appendChild(workerEl);
+        }
       }
 
       // Tooltip
       g.addEventListener('mouseenter', (e) => {
-        const statusEmoji = isActive ? '⟳' : isDone ? '✓' : isFailed ? '✗' : '○';
+        const statusLabel = isActive ? 'Running' : isDone ? 'Done' : isFailed ? 'Failed' : 'Pending';
         tooltip.innerHTML = `
-          <strong>${task.title || '—'}</strong><br>
-          ${statusEmoji} ${task.status}<br>
-          ${task.worker_id ? '⚙ ' + task.worker_id + '<br>' : ''}
-          ${task.elapsed_seconds ? '⏱ ' + task.elapsed_seconds + 's' : ''}
+          <div class="tt-title">${esc(task.title || '—')}</div>
+          <div class="tt-row">${statusLabel}${task.elapsed_seconds ? ' · ' + task.elapsed_seconds + 's' : ''}</div>
+          ${task.worker_id ? `<div class="tt-row">${esc(task.worker_id)}</div>` : ''}
         `.trim();
         tooltip.style.display = 'block';
         positionTooltip(e);
       });
       g.addEventListener('mousemove', positionTooltip);
-      g.addEventListener('mouseleave', () => {
-        tooltip.style.display = 'none';
-      });
+      g.addEventListener('mouseleave', () => { tooltip.style.display = 'none'; });
 
       nodeGroup.appendChild(g);
     }
+
     svg.appendChild(nodeGroup);
   }
 

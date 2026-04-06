@@ -9,7 +9,7 @@ from typing import Annotated
 from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException
 from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 import anthropic
 
@@ -23,7 +23,9 @@ from ..store.base import Store
 from ..store.chat_log import ChatLogStore
 from ..tracking.ledger import CostLedger
 from ..verifier.verifier import Verifier
+from ..config import MahoragaConfig
 from ..workers.claude import ClaudeWorker
+from ..workers.ollama import OllamaWorker
 from ..workers.registry import WorkerRegistry
 from .approvals import grant_approval, reject_approval
 from .executor import run_task as _run_task
@@ -38,6 +40,7 @@ _verifier: Verifier | None = None
 _gateway: Gateway | None = None
 _adaptive_store: AdaptiveStore | None = None
 _cost_ledger: CostLedger | None = None
+_config: MahoragaConfig | None = None
 
 
 def get_store() -> Store:
@@ -75,7 +78,7 @@ async def lifespan(app: FastAPI):
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
         force=True,
     )
-    global _store, _registry, _verifier, _gateway, _adaptive_store, _cost_ledger
+    global _store, _registry, _verifier, _gateway, _adaptive_store, _cost_ledger, _config
     _store = await Store.connect()
     _registry = WorkerRegistry()
 
@@ -99,6 +102,14 @@ async def lifespan(app: FastAPI):
                 return VerificationResult(score=10, passed=True, feedback="", action="pass")
         _verifier = _PassthroughVerifier()
 
+    # Register Ollama workers — available regardless of active_backend
+    _config = MahoragaConfig()
+    ollama_url = _config.get("ollama_base_url")
+    _registry.register(OllamaWorker(model="qwen3.5:2b",       worker_id="ollama:planner", base_url=ollama_url))
+    _registry.register(OllamaWorker(model="qwen3.5:2b",       worker_id="ollama:fast",    base_url=ollama_url))
+    _registry.register(OllamaWorker(model="qwen2.5-coder:7b", worker_id="ollama:coder",   base_url=ollama_url))
+    _registry.register(OllamaWorker(model="qwen3.5:9b",       worker_id="ollama:general", base_url=ollama_url))
+
     # Orphan recovery: tasks left in_progress from a crashed previous run
     for orphan in await _store.tasks.list_by_status(TaskStatus.in_progress):
         await _store.tasks.update_status(orphan.id, TaskStatus.failed)
@@ -116,6 +127,7 @@ async def lifespan(app: FastAPI):
         verifier=_verifier,
         adaptive_store=_adaptive_store,
         cost_ledger=_cost_ledger,
+        config=_config,
     )
 
     yield
@@ -469,6 +481,30 @@ async def get_settings():
         "brave_api_key": mask(brave_key),
         "configured": bool(api_key),
     }
+
+
+class _BackendSettings(BaseModel):
+    active_backend: str
+
+    @field_validator("active_backend")
+    @classmethod
+    def validate_backend(cls, v: str) -> str:
+        if v not in ("claude", "ollama"):
+            raise ValueError("active_backend must be 'claude' or 'ollama'")
+        return v
+
+
+@app.get("/settings/backend")
+async def get_backend_settings():
+    """Return current backend config (active_backend + ollama_base_url)."""
+    return _config.all()
+
+
+@app.post("/settings/backend")
+async def set_backend_settings(req: _BackendSettings):
+    """Switch the active backend. Takes effect on the next request — no restart needed."""
+    _config.set("active_backend", req.active_backend)
+    return _config.all()
 
 
 @app.delete("/runs/{run_id}")

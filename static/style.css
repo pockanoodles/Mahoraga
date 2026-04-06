@@ -75,16 +75,16 @@ html, body { height: 100%; overflow: hidden; }
 .messages::-webkit-scrollbar-thumb { background: var(--divider); border-radius: 2px; }
 
 /* ── Message Bubbles ── */
-.msg {
+.message {
   display: flex;
   flex-direction: column;
   gap: 4px;
   max-width: 80%;
 }
-.msg.user { align-self: flex-end; }
-.msg.assistant { align-self: flex-start; }
+.message.user { align-self: flex-end; }
+.message.assistant { align-self: flex-start; }
 
-.msg-bubble {
+.bubble {
   padding: 10px 14px;
   border-radius: var(--radius-card);
   font-family: var(--font-ui);
@@ -92,17 +92,17 @@ html, body { height: 100%; overflow: hidden; }
   line-height: 1.6;
   color: var(--text-primary);
 }
-.msg.user .msg-bubble {
+.message.user .bubble {
   background: var(--accent);
   border-bottom-right-radius: 4px;
 }
-.msg.assistant .msg-bubble {
+.message.assistant .bubble {
   background: var(--bg-surface);
   border-bottom-left-radius: 4px;
 }
 
 /* ── Streaming cursor ── */
-.msg-bubble .cursor {
+.bubble .cursor {
   display: inline-block;
   width: 2px;
   height: 14px;
@@ -114,7 +114,7 @@ html, body { height: 100%; overflow: hidden; }
 @keyframes blink { 50% { opacity: 0; } }
 
 /* ── Code blocks ── */
-.msg-bubble pre {
+.bubble pre {
   background: var(--bg-inset);
   border: 1px solid var(--divider);
   border-radius: 8px;
@@ -123,12 +123,12 @@ html, body { height: 100%; overflow: hidden; }
   margin: 8px 0;
   position: relative;
 }
-.msg-bubble code {
+.bubble code {
   font-family: var(--font-mono);
   font-size: 13px;
   color: var(--text-code);
 }
-.msg-bubble p > code {
+.bubble p > code {
   background: var(--bg-inset);
   padding: 1px 5px;
   border-radius: 4px;
@@ -212,7 +212,7 @@ html, body { height: 100%; overflow: hidden; }
 
 /* ── Divider ── */
 .divider {
-  width: 4px;
+  width: 20px;
   cursor: col-resize;
   background: var(--divider);
   flex-shrink: 0;
@@ -220,27 +220,29 @@ html, body { height: 100%; overflow: hidden; }
   align-items: center;
   justify-content: center;
   transition: background 0.15s;
+  position: relative;
 }
-.divider:hover, .divider.dragging { background: var(--accent); }
-.divider-handle {
-  width: 4px;
-  height: 40px;
-  border-radius: 2px;
-  background: var(--text-muted);
-  opacity: 0.4;
+.divider:hover, .divider.dragging { background: var(--bg-surface); }
+.divider #sidebar-collapse-btn {
+  font-size: 14px;
+  padding: 6px 2px;
+  color: var(--text-muted);
+  z-index: 1;
+  cursor: pointer;
 }
+.divider #sidebar-collapse-btn:hover { color: var(--text-primary); background: none; }
 
 /* ── Sidebar ── */
 .sidebar {
   display: flex;
   flex-direction: column;
   background: var(--bg-sidebar);
-  border-left: 1px solid var(--divider);
+  border-right: 1px solid var(--divider);
   overflow: hidden;
   transition: width 0.2s ease;
   flex-shrink: 0;
 }
-.sidebar.collapsed { width: 0 !important; border-left: none; }
+.sidebar.collapsed { width: 0 !important; border-right: none; }
 
 .sidebar-header {
   display: flex;
@@ -301,7 +303,7 @@ html, body { height: 100%; overflow: hidden; }
   font-size: 12px;
   color: var(--text-muted);
   text-align: center;
-  padding: 24px 0;
+  padding: 24px 14px;
   display: none;
 }
 .vine-tooltip {

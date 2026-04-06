@@ -9,12 +9,16 @@
   function openDrawer() {
     overlay.style.display = 'block';
     drawer.style.display = 'flex';
+    requestAnimationFrame(() => drawer.classList.add('open'));
     loadSettings();
   }
 
   function closeDrawer() {
-    overlay.style.display = 'none';
-    drawer.style.display = 'none';
+    drawer.classList.remove('open');
+    setTimeout(() => {
+      overlay.style.display = 'none';
+      drawer.style.display = 'none';
+    }, 250);
   }
 
   async function loadSettings() {

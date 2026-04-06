@@ -35,7 +35,7 @@
 
   document.addEventListener('mousemove', function (e) {
     if (!dragging) return;
-    const delta = startX - e.clientX;
+    const delta = e.clientX - startX;
     const newWidth = Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, startWidth + delta));
     sidebar.style.width = newWidth + 'px';
   });
@@ -53,10 +53,7 @@
   collapseBtn.addEventListener('click', function () {
     const collapsed = sidebar.classList.toggle('collapsed');
     collapseBtn.textContent = collapsed ? '›' : '‹';
-    if (collapsed) {
-      divider.style.display = 'none';
-    } else {
-      divider.style.display = '';
+    if (!collapsed) {
       const restored = parseInt(localStorage.getItem(STORAGE_KEY), 10);
       sidebar.style.width = (!isNaN(restored) ? restored : DEFAULT_WIDTH) + 'px';
     }

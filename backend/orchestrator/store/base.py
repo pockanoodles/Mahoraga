@@ -137,5 +137,6 @@ class Store:
         conn.row_factory = aiosqlite.Row
         await migrate(conn)
         store = cls(conn)
+        # chat_log runs its own migration — must come after base schema
         await store.chat_log.migrate()
         return store

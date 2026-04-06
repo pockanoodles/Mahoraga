@@ -74,14 +74,14 @@ class ChatLogStore:
             rows = await cur.fetchall()
         return [
             ChatLogEntry(
-                id=row[0],
-                user_id=row[1],
-                mission_id=row[2],
-                user_message=row[3],
-                assistant_response=row[4],
-                worker_id=row[5],
-                cost_usd=row[6],
-                created_at=row[7],
+                id=row["id"],
+                user_id=row["user_id"],
+                mission_id=row["mission_id"],
+                user_message=row["user_message"],
+                assistant_response=row["assistant_response"],
+                worker_id=row["worker_id"],
+                cost_usd=row["cost_usd"],
+                created_at=row["created_at"],
             )
             for row in rows
         ]

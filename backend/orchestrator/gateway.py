@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import dataclasses
 import logging
+import time as _time_log
+import uuid as _uuid
 from typing import AsyncGenerator
 
 from .adaptive.learner import Learner
@@ -13,6 +15,7 @@ from .domain.models import Mission, Plan, Run, RunMode, RunStatus, TaskStatus
 from .planning.planner import PlannerError, generate_tasks
 from .service.executor import run_task
 from .store.base import Store
+from .store.chat_log import ChatLogEntry
 from .workers.registry import WorkerRegistry
 from .verifier.verifier import Verifier
 
@@ -151,10 +154,7 @@ class Gateway:
                 pass  # learning must never break responses
 
         # ── Persist chat log entry ────────────────────────────────────────────
-        import uuid as _uuid
-        import time as _time_log
         try:
-            from .store.chat_log import ChatLogEntry
             last_worker_id = ""
             for task in saved_tasks:
                 attempts = await self._store.tasks.list_attempts(task.id)
@@ -172,5 +172,5 @@ class Gateway:
                 created_at=_time_log.time(),
             )
             await self._store.chat_log.save(log_entry)
-        except Exception:
-            pass  # never let logging break responses
+        except Exception as exc:
+            logger.warning("chat log persist failed: %s", exc)

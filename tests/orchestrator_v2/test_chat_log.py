@@ -75,3 +75,33 @@ async def test_chat_log_newest_first(store):
     entries = await store.chat_log.list_recent(user_id="web-user", limit=10)
     assert entries[0].user_message == "msg 2"
     assert entries[2].user_message == "msg 0"
+
+
+@pytest.mark.asyncio
+async def test_chat_log_user_isolation(store):
+    import time
+    entry_a = ChatLogEntry(
+        id="ea1",
+        user_id="user-a",
+        mission_id="m1",
+        user_message="from a",
+        assistant_response="resp a",
+        worker_id="",
+        cost_usd=0.0,
+        created_at=time.time(),
+    )
+    entry_b = ChatLogEntry(
+        id="eb1",
+        user_id="user-b",
+        mission_id="m1",
+        user_message="from b",
+        assistant_response="resp b",
+        worker_id="",
+        cost_usd=0.0,
+        created_at=time.time(),
+    )
+    await store.chat_log.save(entry_a)
+    await store.chat_log.save(entry_b)
+    results = await store.chat_log.list_recent(user_id="user-a", limit=10)
+    assert len(results) == 1
+    assert results[0].user_message == "from a"

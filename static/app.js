@@ -173,3 +173,41 @@
 
   sendBtn.addEventListener('click', submitMessage);
 })();
+
+// ── Backend toggle chip ───────────────────────────────────────────────────────
+(function () {
+  const chip = document.getElementById('backend-chip');
+  if (!chip) return;
+
+  let currentBackend = 'claude';
+
+  async function loadBackend() {
+    try {
+      const res = await fetch('/settings/backend');
+      const data = await res.json();
+      currentBackend = data.active_backend;
+      chip.textContent = currentBackend === 'claude' ? 'Claude ▾' : 'Ollama ▾';
+      chip.classList.toggle('chip-active', currentBackend === 'claude');
+    } catch (_) {
+      // Silently ignore — chip stays in default state
+    }
+  }
+
+  chip.addEventListener('click', async () => {
+    const next = currentBackend === 'claude' ? 'ollama' : 'claude';
+    try {
+      await fetch('/settings/backend', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ active_backend: next }),
+      });
+      currentBackend = next;
+      chip.textContent = next === 'claude' ? 'Claude ▾' : 'Ollama ▾';
+      chip.classList.toggle('chip-active', next === 'claude');
+    } catch (_) {
+      // Silently ignore on network error
+    }
+  });
+
+  loadBackend();
+})();

@@ -210,6 +210,28 @@ html, body { height: 100%; overflow: hidden; }
 }
 .icon-btn:hover { color: var(--text-primary); background: var(--bg-surface); }
 
+/* ── Backend toggle chip ── */
+.backend-chip {
+  font-family: var(--font-ui);
+  font-size: 12px;
+  font-weight: 500;
+  padding: 4px 10px;
+  border-radius: 12px;
+  border: 1px solid var(--divider);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+  background: var(--bg-surface);
+  color: var(--text-muted);
+}
+.backend-chip.chip-active {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+.backend-chip:hover {
+  opacity: 0.85;
+}
+
 /* ── Divider ── */
 .divider {
   width: 20px;

@@ -3,6 +3,11 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+# Controls which backends are registered at startup.
+# personal branch: ["ollama"]
+# main branch:     ["ollama", "claude"]
+ENABLED_BACKENDS: list[str] = ["ollama", "claude"]
+
 _DEFAULTS: dict = {
     "active_backend": "claude",
     "ollama_base_url": "http://localhost:11434",

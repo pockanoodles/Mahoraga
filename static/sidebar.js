@@ -481,4 +481,39 @@
 
   // Expose for app.js to call after message completes
   window.sidebarRefresh = refresh;
+
+  // ── Workflow reset ────────────────────────────────────────────────────────
+
+  async function resetWorkflow() {
+    const btn = document.getElementById('reset-workflow-btn');
+    if (btn) { btn.style.opacity = '0.4'; btn.disabled = true; }
+
+    try {
+      // Cancel the active run on the backend
+      await fetch('/runs/reset', { method: 'POST' });
+    } catch (e) {
+      console.warn('Reset request failed:', e);
+    }
+
+    // Clear vine
+    svg.innerHTML = '';
+    svg.style.display = 'none';
+    vineEmpty.style.display = 'flex';
+
+    // Refresh sidebar state
+    await refresh();
+
+    if (btn) { btn.style.opacity = ''; btn.disabled = false; }
+  }
+
+  const resetBtn = document.getElementById('reset-workflow-btn');
+  if (resetBtn) resetBtn.addEventListener('click', resetWorkflow);
+
+  // Keyboard shortcut: Ctrl+Shift+R (or Cmd+Shift+R)
+  document.addEventListener('keydown', function (e) {
+    if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === 'R') {
+      e.preventDefault();
+      resetWorkflow();
+    }
+  });
 })();

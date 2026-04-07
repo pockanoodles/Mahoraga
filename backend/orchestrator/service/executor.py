@@ -11,6 +11,7 @@ from ..domain.transitions import transition_task
 from ..store.base import Store
 from ..verifier.verifier import Verifier, VerifierError
 from ..verifier.config import MAX_SOFT_RETRIES
+from ..workers.validator import validate_code_output, validate_general_output
 from ..workers.base import WorkerEvent
 from ..workers.registry import WorkerRegistry
 from ..routing.router import assign_worker, NoCapableWorker
@@ -118,13 +119,22 @@ async def run_task(
         if outcome.type == "attempt.completed":
             summary = outcome.payload.get("summary", "")
 
-            try:
-                result = await verifier.verify(task, summary)
-                result_action = result.action
-                result_feedback = result.feedback
-            except VerifierError:
-                result_action = "escalate"
-                result_feedback = "verifier error — escalating to next worker"
+            if worker_id.startswith("ollama:"):
+                # Fast Python heuristic — no LLM API call
+                if worker_id == "ollama:coder":
+                    is_valid, reason = validate_code_output(summary)
+                else:
+                    is_valid, reason = validate_general_output(summary)
+                result_action = "pass" if is_valid else "retry"
+                result_feedback = "" if is_valid else f"Output validation failed: {reason}"
+            else:
+                try:
+                    result = await verifier.verify(task, summary)
+                    result_action = result.action
+                    result_feedback = result.feedback
+                except VerifierError:
+                    result_action = "escalate"
+                    result_feedback = "verifier error — escalating to next worker"
 
             logger.info("verifier action=%s task=%s attempt=%s", result_action, task.id, attempt.id)
 

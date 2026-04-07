@@ -36,8 +36,9 @@ async def test_verify_score_10_returns_pass():
     assert result.action == "pass"
 
 
-async def test_verify_score_7_returns_retry():
-    client = _mock_client(score=7, feedback="missing edge case")
+async def test_verify_score_6_returns_retry():
+    # score 5-6 → retry (RETRY_THRESHOLD=5, PASS_THRESHOLD=7)
+    client = _mock_client(score=6, feedback="missing edge case")
     v = Verifier(client)
     result = await v.verify(make_task(), "output")
     assert result.passed is False
@@ -45,11 +46,21 @@ async def test_verify_score_7_returns_retry():
     assert result.feedback == "missing edge case"
 
 
-async def test_verify_score_4_returns_retry():
+async def test_verify_score_7_returns_pass():
+    # score 7 now passes (PASS_THRESHOLD lowered from 8 to 7)
+    client = _mock_client(score=7, feedback="")
+    v = Verifier(client)
+    result = await v.verify(make_task(), "output")
+    assert result.passed is True
+    assert result.action == "pass"
+
+
+async def test_verify_score_4_returns_escalate():
+    # score 4 now escalates (RETRY_THRESHOLD raised from 4 to 5)
     client = _mock_client(score=4, feedback="incomplete")
     v = Verifier(client)
     result = await v.verify(make_task(), "output")
-    assert result.action == "retry"
+    assert result.action == "escalate"
 
 
 async def test_verify_score_3_returns_escalate():

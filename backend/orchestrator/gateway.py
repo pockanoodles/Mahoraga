@@ -12,7 +12,8 @@ from .adaptive.models import AdaptationCategory, UserAdaptation, UserProfile
 from .adaptive.profile import build_profile_prompt
 from .channels.base import ChannelMessage
 from .config import MahoragaConfig
-from .domain.models import Mission, Plan, Run, RunMode, RunStatus, TaskStatus
+from .domain.models import Mission, Plan, Run, RunMode, RunStatus, Task, TaskStatus
+from .planning.classifier import classify_tier
 from .planning.planner import PlannerError, generate_tasks
 from .service.executor import run_task
 from .store.base import Store
@@ -73,15 +74,32 @@ class Gateway:
         await self._store.missions.save(mission)
         logger.info("gateway: created mission %s for user %s", mission.id, msg.user_id)
 
-        # ── 3. Generate tasks via planner ────────────────────────────────────
-        try:
-            tasks = await generate_tasks(
-                mission, run_id="__pending__", user_profile=user_profile_str
-            )
-        except PlannerError as exc:
-            logger.error("gateway: planner error for mission %s: %s", mission.id, exc)
-            yield f"[Planner error: {exc}]"
-            return
+        # ── 3. Classify tier + generate tasks ────────────────────────────────
+        tier = classify_tier(mission.title, mission.goal)
+        logger.info("gateway: mission %s classified as tier %d", mission.id, tier)
+
+        if tier <= 2:
+            # Skip planner — wrap the whole mission as a single task
+            tasks = [
+                Task.new(
+                    run_id="__pending__",
+                    title=mission.title,
+                    goal=mission.goal,
+                    done_criteria=mission.success_condition or "",
+                    context_refs=[],
+                    constraints=mission.global_constraints or [],
+                )
+            ]
+        else:
+            # Tier 3 — decompose via Haiku planner
+            try:
+                tasks = await generate_tasks(
+                    mission, run_id="__pending__", user_profile=user_profile_str
+                )
+            except PlannerError as exc:
+                logger.error("gateway: planner error for mission %s: %s", mission.id, exc)
+                yield f"[Planner error: {exc}]"
+                return
 
         # ── Route tasks to Ollama workers if ollama backend ───────────────
         active_backend = self._config.get("active_backend")
@@ -119,8 +137,8 @@ class Gateway:
             current = await self._store.tasks.get(task.id)
             if current is None:
                 continue
-            if current.status not in (TaskStatus.ready, TaskStatus.pending):
-                # skip blocked/already-completed tasks
+            if current.status != TaskStatus.ready:
+                # Only execute ready tasks — pending means unmet dependencies
                 continue
 
             try:

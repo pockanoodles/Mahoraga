@@ -137,6 +137,62 @@ async def test_execute_appends_feedback_to_prompt():
 
 
 @pytest.mark.asyncio
+async def test_execute_think_false_in_top_level_payload():
+    """think:false must be a top-level key, not nested in options — Ollama ignores options.think."""
+    worker = OllamaWorker(model="qwen3:4b-q4_K_M", worker_id="ollama:coder")
+    lines = [json.dumps({"message": {"content": "def mean(arr): ..."}, "done": True})]
+
+    captured_payload = {}
+
+    async def fake_aiter_lines():
+        for line in lines:
+            yield line
+
+    mock_response = MagicMock()
+    mock_response.__aenter__ = AsyncMock(return_value=mock_response)
+    mock_response.__aexit__ = AsyncMock(return_value=False)
+    mock_response.status_code = 200
+    mock_response.aiter_lines = fake_aiter_lines
+
+    mock_client = MagicMock()
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=False)
+
+    def capture_stream(method, url, json=None, **kwargs):
+        captured_payload.update(json or {})
+        return mock_response
+
+    mock_client.stream = MagicMock(side_effect=capture_stream)
+
+    with patch("backend.orchestrator.workers.ollama.httpx.AsyncClient", return_value=mock_client):
+        [ev async for ev in worker.execute(_attempt(), _task())]
+
+    assert captured_payload.get("think") is False, "think:false must be top-level, not in options"
+    assert "think" not in captured_payload.get("options", {}), "think must not be nested in options"
+
+
+@pytest.mark.asyncio
+async def test_execute_skips_thinking_phase_chunks():
+    """Thinking-mode chunks (content='') must be skipped; real content must be collected."""
+    worker = OllamaWorker(model="qwen3:4b-q4_K_M", worker_id="ollama:fast")
+    lines = [
+        # Thinking phase — content is empty, thinking field is populated
+        json.dumps({"message": {"content": "", "thinking": "Let me reason..."}, "done": False}),
+        json.dumps({"message": {"content": "", "thinking": "Almost done..."}, "done": False}),
+        # Response phase — real content, thinking field is empty string
+        json.dumps({"message": {"content": "Paris", "thinking": ""}, "done": False}),
+        json.dumps({"message": {"content": ".", "thinking": ""}, "done": True}),
+    ]
+    mock_client = _make_stream_mock(lines)
+
+    with patch("backend.orchestrator.workers.ollama.httpx.AsyncClient", return_value=mock_client):
+        events = [ev async for ev in worker.execute(_attempt(), _task())]
+
+    assert events[0].type == "attempt.completed"
+    assert events[0].payload["summary"] == "Paris."
+
+
+@pytest.mark.asyncio
 async def test_health_healthy_when_model_available():
     worker = OllamaWorker(model="qwen2.5-coder:7b", worker_id="ollama:coder")
     mock_response = MagicMock()

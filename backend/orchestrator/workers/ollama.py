@@ -2,27 +2,43 @@
 from __future__ import annotations
 import json
 import logging
+import re
 from typing import AsyncGenerator
 
 import httpx
 
+_THINK_TAG_RE = re.compile(r"<think>.*?</think>", re.DOTALL | re.IGNORECASE)
+
 from .base import WorkerAdapter, WorkerEvent, WorkerHealth
+from .postprocess import extract_code, strip_preamble
 from ..domain.models import Task, TaskAttempt
 
 logger = logging.getLogger(__name__)
 
 _SYSTEM_PROMPTS: dict[str, str] = {
     "ollama:planner": (
-        "You are a task-planning assistant. Decompose the given task into clear, ordered steps. "
-        "Be concise and structured."
+        "You are a planning assistant. Given a planning or analysis task, produce a concise structured plan. "
+        "Use a numbered list. No preamble, no sign-off."
     ),
-    "ollama:fast": "You are a quick-answer assistant. Answer directly and concisely.",
+    "ollama:fast": (
+        "You are a concise assistant. Answer directly and briefly. "
+        "Do not include unnecessary preamble, examples, or sign-offs."
+    ),
     "ollama:coder": (
-        "You are an expert software engineer. Write clean, correct code. "
-        "Explain your implementation briefly."
+        "You are a code generator. Follow these rules strictly:\n"
+        "1. Output ONLY the code in a single code block.\n"
+        "2. No explanations, no usage examples, no notes.\n"
+        "3. Include brief inline comments only where logic is non-obvious.\n"
+        "4. Use standard library solutions when available.\n"
+        "5. Handle basic edge cases (empty input, null checks)."
     ),
-    "ollama:general": "You are a knowledgeable assistant. Provide clear, thorough answers.",
+    "ollama:general": (
+        "You are a concise assistant. Answer directly and briefly. "
+        "Do not include unnecessary preamble, examples, or sign-offs."
+    ),
 }
+
+_OLLAMA_OPTIONS = {"num_ctx": 4096}
 
 
 class OllamaWorker(WorkerAdapter):
@@ -70,7 +86,13 @@ class OllamaWorker(WorkerAdapter):
                 async with client.stream(
                     "POST",
                     f"{self._base_url}/api/chat",
-                    json={"model": self._model, "messages": messages, "stream": True},
+                    json={
+                        "model": self._model,
+                        "messages": messages,
+                        "stream": True,
+                        "think": False,
+                        "options": _OLLAMA_OPTIONS,
+                    },
                 ) as response:
                     if response.status_code != 200:
                         yield WorkerEvent(
@@ -88,7 +110,11 @@ class OllamaWorker(WorkerAdapter):
                             chunk = json.loads(line)
                         except json.JSONDecodeError:
                             continue
-                        content = chunk.get("message", {}).get("content", "")
+                        msg = chunk.get("message", {})
+                        content = msg.get("content", "")
+                        # Collect content tokens; skip empty chunks (thinking-phase chunks
+                        # have content="" with thinking in message.thinking or <think> tags).
+                        # _THINK_TAG_RE strips any residual <think>...</think> blocks below.
                         if content:
                             full_response.append(content)
                         if chunk.get("done"):
@@ -109,7 +135,7 @@ class OllamaWorker(WorkerAdapter):
             )
             return
 
-        summary = "".join(full_response)
+        summary = _THINK_TAG_RE.sub("", "".join(full_response)).strip()
         if not summary:
             yield WorkerEvent(
                 type="attempt.failed",
@@ -117,10 +143,28 @@ class OllamaWorker(WorkerAdapter):
             )
             return
 
+        # Post-process: strip non-code content for coder, strip preamble for others
+        if self._worker_id == "ollama:coder":
+            summary = extract_code(summary)
+        else:
+            summary = strip_preamble(summary)
+
         yield WorkerEvent(type="attempt.completed", payload={"summary": summary})
 
     async def cancel(self, attempt_id: str) -> None:
         pass  # Ollama HTTP streaming cannot be cancelled mid-flight; no-op
+
+    async def warm(self) -> None:
+        """Pre-load the model into Ollama's memory. Fire-and-forget at startup."""
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                await client.post(
+                    f"{self._base_url}/api/generate",
+                    json={"model": self._model, "prompt": "", "keep_alive": "10m"},
+                )
+            logger.info("ollama: warmed %s (%s)", self._worker_id, self._model)
+        except Exception as exc:
+            logger.debug("ollama: warm skipped for %s: %s", self._worker_id, exc)
 
     async def health(self) -> WorkerHealth:
         try:

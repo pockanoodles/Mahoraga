@@ -4,14 +4,14 @@ import logging
 import time
 import os
 from contextlib import asynccontextmanager
+from dotenv import load_dotenv
+load_dotenv()
 from typing import Annotated
 
 from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException
 from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, field_validator
-
-import anthropic
 
 from ..adaptive.store import AdaptiveStore
 from ..channels.base import ChannelMessage
@@ -22,8 +22,10 @@ from ..gateway import Gateway
 from ..store.base import Store
 from ..store.chat_log import ChatLogStore
 from ..tracking.ledger import CostLedger
+import anthropic
+
 from ..verifier.verifier import Verifier
-from ..config import MahoragaConfig
+from ..config import ENABLED_BACKENDS, MahoragaConfig
 from ..workers.claude import ClaudeWorker
 from ..workers.ollama import OllamaWorker
 from ..workers.registry import WorkerRegistry
@@ -82,33 +84,45 @@ async def lifespan(app: FastAPI):
     _store = await Store.connect()
     _registry = WorkerRegistry()
 
-    api_key = os.getenv("ANTHROPIC_API_KEY")
-    if api_key:
-        _registry.register(ClaudeWorker(api_key=api_key))  # claude:sonnet
-        _registry.register(ClaudeWorker(
-            api_key=api_key,
-            model="claude-opus-4-6",
-            worker_id="claude:opus",
-            capabilities=["complex_reasoning", "deep_reasoning", "general"],
-        ))
-        _verifier = Verifier(client=anthropic.Anthropic(api_key=api_key))
+    class _PassthroughVerifier(Verifier):
+        def __init__(self) -> None:
+            pass
+        async def verify(self, task, output):
+            from ..verifier.verifier import VerificationResult
+            return VerificationResult(score=10, passed=True, feedback="", action="pass")
+
+    if "claude" in ENABLED_BACKENDS:
+        api_key = os.getenv("ANTHROPIC_API_KEY")
+        if api_key:
+            _registry.register(ClaudeWorker(api_key=api_key))  # claude:sonnet
+            if os.getenv("ENABLE_OPUS", "0") == "1":
+                _registry.register(ClaudeWorker(
+                    api_key=api_key,
+                    model="claude-opus-4-6",
+                    worker_id="claude:opus",
+                    capabilities=["complex_reasoning", "deep_reasoning", "general"],
+                ))
+            _verifier = Verifier(client=anthropic.Anthropic(api_key=api_key))
+        else:
+            _verifier = _PassthroughVerifier()
     else:
-        # No Anthropic key: passthrough verifier (dev/test mode only)
-        class _PassthroughVerifier(Verifier):
-            def __init__(self) -> None:
-                pass
-            async def verify(self, task, output):
-                from ..verifier.verifier import VerificationResult
-                return VerificationResult(score=10, passed=True, feedback="", action="pass")
         _verifier = _PassthroughVerifier()
 
     # Register Ollama workers — available regardless of active_backend
     _config = MahoragaConfig()
     ollama_url = _config.get("ollama_base_url")
-    _registry.register(OllamaWorker(model="qwen3.5:2b",       worker_id="ollama:planner", base_url=ollama_url))
-    _registry.register(OllamaWorker(model="qwen3.5:2b",       worker_id="ollama:fast",    base_url=ollama_url))
-    _registry.register(OllamaWorker(model="qwen2.5-coder:7b", worker_id="ollama:coder",   base_url=ollama_url))
-    _registry.register(OllamaWorker(model="qwen3.5:9b",       worker_id="ollama:general", base_url=ollama_url))
+    _MODEL = "qwen3:4b-q4_K_M"
+    _ollama_workers = [
+        OllamaWorker(model=_MODEL, worker_id="ollama:planner", base_url=ollama_url),
+        OllamaWorker(model=_MODEL, worker_id="ollama:fast",    base_url=ollama_url),
+        OllamaWorker(model=_MODEL, worker_id="ollama:coder",   base_url=ollama_url),
+        OllamaWorker(model=_MODEL, worker_id="ollama:general", base_url=ollama_url),
+    ]
+    for w in _ollama_workers:
+        _registry.register(w)
+    # Pre-warm qwen3:4b-q4_K_M — stays loaded for the full session
+    import asyncio as _asyncio
+    _asyncio.ensure_future(_ollama_workers[0].warm())
 
     # Orphan recovery: tasks left in_progress from a crashed previous run
     for orphan in await _store.tasks.list_by_status(TaskStatus.in_progress):
@@ -318,6 +332,18 @@ async def start_run(
 
     background_tasks.add_task(_run_run, run.id, store, registry, verifier)
     return {"run_id": run.id, "status": "queued"}
+
+
+@app.post("/runs/reset")
+async def reset_workflow(store: StoreDep):
+    """Cancel all active/paused runs. Used by the sidebar reset button."""
+    all_runs = await store.missions.list_all_runs()
+    cancelled = []
+    for run in all_runs:
+        if run.status in (RunStatus.active, RunStatus.paused):
+            await store.missions.update_run_status(run.id, RunStatus.cancelled)
+            cancelled.append(run.id)
+    return {"cancelled": cancelled}
 
 
 @app.get("/runs/{run_id}")

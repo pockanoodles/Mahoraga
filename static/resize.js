@@ -3,8 +3,7 @@
 (function () {
   const STORAGE_KEY = 'mah_sidebar_width';
   const DEFAULT_WIDTH = 320;
-  const MIN_WIDTH = 200;
-  const MAX_WIDTH = 600;
+  const MIN_WIDTH = 0;
 
   const divider = document.getElementById('divider');
   const sidebar = document.getElementById('sidebar');
@@ -13,6 +12,12 @@
   let dragging = false;
   let startX = 0;
   let startWidth = 0;
+  let rafId = null;
+
+  function getMaxWidth() {
+    // Leave at least 320px for the chat column
+    return window.innerWidth - 320 - divider.offsetWidth;
+  }
 
   // ── Restore saved width ──────────────────────────────────────────────────
   const saved = parseInt(localStorage.getItem(STORAGE_KEY), 10);
@@ -28,6 +33,7 @@
     startX = e.clientX;
     startWidth = sidebar.offsetWidth;
     divider.classList.add('dragging');
+    sidebar.classList.add('no-transition');
     document.body.style.cursor = 'col-resize';
     document.body.style.userSelect = 'none';
     e.preventDefault();
@@ -35,18 +41,44 @@
 
   document.addEventListener('mousemove', function (e) {
     if (!dragging) return;
-    const delta = e.clientX - startX;
-    const newWidth = Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, startWidth + delta));
-    sidebar.style.width = newWidth + 'px';
+    if (rafId) return;
+
+    rafId = requestAnimationFrame(function () {
+      const delta = e.clientX - startX;
+      const maxW = getMaxWidth();
+      const newWidth = Math.min(maxW, Math.max(MIN_WIDTH, startWidth + delta));
+
+      if (newWidth <= 40) {
+        sidebar.classList.add('collapsed');
+        sidebar.style.width = '0px';
+        collapseBtn.textContent = '›';
+      } else {
+        if (sidebar.classList.contains('collapsed')) {
+          sidebar.classList.remove('collapsed');
+          collapseBtn.textContent = '‹';
+        }
+        sidebar.style.width = newWidth + 'px';
+      }
+
+      rafId = null;
+    });
   });
 
   document.addEventListener('mouseup', function () {
     if (!dragging) return;
     dragging = false;
+    if (rafId) {
+      cancelAnimationFrame(rafId);
+      rafId = null;
+    }
     divider.classList.remove('dragging');
+    sidebar.classList.remove('no-transition');
     document.body.style.cursor = '';
     document.body.style.userSelect = '';
-    localStorage.setItem(STORAGE_KEY, sidebar.offsetWidth);
+    const currentWidth = sidebar.offsetWidth;
+    if (currentWidth > 0) {
+      localStorage.setItem(STORAGE_KEY, currentWidth);
+    }
   });
 
   // ── Collapse / expand ────────────────────────────────────────────────────

@@ -473,8 +473,8 @@ async def test_executor_respects_max_soft_retries(store):
     await run_task(task_id, store, reg, verifier)
 
     task = await store.tasks.get(task_id)
+    assert call_count[0] == 2  # original + 1 retry (MAX_SOFT_RETRIES=1)
     assert task.status == TaskStatus.blocked
-    assert call_count[0] == 3  # original + 2 retries
 
 
 async def test_executor_verifier_error_escalates(store):

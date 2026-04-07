@@ -2,12 +2,15 @@ from __future__ import annotations
 import dataclasses
 import json
 
-import anthropic
+import httpx
 
+from ..config import ENABLED_BACKENDS
 from ..domain.models import Dependency, DependencyType, Mission, Task
-from .config import MAX_TASKS, PLANNER_MODEL
+from .config import MAX_TASKS
 from .prompt import build_planner_prompt
 from .validator import ValidationError, validate_raw_tasks
+
+_OLLAMA_BASE_URL = "http://localhost:11434"
 
 
 class PlannerError(RuntimeError):
@@ -19,7 +22,10 @@ async def generate_tasks(
     run_id: str,
     user_profile: str | None = None,
 ) -> list[Task]:
-    """Decompose a mission into Task objects using the Haiku planner.
+    """Decompose a mission into Task objects.
+
+    Uses the Haiku planner when "claude" is in ENABLED_BACKENDS,
+    otherwise falls back to the local Ollama planner.
 
     Args:
         mission: The mission to decompose.
@@ -33,8 +39,6 @@ async def generate_tasks(
         PlannerError: If the API call fails, the response is not valid JSON,
                       or the task list fails validation.
     """
-    system_prompt = build_planner_prompt(user_profile=user_profile)
-
     user_message = (
         f"Mission title: {mission.title}\n"
         f"Goal: {mission.goal}\n"
@@ -48,34 +52,24 @@ async def generate_tasks(
 
     user_message += "\nDecompose this mission into tasks. Return only the JSON array."
 
-    client = anthropic.AsyncAnthropic()
-    try:
-        response = await client.messages.create(
-            model=PLANNER_MODEL,
-            max_tokens=2048,
-            system=system_prompt,
-            messages=[{"role": "user", "content": user_message}],
-        )
-    except anthropic.APIError as exc:
-        raise PlannerError(f"Haiku API error: {exc}") from exc
-
-    raw_text = response.content[0].text.strip()
+    if "claude" in ENABLED_BACKENDS:
+        raw_text = await _plan_with_claude(user_message, user_profile)
+    else:
+        raw_text = await _plan_with_ollama(user_message)
 
     # Strip markdown code fences if present
     if raw_text.startswith("```"):
         lines = raw_text.splitlines()
-        # Drop first and last lines (``` or ```json)
         raw_text = "\n".join(lines[1:-1]) if lines[-1].startswith("```") else "\n".join(lines[1:])
 
     try:
         raw_tasks: list[dict] = json.loads(raw_text)
     except json.JSONDecodeError as exc:
-        raise PlannerError(f"Parse error — Haiku returned non-JSON: {exc}") from exc
+        raise PlannerError(f"Parse error — planner returned non-JSON: {exc}") from exc
 
     if not isinstance(raw_tasks, list):
         raise PlannerError(f"Parse error — expected a JSON array, got {type(raw_tasks).__name__}")
 
-    # Cap at MAX_TASKS
     raw_tasks = raw_tasks[:MAX_TASKS]
 
     try:
@@ -86,9 +80,59 @@ async def generate_tasks(
     return _build_tasks(raw_tasks, run_id)
 
 
+async def _plan_with_claude(user_message: str, user_profile: str | None) -> str:
+    """Call the Haiku planner via Anthropic API. Used when 'claude' in ENABLED_BACKENDS."""
+    import anthropic
+    from .config import PLANNER_MODEL
+
+    system_prompt = build_planner_prompt(user_profile=user_profile)
+    client = anthropic.AsyncAnthropic()
+    try:
+        response = await client.messages.create(
+            model=PLANNER_MODEL,
+            max_tokens=2048,
+            system=system_prompt,
+            messages=[{"role": "user", "content": user_message}],
+        )
+    except anthropic.APIError as exc:
+        raise PlannerError(f"Haiku API error: {exc}") from exc
+    return response.content[0].text.strip()
+
+
+async def _plan_with_ollama(user_message: str) -> str:
+    """Call the local Ollama planner. Used when 'claude' not in ENABLED_BACKENDS."""
+    system_prompt = (
+        "You are a task decomposer. Given a mission, break it into 2-5 concrete subtasks.\n"
+        "Return ONLY a JSON array of objects with 'title', 'goal', and 'dependencies' fields.\n"
+        "No explanation, no markdown, no commentary outside the JSON.\n"
+        "Keep subtasks focused and actionable. Do NOT over-decompose simple tasks."
+    )
+    try:
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            response = await client.post(
+                f"{_OLLAMA_BASE_URL}/api/chat",
+                json={
+                    "model": "qwen3:4b-q4_K_M",
+                    "messages": [
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_message},
+                    ],
+                    "stream": False,
+                    "think": False,
+                },
+            )
+            response.raise_for_status()
+    except httpx.RequestError as exc:
+        raise PlannerError(f"Ollama request error: {exc}") from exc
+    except httpx.HTTPStatusError as exc:
+        raise PlannerError(f"Ollama HTTP error {exc.response.status_code}") from exc
+
+    data = response.json()
+    return data["message"]["content"].strip()
+
+
 def _build_tasks(raw_tasks: list[dict], run_id: str) -> list[Task]:
     """Convert validated raw task dicts into Task domain objects with resolved IDs."""
-    # First pass: create tasks without dependencies to get IDs
     tasks_by_title: dict[str, Task] = {}
     for raw in raw_tasks:
         task = Task.new(
@@ -100,7 +144,6 @@ def _build_tasks(raw_tasks: list[dict], run_id: str) -> list[Task]:
         )
         tasks_by_title[raw["title"]] = task
 
-    # Second pass: resolve dependency titles → IDs
     result: list[Task] = []
     for raw in raw_tasks:
         task = tasks_by_title[raw["title"]]

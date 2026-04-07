@@ -181,31 +181,32 @@
 
   let currentBackend = 'claude';
 
+  function applyChip(backend) {
+    currentBackend = backend;
+    chip.textContent = backend === 'claude' ? 'Claude' : 'Ollama';
+    chip.classList.toggle('chip-active', backend === 'claude');
+    chip.classList.toggle('chip-ollama', backend === 'ollama');
+  }
+
   async function loadBackend() {
     try {
       const res = await fetch('/settings/backend');
       const data = await res.json();
-      currentBackend = data.active_backend;
-      chip.textContent = currentBackend === 'claude' ? 'Claude ▾' : 'Ollama ▾';
-      chip.classList.toggle('chip-active', currentBackend === 'claude');
-    } catch (_) {
-      // Silently ignore — chip stays in default state
-    }
+      applyChip(data.active_backend);
+    } catch (_) {}
   }
 
   chip.addEventListener('click', async () => {
     const next = currentBackend === 'claude' ? 'ollama' : 'claude';
+    applyChip(next); // optimistic update
     try {
       await fetch('/settings/backend', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ active_backend: next }),
       });
-      currentBackend = next;
-      chip.textContent = next === 'claude' ? 'Claude ▾' : 'Ollama ▾';
-      chip.classList.toggle('chip-active', next === 'claude');
     } catch (_) {
-      // Silently ignore on network error
+      applyChip(currentBackend === 'claude' ? 'ollama' : 'claude'); // revert on failure
     }
   });
 

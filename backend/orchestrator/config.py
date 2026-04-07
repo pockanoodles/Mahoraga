@@ -6,7 +6,7 @@ from pathlib import Path
 # Controls which backends are registered at startup.
 # personal branch: ["ollama"]
 # main branch:     ["ollama", "claude"]
-ENABLED_BACKENDS: list[str] = ["ollama", "claude"]
+ENABLED_BACKENDS: list[str] = ["ollama"]
 
 _DEFAULTS: dict = {
     "active_backend": "claude",

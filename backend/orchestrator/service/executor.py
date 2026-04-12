@@ -140,7 +140,7 @@ async def run_task(
 
             if result_action == "pass":
                 await store.tasks.update_attempt_result(
-                    attempt.id, AttemptStatus.completed, summary=summary,
+                    attempt.id, AttemptStatus.completed, summary=summary, output=summary,
                 )
                 task = transition_task(task, TaskStatus.completed)
                 await store.tasks.update_status(task.id, task.status)

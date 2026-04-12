@@ -133,17 +133,18 @@ class TaskStore:
         attempt_id: str,
         status: AttemptStatus,
         summary: str,
+        output: str = "",
         artifact_refs: list[str] | None = None,
         error_code: str = "",
         blocking_reason: str = "",
     ) -> None:
         await self._conn.execute(
             """UPDATE task_attempts
-               SET status = ?, summary = ?, artifact_refs = ?,
+               SET status = ?, summary = ?, output = ?, artifact_refs = ?,
                    error_code = ?, blocking_reason = ?, ended_at = ?
                WHERE id = ?""",
             (
-                status.value, summary,
+                status.value, summary, output,
                 json.dumps(artifact_refs or []),
                 error_code, blocking_reason,
                 time.time(), attempt_id,

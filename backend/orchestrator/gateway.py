@@ -11,7 +11,7 @@ from .adaptive.learner import Learner
 from .adaptive.models import AdaptationCategory, UserAdaptation, UserProfile
 from .adaptive.profile import build_profile_prompt
 from .channels.base import ChannelMessage
-from .config import MahoragaConfig
+from .config import ENABLED_BACKENDS, MahoragaConfig
 from .domain.models import Mission, Plan, Run, RunMode, RunStatus, Task, TaskStatus
 from .planning.classifier import classify_tier
 from .planning.planner import PlannerError, generate_tasks
@@ -23,6 +23,7 @@ from .config import ENABLED_BACKENDS
 from .workers.registry import WorkerRegistry
 from .workers.router import TaskRouter, _CODE_KEYWORDS, _PLANNING_KEYWORDS
 from .verifier.verifier import Verifier
+from .brain_logger import log_task_completion
 
 logger = logging.getLogger(__name__)
 
@@ -95,7 +96,7 @@ class Gateway:
                 )
             ]
         else:
-            # Tier 3 — decompose via Haiku planner
+            # Tier 3 — decompose via planner
             try:
                 tasks = await generate_tasks(
                     mission, run_id="__pending__", user_profile=user_profile_str
@@ -158,12 +159,23 @@ class Gateway:
             # Fall back to summary for legacy DB rows where output column is empty.
             attempts = await self._store.tasks.list_attempts(task.id)
             completed = [a for a in attempts if a.status.value == "completed"]
+            logger.info("GATEWAY ATTEMPT OUTPUT: %s", [a.output[:100] for a in completed])
             if completed:
                 attempt = completed[-1]
                 output = attempt.output or attempt.summary
                 if output:
                     response_chunks.append(output)
                     yield output
+                    try:
+                        log_task_completion(
+                            task_title=task.title or mission.title,
+                            task_goal=task.goal or "",
+                            agent_used=attempt.worker_id or "unknown",
+                            output_preview=output[:500] if output else "",
+                            cost=0.0,
+                        )
+                    except Exception:
+                        pass  # Never let logging break the main flow
 
         # ── 7. Adaptive learning (fire-and-forget) ───────────────────────────
         full_response = "\n".join(response_chunks)

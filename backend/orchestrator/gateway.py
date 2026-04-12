@@ -18,8 +18,10 @@ from .planning.planner import PlannerError, generate_tasks
 from .service.executor import run_task
 from .store.base import Store
 from .store.chat_log import ChatLogEntry
+from .adapters.registry import AdapterRegistry
+from .config import ENABLED_BACKENDS
 from .workers.registry import WorkerRegistry
-from .workers.router import TaskRouter
+from .workers.router import TaskRouter, _CODE_KEYWORDS, _PLANNING_KEYWORDS
 from .verifier.verifier import Verifier
 
 logger = logging.getLogger(__name__)
@@ -36,6 +38,7 @@ class Gateway:
         adaptive_store=None,
         cost_ledger=None,
         config: MahoragaConfig | None = None,
+        adapter_registry: AdapterRegistry | None = None,
     ) -> None:
         self._store = store
         self._registry = registry
@@ -45,6 +48,7 @@ class Gateway:
         self._learner = Learner()
         self._config = config or MahoragaConfig()
         self._router = TaskRouter()
+        self._adapter_registry = adapter_registry
 
     async def handle_message(self, msg: ChannelMessage) -> AsyncGenerator[str, None]:
         """Process a channel message through the full pipeline.
@@ -103,11 +107,11 @@ class Gateway:
 
         # ── Route tasks to Ollama workers if ollama backend ───────────────
         active_backend = self._config.get("active_backend")
-        if active_backend == "ollama":
-            tasks = [
-                dataclasses.replace(t, preferred_worker_type=self._router.route(t, "ollama"))
-                for t in tasks
-            ]
+        routed_tasks = []
+        for t in tasks:
+            worker_id = await self._route_task(t, active_backend)
+            routed_tasks.append(dataclasses.replace(t, preferred_worker_type=worker_id))
+        tasks = routed_tasks
 
         # ── 4. Create Plan + Run ─────────────────────────────────────────────
         plan = Plan.new(mission_id=mission.id)
@@ -207,3 +211,29 @@ class Gateway:
             await self._store.chat_log.save(log_entry)
         except Exception as exc:
             logger.warning("chat log persist failed: %s", exc)
+
+    async def _route_task(self, task: Task, active_backend: str) -> str | None:
+        """Determine preferred_worker_type for a task.
+
+        Uses AdapterRegistry capability-based routing if available,
+        falls back to TaskRouter keyword matching for Ollama-only mode.
+        """
+        if self._adapter_registry is not None:
+            text = f"{task.title} {task.goal}".lower()
+            words = set(text.split())
+            if any(kw in words for kw in _CODE_KEYWORDS):
+                capability = "code"
+            elif any(kw in words for kw in _PLANNING_KEYWORDS):
+                capability = "plan"
+            else:
+                capability = "general"
+
+            adapter = await self._adapter_registry.route(task, required_capability=capability)
+            if adapter is not None:
+                return adapter.worker_id
+
+        # Fallback: keyword-based Ollama routing
+        if active_backend == "ollama" or "claude" not in ENABLED_BACKENDS:
+            return self._router.route(task, "ollama")
+
+        return None

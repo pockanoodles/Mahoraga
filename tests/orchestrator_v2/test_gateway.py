@@ -271,18 +271,8 @@ async def test_gateway_sets_preferred_worker_for_ollama_backend(store, tmp_path)
 @pytest.mark.asyncio
 async def test_response_assembler_uses_summary_fallback():
     """Gateway must yield worker output even when attempt.output is empty (legacy DB rows)."""
-    import time
-
     task = _make_task()
-    attempt = TaskAttempt(
-        id="a1", task_id=task.id, worker_id="ollama:fast",
-        status=AttemptStatus.completed,
-        error_code="", blocking_reason="",
-        started_at=time.time(), ended_at=time.time(),
-        summary="4",   # summary has the value
-        output="",     # output is empty (legacy DB state)
-        artifact_refs=[], validator_refs=[],
-    )
+    attempt = _make_attempt(task.id, summary="4", output="")  # output="" simulates legacy DB row
     store = _make_store(task=task, attempts=[attempt])
     gw = _make_gateway(store, tasks_from_planner=[task])
 

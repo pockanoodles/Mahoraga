@@ -346,6 +346,12 @@ async def workers_health(registry: RegistryDep):
             for worker_id, h in results.items()}
 
 
+@app.get("/api/agents/status")
+async def agents_status(registry: AdapterRegistryDep):
+    """Return health status for all registered AgentAdapters."""
+    return await registry.all_statuses()
+
+
 @app.post("/runs/{plan_id}/start", status_code=202)
 async def start_run(
     plan_id: str,

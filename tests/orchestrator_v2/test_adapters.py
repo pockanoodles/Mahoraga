@@ -130,3 +130,32 @@ async def test_route_skips_unavailable_adapters():
     task = Task.new(run_id="r1", title="test", goal="write code")
     result = await reg.route(task, required_capability="code")
     assert result is None
+
+
+@pytest.mark.asyncio
+async def test_ollama_adapter_health_check_when_ollama_down():
+    """OllamaAdapter must return available=False (not raise) when Ollama is unreachable."""
+    from backend.orchestrator.adapters.ollama_adapter import OllamaAdapter
+    adapter = OllamaAdapter(
+        model="qwen3:4b-q4_K_M",
+        ollama_base_url="http://localhost:19999",  # nothing running here
+    )
+    status = await adapter.health_check()
+    assert status.available is False
+    assert status.error is not None
+
+
+def test_ollama_adapter_cost_is_zero():
+    from backend.orchestrator.adapters.ollama_adapter import OllamaAdapter
+    adapter = OllamaAdapter(model="qwen3:4b-q4_K_M")
+    task = Task.new(run_id="r1", title="t", goal="write code")
+    est = adapter.estimate_cost(task)
+    assert est.estimated_cost_usd == 0.0
+
+
+def test_ollama_adapter_declares_capabilities():
+    from backend.orchestrator.adapters.ollama_adapter import OllamaAdapter
+    adapter = OllamaAdapter(model="qwen3:4b-q4_K_M")
+    cap_names = {c.name for c in adapter.capabilities}
+    assert "code" in cap_names
+    assert "general" in cap_names

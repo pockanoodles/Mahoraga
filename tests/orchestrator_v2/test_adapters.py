@@ -1,7 +1,6 @@
 """Tests for AgentAdapter interface and AdapterRegistry."""
 from __future__ import annotations
 import pytest
-from unittest.mock import AsyncMock
 from backend.orchestrator.adapters.base import (
     AgentAdapter, AgentCapability, CostEstimate, AgentStatus,
 )

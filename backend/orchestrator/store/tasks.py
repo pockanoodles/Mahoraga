@@ -98,13 +98,14 @@ class TaskStore:
     async def save_attempt(self, attempt: TaskAttempt) -> None:
         await self._conn.execute(
             """INSERT OR REPLACE INTO task_attempts VALUES
-               (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+               (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 attempt.id, attempt.task_id, attempt.worker_id,
                 attempt.status.value,
                 attempt.error_code, attempt.blocking_reason,
                 attempt.started_at, attempt.ended_at,
                 attempt.summary,
+                attempt.output,
                 json.dumps(attempt.artifact_refs),
                 json.dumps(attempt.validator_refs),
             ),
@@ -159,6 +160,8 @@ class TaskStore:
         return [self._row_to_attempt(r) for r in rows]
 
     def _row_to_attempt(self, row) -> TaskAttempt:
+        # Guard for legacy DB rows that pre-date the output column (DEFAULT '')
+        keys = row.keys() if hasattr(row, "keys") else []
         return TaskAttempt(
             id=row["id"], task_id=row["task_id"], worker_id=row["worker_id"],
             status=AttemptStatus(row["status"]),
@@ -166,6 +169,7 @@ class TaskStore:
             blocking_reason=row["blocking_reason"],
             started_at=row["started_at"], ended_at=row["ended_at"],
             summary=row["summary"],
+            output=row["output"] if "output" in keys else "",
             artifact_refs=json.loads(row["artifact_refs"]),
             validator_refs=json.loads(row["validator_refs"]),
         )

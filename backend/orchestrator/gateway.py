@@ -150,14 +150,16 @@ class Gateway:
                 yield chunk
                 continue
 
-            # Collect the latest completed attempt summary as a response chunk
+            # Collect the latest completed attempt output as a response chunk.
+            # Fall back to summary for legacy DB rows where output column is empty.
             attempts = await self._store.tasks.list_attempts(task.id)
             completed = [a for a in attempts if a.status.value == "completed"]
             if completed:
-                summary = completed[-1].summary
-                if summary:
-                    response_chunks.append(summary)
-                    yield summary
+                attempt = completed[-1]
+                output = attempt.output or attempt.summary
+                if output:
+                    response_chunks.append(output)
+                    yield output
 
         # ── 7. Adaptive learning (fire-and-forget) ───────────────────────────
         full_response = "\n".join(response_chunks)

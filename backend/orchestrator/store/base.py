@@ -79,6 +79,7 @@ CREATE TABLE IF NOT EXISTS task_attempts (
     started_at REAL,
     ended_at REAL,
     summary TEXT NOT NULL DEFAULT '',
+    output TEXT NOT NULL DEFAULT '',
     artifact_refs TEXT NOT NULL DEFAULT '[]',
     validator_refs TEXT NOT NULL DEFAULT '[]'
 );

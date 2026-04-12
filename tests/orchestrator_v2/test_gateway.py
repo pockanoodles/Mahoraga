@@ -39,7 +39,7 @@ def _make_task(run_id: str = "run-1", title: str = "Task A") -> Task:
     )
 
 
-def _make_attempt(task_id: str, summary: str = "Task done.") -> TaskAttempt:
+def _make_attempt(task_id: str, summary: str = "Task done.", output: str = "") -> TaskAttempt:
     return TaskAttempt(
         id=str(uuid.uuid4()),
         task_id=task_id,
@@ -50,6 +50,7 @@ def _make_attempt(task_id: str, summary: str = "Task done.") -> TaskAttempt:
         started_at=time.time(),
         ended_at=time.time(),
         summary=summary,
+        output=output,
         artifact_refs=[],
         validator_refs=[],
     )
@@ -265,3 +266,28 @@ async def test_gateway_sets_preferred_worker_for_ollama_backend(store, tmp_path)
     assert any(t.preferred_worker_type is not None for t in saved_tasks), \
         "Expected gateway to set preferred_worker_type for ollama tasks"
     assert saved_tasks[0].preferred_worker_type == "ollama:coder"
+
+
+@pytest.mark.asyncio
+async def test_response_assembler_uses_summary_fallback():
+    """Gateway must yield worker output even when attempt.output is empty (legacy DB rows)."""
+    import time
+
+    task = _make_task()
+    attempt = TaskAttempt(
+        id="a1", task_id=task.id, worker_id="ollama:fast",
+        status=AttemptStatus.completed,
+        error_code="", blocking_reason="",
+        started_at=time.time(), ended_at=time.time(),
+        summary="4",   # summary has the value
+        output="",     # output is empty (legacy DB state)
+        artifact_refs=[], validator_refs=[],
+    )
+    store = _make_store(task=task, attempts=[attempt])
+    gw = _make_gateway(store, tasks_from_planner=[task])
+
+    msg = _make_msg("whats 2+2")
+    with gw._planner_patch, gw._run_task_patch:
+        chunks = [c async for c in gw.handle_message(msg)]
+
+    assert "4" in chunks, f"Expected '4' in output chunks, got: {chunks}"

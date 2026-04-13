@@ -24,6 +24,11 @@ class UCB1Router(RoutingStrategy):
         # Explore untried agents first
         untried = [a for a in available_agents if self.N[a] == 0]
         if untried:
+            # Mark all available agents in scores — untried = None, tried = their Q value
+            self._last_scores = {
+                a: (None if self.N[a] == 0 else round(self.Q[a], 4))
+                for a in available_agents
+            }
             return untried[0]
         # UCB1 formula
         scores = {}

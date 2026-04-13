@@ -42,8 +42,11 @@ class ThompsonSamplingRouter(RoutingStrategy):
         return {a: (self.alpha.get(a, 1.0), self.beta_.get(a, 1.0)) for a in agents}
 
     def save_state(self, path: str) -> None:
+        import os
         state = {"threshold": self.threshold, "alpha": self.alpha, "beta": self.beta_}
-        Path(path).write_text(json.dumps(state))
+        tmp = path + ".tmp"
+        Path(tmp).write_text(json.dumps(state))
+        os.replace(tmp, path)
 
     def load_state(self, path: str) -> None:
         state = json.loads(Path(path).read_text())

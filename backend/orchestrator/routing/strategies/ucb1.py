@@ -51,8 +51,11 @@ class UCB1Router(RoutingStrategy):
         return getattr(self, '_last_scores', {})
 
     def save_state(self, path: str) -> None:
+        import os
         state = {"c": self.c, "N": self.N, "Q": self.Q, "t": self.t}
-        Path(path).write_text(json.dumps(state))
+        tmp = path + ".tmp"
+        Path(tmp).write_text(json.dumps(state))
+        os.replace(tmp, path)
 
     def load_state(self, path: str) -> None:
         state = json.loads(Path(path).read_text())

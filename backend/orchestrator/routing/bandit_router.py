@@ -98,6 +98,9 @@ class BanditRouter:
             raise ValueError(f"Unknown strategy: {name!r}. Options: {list(STRATEGIES)}")
         StrategyClass = STRATEGIES[name]
         self.strategy = StrategyClass()
+        # Clear stale state file from previous strategy
+        if self.state_path.exists():
+            self.state_path.unlink()
 
     def get_stats(self) -> dict:
         """Return current router state for the API/dashboard."""

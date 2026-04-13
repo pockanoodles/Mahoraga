@@ -73,6 +73,7 @@ class LinUCBRouter(RoutingStrategy):
         return {name: round(float(w), 4) for name, w in zip(feature_names, theta)}
 
     def save_state(self, path: str) -> None:
+        import os
         state = {
             "d": self.d, "alpha": self.alpha, "decay": self.decay, "t": self.t,
             "agents": {
@@ -80,7 +81,9 @@ class LinUCBRouter(RoutingStrategy):
                 for a in self.A
             },
         }
-        Path(path).write_text(json.dumps(state, indent=2))
+        tmp = path + ".tmp"
+        Path(tmp).write_text(json.dumps(state, indent=2))
+        os.replace(tmp, path)
 
     def load_state(self, path: str) -> None:
         state = json.loads(Path(path).read_text())

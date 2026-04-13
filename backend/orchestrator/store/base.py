@@ -79,6 +79,7 @@ CREATE TABLE IF NOT EXISTS task_attempts (
     started_at REAL,
     ended_at REAL,
     summary TEXT NOT NULL DEFAULT '',
+    output TEXT NOT NULL DEFAULT '',
     artifact_refs TEXT NOT NULL DEFAULT '[]',
     validator_refs TEXT NOT NULL DEFAULT '[]'
 );
@@ -114,8 +115,23 @@ CREATE INDEX IF NOT EXISTS idx_events_type ON events(type);
 """
 
 
+_MIGRATIONS = [
+    # v1: add output column to task_attempts (was missing from original schema)
+    "ALTER TABLE task_attempts ADD COLUMN output TEXT NOT NULL DEFAULT ''",
+]
+
+
 async def migrate(conn: aiosqlite.Connection) -> None:
     await conn.executescript(_SCHEMA)
+
+    # Additive migrations: run each once, skip if column/index already exists.
+    for sql in _MIGRATIONS:
+        try:
+            await conn.execute(sql)
+            await conn.commit()
+        except Exception:
+            pass  # Column already exists — safe to ignore
+
     await conn.commit()
 
 

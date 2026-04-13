@@ -516,4 +516,31 @@
       resetWorkflow();
     }
   });
+
+  // ── Agent status panel ───────────────────────────────────────────────────
+
+  async function renderAgentStatus() {
+    const container = document.getElementById('agent-status-panel');
+    if (!container) return;
+    try {
+      const res = await fetch('/api/agents/status');
+      if (!res.ok) return;
+      const agents = await res.json();
+      container.innerHTML = agents.map(agent => {
+        const dot = agent.available ? '●' : '○';
+        const cls = agent.available ? 'agent-dot-active' : 'agent-dot-inactive';
+        const label = agent.name;
+        const detail = agent.detail || agent.error || '';
+        const detailShort = detail.split('model=')[1] || (agent.available ? 'ready' : 'unavailable');
+        return `<div class="agent-row" title="${esc(detail)}">
+          <span class="agent-dot ${cls}">${dot}</span>
+          <span class="agent-label">${esc(label)}</span>
+          <span class="agent-detail">${esc(detailShort)}</span>
+        </div>`;
+      }).join('');
+    } catch (_) {}
+  }
+
+  renderAgentStatus();
+  setInterval(renderAgentStatus, 30_000);
 })();

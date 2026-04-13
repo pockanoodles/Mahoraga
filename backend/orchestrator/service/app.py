@@ -28,7 +28,14 @@ from ..verifier.verifier import Verifier
 from ..config import ENABLED_BACKENDS, MahoragaConfig
 from ..workers.claude import ClaudeWorker
 from ..workers.ollama import OllamaWorker
+from ..workers.codex import CodexWorker
+from ..workers.aider import AiderWorker
 from ..workers.registry import WorkerRegistry
+from ..adapters.registry import AdapterRegistry
+from ..adapters.ollama_adapter import OllamaAdapter
+from ..adapters.claude_adapter import ClaudeAdapter
+from ..adapters.codex_adapter import CodexAdapter
+from ..adapters.aider_adapter import AiderAdapter
 from .approvals import grant_approval, reject_approval
 from .executor import run_task as _run_task
 from .run_executor import run_run as _run_run
@@ -43,6 +50,7 @@ _gateway: Gateway | None = None
 _adaptive_store: AdaptiveStore | None = None
 _cost_ledger: CostLedger | None = None
 _config: MahoragaConfig | None = None
+_adapter_registry: AdapterRegistry | None = None
 
 
 def get_store() -> Store:
@@ -65,10 +73,16 @@ def get_gateway() -> Gateway:
     return _gateway
 
 
+def get_adapter_registry() -> AdapterRegistry:
+    assert _adapter_registry is not None, "AdapterRegistry not initialised"
+    return _adapter_registry
+
+
 StoreDep = Annotated[Store, Depends(get_store)]
 RegistryDep = Annotated[WorkerRegistry, Depends(get_registry)]
 VerifierDep = Annotated[Verifier, Depends(get_verifier)]
 GatewayDep = Annotated[Gateway, Depends(get_gateway)]
+AdapterRegistryDep = Annotated[AdapterRegistry, Depends(get_adapter_registry)]
 
 
 # ── lifespan ─────────────────────────────────────────────────────────────────
@@ -80,7 +94,7 @@ async def lifespan(app: FastAPI):
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
         force=True,
     )
-    global _store, _registry, _verifier, _gateway, _adaptive_store, _cost_ledger, _config
+    global _store, _registry, _verifier, _gateway, _adaptive_store, _cost_ledger, _config, _adapter_registry
     _store = await Store.connect()
     _registry = WorkerRegistry()
 
@@ -124,6 +138,33 @@ async def lifespan(app: FastAPI):
     import asyncio as _asyncio
     _asyncio.ensure_future(_ollama_workers[0].warm())
 
+    # ── Register Codex CLI worker ─────────────────────────────────────────────
+    _codex_worker = CodexWorker()
+    _registry.register(_codex_worker)
+
+    # ── Register Aider worker ─────────────────────────────────────────────────
+    _aider_model = os.getenv("AIDER_MODEL", "ollama_chat/qwen3:4b")
+    _aider_worker = AiderWorker(model=_aider_model)
+    _registry.register(_aider_worker)
+
+    # ── Build AdapterRegistry ─────────────────────────────────────────────────
+    _adapter_registry = AdapterRegistry()
+    _adapter_registry.register(OllamaAdapter(
+        model=_MODEL, ollama_base_url=ollama_url or "http://localhost:11434"
+    ))
+    if "claude" in ENABLED_BACKENDS and os.getenv("ANTHROPIC_API_KEY"):
+        _adapter_registry.register(ClaudeAdapter(
+            api_key=os.getenv("ANTHROPIC_API_KEY"),
+            model="claude-sonnet-4-6",
+            worker_id="claude:sonnet",
+        ))
+    _adapter_registry.register(CodexAdapter())
+    _adapter_registry.register(AiderAdapter(model=_aider_model))
+
+    logger = logging.getLogger(__name__)
+    for adapter in _adapter_registry.all():
+        logger.info("adapter registered: %s", adapter.name)
+
     # Orphan recovery: tasks left in_progress from a crashed previous run
     for orphan in await _store.tasks.list_by_status(TaskStatus.in_progress):
         await _store.tasks.update_status(orphan.id, TaskStatus.failed)
@@ -142,6 +183,7 @@ async def lifespan(app: FastAPI):
         adaptive_store=_adaptive_store,
         cost_ledger=_cost_ledger,
         config=_config,
+        adapter_registry=_adapter_registry,
     )
 
     yield
@@ -302,6 +344,12 @@ async def workers_health(registry: RegistryDep):
     results = await registry.health_all()
     return {worker_id: {"worker_id": h.worker_id, "healthy": h.healthy, "detail": h.detail}
             for worker_id, h in results.items()}
+
+
+@app.get("/api/agents/status")
+async def agents_status(registry: AdapterRegistryDep):
+    """Return health status for all registered AgentAdapters."""
+    return await registry.all_statuses()
 
 
 @app.post("/runs/{plan_id}/start", status_code=202)

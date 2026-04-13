@@ -149,6 +149,7 @@ class OllamaWorker(WorkerAdapter):
         else:
             summary = strip_preamble(summary)
 
+        logger.info("OLLAMA WORKER FINAL OUTPUT (first 200 chars): %s", summary[:200])
         yield WorkerEvent(type="attempt.completed", payload={"summary": summary})
 
     async def cancel(self, attempt_id: str) -> None:

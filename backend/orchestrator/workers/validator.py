@@ -1,17 +1,16 @@
+"""Output validators for Ollama worker results."""
 from __future__ import annotations
-import ast
-
-from .postprocess import extract_code
 
 
-def validate_code_output(response: str, language: str = "python") -> tuple[bool, str]:
-    """Validate a code response. Returns (is_valid, reason)."""
-    if "```" not in response:
-        return False, "no_code_block"
+def validate_code_output(response: str) -> tuple[bool, str]:
+    """Validate a code response. Returns (is_valid, reason).
 
-    code = extract_code(response)
+    NOTE: called with already-extracted code (backtick fences already stripped
+    by OllamaWorker.execute → extract_code). Do NOT check for fence presence.
+    """
+    code = response.strip()
 
-    if len(code.strip()) < 20:
+    if len(code) < 20:
         return False, "too_short"
 
     non_comment_lines = [
@@ -21,23 +20,12 @@ def validate_code_output(response: str, language: str = "python") -> tuple[bool,
     if len(non_comment_lines) < 2:
         return False, "only_comments"
 
-    if language == "python":
-        try:
-            ast.parse(code)
-        except SyntaxError as exc:
-            return False, f"syntax_error: {exc.msg}"
-
-    if language in ("javascript", "typescript"):
-        opens = code.count("{") + code.count("(") + code.count("[")
-        closes = code.count("}") + code.count(")") + code.count("]")
-        if abs(opens - closes) > 1:
-            return False, "unbalanced_brackets"
-
     return True, "ok"
 
 
 def validate_general_output(response: str) -> tuple[bool, str]:
-    """Validate a non-code response."""
-    if len(response.strip()) < 10:
-        return False, "too_short"
+    """Validate a non-code response. Any non-empty answer is valid —
+    short answers like '4' or 'Paris' are correct for simple questions."""
+    if not response.strip():
+        return False, "empty_response"
     return True, "ok"

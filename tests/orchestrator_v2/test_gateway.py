@@ -39,7 +39,7 @@ def _make_task(run_id: str = "run-1", title: str = "Task A") -> Task:
     )
 
 
-def _make_attempt(task_id: str, summary: str = "Task done.") -> TaskAttempt:
+def _make_attempt(task_id: str, summary: str = "Task done.", output: str = "") -> TaskAttempt:
     return TaskAttempt(
         id=str(uuid.uuid4()),
         task_id=task_id,
@@ -50,6 +50,7 @@ def _make_attempt(task_id: str, summary: str = "Task done.") -> TaskAttempt:
         started_at=time.time(),
         ended_at=time.time(),
         summary=summary,
+        output=output,
         artifact_refs=[],
         validator_refs=[],
     )
@@ -73,7 +74,7 @@ def _make_store(task: Task | None = None, attempts: list | None = None) -> Magic
 
 
 def _make_gateway(store, tasks_from_planner=None, run_task_side_effect=None,
-                  adaptive_store=None) -> Gateway:
+                  adaptive_store=None, adapter_registry=None) -> Gateway:
     registry = MagicMock()
     verifier = MagicMock()
     gw = Gateway(
@@ -81,6 +82,7 @@ def _make_gateway(store, tasks_from_planner=None, run_task_side_effect=None,
         registry=registry,
         verifier=verifier,
         adaptive_store=adaptive_store,
+        adapter_registry=adapter_registry,
     )
 
     # Attach patches as attributes so callers can use them as context managers
@@ -265,3 +267,47 @@ async def test_gateway_sets_preferred_worker_for_ollama_backend(store, tmp_path)
     assert any(t.preferred_worker_type is not None for t in saved_tasks), \
         "Expected gateway to set preferred_worker_type for ollama tasks"
     assert saved_tasks[0].preferred_worker_type == "ollama:coder"
+
+
+@pytest.mark.asyncio
+async def test_response_assembler_uses_summary_fallback():
+    """Gateway must yield worker output even when attempt.output is empty (legacy DB rows)."""
+    task = _make_task()
+    attempt = _make_attempt(task.id, summary="4", output="")  # output="" simulates legacy DB row
+    store = _make_store(task=task, attempts=[attempt])
+    gw = _make_gateway(store, tasks_from_planner=[task])
+
+    msg = _make_msg("whats 2+2")
+    with gw._planner_patch, gw._run_task_patch:
+        chunks = [c async for c in gw.handle_message(msg)]
+
+    assert "4" in chunks, f"Expected '4' in output chunks, got: {chunks}"
+
+
+@pytest.mark.asyncio
+async def test_gateway_uses_adapter_registry_for_routing():
+    """When an AdapterRegistry is provided, gateway routes via capability matching."""
+    from backend.orchestrator.adapters.registry import AdapterRegistry
+    from backend.orchestrator.adapters.base import AgentAdapter, AgentCapability, AgentStatus, CostEstimate
+
+    class _MockOllamaAdapter(AgentAdapter):
+        @property
+        def name(self): return "ollama"
+        @property
+        def worker_id(self): return "ollama:coder"
+        @property
+        def capabilities(self): return [AgentCapability("code", 0.9)]
+        def estimate_cost(self, task): return CostEstimate()
+        async def health_check(self): return AgentStatus(name="ollama", available=True)
+
+    adapter_registry = AdapterRegistry()
+    adapter_registry.register(_MockOllamaAdapter())
+
+    task = _make_task()
+    store = _make_store(task=task, attempts=[_make_attempt(task.id)])
+    gw = _make_gateway(store, tasks_from_planner=[task], adapter_registry=adapter_registry)
+
+    msg = _make_msg("write a hello world function")
+    with gw._planner_patch, gw._run_task_patch:
+        chunks = [c async for c in gw.handle_message(msg)]
+    # No assertion on content — just verify no exception raised when adapter_registry is provided

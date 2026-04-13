@@ -207,6 +207,7 @@ class TaskAttempt:
     started_at: float | None
     ended_at: float | None
     summary: str
+    output: str
     artifact_refs: list[str]
     validator_refs: list[str]
 
@@ -222,6 +223,7 @@ class TaskAttempt:
             started_at=None,
             ended_at=None,
             summary="",
+            output="",
             artifact_refs=[],
             validator_refs=[],
         )

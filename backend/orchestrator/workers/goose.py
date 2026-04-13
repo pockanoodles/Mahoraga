@@ -1,11 +1,11 @@
-"""GooseWorker — subprocess-based WorkerAdapter for Block's Goose AI agent.
+"""GooseWorker — subprocess-based WorkerAdapter for Goose CLI (Block/Square).
 
-Block's open-source AI agent for automating engineering tasks.
-NOTE: requires Block's AI agent (github.com/block/goose), NOT the goose DB migration tool.
-Install: brew install block/goose/goose  or  pipx install goose-ai
+Requirements: brew install goose
+              OR: curl -fsSL https://github.com/block/goose/releases/latest/download/install.sh | bash
+General-purpose agent — not code-specific. Best for research, writing, automation.
 
-Health check verifies this is the AI agent (not the DB migration tool) by testing
-that `goose run --help` exits cleanly.
+NOTE: Goose's CLI is actively evolving. Verify `goose run` syntax with `goose --help`.
+Some versions may use `goose session --non-interactive` instead.
 """
 from __future__ import annotations
 import asyncio
@@ -27,12 +27,10 @@ class GooseWorker(WorkerAdapter):
         worker_id: str = "goose:default",
         binary_path: str = "goose",
         timeout: int = _DEFAULT_TIMEOUT,
-        cwd: str | None = None,
     ) -> None:
         self._worker_id = worker_id
         self._binary = binary_path
         self._timeout = timeout
-        self._cwd = cwd
 
     @property
     def id(self) -> str:
@@ -40,7 +38,7 @@ class GooseWorker(WorkerAdapter):
 
     @property
     def capabilities(self) -> list[str]:
-        return ["code", "refactor", "test", "explain", "general"]
+        return ["research", "general", "explain"]
 
     async def execute(
         self,
@@ -49,58 +47,43 @@ class GooseWorker(WorkerAdapter):
         feedback: str | None = None,
     ) -> AsyncGenerator[WorkerEvent, None]:
         binary = shutil.which(self._binary) or self._binary
-        prompt = f"{task.title}\n\n{task.goal}"
+        message = f"{task.title}\n\n{task.goal}"
         if task.done_criteria:
-            prompt += f"\n\nDone when: {task.done_criteria}"
+            message += f"\n\nDone when: {task.done_criteria}"
         if feedback:
-            prompt += f"\n\nFeedback: {feedback}"
+            message += f"\n\nFeedback: {feedback}"
 
-        # Block's Goose: `goose run --text <prompt>` for non-interactive execution
-        cmd = [binary, "run", "--text", prompt]
+        # `goose run` is the non-interactive single-shot mode.
+        # If this fails, try: goose session --non-interactive --prompt "..."
+        cmd = [binary, "run", message]
 
         try:
             proc = await asyncio.create_subprocess_exec(
                 *cmd,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
-                cwd=self._cwd,
             )
         except FileNotFoundError:
             yield WorkerEvent(
                 type="attempt.failed",
-                payload={"error_code": "binary_not_found", "error": "goose binary not found. Install Block's AI agent from github.com/block/goose"},
-            )
-            return
-
-        # Fast-fail: if process dies within 5s without output, abort early
-        first_line: bytes | None = None
-        try:
-            first_line = await asyncio.wait_for(proc.stdout.readline(), timeout=5.0)
-        except asyncio.TimeoutError:
-            pass
-
-        if first_line is None and proc.returncode is not None and proc.returncode != 0:
-            stderr = b""
-            if proc.stderr:
-                stderr = await proc.stderr.read(4096)
-            yield WorkerEvent(
-                type="attempt.failed",
-                payload={"error_code": "fast_fail", "error": f"goose exited immediately ({proc.returncode}): {stderr.decode(errors='replace')[:300]}"},
+                payload={
+                    "error_code": "binary_not_found",
+                    "error": "goose binary not found. Install: brew install goose",
+                },
             )
             return
 
         collected: list[str] = []
-        if first_line:
-            collected.append(first_line.decode("utf-8", errors="replace"))
-
         try:
             async with asyncio.timeout(self._timeout):
                 assert proc.stdout is not None
                 async for line in proc.stdout:
-                    collected.append(line.decode("utf-8", errors="replace"))
+                    text = line.decode("utf-8", errors="replace")
+                    collected.append(text)
                 await proc.wait()
         except TimeoutError:
             proc.kill()
+            await proc.wait()
             yield WorkerEvent(
                 type="attempt.failed",
                 payload={"error_code": "timeout", "error": f"goose timed out after {self._timeout}s"},
@@ -119,15 +102,22 @@ class GooseWorker(WorkerAdapter):
                 stderr = await proc.stderr.read()
             yield WorkerEvent(
                 type="attempt.failed",
-                payload={"error_code": "nonzero_exit", "error": f"goose exited {proc.returncode}: {stderr.decode(errors='replace')[:200]}"},
+                payload={
+                    "error_code": "nonzero_exit",
+                    "error": f"goose exited {proc.returncode}: {stderr.decode(errors='replace')[:200]}",
+                },
             )
             return
 
         summary = "".join(collected).strip()
         if not summary:
+            stderr_text = ""
+            if proc.stderr:
+                stderr_bytes = await proc.stderr.read(4096)
+                stderr_text = stderr_bytes.decode(errors="replace")[:300]
             yield WorkerEvent(
                 type="attempt.failed",
-                payload={"error_code": "empty_response", "error": "goose produced no output"},
+                payload={"error_code": "empty_response", "error": f"goose produced no output. stderr: {stderr_text}"},
             )
             return
 
@@ -142,24 +132,6 @@ class GooseWorker(WorkerAdapter):
             return WorkerHealth(
                 worker_id=self._worker_id,
                 healthy=False,
-                detail="goose not found in PATH. Install Block's AI agent: github.com/block/goose",
+                detail="goose not found in PATH. Install: brew install goose",
             )
-        # Verify this is Block's AI goose, not the DB migration tool.
-        # The AI goose has `goose run` as a valid subcommand; the DB tool does not.
-        try:
-            proc = await asyncio.create_subprocess_exec(
-                binary, "run", "--help",
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            await proc.wait()
-            if proc.returncode != 0:
-                return WorkerHealth(
-                    worker_id=self._worker_id,
-                    healthy=False,
-                    detail=f"goose binary at {binary} does not support 'run' subcommand — may be DB migration tool, not Block's AI agent",
-                )
-        except Exception as exc:
-            return WorkerHealth(worker_id=self._worker_id, healthy=False, detail=str(exc))
-
         return WorkerHealth(worker_id=self._worker_id, healthy=True, detail=f"binary={binary}")

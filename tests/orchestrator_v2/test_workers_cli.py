@@ -188,3 +188,68 @@ async def test_gemini_worker_health_not_installed():
         h = await w.health()
     assert h.healthy is False
     assert "gemini" in h.detail.lower()
+
+
+# ── GooseWorker ───────────────────────────────────────────────────────────────
+
+def test_goose_worker_id():
+    from backend.orchestrator.workers.goose import GooseWorker
+    w = GooseWorker()
+    assert w.id == "goose:default"
+
+
+def test_goose_worker_capabilities():
+    from backend.orchestrator.workers.goose import GooseWorker
+    w = GooseWorker()
+    assert "research" in w.capabilities
+    assert "general" in w.capabilities
+    assert "explain" in w.capabilities
+    assert "code" not in w.capabilities  # Goose is general-purpose, not a coding agent
+
+
+async def test_goose_worker_execute_happy_path():
+    from backend.orchestrator.workers.goose import GooseWorker
+    proc = _make_proc(["Goose found: relevant information about the topic\n"])
+
+    with patch("backend.orchestrator.workers.goose.asyncio.create_subprocess_exec",
+               new=AsyncMock(return_value=proc)):
+        w = GooseWorker()
+        events = [ev async for ev in w.execute(make_attempt("goose:default"), make_task())]
+
+    completed = [e for e in events if e.type == "attempt.completed"]
+    assert len(completed) == 1
+    assert "relevant information" in completed[0].payload["summary"]
+
+
+async def test_goose_worker_binary_not_found():
+    from backend.orchestrator.workers.goose import GooseWorker
+
+    with patch("backend.orchestrator.workers.goose.asyncio.create_subprocess_exec",
+               side_effect=FileNotFoundError("not found")):
+        w = GooseWorker()
+        events = [ev async for ev in w.execute(make_attempt("goose:default"), make_task())]
+
+    failed = [e for e in events if e.type == "attempt.failed"]
+    assert failed[0].payload["error_code"] == "binary_not_found"
+
+
+async def test_goose_worker_empty_response():
+    from backend.orchestrator.workers.goose import GooseWorker
+    proc = _make_proc(["\n"])
+
+    with patch("backend.orchestrator.workers.goose.asyncio.create_subprocess_exec",
+               new=AsyncMock(return_value=proc)):
+        w = GooseWorker()
+        events = [ev async for ev in w.execute(make_attempt("goose:default"), make_task())]
+
+    failed = [e for e in events if e.type == "attempt.failed"]
+    assert any(e.payload["error_code"] == "empty_response" for e in failed)
+
+
+async def test_goose_worker_health_not_installed():
+    from backend.orchestrator.workers.goose import GooseWorker
+    with patch("backend.orchestrator.workers.goose.shutil.which", return_value=None):
+        w = GooseWorker()
+        h = await w.health()
+    assert h.healthy is False
+    assert "goose" in h.detail.lower()

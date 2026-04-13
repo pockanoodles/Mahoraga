@@ -231,3 +231,37 @@ async def test_gemini_adapter_health_not_installed():
         status = await adapter.health_check()
     assert status.available is False
     assert "gemini" in status.detail.lower()
+
+
+# ── GooseAdapter ──────────────────────────────────────────────────────────────
+
+def test_goose_adapter_declares_capabilities():
+    from backend.orchestrator.adapters.goose_adapter import GooseAdapter
+    adapter = GooseAdapter()
+    cap_names = {c.name for c in adapter.capabilities}
+    assert "research" in cap_names
+    assert "general" in cap_names
+
+
+def test_goose_adapter_cost_is_zero():
+    from backend.orchestrator.adapters.goose_adapter import GooseAdapter
+    adapter = GooseAdapter()
+    task = Task.new(run_id="r1", title="t", goal="research something")
+    est = adapter.estimate_cost(task)
+    assert est.estimated_cost_usd == 0.0
+
+
+def test_goose_adapter_worker_id():
+    from backend.orchestrator.adapters.goose_adapter import GooseAdapter
+    adapter = GooseAdapter()
+    assert adapter.worker_id == "goose:default"
+    assert adapter.name == "goose"
+
+
+async def test_goose_adapter_health_not_installed():
+    from backend.orchestrator.adapters.goose_adapter import GooseAdapter
+    with patch("backend.orchestrator.adapters.goose_adapter.shutil.which", return_value=None):
+        adapter = GooseAdapter()
+        status = await adapter.health_check()
+    assert status.available is False
+    assert "goose" in status.detail.lower()

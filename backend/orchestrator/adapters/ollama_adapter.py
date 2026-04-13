@@ -13,10 +13,12 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 _DEFAULT_CAPABILITIES = [
-    AgentCapability("code",    confidence=0.80),
-    AgentCapability("general", confidence=0.85),
-    AgentCapability("plan",    confidence=0.70),
-    AgentCapability("explain", confidence=0.75),
+    # Ollama generates code *text* but cannot create or modify files on disk.
+    # Keeping it out of the "code" pool forces file-writing tasks to subprocess
+    # agents (codex-cli, aider, gemini-cli) that can actually write files.
+    AgentCapability("general", confidence=0.90),
+    AgentCapability("plan",    confidence=0.85),
+    AgentCapability("explain", confidence=0.80),
 ]
 
 

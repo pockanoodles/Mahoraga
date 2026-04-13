@@ -1,6 +1,7 @@
 # backend/orchestrator/config.py
 from __future__ import annotations
 import json
+import os
 from pathlib import Path
 
 # Controls which backends are registered at startup.
@@ -9,8 +10,9 @@ from pathlib import Path
 ENABLED_BACKENDS: list[str] = ["ollama"]
 
 _DEFAULTS: dict = {
-    "active_backend": "claude",
+    "active_backend": "ollama",
     "ollama_base_url": "http://localhost:11434",
+    "workdir": None,  # None = inherit uvicorn CWD
 }
 
 
@@ -41,3 +43,17 @@ class MahoragaConfig:
 
 # Module-level singleton used by app.py and gateway.py
 config = MahoragaConfig()
+
+
+def get_workdir() -> str:
+    """Return the active working directory for subprocess file operations.
+
+    Priority: MAHORAGA_WORKDIR env var → config.json workdir → uvicorn CWD.
+    """
+    env_wd = os.environ.get("MAHORAGA_WORKDIR")
+    if env_wd:
+        return os.path.expanduser(env_wd)
+    config_wd = config.get("workdir")
+    if config_wd:
+        return os.path.expanduser(config_wd)
+    return os.getcwd()

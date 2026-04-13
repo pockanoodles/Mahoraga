@@ -9,13 +9,37 @@ from pathlib import Path
 from .base import RoutingStrategy
 
 
+# Cold-start priors: initial expected reward per agent, used to seed b on first encounter.
+# Keys match adapter.name values registered in AdapterRegistry.
+#
+# Ollama gets the highest prior for general/plan (no subprocess overhead).
+# Codex-cli and aider get the highest prior for code tasks — they can write files;
+# ollama is no longer in the code pool so it never competes there anyway.
+_DEFAULT_PRIORS: dict[str, float] = {
+    "codex-cli":    0.90,   # can write files, strong on code
+    "aider":        0.85,   # refactor / multi-file edits
+    "gemini-cli":   0.80,   # Google AI, good general + code
+    "opencode":     0.75,   # sst/opencode, Ollama-backed
+    "ollama":       0.70,   # chat/plan — no file writes; still wins general/plan
+    "goose":        0.60,   # Block's agent (needs separate install)
+    "claude":       0.85,   # only registered if API key set
+}
+
+
 class LinUCBRouter(RoutingStrategy):
     name = "linucb"
 
-    def __init__(self, d: int = 8, alpha: float = 1.0, decay: float = 1.0):
+    def __init__(
+        self,
+        d: int = 8,
+        alpha: float = 1.0,
+        decay: float = 1.0,
+        priors: dict[str, float] | None = None,
+    ):
         self.d = d
         self.alpha = alpha
         self.decay = decay
+        self.priors: dict[str, float] = priors if priors is not None else _DEFAULT_PRIORS
         self.A: dict[str, np.ndarray] = {}
         self.b: dict[str, np.ndarray] = {}
         self.t: int = 0
@@ -23,7 +47,11 @@ class LinUCBRouter(RoutingStrategy):
     def _init_agent(self, agent: str) -> None:
         if agent not in self.A:
             self.A[agent] = np.identity(self.d)
-            self.b[agent] = np.zeros((self.d, 1))
+            # Seed b with prior so θ̂ = A⁻¹b ≈ prior·ones on cold start.
+            # This biases early exploration toward confident agents without
+            # locking in — the bandit learns and overwrites after a few rounds.
+            prior = self.priors.get(agent, 0.5)
+            self.b[agent] = prior * np.ones((self.d, 1))
 
     def select_agent(self, context, available_agents: list[str]) -> str:
         if not available_agents:

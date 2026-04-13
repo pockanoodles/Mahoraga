@@ -210,54 +210,6 @@ html, body { height: 100%; overflow: hidden; font-family: var(--font-ui); color:
 }
 .icon-btn:hover { color: var(--text-primary); background: var(--bg-surface); }
 
-/* ── Backend toggle chip ── */
-.backend-chip {
-  appearance: none;
-  -webkit-appearance: none;
-  font-family: var(--font-ui);
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.03em;
-  padding: 4px 10px 4px 8px;
-  border-radius: 20px;
-  border: 1px solid var(--divider);
-  cursor: pointer;
-  transition: background 0.2s, color 0.2s, border-color 0.2s;
-  background: var(--bg-surface);
-  color: var(--text-muted);
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  line-height: 1;
-}
-.backend-chip::before {
-  content: '';
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--text-muted);
-  flex-shrink: 0;
-  transition: background 0.2s;
-}
-.backend-chip.chip-active {
-  background: rgba(0, 122, 255, 0.12);
-  color: var(--accent);
-  border-color: rgba(0, 122, 255, 0.3);
-}
-.backend-chip.chip-active::before {
-  background: var(--accent);
-}
-.backend-chip.chip-ollama {
-  background: rgba(63, 185, 80, 0.1);
-  color: var(--success);
-  border-color: rgba(63, 185, 80, 0.3);
-}
-.backend-chip.chip-ollama::before {
-  background: var(--success);
-}
-.backend-chip:hover {
-  opacity: 0.8;
-}
 
 /* ── Divider ── */
 .divider {
@@ -498,52 +450,46 @@ html, body { height: 100%; overflow: hidden; font-family: var(--font-ui); color:
   padding: 20px 0;
 }
 
-/* ── Cost Bar ── */
-.cost-bar {
+/* ── Metrics Bar ── */
+.metrics-bar {
   margin-top: auto;
-  padding: 10px 14px;
+  padding: 8px 14px;
   border-top: 1px solid var(--divider);
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
   flex-shrink: 0;
-  position: relative;
 }
-.cost-label {
+.metrics-text {
   font-family: var(--font-mono);
   font-size: 10px;
   color: var(--text-muted);
 }
-.cost-track {
-  height: 3px;
-  background: var(--bg-surface);
-  border-radius: 2px;
-  overflow: hidden;
-}
-.cost-fill {
-  height: 100%;
-  background: var(--accent);
-  border-radius: 2px;
-  width: 0%;
-  transition: width 0.4s ease;
-}
-.cost-tooltip {
-  display: none;
-  position: absolute;
-  bottom: 100%;
-  left: 14px;
-  background: var(--bg-surface);
+
+/* ── Settings inputs (workdir section) ── */
+.settings-input {
+  background: var(--bg-inset);
   border: 1px solid var(--divider);
-  border-radius: 8px;
-  padding: 8px 12px;
-  font-family: var(--font-mono);
-  font-size: 10px;
+  border-radius: 4px;
   color: var(--text-primary);
-  white-space: nowrap;
-  z-index: 50;
-  box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  padding: 6px 10px;
+  width: 100%;
+  margin-top: 4px;
 }
-.cost-bar:hover .cost-tooltip { display: block; }
+.settings-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.settings-btn {
+  background: var(--accent-dim);
+  color: white;
+  border: none;
+  border-radius: 4px;
+  padding: 6px 14px;
+  font-size: 12px;
+  cursor: pointer;
+  margin-top: 8px;
+}
+.settings-btn:hover { background: var(--accent); }
 
 /* ── Settings Drawer ── */
 .drawer-overlay {

@@ -1,7 +1,7 @@
-"""CodexWorker — subprocess-based WorkerAdapter for OpenAI Codex CLI.
+"""GeminiWorker — subprocess-based WorkerAdapter for Gemini CLI.
 
-Requirements: npm install -g @openai/codex (or ChatGPT Plus auth).
-Spawns `codex` as a subprocess, streams stdout as token events.
+Google's open-source terminal coding agent.
+Spawns `gemini -p <prompt> -y --approval-mode yolo` in headless mode.
 """
 from __future__ import annotations
 import asyncio
@@ -14,14 +14,14 @@ from ..domain.models import Task, TaskAttempt
 
 logger = logging.getLogger(__name__)
 
-_DEFAULT_TIMEOUT = 180  # seconds
+_DEFAULT_TIMEOUT = 180
 
 
-class CodexWorker(WorkerAdapter):
+class GeminiWorker(WorkerAdapter):
     def __init__(
         self,
-        worker_id: str = "codex:cli",
-        binary_path: str = "codex",
+        worker_id: str = "gemini:cli",
+        binary_path: str = "gemini",
         timeout: int = _DEFAULT_TIMEOUT,
         cwd: str | None = None,
     ) -> None:
@@ -36,7 +36,7 @@ class CodexWorker(WorkerAdapter):
 
     @property
     def capabilities(self) -> list[str]:
-        return ["code", "refactor", "test", "explain"]
+        return ["code", "refactor", "test", "explain", "general"]
 
     async def execute(
         self,
@@ -49,9 +49,14 @@ class CodexWorker(WorkerAdapter):
         if task.done_criteria:
             prompt += f"\n\nDone when: {task.done_criteria}"
         if feedback:
-            prompt += f"\n\nPrevious attempt feedback: {feedback}"
+            prompt += f"\n\nFeedback: {feedback}"
 
-        cmd = [binary, "--approval-mode", "full-auto", "--quiet", prompt]
+        cmd = [
+            binary,
+            "--prompt", prompt,
+            "-y",                        # auto-accept all actions
+            "--approval-mode", "yolo",   # non-interactive, no confirmations
+        ]
 
         try:
             proc = await asyncio.create_subprocess_exec(
@@ -63,11 +68,11 @@ class CodexWorker(WorkerAdapter):
         except FileNotFoundError:
             yield WorkerEvent(
                 type="attempt.failed",
-                payload={"error_code": "binary_not_found", "error": f"codex binary not found at {self._binary!r}. Install: npm install -g @openai/codex"},
+                payload={"error_code": "binary_not_found", "error": "gemini binary not found. Install: npm install -g @google/gemini-cli"},
             )
             return
 
-        # Fast-fail: if codex dies within 5s without producing output, bail immediately.
+        # Fast-fail: if process dies within 5s without producing output, abort early
         first_line: bytes | None = None
         try:
             first_line = await asyncio.wait_for(proc.stdout.readline(), timeout=5.0)
@@ -80,7 +85,7 @@ class CodexWorker(WorkerAdapter):
                 stderr = await proc.stderr.read(4096)
             yield WorkerEvent(
                 type="attempt.failed",
-                payload={"error_code": "fast_fail", "error": f"codex exited immediately ({proc.returncode}): {stderr.decode(errors='replace')[:300]}"},
+                payload={"error_code": "fast_fail", "error": f"gemini exited immediately ({proc.returncode}): {stderr.decode(errors='replace')[:300]}"},
             )
             return
 
@@ -92,14 +97,13 @@ class CodexWorker(WorkerAdapter):
             async with asyncio.timeout(self._timeout):
                 assert proc.stdout is not None
                 async for line in proc.stdout:
-                    text = line.decode("utf-8", errors="replace")
-                    collected.append(text)
+                    collected.append(line.decode("utf-8", errors="replace"))
                 await proc.wait()
         except TimeoutError:
             proc.kill()
             yield WorkerEvent(
                 type="attempt.failed",
-                payload={"error_code": "timeout", "error": f"codex timed out after {self._timeout}s"},
+                payload={"error_code": "timeout", "error": f"gemini timed out after {self._timeout}s"},
             )
             return
         except Exception as exc:
@@ -115,10 +119,7 @@ class CodexWorker(WorkerAdapter):
                 stderr = await proc.stderr.read()
             yield WorkerEvent(
                 type="attempt.failed",
-                payload={
-                    "error_code": "nonzero_exit",
-                    "error": f"codex exited {proc.returncode}: {stderr.decode(errors='replace')[:200]}",
-                },
+                payload={"error_code": "nonzero_exit", "error": f"gemini exited {proc.returncode}: {stderr.decode(errors='replace')[:200]}"},
             )
             return
 
@@ -126,7 +127,7 @@ class CodexWorker(WorkerAdapter):
         if not summary:
             yield WorkerEvent(
                 type="attempt.failed",
-                payload={"error_code": "empty_response", "error": "codex produced no output"},
+                payload={"error_code": "empty_response", "error": "gemini produced no output"},
             )
             return
 
@@ -141,6 +142,6 @@ class CodexWorker(WorkerAdapter):
             return WorkerHealth(
                 worker_id=self._worker_id,
                 healthy=False,
-                detail=f"codex not found in PATH. Install: npm install -g @openai/codex",
+                detail="gemini not found in PATH. Install: npm install -g @google/gemini-cli",
             )
         return WorkerHealth(worker_id=self._worker_id, healthy=True, detail=f"binary={binary}")

@@ -1,0 +1,106 @@
+{
+  "static": {
+    "success_rate": 0.96,
+    "mean_reward": 0.8648719999999996,
+    "avg_latency": 6.3419500000000015,
+    "avg_cost": 0.035965000000000004,
+    "total_cost": 7.193000000000001,
+    "agent_distribution": {
+      "ollama": 0.245,
+      "codex-cli": 0.365,
+      "aider": 0.165,
+      "gemini-cli": 0.225,
+      "goose": 0.0,
+      "opencode": 0.0
+    },
+    "agent_success_rates": {
+      "ollama": 0.8367346938775511,
+      "codex-cli": 1.0,
+      "aider": 1.0,
+      "gemini-cli": 1.0,
+      "goose": 0.0,
+      "opencode": 0.0
+    },
+    "total_regret": 6.883399999999998,
+    "regret_growth_exponent": 1.5692364888622188,
+    "is_sublinear": false
+  },
+  "ucb1": {
+    "success_rate": 0.835,
+    "mean_reward": 0.752403,
+    "avg_latency": 6.509950000000001,
+    "avg_cost": 0.032269999999999965,
+    "total_cost": 6.4539999999999935,
+    "agent_distribution": {
+      "ollama": 0.075,
+      "codex-cli": 0.185,
+      "aider": 0.15,
+      "gemini-cli": 0.245,
+      "goose": 0.21,
+      "opencode": 0.135
+    },
+    "agent_success_rates": {
+      "ollama": 0.26666666666666666,
+      "codex-cli": 0.8918918918918919,
+      "aider": 0.8,
+      "gemini-cli": 0.9591836734693877,
+      "goose": 0.9523809523809523,
+      "opencode": 0.7037037037037037
+    },
+    "total_regret": 28.687299999999997,
+    "regret_growth_exponent": 0.9495996883134671,
+    "is_sublinear": false
+  },
+  "thompson": {
+    "success_rate": 0.925,
+    "mean_reward": 0.8070200000000001,
+    "avg_latency": 6.229799999999999,
+    "avg_cost": 0.028119999999999975,
+    "total_cost": 5.623999999999995,
+    "agent_distribution": {
+      "ollama": 0.03,
+      "codex-cli": 0.065,
+      "aider": 0.01,
+      "gemini-cli": 0.075,
+      "goose": 0.8,
+      "opencode": 0.02
+    },
+    "agent_success_rates": {
+      "ollama": 0.6666666666666666,
+      "codex-cli": 0.7692307692307693,
+      "aider": 0.5,
+      "gemini-cli": 0.8666666666666667,
+      "goose": 0.96875,
+      "opencode": 0.5
+    },
+    "total_regret": 17.727449999999997,
+    "regret_growth_exponent": 1.1752003387224828,
+    "is_sublinear": false
+  },
+  "linucb": {
+    "success_rate": 0.9,
+    "mean_reward": 0.8049074999999994,
+    "avg_latency": 6.273549999999999,
+    "avg_cost": 0.029514999999999958,
+    "total_cost": 5.902999999999992,
+    "agent_distribution": {
+      "ollama": 0.065,
+      "codex-cli": 0.14,
+      "aider": 0.105,
+      "gemini-cli": 0.275,
+      "goose": 0.265,
+      "opencode": 0.15
+    },
+    "agent_success_rates": {
+      "ollama": 0.6923076923076923,
+      "codex-cli": 0.8571428571428571,
+      "aider": 0.8095238095238095,
+      "gemini-cli": 0.9272727272727272,
+      "goose": 1.0,
+      "opencode": 0.8666666666666667
+    },
+    "total_regret": 18.375999999999998,
+    "regret_growth_exponent": 0.6594808673305866,
+    "is_sublinear": true
+  }
+}

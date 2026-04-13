@@ -30,12 +30,19 @@ from ..workers.claude import ClaudeWorker
 from ..workers.ollama import OllamaWorker
 from ..workers.codex import CodexWorker
 from ..workers.aider import AiderWorker
+from ..workers.gemini import GeminiWorker
+from ..workers.opencode import OpenCodeWorker
+from ..workers.goose import GooseWorker
 from ..workers.registry import WorkerRegistry
 from ..adapters.registry import AdapterRegistry
 from ..adapters.ollama_adapter import OllamaAdapter
 from ..adapters.claude_adapter import ClaudeAdapter
 from ..adapters.codex_adapter import CodexAdapter
 from ..adapters.aider_adapter import AiderAdapter
+from ..adapters.gemini_adapter import GeminiAdapter
+from ..adapters.opencode_adapter import OpenCodeAdapter
+from ..adapters.goose_adapter import GooseAdapter
+from ..config import ENABLED_BACKENDS, MahoragaConfig, get_workdir
 from .approvals import grant_approval, reject_approval
 from .executor import run_task as _run_task
 from .run_executor import run_run as _run_run
@@ -145,14 +152,26 @@ async def lifespan(app: FastAPI):
     import asyncio as _asyncio
     _asyncio.ensure_future(_ollama_workers[0].warm())
 
+    # ── CWD for file-writing workers ──────────────────────────────────────────
+    _workdir = get_workdir()
+
     # ── Register Codex CLI worker ─────────────────────────────────────────────
-    _codex_worker = CodexWorker()
+    _codex_worker = CodexWorker(cwd=_workdir)
     _registry.register(_codex_worker)
 
     # ── Register Aider worker ─────────────────────────────────────────────────
-    _aider_model = os.getenv("AIDER_MODEL", "ollama_chat/qwen3:4b")
-    _aider_worker = AiderWorker(model=_aider_model)
+    _aider_model = os.getenv("AIDER_MODEL", "ollama_chat/qwen3:4b-q4_K_M")
+    _aider_worker = AiderWorker(model=_aider_model, cwd=_workdir)
     _registry.register(_aider_worker)
+
+    # ── Register Gemini CLI worker ────────────────────────────────────────────
+    _registry.register(GeminiWorker(cwd=_workdir))
+
+    # ── Register OpenCode worker ──────────────────────────────────────────────
+    _registry.register(OpenCodeWorker(cwd=_workdir))
+
+    # ── Register Goose worker ─────────────────────────────────────────────────
+    _registry.register(GooseWorker(cwd=_workdir))
 
     # ── Build AdapterRegistry ─────────────────────────────────────────────────
     _adapter_registry = AdapterRegistry()
@@ -167,6 +186,9 @@ async def lifespan(app: FastAPI):
         ))
     _adapter_registry.register(CodexAdapter())
     _adapter_registry.register(AiderAdapter(model=_aider_model))
+    _adapter_registry.register(GeminiAdapter())
+    _adapter_registry.register(OpenCodeAdapter())
+    _adapter_registry.register(GooseAdapter())
 
     logger = logging.getLogger(__name__)
     for adapter in _adapter_registry.all():
@@ -230,12 +252,20 @@ async def chat(request: _ChatRequest, gateway: GatewayDep) -> StreamingResponse:
     )
 
     async def event_stream():
+        import json as _json
         try:
             async for chunk in gateway.handle_message(msg):
-                yield f"data: {chunk}\n\n"
+                # Intercept metrics dicts emitted by OllamaWorker
+                if isinstance(chunk, dict) and chunk.get("type") == "metrics":
+                    _record_metrics(
+                        elapsed_s=chunk.get("elapsed_s", 0.0),
+                        tokens=chunk.get("tokens", 0),
+                    )
+                # JSON-encode so multi-line chunks don't break SSE frame parsing
+                yield f"data: {_json.dumps(chunk)}\n\n"
         except Exception as exc:
-            yield f"data: [ERROR] {exc}\n\n"
-        yield "data: [DONE]\n\n"
+            yield f"data: {_json.dumps('[ERROR] ' + str(exc))}\n\n"
+        yield f"data: {_json.dumps('[DONE]')}\n\n"
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
 
@@ -467,6 +497,46 @@ async def cost_summary(store: StoreDep, user_id: str = "web-user"):
         "total_usd": round(total_usd, 6),
         "breakdown": breakdown,
     }
+
+
+# ── In-memory session metrics (reset on restart) ──────────────────────────────
+_session_metrics = {"total_elapsed_s": 0.0, "total_tokens": 0, "task_count": 0}
+
+
+def _record_metrics(elapsed_s: float, tokens: int) -> None:
+    _session_metrics["total_elapsed_s"] += elapsed_s
+    _session_metrics["total_tokens"] += tokens
+    _session_metrics["task_count"] += 1
+
+
+@app.get("/api/metrics")
+async def get_metrics():
+    m = _session_metrics
+    avg_tps = (
+        round(m["total_tokens"] / m["total_elapsed_s"], 1)
+        if m["total_elapsed_s"] > 0 else 0.0
+    )
+    return {
+        "elapsed_s": round(m["total_elapsed_s"], 1),
+        "tokens": m["total_tokens"],
+        "avg_throughput_tps": avg_tps,
+        "task_count": m["task_count"],
+    }
+
+
+@app.get("/settings/workdir")
+async def get_workdir_setting():
+    return {"workdir": get_workdir()}
+
+
+@app.post("/settings/workdir")
+async def set_workdir_setting(body: dict):
+    new_wd = body.get("workdir", "")
+    expanded = os.path.expanduser(new_wd)
+    if not os.path.isdir(expanded):
+        raise HTTPException(status_code=400, detail=f"Directory does not exist: {expanded}")
+    _config.set("workdir", new_wd)
+    return {"workdir": expanded}
 
 
 @app.get("/missions/active")

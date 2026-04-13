@@ -281,28 +281,41 @@ class Gateway:
             else:
                 capability = "general"
 
+            logger.info("[ROUTE] capability=%r | text=%r", capability, text[:120])
+
             # Bandit picks from capable agents only — never routes a code task
             # to a non-code-capable agent during cold start.
             if self._bandit_router is not None:
                 capable_names = [
                     a.name for a, _ in self._adapter_registry.find_capable(capability)
                 ]
+                logger.info("[ROUTE] candidates for %r: %s", capability, capable_names)
                 if capable_names:
                     try:
                         agent_name = self._bandit_router.route(task, capable_names)
+                        scores = self._bandit_router.strategy.get_scores()
+                        logger.info("[ROUTE] UCB scores: %s", scores)
+                        logger.info("[ROUTE] bandit selected: %r", agent_name)
                         adapter = self._adapter_registry.get(agent_name)
                         if adapter is not None:
-                            return self._resolve_worker_id(adapter, capability)
-                    except Exception:
-                        pass  # fall through to capability-based routing
+                            worker_id = self._resolve_worker_id(adapter, capability)
+                            logger.info("[ROUTE] resolved → %s", worker_id)
+                            return worker_id
+                    except Exception as exc:
+                        logger.warning("[ROUTE] bandit error: %s", exc)
+                        # fall through to capability-based routing
 
             adapter = await self._adapter_registry.route(task, required_capability=capability)
             if adapter is not None:
-                return self._resolve_worker_id(adapter, capability)
+                worker_id = self._resolve_worker_id(adapter, capability)
+                logger.info("[ROUTE] adapter-registry fallback: %s → %s", adapter.name, worker_id)
+                return worker_id
 
         # Fallback: keyword-based Ollama routing
         if active_backend == "ollama" or "claude" not in ENABLED_BACKENDS:
-            return self._router.route(task, "ollama")
+            worker_id = self._router.route(task, "ollama")
+            logger.info("[ROUTE] keyword-ollama fallback → %s", worker_id)
+            return worker_id
 
         return None
 

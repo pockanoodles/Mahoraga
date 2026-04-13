@@ -81,6 +81,7 @@ class OllamaWorker(WorkerAdapter):
         ]
 
         full_response: list[str] = []
+        _ollama_metrics: dict | None = None
         try:
             async with httpx.AsyncClient(timeout=120.0) as client:
                 async with client.stream(
@@ -118,6 +119,16 @@ class OllamaWorker(WorkerAdapter):
                         if content:
                             full_response.append(content)
                         if chunk.get("done"):
+                            # Extract exact token/timing metrics from the final Ollama chunk
+                            eval_count = chunk.get("eval_count", 0)
+                            eval_duration_ns = chunk.get("eval_duration", 0)
+                            eval_duration_s = eval_duration_ns / 1e9 if eval_duration_ns else 0.0
+                            tps = round(eval_count / eval_duration_s, 1) if eval_duration_s > 0 else 0.0
+                            _ollama_metrics = {
+                                "elapsed_s": round(eval_duration_s, 2),
+                                "tokens": eval_count,
+                                "throughput_tps": tps,
+                            }
                             break
         except httpx.ConnectError:
             yield WorkerEvent(
@@ -150,6 +161,8 @@ class OllamaWorker(WorkerAdapter):
             summary = strip_preamble(summary)
 
         logger.info("OLLAMA WORKER FINAL OUTPUT (first 200 chars): %s", summary[:200])
+        if _ollama_metrics:
+            yield WorkerEvent(type="metrics", payload=_ollama_metrics)
         yield WorkerEvent(type="attempt.completed", payload={"summary": summary})
 
     async def cancel(self, attempt_id: str) -> None:

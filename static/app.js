@@ -1,4 +1,22 @@
 // static/app.js
+
+// ── Inference metrics ────────────────────────────────────────────────────────
+async function updateMetrics() {
+  try {
+    const res = await fetch('/api/metrics');
+    if (!res.ok) return;
+    const m = await res.json();
+    const el = document.getElementById('metrics-text');
+    if (!el) return;
+    if (m.task_count === 0) {
+      el.textContent = 'Session: idle';
+      return;
+    }
+    el.textContent = `Session: ${m.elapsed_s}s · ${m.tokens} tok · avg ${m.avg_throughput_tps} t/s`;
+  } catch (_) { /* non-critical */ }
+}
+setInterval(updateMetrics, 5000);
+
 (() => {
   const form = document.querySelector('.input-area');
   const input = document.getElementById('user-input');
@@ -140,12 +158,24 @@
 
         for (const line of lines) {
           if (!line.startsWith('data: ')) continue;
-          const chunk = line.slice(6);
-          if (chunk.trimEnd() === '[DONE]') break;
-          if (chunk.startsWith('[ERROR]')) {
+          let chunk;
+          try {
+            chunk = JSON.parse(line.slice(6));
+          } catch (_) {
+            chunk = line.slice(6); // fallback for non-JSON frames
+          }
+          if (chunk === '[DONE]') break;
+          if (typeof chunk === 'string' && chunk.startsWith('[ERROR]')) {
             assistantBubble.textContent = chunk;
             return;
           }
+          // Metrics event from OllamaWorker — update display immediately
+          if (chunk && typeof chunk === 'object' && chunk.type === 'metrics') {
+            const el = document.getElementById('metrics-text');
+            if (el) el.textContent = `Last: ${chunk.elapsed_s}s · ${chunk.tokens} tok · ${chunk.throughput_tps} t/s`;
+            continue;
+          }
+          if (typeof chunk !== 'string') continue;
           fullText += chunk;
           // Update bubble raw while streaming (no markdown parse mid-stream)
           const cursor = assistantBubble.querySelector('.cursor');
@@ -160,6 +190,7 @@
       }
 
       finalizeAssistantBubble(assistantBubble, fullText);
+      updateMetrics();
 
     } catch (err) {
       assistantBubble.textContent = `Network error: ${err.message}`;
@@ -174,41 +205,3 @@
   sendBtn.addEventListener('click', submitMessage);
 })();
 
-// ── Backend toggle chip ───────────────────────────────────────────────────────
-(function () {
-  const chip = document.getElementById('backend-chip');
-  if (!chip) return;
-
-  let currentBackend = 'claude';
-
-  function applyChip(backend) {
-    currentBackend = backend;
-    chip.textContent = backend === 'claude' ? 'Claude' : 'Ollama';
-    chip.classList.toggle('chip-active', backend === 'claude');
-    chip.classList.toggle('chip-ollama', backend === 'ollama');
-  }
-
-  async function loadBackend() {
-    try {
-      const res = await fetch('/settings/backend');
-      const data = await res.json();
-      applyChip(data.active_backend);
-    } catch (_) {}
-  }
-
-  chip.addEventListener('click', async () => {
-    const next = currentBackend === 'claude' ? 'ollama' : 'claude';
-    applyChip(next); // optimistic update
-    try {
-      await fetch('/settings/backend', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ active_backend: next }),
-      });
-    } catch (_) {
-      applyChip(currentBackend === 'claude' ? 'ollama' : 'claude'); // revert on failure
-    }
-  });
-
-  loadBackend();
-})();

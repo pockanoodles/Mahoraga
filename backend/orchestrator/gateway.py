@@ -19,11 +19,11 @@ from .service.executor import run_task
 from .store.base import Store
 from .store.chat_log import ChatLogEntry
 from .adapters.registry import AdapterRegistry
-from .config import ENABLED_BACKENDS
 from .workers.registry import WorkerRegistry
 from .workers.router import TaskRouter, _CODE_KEYWORDS, _PLANNING_KEYWORDS
 from .verifier.verifier import Verifier
 from .brain_logger import log_task_completion
+from .routing import TaskOutcome
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +40,7 @@ class Gateway:
         cost_ledger=None,
         config: MahoragaConfig | None = None,
         adapter_registry: AdapterRegistry | None = None,
+        bandit_router=None,
     ) -> None:
         self._store = store
         self._registry = registry
@@ -50,6 +51,7 @@ class Gateway:
         self._config = config or MahoragaConfig()
         self._router = TaskRouter()
         self._adapter_registry = adapter_registry
+        self._bandit_router = bandit_router
 
     async def handle_message(self, msg: ChannelMessage) -> AsyncGenerator[str, None]:
         """Process a channel message through the full pipeline.
@@ -177,6 +179,20 @@ class Gateway:
                     except Exception:
                         pass  # Never let logging break the main flow
 
+            if self._bandit_router is not None and completed:
+                attempt = completed[-1]
+                bandit_outcome = TaskOutcome(
+                    success=(attempt.status.value == "completed"),
+                    latency_s=0.0,
+                    cost_usd=0.0,
+                    quality_score=1.0 if attempt.status.value == "completed" else 0.0,
+                    agent_name=attempt.worker_id or "unknown",
+                )
+                try:
+                    self._bandit_router.observe(task, bandit_outcome)
+                except Exception:
+                    pass  # never let bandit updates break responses
+
         # ── 7. Adaptive learning (fire-and-forget) ───────────────────────────
         full_response = "\n".join(response_chunks)
         if self._adaptive is not None:
@@ -230,6 +246,15 @@ class Gateway:
         Uses AdapterRegistry capability-based routing if available,
         falls back to TaskRouter keyword matching for Ollama-only mode.
         """
+        if self._bandit_router is not None and self._adapter_registry is not None:
+            try:
+                agent_name = self._bandit_router.route(task)
+                adapter = self._adapter_registry.get(agent_name)
+                if adapter is not None:
+                    return adapter.worker_id
+            except Exception:
+                pass  # fall through to capability-based routing
+
         if self._adapter_registry is not None:
             text = f"{task.title} {task.goal}".lower()
             words = set(text.split())

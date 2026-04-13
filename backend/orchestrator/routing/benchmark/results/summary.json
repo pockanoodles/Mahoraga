@@ -1,0 +1,106 @@
+[
+  {
+    "strategy": "static",
+    "n": 200,
+    "success_rate": 0.735,
+    "avg_latency": 4.887481940855012,
+    "avg_cost": 0.0,
+    "total_cost": 0.0,
+    "avg_reward": 0.6223115,
+    "cumulative_reward": 124.4623,
+    "success_by_type": {
+      "simple_qa": 0.725,
+      "code_generation": 0.82,
+      "code_editing": 0.7333333333333333,
+      "debugging": 0.6666666666666666,
+      "research": 0.7666666666666667,
+      "terminal_operations": 0.6
+    },
+    "agent_dist": {
+      "aider": 0.52,
+      "ollama": 0.165,
+      "claude": 0.0,
+      "codex": 0.0,
+      "goose": 0.315,
+      "gemini-cli": 0.0
+    }
+  },
+  {
+    "strategy": "ucb1",
+    "n": 200,
+    "success_rate": 0.75,
+    "avg_latency": 5.016309932494632,
+    "avg_cost": 0.000852,
+    "total_cost": 0.1704,
+    "avg_reward": 0.6344555,
+    "cumulative_reward": 126.8911,
+    "success_by_type": {
+      "simple_qa": 0.775,
+      "code_generation": 0.78,
+      "code_editing": 0.6666666666666666,
+      "debugging": 0.6666666666666666,
+      "research": 0.8333333333333334,
+      "terminal_operations": 0.75
+    },
+    "agent_dist": {
+      "aider": 0.205,
+      "ollama": 0.135,
+      "claude": 0.37,
+      "codex": 0.1,
+      "goose": 0.07,
+      "gemini-cli": 0.12
+    }
+  },
+  {
+    "strategy": "thompson",
+    "n": 200,
+    "success_rate": 0.78,
+    "avg_latency": 4.988231829840969,
+    "avg_cost": 0.001183,
+    "total_cost": 0.2366,
+    "avg_reward": 0.6527729999999999,
+    "cumulative_reward": 130.5546,
+    "success_by_type": {
+      "simple_qa": 0.85,
+      "code_generation": 0.8,
+      "code_editing": 0.7333333333333333,
+      "debugging": 0.7333333333333333,
+      "research": 0.7,
+      "terminal_operations": 0.85
+    },
+    "agent_dist": {
+      "aider": 0.11,
+      "ollama": 0.155,
+      "claude": 0.54,
+      "codex": 0.1,
+      "goose": 0.065,
+      "gemini-cli": 0.03
+    }
+  },
+  {
+    "strategy": "linucb",
+    "n": 200,
+    "success_rate": 0.75,
+    "avg_latency": 4.670008519667063,
+    "avg_cost": 0.0009705,
+    "total_cost": 0.1941,
+    "avg_reward": 0.639542,
+    "cumulative_reward": 127.9084,
+    "success_by_type": {
+      "simple_qa": 0.85,
+      "code_generation": 0.8,
+      "code_editing": 0.5666666666666667,
+      "debugging": 0.5666666666666667,
+      "research": 0.8333333333333334,
+      "terminal_operations": 0.85
+    },
+    "agent_dist": {
+      "aider": 0.11,
+      "ollama": 0.1,
+      "claude": 0.395,
+      "codex": 0.17,
+      "goose": 0.12,
+      "gemini-cli": 0.105
+    }
+  }
+]

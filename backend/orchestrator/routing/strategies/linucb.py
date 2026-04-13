@@ -26,6 +26,8 @@ class LinUCBRouter(RoutingStrategy):
             self.b[agent] = np.zeros((self.d, 1))
 
     def select_agent(self, context, available_agents: list[str]) -> str:
+        if not available_agents:
+            raise ValueError("available_agents must not be empty")
         self.t += 1
         x = context.to_vector().reshape(-1, 1)  # d×1
         best_agent = available_agents[0]
@@ -33,10 +35,10 @@ class LinUCBRouter(RoutingStrategy):
         scores = {}
         for a in available_agents:
             self._init_agent(a)
-            A_inv = np.linalg.inv(self.A[a])
-            theta = A_inv @ self.b[a]
+            theta = np.linalg.solve(self.A[a], self.b[a])
             exploit = float((x.T @ theta).item())
-            explore = self.alpha * float(np.sqrt((x.T @ A_inv @ x).item()))
+            explore_sq = float((x.T @ np.linalg.solve(self.A[a], x)).item())
+            explore = self.alpha * float(np.sqrt(max(0.0, explore_sq)))
             ucb = exploit + explore
             scores[a] = {
                 "ucb": round(ucb, 4),

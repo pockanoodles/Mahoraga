@@ -16,6 +16,8 @@ class UCB1Router(RoutingStrategy):
         self.t: int = 0
 
     def select_agent(self, context, available_agents: list[str]) -> str:
+        if not available_agents:
+            raise ValueError("available_agents must not be empty")
         self.t += 1
         for a in available_agents:
             if a not in self.N:
@@ -34,7 +36,7 @@ class UCB1Router(RoutingStrategy):
         scores = {}
         for a in available_agents:
             exploit = self.Q[a]
-            explore = self.c * math.sqrt(math.log(self.t) / self.N[a])
+            explore = self.c * math.sqrt(math.log(max(1, self.t)) / self.N[a])
             scores[a] = exploit + explore
         self._last_scores = {a: round(s, 4) for a, s in scores.items()}
         return max(available_agents, key=lambda a: scores[a])

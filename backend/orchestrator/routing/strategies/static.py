@@ -20,6 +20,8 @@ class StaticRouter(RoutingStrategy):
     }
 
     def select_agent(self, context, available_agents: list[str]) -> str:
+        if not available_agents:
+            raise ValueError("available_agents must not be empty")
         task_type = self._classify(context)
         preferences = self.ROUTING_MAP.get(task_type, self.ROUTING_MAP["default"])
         for agent in preferences:

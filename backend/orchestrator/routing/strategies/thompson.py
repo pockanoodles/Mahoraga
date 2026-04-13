@@ -15,6 +15,8 @@ class ThompsonSamplingRouter(RoutingStrategy):
         self.beta_: dict[str, float] = {}
 
     def select_agent(self, context, available_agents: list[str]) -> str:
+        if not available_agents:
+            raise ValueError("available_agents must not be empty")
         samples = {}
         for a in available_agents:
             alpha = self.alpha.get(a, 1.0)

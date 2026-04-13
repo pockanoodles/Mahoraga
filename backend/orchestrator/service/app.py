@@ -40,6 +40,7 @@ from .approvals import grant_approval, reject_approval
 from .executor import run_task as _run_task
 from .run_executor import run_run as _run_run
 from ..planning.planner import generate_tasks, PlannerError
+from ..routing import BanditRouter, STRATEGIES, TaskOutcome
 
 # ── singletons (replaced via dependency_overrides in tests) ──────────────────
 
@@ -51,6 +52,7 @@ _adaptive_store: AdaptiveStore | None = None
 _cost_ledger: CostLedger | None = None
 _config: MahoragaConfig | None = None
 _adapter_registry: AdapterRegistry | None = None
+_bandit_router: BanditRouter | None = None
 
 
 def get_store() -> Store:
@@ -78,6 +80,11 @@ def get_adapter_registry() -> AdapterRegistry:
     return _adapter_registry
 
 
+def get_bandit_router() -> BanditRouter:
+    assert _bandit_router is not None, "BanditRouter not initialised"
+    return _bandit_router
+
+
 StoreDep = Annotated[Store, Depends(get_store)]
 RegistryDep = Annotated[WorkerRegistry, Depends(get_registry)]
 VerifierDep = Annotated[Verifier, Depends(get_verifier)]
@@ -94,7 +101,7 @@ async def lifespan(app: FastAPI):
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
         force=True,
     )
-    global _store, _registry, _verifier, _gateway, _adaptive_store, _cost_ledger, _config, _adapter_registry
+    global _store, _registry, _verifier, _gateway, _adaptive_store, _cost_ledger, _config, _adapter_registry, _bandit_router
     _store = await Store.connect()
     _registry = WorkerRegistry()
 
@@ -165,6 +172,11 @@ async def lifespan(app: FastAPI):
     for adapter in _adapter_registry.all():
         logger.info("adapter registered: %s", adapter.name)
 
+    _bandit_router = BanditRouter(
+        strategy="linucb",
+        registry=_adapter_registry,
+    )
+
     # Orphan recovery: tasks left in_progress from a crashed previous run
     for orphan in await _store.tasks.list_by_status(TaskStatus.in_progress):
         await _store.tasks.update_status(orphan.id, TaskStatus.failed)
@@ -184,6 +196,7 @@ async def lifespan(app: FastAPI):
         cost_ledger=_cost_ledger,
         config=_config,
         adapter_registry=_adapter_registry,
+        bandit_router=_bandit_router,
     )
 
     yield
@@ -686,3 +699,49 @@ async def list_plans(store: StoreDep, mission_id: str | None = None):
             plans.extend(await store.missions.list_plans(m.id))
     return [{"id": p.id, "mission_id": p.mission_id, "status": p.status,
              "version": p.version} for p in plans]
+
+
+# ── routing endpoints ─────────────────────────────────────────────────────────
+
+@app.get("/api/routing/stats")
+async def routing_stats():
+    """Routing statistics for the dashboard."""
+    router = get_bandit_router()
+    return {
+        "strategy": router.strategy.name,
+        "total_decisions": router.logger.count(),
+        "stats": router.logger.get_stats(),
+    }
+
+
+@app.get("/api/routing/agents")
+async def routing_agents(adapter_reg: AdapterRegistryDep):
+    """Health and performance for all registered agents."""
+    router = get_bandit_router()
+    agents = []
+    for adapter in adapter_reg.all():
+        try:
+            status = await adapter.health_check()
+        except Exception as exc:
+            from ..adapters.base import AgentStatus
+            status = AgentStatus(name=adapter.name, available=False, error=str(exc))
+        stats = router.logger.get_stats(agent=adapter.name)
+        agents.append({
+            "name": adapter.name,
+            "healthy": status.available,
+            "detail": status.detail,
+            "capabilities": [c.name for c in adapter.capabilities],
+            **stats,
+        })
+    return {"agents": agents}
+
+
+@app.post("/api/routing/strategy")
+async def set_routing_strategy(body: dict):
+    """Switch routing strategy at runtime."""
+    router = get_bandit_router()
+    name = body.get("strategy", "linucb")
+    if name not in STRATEGIES:
+        raise HTTPException(status_code=400, detail=f"Unknown strategy: {name}. Options: {list(STRATEGIES)}")
+    router.set_strategy(name)
+    return {"strategy": name, "message": f"Switched to {name}"}

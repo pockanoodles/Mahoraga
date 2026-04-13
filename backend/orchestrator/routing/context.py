@@ -80,7 +80,9 @@ class TaskContext:
         )
 
         tier = getattr(task, 'tier', None)
-        if tier is None:
+        if tier is not None:
+            tier = max(1, min(3, int(tier)))
+        else:
             if word_count < 10 and code_count == 0:
                 tier = 1
             elif word_count > 50 or file_refs > 2:

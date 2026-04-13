@@ -22,7 +22,8 @@ class RewardCalculator:
 
     def __init__(self, w_quality=0.4, w_speed=0.3, w_cost=0.3):
         total = w_quality + w_speed + w_cost
-        assert abs(total - 1.0) < 1e-6, f"Weights must sum to 1.0, got {total}"
+        if abs(total - 1.0) > 1e-6:
+            raise ValueError(f"Weights must sum to 1.0, got {total}")
         self.w_quality = w_quality
         self.w_speed = w_speed
         self.w_cost = w_cost

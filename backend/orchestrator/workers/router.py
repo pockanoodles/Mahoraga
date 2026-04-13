@@ -6,6 +6,8 @@ from ..planning.classifier import TIER3_KEYWORDS  # re-exported for callers
 _CODE_KEYWORDS = frozenset({
     "code", "function", "implement", "debug",
     "script", "class", "test", "fix", "bug", "api", "import",
+    # File/code operations — specific enough to not catch essays or plans
+    "create", "file", "edit", "modify", "generate", "refactor",
     "program", "method", "algorithm",
 })
 

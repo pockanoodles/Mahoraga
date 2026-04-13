@@ -28,6 +28,20 @@ from .routing import TaskOutcome
 logger = logging.getLogger(__name__)
 
 
+def _worker_id_to_caps(worker_id: str | None) -> list[str]:
+    """Map a worker_id to the required capabilities for escalation filtering.
+
+    When a task escalates (worker fails), assign_worker uses required_capabilities
+    to pick the next worker. Without this, all workers match (empty list), and
+    Ollama (registered first) always wins — even for code tasks that need Aider.
+    """
+    if worker_id in ("aider:default", "codex:cli"):
+        return ["code"]
+    if worker_id and worker_id.startswith("claude:"):
+        return ["general"]
+    return []
+
+
 class Gateway:
     """Routes channel messages through Mission → Plan → Run → Tasks pipeline."""
 
@@ -113,7 +127,14 @@ class Gateway:
         routed_tasks = []
         for t in tasks:
             worker_id = await self._route_task(t, active_backend)
-            routed_tasks.append(dataclasses.replace(t, preferred_worker_type=worker_id))
+            # Propagate required_capabilities so escalation stays within
+            # the right worker class (code tasks don't fall back to ollama:general).
+            required_caps = _worker_id_to_caps(worker_id)
+            routed_tasks.append(dataclasses.replace(
+                t,
+                preferred_worker_type=worker_id,
+                required_capabilities=required_caps,
+            ))
         tasks = routed_tasks
 
         # ── 4. Create Plan + Run ─────────────────────────────────────────────
@@ -243,18 +264,13 @@ class Gateway:
     async def _route_task(self, task: Task, active_backend: str) -> str | None:
         """Determine preferred_worker_type for a task.
 
-        Uses AdapterRegistry capability-based routing if available,
-        falls back to TaskRouter keyword matching for Ollama-only mode.
+        Order:
+        1. Determine required capability from task keywords.
+        2. BanditRouter picks from capable-only agents (prevents cold-start
+           from routing code tasks to general agents).
+        3. AdapterRegistry capability-based routing (health-checked, scored).
+        4. Keyword-based Ollama fallback.
         """
-        if self._bandit_router is not None and self._adapter_registry is not None:
-            try:
-                agent_name = self._bandit_router.route(task)
-                adapter = self._adapter_registry.get(agent_name)
-                if adapter is not None:
-                    return adapter.worker_id
-            except Exception:
-                pass  # fall through to capability-based routing
-
         if self._adapter_registry is not None:
             text = f"{task.title} {task.goal}".lower()
             words = set(text.split())
@@ -265,12 +281,40 @@ class Gateway:
             else:
                 capability = "general"
 
+            # Bandit picks from capable agents only — never routes a code task
+            # to a non-code-capable agent during cold start.
+            if self._bandit_router is not None:
+                capable_names = [
+                    a.name for a, _ in self._adapter_registry.find_capable(capability)
+                ]
+                if capable_names:
+                    try:
+                        agent_name = self._bandit_router.route(task, capable_names)
+                        adapter = self._adapter_registry.get(agent_name)
+                        if adapter is not None:
+                            return self._resolve_worker_id(adapter, capability)
+                    except Exception:
+                        pass  # fall through to capability-based routing
+
             adapter = await self._adapter_registry.route(task, required_capability=capability)
             if adapter is not None:
-                return adapter.worker_id
+                return self._resolve_worker_id(adapter, capability)
 
         # Fallback: keyword-based Ollama routing
         if active_backend == "ollama" or "claude" not in ENABLED_BACKENDS:
             return self._router.route(task, "ollama")
 
         return None
+
+    def _resolve_worker_id(self, adapter, capability: str) -> str:
+        """Map OllamaAdapter to the right sub-worker for the capability.
+
+        OllamaAdapter has a single adapter entry but 4 sub-workers.
+        Route code → coder, plan → planner, everything else → general.
+        """
+        if adapter.name == "ollama":
+            return {
+                "code": "ollama:coder",
+                "plan": "ollama:planner",
+            }.get(capability, "ollama:general")
+        return adapter.worker_id

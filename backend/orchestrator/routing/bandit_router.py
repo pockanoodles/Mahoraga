@@ -54,10 +54,15 @@ class BanditRouter:
             except Exception:
                 pass  # fresh start if state is corrupted
 
-    def route(self, task) -> str:
-        """Select the best agent for this task. Returns agent name."""
+    def route(self, task, available_agents: list[str] | None = None) -> str:
+        """Select the best agent for this task. Returns agent name.
+
+        available_agents: if provided, restricts selection to these agent names.
+        The gateway passes capable-only agents so the bandit never routes a code
+        task to a non-code-capable agent during cold start.
+        """
         context = TaskContext.from_task(task)
-        available = self._available_agents()
+        available = available_agents if available_agents is not None else self._available_agents()
 
         if not available:
             raise RuntimeError("No agents registered in the adapter registry")

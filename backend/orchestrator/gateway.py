@@ -19,7 +19,6 @@ from .service.executor import run_task
 from .store.base import Store
 from .store.chat_log import ChatLogEntry
 from .adapters.registry import AdapterRegistry
-from .config import ENABLED_BACKENDS
 from .workers.registry import WorkerRegistry
 from .workers.router import TaskRouter, _CODE_KEYWORDS, _PLANNING_KEYWORDS
 from .verifier.verifier import Verifier

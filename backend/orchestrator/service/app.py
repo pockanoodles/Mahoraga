@@ -724,7 +724,7 @@ async def routing_agents(adapter_reg: AdapterRegistryDep):
             status = await adapter.health_check()
         except Exception as exc:
             from ..adapters.base import AgentStatus
-            status = AgentStatus(name=adapter.name, available=False, error=str(exc))
+            status = AgentStatus(name=adapter.name, available=False, detail=str(exc))
         stats = router.logger.get_stats(agent=adapter.name)
         agents.append({
             "name": adapter.name,

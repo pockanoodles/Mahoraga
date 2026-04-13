@@ -10,6 +10,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
+from .reward import TaskOutcome
+
 
 _DEFAULT_DB_PATH = Path.home() / ".mahoraga" / "routing_decisions.db"
 
@@ -101,7 +103,7 @@ class DecisionLogger:
         self._conn.commit()
         return cur.lastrowid
 
-    def log_outcome(self, task, outcome, reward: float) -> None:
+    def log_outcome(self, task, outcome: TaskOutcome, reward: float) -> None:
         """Back-fill outcome columns on the most-recent decision for this task."""
         tid = _task_id(task)
         goal = _task_goal(task)
@@ -176,8 +178,9 @@ class DecisionLogger:
             base = f"SELECT * FROM decisions {where}"
             params_base = params
 
-        rows = self._conn.execute(base, params_base).fetchall()
-        cols = [d[0] for d in self._conn.execute(base + " LIMIT 0", params_base).description or []]
+        cur = self._conn.execute(base, params_base)
+        col_names = [d[0] for d in cur.description]
+        rows = cur.fetchall()
 
         if not rows:
             return {
@@ -190,11 +193,6 @@ class DecisionLogger:
                 "avg_reward": 0.0,
                 "total_reward": 0.0,
             }
-
-        # Fetch column names via a description query.
-        cur = self._conn.execute(base, params_base)
-        col_names = [d[0] for d in cur.description]
-        rows = cur.fetchall()
 
         def col(name):
             idx = col_names.index(name)

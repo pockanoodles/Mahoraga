@@ -1,0 +1,200 @@
+{"id": "t001", "goal": "What does API stand for?", "type": "simple_qa", "difficulty": 1}
+{"id": "t002", "goal": "What does HTTP stand for?", "type": "simple_qa", "difficulty": 1}
+{"id": "t003", "goal": "What does JSON stand for?", "type": "simple_qa", "difficulty": 1}
+{"id": "t004", "goal": "What does SQL stand for?", "type": "simple_qa", "difficulty": 1}
+{"id": "t005", "goal": "What does ORM stand for?", "type": "simple_qa", "difficulty": 1}
+{"id": "t006", "goal": "What does REST stand for?", "type": "simple_qa", "difficulty": 1}
+{"id": "t007", "goal": "What does CLI stand for?", "type": "simple_qa", "difficulty": 1}
+{"id": "t008", "goal": "What does IDE stand for?", "type": "simple_qa", "difficulty": 1}
+{"id": "t009", "goal": "What does CI/CD stand for?", "type": "simple_qa", "difficulty": 1}
+{"id": "t010", "goal": "What does DNS stand for?", "type": "simple_qa", "difficulty": 1}
+{"id": "t011", "goal": "What is a Python list comprehension?", "type": "simple_qa", "difficulty": 1}
+{"id": "t012", "goal": "What is a decorator in Python?", "type": "simple_qa", "difficulty": 2}
+{"id": "t013", "goal": "What is a closure?", "type": "simple_qa", "difficulty": 2}
+{"id": "t014", "goal": "What is a generator function in Python?", "type": "simple_qa", "difficulty": 2}
+{"id": "t015", "goal": "What does the 'yield' keyword do in Python?", "type": "simple_qa", "difficulty": 2}
+{"id": "t016", "goal": "What is the difference between == and is in Python?", "type": "simple_qa", "difficulty": 1}
+{"id": "t017", "goal": "What does pip install -e . do?", "type": "simple_qa", "difficulty": 1}
+{"id": "t018", "goal": "What is the purpose of __init__.py?", "type": "simple_qa", "difficulty": 1}
+{"id": "t019", "goal": "What is the difference between a list and a tuple?", "type": "simple_qa", "difficulty": 1}
+{"id": "t020", "goal": "What is a virtual environment?", "type": "simple_qa", "difficulty": 1}
+{"id": "t021", "goal": "whats 2+2", "type": "simple_qa", "difficulty": 1}
+{"id": "t022", "goal": "What is the capital of France?", "type": "simple_qa", "difficulty": 1}
+{"id": "t023", "goal": "How many bytes in a megabyte?", "type": "simple_qa", "difficulty": 1}
+{"id": "t024", "goal": "What year was Python created?", "type": "simple_qa", "difficulty": 1}
+{"id": "t025", "goal": "What is the default port for HTTP?", "type": "simple_qa", "difficulty": 1}
+{"id": "t026", "goal": "What is the default port for HTTPS?", "type": "simple_qa", "difficulty": 1}
+{"id": "t027", "goal": "What is the default port for PostgreSQL?", "type": "simple_qa", "difficulty": 1}
+{"id": "t028", "goal": "What does CRUD stand for?", "type": "simple_qa", "difficulty": 1}
+{"id": "t029", "goal": "What does SOLID stand for?", "type": "simple_qa", "difficulty": 2}
+{"id": "t030", "goal": "What is a primary key in a database?", "type": "simple_qa", "difficulty": 1}
+{"id": "t031", "goal": "What is the difference between GET and POST?", "type": "simple_qa", "difficulty": 1}
+{"id": "t032", "goal": "What is an index in a database?", "type": "simple_qa", "difficulty": 1}
+{"id": "t033", "goal": "What is UTF-8?", "type": "simple_qa", "difficulty": 1}
+{"id": "t034", "goal": "What does the 'self' parameter represent in Python?", "type": "simple_qa", "difficulty": 1}
+{"id": "t035", "goal": "What is a Dockerfile?", "type": "simple_qa", "difficulty": 1}
+{"id": "t036", "goal": "What does docker-compose do?", "type": "simple_qa", "difficulty": 2}
+{"id": "t037", "goal": "What is a container vs a virtual machine?", "type": "simple_qa", "difficulty": 2}
+{"id": "t038", "goal": "What is Git stash used for?", "type": "simple_qa", "difficulty": 1}
+{"id": "t039", "goal": "What does git rebase do?", "type": "simple_qa", "difficulty": 2}
+{"id": "t040", "goal": "What is the difference between merge and rebase in Git?", "type": "simple_qa", "difficulty": 2}
+{"id": "t041", "goal": "Write a Python function that reverses a string", "type": "code_generation", "difficulty": 1}
+{"id": "t042", "goal": "Write a Python function to check if a number is prime", "type": "code_generation", "difficulty": 1}
+{"id": "t043", "goal": "Write a Python function that flattens a nested list", "type": "code_generation", "difficulty": 2}
+{"id": "t044", "goal": "Write a Python function to binary search a sorted list", "type": "code_generation", "difficulty": 2}
+{"id": "t045", "goal": "Write a Python class for a stack data structure", "type": "code_generation", "difficulty": 2}
+{"id": "t046", "goal": "Write a Python class for a queue using two stacks", "type": "code_generation", "difficulty": 2}
+{"id": "t047", "goal": "Write a Python function to compute Fibonacci numbers using memoization", "type": "code_generation", "difficulty": 2}
+{"id": "t048", "goal": "Create a REST API endpoint in FastAPI that returns a list of users", "type": "code_generation", "difficulty": 2}
+{"id": "t049", "goal": "Create a FastAPI endpoint that accepts a JSON body and validates it with Pydantic", "type": "code_generation", "difficulty": 2}
+{"id": "t050", "goal": "Write a Python context manager for timing code blocks", "type": "code_generation", "difficulty": 2}
+{"id": "t051", "goal": "Implement a simple LRU cache in Python", "type": "code_generation", "difficulty": 3}
+{"id": "t052", "goal": "Write a Python decorator that retries a function on exception", "type": "code_generation", "difficulty": 2}
+{"id": "t053", "goal": "Write a Python decorator that logs function calls with arguments", "type": "code_generation", "difficulty": 2}
+{"id": "t054", "goal": "Create a Python async function that fetches multiple URLs concurrently with httpx", "type": "code_generation", "difficulty": 2}
+{"id": "t055", "goal": "Write a Python function to parse a CSV file into a list of dicts", "type": "code_generation", "difficulty": 1}
+{"id": "t056", "goal": "Generate a Python script that walks a directory tree and counts files by extension", "type": "code_generation", "difficulty": 2}
+{"id": "t057", "goal": "Write a Python function that groups a list of dicts by a given key", "type": "code_generation", "difficulty": 2}
+{"id": "t058", "goal": "Implement merge sort in Python", "type": "code_generation", "difficulty": 2}
+{"id": "t059", "goal": "Implement quicksort in Python", "type": "code_generation", "difficulty": 2}
+{"id": "t060", "goal": "Write a Python function to validate an email address with regex", "type": "code_generation", "difficulty": 1}
+{"id": "t061", "goal": "Write a Python function to validate a URL", "type": "code_generation", "difficulty": 2}
+{"id": "t062", "goal": "Create a simple SQLite schema migration script in Python", "type": "code_generation", "difficulty": 2}
+{"id": "t063", "goal": "Write a Python function that deep-merges two dicts", "type": "code_generation", "difficulty": 2}
+{"id": "t064", "goal": "Write a Python generator that yields chunks of a list", "type": "code_generation", "difficulty": 1}
+{"id": "t065", "goal": "Create a Python script to rename all files in a folder to snake_case", "type": "code_generation", "difficulty": 2}
+{"id": "t066", "goal": "Write a Python function to compute the edit distance between two strings", "type": "code_generation", "difficulty": 3}
+{"id": "t067", "goal": "Implement a trie data structure in Python", "type": "code_generation", "difficulty": 3}
+{"id": "t068", "goal": "Write a Python function that serializes a dataclass to JSON", "type": "code_generation", "difficulty": 2}
+{"id": "t069", "goal": "Create a Python class implementing the observer pattern", "type": "code_generation", "difficulty": 3}
+{"id": "t070", "goal": "Write a Python function that computes the mode of a list", "type": "code_generation", "difficulty": 1}
+{"id": "t071", "goal": "Write a Python CLI tool using argparse that echoes its arguments", "type": "code_generation", "difficulty": 1}
+{"id": "t072", "goal": "Create a FastAPI app with CORS middleware configured", "type": "code_generation", "difficulty": 2}
+{"id": "t073", "goal": "Write a Python function that paginates a list into pages of N items", "type": "code_generation", "difficulty": 2}
+{"id": "t074", "goal": "Implement a simple rate limiter in Python", "type": "code_generation", "difficulty": 3}
+{"id": "t075", "goal": "Write a Python function to compute rolling averages over a list", "type": "code_generation", "difficulty": 2}
+{"id": "t076", "goal": "Create a Python dataclass for a User with name, email, and age fields", "type": "code_generation", "difficulty": 1}
+{"id": "t077", "goal": "Write a Python async generator that streams lines from a file", "type": "code_generation", "difficulty": 2}
+{"id": "t078", "goal": "Implement a basic HTTP client using Python's urllib", "type": "code_generation", "difficulty": 2}
+{"id": "t079", "goal": "Write a Python function that converts a camelCase string to snake_case", "type": "code_generation", "difficulty": 1}
+{"id": "t080", "goal": "Create a Python script that monitors a file for changes using watchdog", "type": "code_generation", "difficulty": 2}
+{"id": "t081", "goal": "Write a Python function that computes the intersection of two lists", "type": "code_generation", "difficulty": 1}
+{"id": "t082", "goal": "Implement a circular buffer in Python", "type": "code_generation", "difficulty": 3}
+{"id": "t083", "goal": "Write a Python function that parses a .env file into a dict", "type": "code_generation", "difficulty": 1}
+{"id": "t084", "goal": "Create a Python script that generates a QR code from a URL", "type": "code_generation", "difficulty": 2}
+{"id": "t085", "goal": "Write a Python function that validates JSON against a schema", "type": "code_generation", "difficulty": 2}
+{"id": "t086", "goal": "Implement a simple pub/sub system in Python using asyncio", "type": "code_generation", "difficulty": 3}
+{"id": "t087", "goal": "Write a Python function that converts a hex color to RGB", "type": "code_generation", "difficulty": 1}
+{"id": "t088", "goal": "Create a Python class for a directed graph with BFS and DFS traversal", "type": "code_generation", "difficulty": 3}
+{"id": "t089", "goal": "Write a Python function to read and parse a TOML config file", "type": "code_generation", "difficulty": 1}
+{"id": "t090", "goal": "Generate a complete SQLAlchemy model for a blog post with tags", "type": "code_generation", "difficulty": 3}
+{"id": "t091", "goal": "Refactor this function to use list comprehensions instead of for loops", "type": "code_editing", "difficulty": 1}
+{"id": "t092", "goal": "Add type hints to all function signatures in this module", "type": "code_editing", "difficulty": 1}
+{"id": "t093", "goal": "Refactor these if-elif chains into a dispatch dict", "type": "code_editing", "difficulty": 2}
+{"id": "t094", "goal": "Extract duplicate code into a shared helper function", "type": "code_editing", "difficulty": 2}
+{"id": "t095", "goal": "Add docstrings to all public functions in this module", "type": "code_editing", "difficulty": 1}
+{"id": "t096", "goal": "Rename all variables to follow snake_case convention", "type": "code_editing", "difficulty": 1}
+{"id": "t097", "goal": "Refactor this class to use dataclasses", "type": "code_editing", "difficulty": 2}
+{"id": "t098", "goal": "Split this 200-line function into smaller focused functions", "type": "code_editing", "difficulty": 3}
+{"id": "t099", "goal": "Add input validation to all public API methods", "type": "code_editing", "difficulty": 2}
+{"id": "t100", "goal": "Replace magic numbers with named constants", "type": "code_editing", "difficulty": 1}
+{"id": "t101", "goal": "Add error handling to the file reading function", "type": "code_editing", "difficulty": 2}
+{"id": "t102", "goal": "Wrap all database calls in try/except with proper rollback", "type": "code_editing", "difficulty": 2}
+{"id": "t103", "goal": "Add logging to every function entry and exit point", "type": "code_editing", "difficulty": 2}
+{"id": "t104", "goal": "Convert synchronous functions to async in the service layer", "type": "code_editing", "difficulty": 3}
+{"id": "t105", "goal": "Optimize this O(n^2) loop to O(n log n)", "type": "code_editing", "difficulty": 3}
+{"id": "t106", "goal": "Add caching to the expensive computation in the analytics module", "type": "code_editing", "difficulty": 2}
+{"id": "t107", "goal": "Replace global variables with dependency injection", "type": "code_editing", "difficulty": 3}
+{"id": "t108", "goal": "Migrate from os.path to pathlib throughout the codebase", "type": "code_editing", "difficulty": 2}
+{"id": "t109", "goal": "Refactor inline SQL queries to use parameterized statements", "type": "code_editing", "difficulty": 2}
+{"id": "t110", "goal": "Add __slots__ to the high-frequency dataclass to reduce memory", "type": "code_editing", "difficulty": 2}
+{"id": "t111", "goal": "Extract the config loading logic into its own module", "type": "code_editing", "difficulty": 2}
+{"id": "t112", "goal": "Replace bare except clauses with specific exception types", "type": "code_editing", "difficulty": 1}
+{"id": "t113", "goal": "Add context managers to replace manual open/close calls", "type": "code_editing", "difficulty": 2}
+{"id": "t114", "goal": "Refactor the nested callbacks into async/await", "type": "code_editing", "difficulty": 3}
+{"id": "t115", "goal": "Add retry logic to the external API client", "type": "code_editing", "difficulty": 2}
+{"id": "t116", "goal": "Optimize the repeated dict lookups with a local variable", "type": "code_editing", "difficulty": 1}
+{"id": "t117", "goal": "Consolidate the three config files into a single Pydantic settings class", "type": "code_editing", "difficulty": 3}
+{"id": "t118", "goal": "Replace print statements with proper logging calls", "type": "code_editing", "difficulty": 1}
+{"id": "t119", "goal": "Refactor the authentication middleware to be reusable", "type": "code_editing", "difficulty": 2}
+{"id": "t120", "goal": "Add pagination to the list endpoint that currently returns all records", "type": "code_editing", "difficulty": 2}
+{"id": "t121", "goal": "Fix the failing test for the user authentication module", "type": "debugging", "difficulty": 2}
+{"id": "t122", "goal": "The API returns 500 on POST /users \u2014 debug and fix", "type": "debugging", "difficulty": 2}
+{"id": "t123", "goal": "Memory leak in the background worker \u2014 find and fix it", "type": "debugging", "difficulty": 3}
+{"id": "t124", "goal": "The database connection pool is exhausted after a few hours \u2014 debug", "type": "debugging", "difficulty": 3}
+{"id": "t125", "goal": "Fix the off-by-one error in the pagination logic", "type": "debugging", "difficulty": 1}
+{"id": "t126", "goal": "The test suite hangs on teardown \u2014 find the cause", "type": "debugging", "difficulty": 2}
+{"id": "t127", "goal": "Fix the race condition in the concurrent file writer", "type": "debugging", "difficulty": 3}
+{"id": "t128", "goal": "The JSON serializer throws on datetime objects \u2014 fix it", "type": "debugging", "difficulty": 2}
+{"id": "t129", "goal": "The async task queue stops processing after the first error \u2014 debug", "type": "debugging", "difficulty": 2}
+{"id": "t130", "goal": "Fix the broken import that causes ModuleNotFoundError on startup", "type": "debugging", "difficulty": 1}
+{"id": "t131", "goal": "The regex pattern matches too greedily \u2014 fix it", "type": "debugging", "difficulty": 2}
+{"id": "t132", "goal": "Fix the SQL query that returns duplicate rows", "type": "debugging", "difficulty": 2}
+{"id": "t133", "goal": "The environment variable is not being read \u2014 debug", "type": "debugging", "difficulty": 1}
+{"id": "t134", "goal": "Fix the AttributeError caused by a None check missing in the handler", "type": "debugging", "difficulty": 1}
+{"id": "t135", "goal": "The HTTP client times out on large responses \u2014 fix the stream handling", "type": "debugging", "difficulty": 2}
+{"id": "t136", "goal": "Fix the circular import between two modules", "type": "debugging", "difficulty": 2}
+{"id": "t137", "goal": "The sorted list function returns wrong order for Unicode strings \u2014 debug", "type": "debugging", "difficulty": 2}
+{"id": "t138", "goal": "Fix the flaky test that randomly fails due to timing", "type": "debugging", "difficulty": 2}
+{"id": "t139", "goal": "The webhook handler ignores requests with missing headers \u2014 debug", "type": "debugging", "difficulty": 2}
+{"id": "t140", "goal": "Fix the KeyError when accessing a nested dict with missing keys", "type": "debugging", "difficulty": 1}
+{"id": "t141", "goal": "The background scheduler fires tasks twice \u2014 investigate and fix", "type": "debugging", "difficulty": 3}
+{"id": "t142", "goal": "Fix the TypeError when passing None to a function expecting a string", "type": "debugging", "difficulty": 1}
+{"id": "t143", "goal": "The file upload endpoint silently truncates files over 10MB \u2014 debug", "type": "debugging", "difficulty": 2}
+{"id": "t144", "goal": "Fix the incorrect hash function that causes cache collisions", "type": "debugging", "difficulty": 3}
+{"id": "t145", "goal": "The pagination cursor is wrong after deleting records \u2014 debug", "type": "debugging", "difficulty": 3}
+{"id": "t146", "goal": "Fix the unhandled exception that crashes the worker process", "type": "debugging", "difficulty": 2}
+{"id": "t147", "goal": "The logging handler drops messages under high load \u2014 debug", "type": "debugging", "difficulty": 3}
+{"id": "t148", "goal": "Fix the broken URL routing that matches paths in the wrong order", "type": "debugging", "difficulty": 2}
+{"id": "t149", "goal": "The config parser fails silently on invalid YAML \u2014 add proper error handling", "type": "debugging", "difficulty": 2}
+{"id": "t150", "goal": "Fix the test that passes locally but fails in CI due to timezone differences", "type": "debugging", "difficulty": 2}
+{"id": "t151", "goal": "Explain how the CPython GIL works and when it matters", "type": "research", "difficulty": 2}
+{"id": "t152", "goal": "Compare REST vs GraphQL \u2014 what are the tradeoffs?", "type": "research", "difficulty": 2}
+{"id": "t153", "goal": "Explain the CAP theorem and how it applies to distributed databases", "type": "research", "difficulty": 3}
+{"id": "t154", "goal": "What are the tradeoffs of using asyncio vs threading in Python?", "type": "research", "difficulty": 2}
+{"id": "t155", "goal": "Explain how B-tree indexes work in PostgreSQL", "type": "research", "difficulty": 3}
+{"id": "t156", "goal": "Compare SQLAlchemy ORM vs raw SQL \u2014 when to use each?", "type": "research", "difficulty": 2}
+{"id": "t157", "goal": "Explain how JWT authentication works end to end", "type": "research", "difficulty": 2}
+{"id": "t158", "goal": "What are the tradeoffs of microservices vs monoliths?", "type": "research", "difficulty": 2}
+{"id": "t159", "goal": "Explain how consistent hashing works in distributed systems", "type": "research", "difficulty": 3}
+{"id": "t160", "goal": "What is the difference between optimistic and pessimistic locking?", "type": "research", "difficulty": 2}
+{"id": "t161", "goal": "How does Python's garbage collector handle reference cycles?", "type": "research", "difficulty": 2}
+{"id": "t162", "goal": "Explain the event loop in asyncio \u2014 how does it schedule coroutines?", "type": "research", "difficulty": 2}
+{"id": "t163", "goal": "What are the SOLID principles? Give a Python example for each.", "type": "research", "difficulty": 2}
+{"id": "t164", "goal": "Compare PostgreSQL vs MongoDB for a document-heavy workload", "type": "research", "difficulty": 2}
+{"id": "t165", "goal": "Explain how HTTPS TLS handshake works step by step", "type": "research", "difficulty": 2}
+{"id": "t166", "goal": "What is the difference between process, thread, and coroutine?", "type": "research", "difficulty": 2}
+{"id": "t167", "goal": "How does connection pooling work and why is it important?", "type": "research", "difficulty": 2}
+{"id": "t168", "goal": "Explain how Python decorators work under the hood", "type": "research", "difficulty": 1}
+{"id": "t169", "goal": "What is the difference between INNER JOIN and LEFT JOIN?", "type": "research", "difficulty": 1}
+{"id": "t170", "goal": "Explain how Python's import system resolves modules", "type": "research", "difficulty": 2}
+{"id": "t171", "goal": "What are the tradeoffs of using Redis vs memcached for caching?", "type": "research", "difficulty": 2}
+{"id": "t172", "goal": "Explain how WebSockets differ from HTTP long polling", "type": "research", "difficulty": 2}
+{"id": "t173", "goal": "What are the main differences between OAuth 2.0 and OpenID Connect?", "type": "research", "difficulty": 3}
+{"id": "t174", "goal": "How does Python's dataclass compare to attrs and Pydantic?", "type": "research", "difficulty": 2}
+{"id": "t175", "goal": "Explain the two-phase commit protocol in distributed transactions", "type": "research", "difficulty": 3}
+{"id": "t176", "goal": "What are the differences between CDN edge caching and origin caching?", "type": "research", "difficulty": 2}
+{"id": "t177", "goal": "How does Kubernetes handle pod scheduling and resource limits?", "type": "research", "difficulty": 3}
+{"id": "t178", "goal": "Explain the actor model of concurrency \u2014 how does it compare to shared memory?", "type": "research", "difficulty": 3}
+{"id": "t179", "goal": "What are the tradeoffs of event sourcing vs traditional CRUD?", "type": "research", "difficulty": 3}
+{"id": "t180", "goal": "Explain how Python's asyncio event loop interacts with threads", "type": "research", "difficulty": 2}
+{"id": "t181", "goal": "List all Python files recursively in the current directory", "type": "terminal_operations", "difficulty": 1}
+{"id": "t182", "goal": "Set up a Python virtual environment and install dependencies from requirements.txt", "type": "terminal_operations", "difficulty": 1}
+{"id": "t183", "goal": "Run the test suite with pytest and show only failures", "type": "terminal_operations", "difficulty": 1}
+{"id": "t184", "goal": "Find all files larger than 100MB in the home directory", "type": "terminal_operations", "difficulty": 1}
+{"id": "t185", "goal": "Show disk usage for each subdirectory, sorted by size", "type": "terminal_operations", "difficulty": 1}
+{"id": "t186", "goal": "Kill all processes listening on port 8080", "type": "terminal_operations", "difficulty": 2}
+{"id": "t187", "goal": "Show the last 100 lines of the application log file", "type": "terminal_operations", "difficulty": 1}
+{"id": "t188", "goal": "Create a tar archive of the src directory excluding __pycache__", "type": "terminal_operations", "difficulty": 2}
+{"id": "t189", "goal": "Set environment variables from a .env file for the current shell session", "type": "terminal_operations", "difficulty": 1}
+{"id": "t190", "goal": "Watch a log file in real time and filter for ERROR lines", "type": "terminal_operations", "difficulty": 1}
+{"id": "t191", "goal": "Find all files modified in the last 24 hours", "type": "terminal_operations", "difficulty": 1}
+{"id": "t192", "goal": "Check which process is using a specific port", "type": "terminal_operations", "difficulty": 1}
+{"id": "t193", "goal": "Run a Python script with a specific environment variable set", "type": "terminal_operations", "difficulty": 1}
+{"id": "t194", "goal": "Create a cron job that runs a Python script every hour", "type": "terminal_operations", "difficulty": 2}
+{"id": "t195", "goal": "Show CPU and memory usage of all running Python processes", "type": "terminal_operations", "difficulty": 1}
+{"id": "t196", "goal": "Batch rename all .txt files to .md in the current directory", "type": "terminal_operations", "difficulty": 2}
+{"id": "t197", "goal": "Generate a requirements.txt from the current virtualenv", "type": "terminal_operations", "difficulty": 1}
+{"id": "t198", "goal": "Run pytest in watch mode, re-running on file changes", "type": "terminal_operations", "difficulty": 2}
+{"id": "t199", "goal": "Show git log as a one-line graph for the last 20 commits", "type": "terminal_operations", "difficulty": 1}
+{"id": "t200", "goal": "Tail the system log and filter for lines containing a specific service name", "type": "terminal_operations", "difficulty": 1}

@@ -125,3 +125,66 @@ async def test_opencode_worker_health_not_installed():
         h = await w.health()
     assert h.healthy is False
     assert "opencode" in h.detail.lower()
+
+
+# ── GeminiWorker ──────────────────────────────────────────────────────────────
+
+def test_gemini_worker_id():
+    from backend.orchestrator.workers.gemini import GeminiWorker
+    w = GeminiWorker()
+    assert w.id == "gemini:cli"
+
+
+def test_gemini_worker_capabilities():
+    from backend.orchestrator.workers.gemini import GeminiWorker
+    w = GeminiWorker()
+    assert "code" in w.capabilities
+    assert "research" in w.capabilities
+
+
+async def test_gemini_worker_execute_happy_path():
+    from backend.orchestrator.workers.gemini import GeminiWorker
+    proc = _make_proc(["Gemini response: here is the answer\n"])
+
+    with patch("backend.orchestrator.workers.gemini.asyncio.create_subprocess_exec",
+               new=AsyncMock(return_value=proc)):
+        w = GeminiWorker()
+        events = [ev async for ev in w.execute(make_attempt("gemini:cli"), make_task())]
+
+    completed = [e for e in events if e.type == "attempt.completed"]
+    assert len(completed) == 1
+    assert "here is the answer" in completed[0].payload["summary"]
+
+
+async def test_gemini_worker_binary_not_found():
+    from backend.orchestrator.workers.gemini import GeminiWorker
+
+    with patch("backend.orchestrator.workers.gemini.asyncio.create_subprocess_exec",
+               side_effect=FileNotFoundError("not found")):
+        w = GeminiWorker()
+        events = [ev async for ev in w.execute(make_attempt("gemini:cli"), make_task())]
+
+    failed = [e for e in events if e.type == "attempt.failed"]
+    assert failed[0].payload["error_code"] == "binary_not_found"
+
+
+async def test_gemini_worker_empty_response():
+    from backend.orchestrator.workers.gemini import GeminiWorker
+    proc = _make_proc(["  \n"])
+
+    with patch("backend.orchestrator.workers.gemini.asyncio.create_subprocess_exec",
+               new=AsyncMock(return_value=proc)):
+        w = GeminiWorker()
+        events = [ev async for ev in w.execute(make_attempt("gemini:cli"), make_task())]
+
+    failed = [e for e in events if e.type == "attempt.failed"]
+    assert any(e.payload["error_code"] == "empty_response" for e in failed)
+
+
+async def test_gemini_worker_health_not_installed():
+    from backend.orchestrator.workers.gemini import GeminiWorker
+    with patch("backend.orchestrator.workers.gemini.shutil.which", return_value=None):
+        w = GeminiWorker()
+        h = await w.health()
+    assert h.healthy is False
+    assert "gemini" in h.detail.lower()

@@ -4,14 +4,9 @@
   const input = document.getElementById('user-input');
   const sendBtn = document.getElementById('send-btn');
   const messages = document.getElementById('messages');
-  const emptyEl  = document.getElementById('messages-empty');
 
-  // ── Time formatter ───────────────────────────────────────────────────────
-  function fmtTime() {
-    return new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  }
+  // ── Markdown renderer (no external deps) ────────────────────────────────
 
-  // ── Markdown renderer ─────────────────────────────────────────────────────
   function renderMarkdown(text) {
     let html = text
       .replace(/&/g, '&amp;')
@@ -34,49 +29,14 @@
     html = '<p>' + html + '</p>';
     html = html.replace(/\n/g, '<br>');
 
-    // 11. Restore code blocks
-    html = html.replace(/\x00S(\d+)\x00/g, (_, i) => stash[parseInt(i)]);
-
-    // 12. Unwrap spurious <p> tags around block elements
-    html = html
-      .replace(/<p>(<(?:h[1-3]|ul|ol|hr|blockquote|div)[^>]*>)/g, '$1')
-      .replace(/(<\/(?:h[1-3]|ul|ol|hr|blockquote|div)>)<\/p>/g,   '$1');
-
     return html;
   }
 
-  // ── Empty state ──────────────────────────────────────────────────────────
-  function hideEmptyState() {
-    if (emptyEl) emptyEl.style.display = 'none';
-  }
+  // ── Message rendering ────────────────────────────────────────────────────
 
-  // ── Suggestion chips ─────────────────────────────────────────────────────
-  document.querySelectorAll('.suggestion-chip').forEach(chip => {
-    chip.addEventListener('click', () => {
-      const msg = chip.dataset.msg;
-      if (!msg) return;
-      input.value = msg;
-      input.dispatchEvent(new Event('input'));
-      input.focus();
-    });
-  });
-
-  // ── appendMessage ─────────────────────────────────────────────────────────
   function appendMessage(role, text, isStreaming = false) {
-    hideEmptyState();
     const wrapper = document.createElement('div');
     wrapper.classList.add('message', role);
-
-    if (role === 'assistant') {
-      // Sender row
-      const sender = document.createElement('div');
-      sender.className = 'msg-sender';
-      sender.innerHTML =
-        `<div class="msg-avatar">M</div>` +
-        `<span class="msg-role">Mahoraga</span>` +
-        `<span class="msg-ts">${fmtTime()}</span>`;
-      wrapper.appendChild(sender);
-    }
 
     const bubble = document.createElement('div');
     bubble.classList.add('bubble');
@@ -86,38 +46,13 @@
     } else {
       bubble.textContent = text;
     }
+
     wrapper.appendChild(bubble);
-
-    if (role === 'user') {
-      const ts = document.createElement('div');
-      ts.className = 'user-time';
-      ts.textContent = fmtTime();
-      wrapper.appendChild(ts);
-    }
-
-    if (role === 'assistant') {
-      // Copy action (appears on hover via CSS)
-      const actions = document.createElement('div');
-      actions.className = 'msg-actions';
-      const copyBtn = document.createElement('button');
-      copyBtn.className = 'msg-action';
-      copyBtn.textContent = '⧉ Copy';
-      copyBtn.addEventListener('click', () => {
-        navigator.clipboard.writeText(bubble.innerText).then(() => {
-          copyBtn.textContent = '✓ Copied';
-          setTimeout(() => { copyBtn.textContent = '⧉ Copy'; }, 1500);
-        });
-      });
-      actions.appendChild(copyBtn);
-      wrapper.appendChild(actions);
-    }
-
     messages.appendChild(wrapper);
     messages.scrollTop = messages.scrollHeight;
     return bubble;
   }
 
-  // ── finalizeAssistantBubble ──────────────────────────────────────────────
   function finalizeAssistantBubble(bubble, fullText) {
     bubble.innerHTML = renderMarkdown(fullText);
     bubble.querySelectorAll('.copy-btn').forEach(btn => {
@@ -125,12 +60,8 @@
         const target = document.getElementById(btn.dataset.target);
         if (!target) return;
         navigator.clipboard.writeText(target.textContent).then(() => {
-          btn.textContent = '✓ Copied';
-          btn.classList.add('copied');
-          setTimeout(() => {
-            btn.textContent = 'Copy';
-            btn.classList.remove('copied');
-          }, 1500);
+          btn.textContent = 'Copied!';
+          setTimeout(() => { btn.textContent = 'Copy'; }, 1500);
         });
       });
     });
@@ -158,8 +89,6 @@
   input.addEventListener('input', () => {
     input.style.height = 'auto';
     input.style.height = Math.min(input.scrollHeight, 160) + 'px';
-    sendBtn.disabled = !input.value.trim();
-    updateComplexityChip(input.value);
   });
 
   input.addEventListener('keydown', (e) => {
@@ -170,6 +99,7 @@
   });
 
   // ── Submit ───────────────────────────────────────────────────────────────
+
   async function submitMessage() {
     const text = input.value.trim();
     if (!text || sendBtn.disabled) return;
@@ -179,17 +109,8 @@
     input.style.height = 'auto';
     sendBtn.disabled = true;
 
-    // Hide complexity chip
-    const chip = document.getElementById('complexity-chip');
-    if (chip) chip.style.display = 'none';
-
-    // Processing state
-    showProgressBar();
-    showRoutingBar();
-
     const assistantBubble = appendMessage('assistant', '', true);
-    let fullText   = '';
-    let firstChunk = true;
+    let fullText = '';
 
     try {
       const res = await fetch('/chat', {
@@ -199,11 +120,11 @@
       });
 
       if (!res.ok) {
-        assistantBubble.textContent = `Error ${res.status}: ${res.statusText}`;
+        assistantBubble.textContent = `Error: ${res.status} ${res.statusText}`;
         return;
       }
 
-      const reader  = res.body.getReader();
+      const reader = res.body.getReader();
       const decoder = new TextDecoder();
       let buffer = '';
 
@@ -230,17 +151,10 @@
           // Metrics event from OllamaWorker — update bar immediately
           if (chunk && typeof chunk === 'object' && chunk.type === 'metrics') {
             const el = document.getElementById('metrics-text');
-            if (el) el.textContent = `${chunk.elapsed_s}s · ${chunk.tokens} tok · ${chunk.throughput_tps} t/s`;
+            if (el) el.textContent = `Last: ${chunk.elapsed_s}s · ${chunk.tokens} tok · ${chunk.throughput_tps} t/s`;
             continue;
           }
           if (typeof chunk !== 'string') continue;
-
-          // Hide routing bar on first real text chunk
-          if (firstChunk) {
-            firstChunk = false;
-            hideRoutingBar();
-          }
-
           fullText += chunk;
           const cursor = assistantBubble.querySelector('.cursor');
           if (cursor) {
@@ -259,8 +173,6 @@
     } catch (err) {
       assistantBubble.textContent = `Network error: ${err.message}`;
     } finally {
-      hideProgressBar();
-      hideRoutingBar();
       sendBtn.disabled = false;
       input.focus();
       if (window.sidebarRefresh) window.sidebarRefresh();

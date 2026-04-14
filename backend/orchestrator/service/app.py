@@ -1035,7 +1035,7 @@ async def run_batch(
         deps = [
             Dependency(task_id=created[j].id, type=DependencyType.completion)
             for j in item.depends_on
-            if j < i
+            if 0 <= j < i
         ]
         task = Task.new(
             run_id=run.id,
@@ -1056,7 +1056,7 @@ async def run_batch(
     while remaining:
         ready_indices = [
             i for i in remaining
-            if all(created[j].id in completed_ids for j in req.tasks[i].depends_on if j < i)
+            if all(created[j].id in completed_ids for j in req.tasks[i].depends_on if 0 <= j < i)
         ]
         if not ready_indices:
             break

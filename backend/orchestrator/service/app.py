@@ -1070,7 +1070,7 @@ async def run_batch(
         output = next(
             (a.location.get("content", "") for a in artifacts if a.type == "text_output"), ""
         )
-        task_index = next(i for i, t in enumerate(created) if t.id == task.id)
+        task_index = next((i for i, t in enumerate(created) if t.id == task.id), -1)
         return {
             "task_index": task_index,
             "status": "success" if t_result.status == TaskStatus.completed else "failed",

@@ -2,6 +2,42 @@ import numpy as np
 from backend.orchestrator.routing.strategies.linucb import LinUCBRouter
 from backend.orchestrator.routing.warm_start import warm_start_from_matrix, bucket_context_vector, COMPATIBILITY_MATRIX_PATH
 
+
+def test_bandit_router_auto_warm_starts_when_matrix_exists(tmp_path):
+    """BanditRouter warm-starts from compatibility_matrix.json when bandit state is fresh."""
+    import json
+    from unittest.mock import patch
+    matrix = {
+        "ollama": {"code": 0.30, "general": 0.75},
+        "aider":  {"code": 0.88, "general": 0.50},
+    }
+    matrix_path = tmp_path / "compatibility_matrix.json"
+    matrix_path.write_text(json.dumps(matrix))
+
+    import backend.orchestrator.routing.warm_start as ws_mod
+    with patch.object(ws_mod, "COMPATIBILITY_MATRIX_PATH", matrix_path):
+        from backend.orchestrator.routing.bandit_router import BanditRouter
+        router = BanditRouter(strategy="linucb", state_path=tmp_path / "state.json")
+
+    # After warm-start, aider should have higher code score than ollama
+    from backend.orchestrator.routing.warm_start import bucket_context_vector
+    x_code = bucket_context_vector("code")
+    theta_aider  = np.linalg.solve(router.strategy.A["aider"],  router.strategy.b["aider"]).flatten()
+    theta_ollama = np.linalg.solve(router.strategy.A["ollama"], router.strategy.b["ollama"]).flatten()
+    assert float(x_code @ theta_aider) > float(x_code @ theta_ollama), \
+        "aider should score higher than ollama on code bucket after warm-start"
+
+def test_bandit_router_skips_warm_start_when_no_matrix(tmp_path):
+    """BanditRouter does not crash when no compatibility_matrix.json exists."""
+    import backend.orchestrator.routing.warm_start as ws_mod
+    from unittest.mock import patch
+    missing_path = tmp_path / "nonexistent.json"
+    with patch.object(ws_mod, "COMPATIBILITY_MATRIX_PATH", missing_path):
+        from backend.orchestrator.routing.bandit_router import BanditRouter
+        router = BanditRouter(strategy="linucb", state_path=tmp_path / "state.json")
+    # Router initialized normally, no arms warmed
+    assert router.strategy.A == {}
+
 def test_warm_start_shifts_theta():
     """After warm-start, θ̂ for aider in 'code' bucket should be higher than for ollama."""
     router = LinUCBRouter(d=9, alpha=1.0)

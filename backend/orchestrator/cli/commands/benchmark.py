@@ -1,0 +1,184 @@
+"""
+benchmark.py — offline simulation CLI for Mahoraga routing strategies.
+
+Runs a configurable number of synthetic tasks through one or more routing
+strategies and reports cumulative regret, win-rate, and per-strategy totals.
+"""
+from __future__ import annotations
+import random
+import typer
+from typing import Optional
+
+app = typer.Typer(name="benchmark", help="Offline routing benchmark / simulation tools")
+
+# Synthetic task pool: (goal, bucket, oracle_agent, latency_s, oracle_qual)
+# oracle_agent = the agent that *should* win this task type
+# oracle_qual  = expected quality when routed correctly (used as oracle reward)
+_SYNTHETIC_TASKS: list[tuple[str, str, str, float, float]] = [
+    # code tasks — aider wins
+    ("Implement a binary search tree with insert and delete", "code", "aider", 12.0, 0.90),
+    ("Write a Python decorator that retries on exception", "code", "aider", 8.0, 0.88),
+    ("Create a REST API endpoint for user registration", "code", "aider", 15.0, 0.87),
+    ("Refactor this module to use dependency injection", "code", "aider", 10.0, 0.86),
+    ("Add type hints to all functions in this file", "code", "aider", 6.0, 0.85),
+    # debug tasks — aider wins (has_error_kw)
+    ("Fix the NullPointerException in auth.py line 42", "debug", "aider", 9.0, 0.88),
+    ("Debug the crash when parsing malformed JSON input", "debug", "aider", 11.0, 0.86),
+    ("Traceback shows KeyError in router.py — fix it", "debug", "aider", 8.0, 0.87),
+    ("The timeout error in executor.py needs to be resolved", "debug", "aider", 10.0, 0.85),
+    ("Broken import loop between context.py and reward.py", "debug", "aider", 7.0, 0.84),
+    # research / general — ollama wins (fast, no overhead)
+    ("Explain how transformer attention mechanisms work", "research", "ollama", 4.0, 0.82),
+    ("What is the difference between TCP and UDP?", "research", "ollama", 3.0, 0.80),
+    ("How does gradient descent find a minimum?", "research", "ollama", 3.5, 0.81),
+    ("Compare SQL vs NoSQL databases for time-series data", "research", "ollama", 5.0, 0.79),
+    ("Why does Python use GIL and when does it matter?", "research", "ollama", 4.0, 0.80),
+    # plan tasks — ollama wins
+    ("Design a microservices architecture for an e-commerce site", "plan", "ollama", 6.0, 0.78),
+    ("Create a rollout plan for the new authentication system", "plan", "ollama", 5.0, 0.76),
+    ("Outline the steps to migrate from SQLite to Postgres", "plan", "ollama", 4.5, 0.77),
+    ("Draft a testing strategy for the bandit router", "plan", "ollama", 5.5, 0.75),
+    ("Plan the refactoring of the legacy scheduler module", "plan", "ollama", 4.0, 0.74),
+    # review tasks — ollama wins
+    ("Review this PR for security issues in the auth flow", "review", "ollama", 5.0, 0.76),
+    ("Analyse the performance of this database query", "review", "ollama", 4.0, 0.74),
+    ("Summarize the differences in this diff", "review", "ollama", 3.0, 0.73),
+    # refactor — aider wins
+    ("Refactor the monolithic executor into smaller modules", "refactor", "aider", 13.0, 0.86),
+    ("Extract constants from reward.py into a config file", "refactor", "aider", 7.0, 0.84),
+    # general
+    ("Write a brief summary of the Mahoraga project", "general", "ollama", 3.0, 0.75),
+    ("Describe the LinUCB algorithm in plain English", "general", "ollama", 3.5, 0.74),
+    ("What time zone should I use for a global SaaS product?", "general", "ollama", 2.5, 0.72),
+]
+
+
+def _make_task(goal: str):
+    """Minimal task object compatible with TaskContext.from_task."""
+    class _Task:
+        pass
+    t = _Task()
+    t.goal = goal
+    return t
+
+
+def _simulated_reward(selected: str, oracle_agent: str, oracle_qual: float) -> float:
+    """Return reward: oracle_qual when routed correctly, degraded otherwise."""
+    if selected == oracle_agent:
+        return oracle_qual
+    # Wrong agent: oracle_qual * 0.5 ± small noise
+    return max(0.0, oracle_qual * 0.50 + random.gauss(0, 0.05))
+
+
+@app.command("simulate")
+def simulate(
+    tasks: int = typer.Option(50, "--tasks", "-n", help="Number of synthetic tasks to simulate"),
+    strategies: Optional[str] = typer.Option(None, "--strategies", "-s", help="Comma-separated strategies (linucb,ucb1,thompson,static). Default: all"),
+    seed: int = typer.Option(42, "--seed", help="Random seed for reproducibility"),
+    warm_start: bool = typer.Option(False, "--warm-start", help="Warm-start LinUCB from ~/.mahoraga/compatibility_matrix.json"),
+    save_matrix: bool = typer.Option(False, "--save-matrix", help="Write oracle rewards to ~/.mahoraga/compatibility_matrix.json after sim"),
+):
+    """Run an offline simulation of routing strategies on synthetic tasks."""
+    from backend.orchestrator.routing.strategies.linucb import LinUCBRouter
+    from backend.orchestrator.routing.strategies.ucb1 import UCB1Router
+    from backend.orchestrator.routing.strategies.thompson import ThompsonSamplingRouter
+    from backend.orchestrator.routing.strategies.static import StaticRouter
+    from backend.orchestrator.routing.context import TaskContext
+    from backend.orchestrator.routing.reward import RewardCalculator, TaskOutcome
+
+    random.seed(seed)
+
+    strategy_map = {
+        "linucb":   LinUCBRouter,
+        "ucb1":     UCB1Router,
+        "thompson": ThompsonSamplingRouter,
+        "static":   StaticRouter,
+    }
+
+    if strategies:
+        selected_strategies = [s.strip() for s in strategies.split(",")]
+        for s in selected_strategies:
+            if s not in strategy_map:
+                typer.echo(f"Unknown strategy: {s!r}. Options: {list(strategy_map)}", err=True)
+                raise typer.Exit(1)
+    else:
+        selected_strategies = list(strategy_map)
+
+    all_agents = ["ollama", "aider", "codex-cli", "gemini-cli"]
+    reward_calc = RewardCalculator(0.4, 0.3, 0.3)
+
+    results: dict[str, dict] = {}
+
+    for sname in selected_strategies:
+        typer.echo(f"\nStrategy: {sname}")
+        router = strategy_map[sname]()
+
+        if warm_start and sname == "linucb":
+            from backend.orchestrator.routing.warm_start import (
+                load_compatibility_matrix, warm_start_from_matrix,
+            )
+            matrix = load_compatibility_matrix()
+            if matrix:
+                warm_start_from_matrix(router, matrix)
+                typer.echo(f"  [warm-start] Injected {sum(len(v) for v in matrix.values())} pseudo-observations")
+            else:
+                typer.echo("  [warm-start] No compatibility_matrix.json found — running cold", err=True)
+
+        total_reward = 0.0
+        oracle_reward = 0.0
+        correct = 0
+
+        for i in range(tasks):
+            spec = _SYNTHETIC_TASKS[i % len(_SYNTHETIC_TASKS)]
+            goal, bucket, oracle_agent, latency_s, oracle_qual = spec
+
+            task_obj = _make_task(goal)
+            context = TaskContext.from_task(task_obj)
+
+            selected = router.select_agent(context, all_agents)
+            reward = _simulated_reward(selected, oracle_agent, oracle_qual)
+            oracle_reward += oracle_qual
+
+            outcome = TaskOutcome(
+                success=True,
+                latency_s=latency_s,
+                cost_usd=0.001,
+                quality_score=reward,
+                agent_name=selected,
+            )
+            computed_reward = reward_calc.compute(outcome)
+            total_reward += computed_reward
+
+            router.update(context, selected, computed_reward)
+
+            if selected == oracle_agent:
+                correct += 1
+
+        win_rate = correct / tasks
+        regret = oracle_reward - total_reward
+        results[sname] = {
+            "total_reward": round(total_reward, 3),
+            "oracle_reward": round(oracle_reward, 3),
+            "regret": round(regret, 3),
+            "win_rate": round(win_rate, 3),
+            "correct": correct,
+            "tasks": tasks,
+        }
+
+        typer.echo(f"  tasks={tasks}  win_rate={win_rate:.1%}  total_reward={total_reward:.2f}  regret={regret:.2f}")
+
+    typer.echo("\n--- Results ---")
+    for sname, r in results.items():
+        typer.echo(
+            f"  {sname:<12}  win={r['win_rate']:.1%}  reward={r['total_reward']:.2f}"
+            f"  regret={r['regret']:.2f}  correct={r['correct']}/{r['tasks']}"
+        )
+
+    if save_matrix:
+        from backend.orchestrator.routing.warm_start import save_compatibility_matrix
+        oracle_matrix: dict[str, dict[str, float]] = {}
+        for t in _SYNTHETIC_TASKS:
+            _, bucket, oracle_agent, _, oracle_qual = t
+            oracle_matrix.setdefault(oracle_agent, {})[bucket] = round(oracle_qual, 3)
+        save_compatibility_matrix(oracle_matrix)
+        typer.echo(f"\n[saved] compatibility_matrix.json → ~/.mahoraga/")

@@ -54,6 +54,15 @@ class BanditRouter:
             except Exception:
                 pass  # fresh start if state is corrupted
 
+        # Auto-warm-start: if compatibility_matrix.json exists and bandit state is fresh
+        # (no routing decisions yet — t==0), inject benchmark priors.
+        from .warm_start import load_compatibility_matrix, warm_start_from_matrix
+        from .strategies.linucb import LinUCBRouter as _LinUCBRouter
+        if isinstance(self.strategy, _LinUCBRouter) and not self.strategy.A:
+            matrix = load_compatibility_matrix()
+            if matrix:
+                warm_start_from_matrix(self.strategy, matrix)
+
     def route(self, task, available_agents: list[str] | None = None, queue_depth_norm: float = 0.0) -> str:
         """Select the best agent for this task. Returns agent name.
 

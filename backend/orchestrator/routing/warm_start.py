@@ -54,6 +54,8 @@ def warm_start_from_matrix(
     """
     if not compatibility_matrix:
         return
+    if not hasattr(router, "inject_pseudo_obs"):
+        return
     for agent, bucket_rewards in compatibility_matrix.items():
         for bucket, reward in bucket_rewards.items():
             x = bucket_context_vector(bucket)

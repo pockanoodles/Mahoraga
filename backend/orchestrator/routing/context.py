@@ -47,10 +47,13 @@ class TaskContext:
     has_error_keywords: float
     has_creation_keywords: float
     has_research_keywords: float
+    queue_depth_norm: float = 0.0  # fraction of resource group capacity in use at selection time
+
+    QUEUE_DEPTH_CAP: float = 5.0   # normalize queue depth by this cap
 
     @property
     def d(self) -> int:
-        return 8
+        return 9
 
     def to_vector(self) -> np.ndarray:
         return np.array([
@@ -62,6 +65,7 @@ class TaskContext:
             self.has_error_keywords,
             self.has_creation_keywords,
             self.has_research_keywords,
+            self.queue_depth_norm,
         ], dtype=np.float64)
 
     @classmethod

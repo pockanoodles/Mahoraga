@@ -33,20 +33,20 @@ def test_from_task_research():
 
 
 def test_to_vector_shape_and_range():
-    """Vector must be float64, shape (8,), all values in [0, 1]."""
+    """Vector must be float64, shape (9,), all values in [0, 1]."""
     class T:
         goal = "fix the bug in the API endpoint"
     ctx = TaskContext.from_task(T())
     v = ctx.to_vector()
     assert v.dtype == np.float64
-    assert v.shape == (8,)
+    assert v.shape == (9,)
     assert all(0.0 <= x <= 1.0 for x in v), f"Out-of-range values: {v}"
 
 
 def test_d_property():
     class T:
         goal = "hello world"
-    assert TaskContext.from_task(T()).d == 8
+    assert TaskContext.from_task(T()).d == 9
 
 
 def test_from_dict():

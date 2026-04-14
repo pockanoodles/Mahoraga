@@ -51,3 +51,25 @@ def test_bandit_score_all_returns_scores_and_strategy():
     assert "strategy" in result
     assert "scores" in result
     assert isinstance(result["scores"], dict)
+
+
+def test_context_has_9_features():
+    class _T:
+        goal = "write a function"
+        tier = 2
+    ctx = TaskContext.from_task(_T())
+    assert ctx.d == 9
+    assert ctx.to_vector().shape == (9,)
+
+
+def test_linucb_default_d_is_9():
+    router = LinUCBRouter()
+    assert router.d == 9
+
+
+def test_queue_depth_norm_defaults_to_zero():
+    class _T:
+        goal = "create a file"
+        tier = 2
+    ctx = TaskContext.from_task(_T())
+    assert ctx.queue_depth_norm == 0.0

@@ -31,7 +31,7 @@ class LinUCBRouter(RoutingStrategy):
 
     def __init__(
         self,
-        d: int = 8,
+        d: int = 9,
         alpha: float = 1.0,
         decay: float = 1.0,
         priors: dict[str, float] | None = None,

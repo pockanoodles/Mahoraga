@@ -54,14 +54,19 @@ class BanditRouter:
             except Exception:
                 pass  # fresh start if state is corrupted
 
-    def route(self, task, available_agents: list[str] | None = None) -> str:
+    def route(self, task, available_agents: list[str] | None = None, queue_depth_norm: float = 0.0) -> str:
         """Select the best agent for this task. Returns agent name.
 
         available_agents: if provided, restricts selection to these agent names.
         The gateway passes capable-only agents so the bandit never routes a code
         task to a non-code-capable agent during cold start.
+
+        queue_depth_norm: optional fraction of resource group capacity in use at selection time.
         """
         context = TaskContext.from_task(task)
+        if queue_depth_norm > 0.0:
+            import dataclasses as _dc
+            context = _dc.replace(context, queue_depth_norm=queue_depth_norm)
         available = available_agents if available_agents is not None else self._available_agents()
 
         if not available:
@@ -115,12 +120,17 @@ class BanditRouter:
             "scores": self.strategy.get_scores(),
         }
 
-    def score_all(self, task, available_agents: list[str] | None = None) -> dict:
+    def score_all(self, task, available_agents: list[str] | None = None, queue_depth_norm: float = 0.0) -> dict:
         """Read-only UCB scoring — no logged decision, no state mutation.
 
         Used by POST /api/routing/dry-run.
+
+        queue_depth_norm: optional fraction of resource group capacity in use at selection time.
         """
         context = TaskContext.from_task(task)
+        if queue_depth_norm > 0.0:
+            import dataclasses as _dc
+            context = _dc.replace(context, queue_depth_norm=queue_depth_norm)
         available = available_agents if available_agents is not None else self._available_agents()
         scores = self.strategy.compute_scores(context, available)
         return {

@@ -1,4 +1,4 @@
-"""GooseAdapter — AgentAdapter interface for Block's Goose AI agent worker."""
+"""GooseAdapter — AgentAdapter interface for the Goose CLI worker."""
 from __future__ import annotations
 import shutil
 import logging
@@ -12,16 +12,14 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 _CAPABILITIES = [
-    AgentCapability("code",     confidence=0.85),
-    AgentCapability("refactor", confidence=0.82),
-    AgentCapability("test",     confidence=0.80),
-    AgentCapability("explain",  confidence=0.70),
-    AgentCapability("general",  confidence=0.72),
+    AgentCapability("research", confidence=0.85),
+    AgentCapability("general",  confidence=0.82),
+    AgentCapability("explain",  confidence=0.78),
 ]
 
 
 class GooseAdapter(AgentAdapter):
-    """Routes tasks to GooseWorker (Block's Goose AI agent, uses configured LLM)."""
+    """Routes tasks to GooseWorker — Block's general-purpose open-source AI agent."""
 
     def __init__(self, binary_path: str = "goose") -> None:
         self._binary = binary_path
@@ -41,8 +39,8 @@ class GooseAdapter(AgentAdapter):
     def estimate_cost(self, task: "Task") -> CostEstimate:
         return CostEstimate(
             estimated_cost_usd=0.0,
-            model="goose",
-            notes="Uses configured LLM backend",
+            model="goose-provider",
+            notes="Cost depends on Goose's configured provider (Ollama = free)",
         )
 
     async def health_check(self) -> AgentStatus:
@@ -50,24 +48,6 @@ class GooseAdapter(AgentAdapter):
         if not binary:
             return AgentStatus(
                 name=self.name, available=False,
-                detail="goose not found. Install Block's AI agent: github.com/block/goose",
+                detail="goose not found. Install: brew install goose",
             )
-        # Verify this is Block's AI goose by checking `goose run --help` exits cleanly.
-        # The DB migration tool with the same name does not have a `run` subcommand.
-        import asyncio
-        try:
-            proc = await asyncio.create_subprocess_exec(
-                binary, "run", "--help",
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            await proc.wait()
-            if proc.returncode != 0:
-                return AgentStatus(
-                    name=self.name, available=False,
-                    detail=f"goose at {binary} failed 'run --help' — may be DB migration tool, not Block's AI agent",
-                )
-        except Exception as exc:
-            return AgentStatus(name=self.name, available=False, detail=str(exc))
-
         return AgentStatus(name=self.name, available=True, detail=f"binary={binary}")

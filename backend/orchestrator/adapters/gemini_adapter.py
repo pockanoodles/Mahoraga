@@ -1,4 +1,4 @@
-"""GeminiAdapter — AgentAdapter interface for the Gemini CLI worker."""
+"""GeminiCLIAdapter — AgentAdapter interface for the Gemini CLI worker."""
 from __future__ import annotations
 import shutil
 import logging
@@ -12,19 +12,23 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 _CAPABILITIES = [
-    AgentCapability("code",     confidence=0.88),
-    AgentCapability("refactor", confidence=0.85),
-    AgentCapability("test",     confidence=0.80),
-    AgentCapability("explain",  confidence=0.82),
-    AgentCapability("general",  confidence=0.75),
+    AgentCapability("code",     confidence=0.85),
+    AgentCapability("explain",  confidence=0.88),
+    AgentCapability("research", confidence=0.82),
+    AgentCapability("general",  confidence=0.80),
 ]
 
 
-class GeminiAdapter(AgentAdapter):
-    """Routes tasks to GeminiWorker (Gemini CLI subprocess, Google AI free tier)."""
+class GeminiCLIAdapter(AgentAdapter):
+    """Routes tasks to GeminiWorker — Google's CLI with free tier and web search grounding."""
 
-    def __init__(self, binary_path: str = "gemini") -> None:
+    def __init__(
+        self,
+        binary_path: str = "gemini",
+        model: str | None = None,
+    ) -> None:
         self._binary = binary_path
+        self._model = model  # None → gemini picks default (usually 2.0-flash on free tier)
 
     @property
     def name(self) -> str:
@@ -39,10 +43,17 @@ class GeminiAdapter(AgentAdapter):
         return _CAPABILITIES
 
     def estimate_cost(self, task: "Task") -> CostEstimate:
+        model = (self._model or "flash").lower()
+        if "flash" in model:
+            return CostEstimate(
+                estimated_cost_usd=0.0,
+                model=self._model or "gemini-2.0-flash",
+                notes="Gemini Flash free tier: 60 RPM, 1000 req/day",
+            )
         return CostEstimate(
-            estimated_cost_usd=0.001,
-            model="gemini-cli",
-            notes="Google AI free tier available; otherwise API rates apply",
+            estimated_cost_usd=0.002,
+            model=self._model or "gemini-pro",
+            notes="Gemini Pro — paid tier",
         )
 
     async def health_check(self) -> AgentStatus:

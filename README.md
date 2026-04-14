@@ -136,6 +136,25 @@ Mahoraga's distinguishing contributions: local hardware state as a routing conte
 
 ---
 
+## Roadmap
+
+- [x] Ollama local inference with quality scoring
+- [x] Claude API (Haiku → Sonnet → Opus chain)
+- [x] `AgentAdapter` interface with capability-based routing
+- [x] Codex CLI adapter
+- [x] Aider adapter
+- [x] OpenCode adapter
+- [x] Gemini CLI adapter
+- [x] Goose adapter
+- [x] Real-time web UI with vine chart task visualization
+- [x] Per-agent, per-session cost tracking
+- [x] LinUCB bandit routing with episodic memory + reward learner
+- [x] Benchmark suite (pareto-sweep, ablation, live-report)
+- [ ] MCP server — expose orchestration as MCP tools
+- [ ] Native macOS dashboard ([Noctis](https://github.com/pockanoodles/noctis))
+- [ ] Multi-user session isolation
+- [ ] Skill marketplace
+
 ## License
 
 MIT

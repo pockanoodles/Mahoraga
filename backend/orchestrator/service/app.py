@@ -25,13 +25,13 @@ from ..tracking.ledger import CostLedger
 import anthropic
 
 from ..verifier.verifier import Verifier
-from ..config import ENABLED_BACKENDS, MahoragaConfig
+from ..config import ENABLED_BACKENDS, MahoragaConfig, get_workdir
 from ..workers.claude import ClaudeWorker
 from ..workers.ollama import OllamaWorker
 from ..workers.codex import CodexWorker
 from ..workers.aider import AiderWorker
-from ..workers.gemini import GeminiWorker
 from ..workers.opencode import OpenCodeWorker
+from ..workers.gemini import GeminiWorker
 from ..workers.goose import GooseWorker
 from ..workers.registry import WorkerRegistry
 from ..adapters.registry import AdapterRegistry
@@ -39,10 +39,9 @@ from ..adapters.ollama_adapter import OllamaAdapter
 from ..adapters.claude_adapter import ClaudeAdapter
 from ..adapters.codex_adapter import CodexAdapter
 from ..adapters.aider_adapter import AiderAdapter
-from ..adapters.gemini_adapter import GeminiAdapter
 from ..adapters.opencode_adapter import OpenCodeAdapter
+from ..adapters.gemini_adapter import GeminiCLIAdapter
 from ..adapters.goose_adapter import GooseAdapter
-from ..config import ENABLED_BACKENDS, MahoragaConfig, get_workdir
 from .approvals import grant_approval, reject_approval
 from .executor import run_task as _run_task, pop_task_metrics
 from .run_executor import run_run as _run_run
@@ -167,14 +166,17 @@ async def lifespan(app: FastAPI):
     _aider_worker = AiderWorker(model=_aider_model, cwd=_workdir)
     _registry.register(_aider_worker)
 
-    # ── Register Gemini CLI worker ────────────────────────────────────────────
-    _registry.register(GeminiWorker(cwd=_workdir))
-
     # ── Register OpenCode worker ──────────────────────────────────────────────
-    _registry.register(OpenCodeWorker(cwd=_workdir))
+    _opencode_worker = OpenCodeWorker()
+    _registry.register(_opencode_worker)
+
+    # ── Register Gemini CLI worker ────────────────────────────────────────────
+    _gemini_worker = GeminiWorker()
+    _registry.register(_gemini_worker)
 
     # ── Register Goose worker ─────────────────────────────────────────────────
-    _registry.register(GooseWorker(cwd=_workdir))
+    _goose_worker = GooseWorker()
+    _registry.register(_goose_worker)
 
     # ── Build AdapterRegistry ─────────────────────────────────────────────────
     _adapter_registry = AdapterRegistry()
@@ -189,8 +191,8 @@ async def lifespan(app: FastAPI):
         ))
     _adapter_registry.register(CodexAdapter())
     _adapter_registry.register(AiderAdapter(model=_aider_model))
-    _adapter_registry.register(GeminiAdapter())
     _adapter_registry.register(OpenCodeAdapter())
+    _adapter_registry.register(GeminiCLIAdapter())
     _adapter_registry.register(GooseAdapter())
 
     logger = logging.getLogger(__name__)

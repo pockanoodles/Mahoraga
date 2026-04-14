@@ -301,6 +301,25 @@ class LogEventItem(BaseModel):
     ts: float
 
 
+class TaskRequest(BaseModel):
+    prompt: str
+    capability_hint: str | None = None
+    agent_override: str | None = None
+
+
+class BatchTaskItem(BaseModel):
+    prompt: str
+    depends_on: list[int] = []
+    expected_files: list[str] = []
+    capability_hint: str | None = None
+
+
+class BatchRequest(BaseModel):
+    tasks: list[BatchTaskItem]
+    parallel: bool = True
+    max_concurrent: int = 2
+
+
 class LogRunItem(BaseModel):
     id: str
     mission_id: str
@@ -815,3 +834,274 @@ async def set_routing_strategy(body: dict):
         raise HTTPException(status_code=400, detail=f"Unknown strategy: {name}. Options: {list(STRATEGIES)}")
     router.set_strategy(name)
     return {"strategy": name, "message": f"Switched to {name}"}
+
+
+@app.post("/api/routing/dry-run")
+async def routing_dry_run(body: dict):
+    """Score all available agents for a prompt without committing a routing decision."""
+    prompt = body.get("prompt", "")
+    if not prompt:
+        raise HTTPException(status_code=422, detail="prompt is required")
+
+    router = get_bandit_router()
+
+    class _FakeTask:
+        goal = prompt
+        tier = 2
+
+    result = router.score_all(_FakeTask())
+    scores_list = [
+        {
+            "agent": agent,
+            "ucb_score": s["ucb"],
+            "exploit": s["exploit"],
+            "explore": s["explore"],
+        }
+        for agent, s in sorted(
+            result["scores"].items(), key=lambda x: x[1]["ucb"], reverse=True
+        )
+    ]
+    selected = scores_list[0]["agent"] if scores_list else None
+
+    from ..routing.context import CODE_KEYWORDS, RESEARCH_KEYWORDS
+    words = set(prompt.lower().split())
+    bucket = "code" if words & CODE_KEYWORDS else "general"
+
+    return {
+        "prompt": prompt,
+        "keyword_classification": {"capability_bucket": bucket},
+        "bandit_selection": {
+            "strategy": result["strategy"],
+            "selected_agent": selected,
+            "scores": scores_list,
+        },
+    }
+
+
+@app.get("/api/routing/decisions")
+async def routing_decisions(
+    limit: int = 10,
+    agent: str | None = None,
+    since: str | None = None,
+):
+    """Query recent routing decisions from the decision log."""
+    limit = min(limit, 50)
+    router = get_bandit_router()
+    decisions = router.logger.get_recent(limit=limit, agent=agent, since=since)
+    return {
+        "decisions": decisions,
+        "total_available": router.logger.count(),
+        "filters_applied": {k: v for k, v in {"agent": agent, "since": since}.items() if v},
+    }
+
+
+@app.get("/api/resource-groups")
+async def resource_groups_endpoint():
+    """Resource group config. current_load is populated in Task 5."""
+    from ..resource_groups import RESOURCE_GROUPS
+    return {
+        name: {
+            "agents": group["agents"],
+            "max_concurrent": group["max_concurrent"],
+            "description": group["description"],
+            "current_load": 0,
+        }
+        for name, group in RESOURCE_GROUPS.items()
+    }
+
+
+@app.post("/api/task")
+async def run_api_task(
+    req: TaskRequest,
+    store: StoreDep,
+    registry: RegistryDep,
+    verifier: VerifierDep,
+):
+    """Execute a single task synchronously. Waits for completion (up to 5 min)."""
+    import dataclasses
+    import time as _time
+    from ..domain.models import Mission, Plan, Run, Task, RunMode, TaskStatus
+    from ..routing.reward import TaskOutcome
+    from ..resource_groups import get_resource_group
+
+    router = get_bandit_router()
+    adapter_reg = get_adapter_registry()
+
+    # Minimal infrastructure: one mission → plan → run → task
+    mission = Mission.new(title=f"MCP: {req.prompt[:40]}", goal=req.prompt)
+    await store.missions.save(mission)
+    plan = Plan.new(mission_id=mission.id)
+    await store.missions.save_plan(plan)
+    run = Run.new(mission_id=mission.id, plan_id=plan.id, mode=RunMode.direct)
+    await store.missions.save_run(run)
+
+    task = Task.new(run_id=run.id, title=req.prompt[:80], goal=req.prompt)
+    await store.tasks.save(task)
+
+    # Route via bandit (logs the decision, populates _last_scores)
+    selected_agent = req.agent_override or router.route(task)
+    scores = router.strategy.get_scores()  # populated by route() above
+
+    # Map adapter name → worker_id so executor uses the bandit's choice
+    adapter = adapter_reg.get(selected_agent)
+    if adapter:
+        task = dataclasses.replace(task, preferred_worker_type=adapter.worker_id)
+
+    # Transition task to ready so executor can pick it up
+    await store.tasks.update_status(task.id, TaskStatus.ready)
+
+    t0 = _time.time()
+    await _run_task(task.id, store, registry, verifier)
+    elapsed = round(_time.time() - t0, 2)
+
+    # Collect result
+    task = await store.tasks.get(task.id)
+    attempts = await store.tasks.list_attempts(task.id)
+    artifacts = await store.artifacts.list_by_task(task.id)
+
+    output = next(
+        (a.location.get("content", "") for a in artifacts if a.type == "text_output"), ""
+    )
+    used_worker = attempts[-1].worker_id if attempts else selected_agent
+    status = "success" if task.status == TaskStatus.completed else "failed"
+
+    # Update bandit with the outcome
+    outcome = TaskOutcome(
+        success=(status == "success"),
+        latency_s=elapsed,
+        cost_usd=0.0,
+        quality_score=0.8 if status == "success" else 0.0,
+        agent_name=selected_agent,
+    )
+    router.observe(task, outcome)
+
+    # Build runner-up from scores
+    runner_up = None
+    if scores:
+        sorted_scores = sorted(scores.items(), key=lambda x: x[1]["ucb"], reverse=True)
+        if len(sorted_scores) > 1:
+            runner_up = {"agent": sorted_scores[1][0], "ucb_score": sorted_scores[1][1]["ucb"]}
+
+    return {
+        "task_id": task.id,
+        "status": status,
+        "agent": selected_agent,
+        "worker_id": used_worker,
+        "resource_group": get_resource_group(selected_agent),
+        "elapsed_s": elapsed,
+        "output": output,
+        "routing": {
+            "strategy": router.strategy.name,
+            "ucb_score": scores.get(selected_agent, {}).get("ucb") if scores else None,
+            "runner_up": runner_up,
+        },
+    }
+
+
+@app.post("/api/batch")
+async def run_batch(
+    req: BatchRequest,
+    store: StoreDep,
+    registry: RegistryDep,
+    verifier: VerifierDep,
+):
+    """Batch task execution. Sequential in this version — parallel added in Task 5."""
+    import dataclasses
+    import time as _time
+    import uuid as _uuid
+    from ..domain.models import (
+        Mission, Plan, Run, Task, RunMode, TaskStatus,
+        Dependency, DependencyType,
+    )
+    from ..resource_groups import get_resource_group
+
+    batch_id = f"b_{_uuid.uuid4().hex[:8]}"
+    t_batch_start = _time.time()
+
+    router = get_bandit_router()
+    adapter_reg = get_adapter_registry()
+
+    # Create shared run for the batch
+    mission = Mission.new(title=f"Batch {batch_id}", goal=f"{len(req.tasks)} tasks")
+    await store.missions.save(mission)
+    plan = Plan.new(mission_id=mission.id)
+    await store.missions.save_plan(plan)
+    run = Run.new(mission_id=mission.id, plan_id=plan.id, mode=RunMode.direct)
+    await store.missions.save_run(run)
+
+    # Create all tasks upfront (scope stores expected_files)
+    created: list[Task] = []
+    for i, item in enumerate(req.tasks):
+        deps = [
+            Dependency(task_id=created[j].id, type=DependencyType.completion)
+            for j in item.depends_on
+            if j < i
+        ]
+        task = Task.new(
+            run_id=run.id,
+            title=item.prompt[:80],
+            goal=item.prompt,
+            dependencies=deps,
+            scope=item.expected_files,
+        )
+        await store.tasks.save(task)
+        created.append(task)
+
+    # Execute tasks in dependency order, sequentially
+    results: list[dict] = []
+    sequential_s = 0.0
+    completed_ids: set[str] = set()
+    remaining = list(range(len(created)))
+
+    while remaining:
+        ready_indices = [
+            i for i in remaining
+            if all(created[j].id in completed_ids for j in req.tasks[i].depends_on if j < i)
+        ]
+        if not ready_indices:
+            break
+
+        i = ready_indices[0]
+        task = created[i]
+
+        selected = router.route(task)
+        adapter = adapter_reg.get(selected)
+        if adapter:
+            task = dataclasses.replace(task, preferred_worker_type=adapter.worker_id)
+        await store.tasks.update_status(task.id, TaskStatus.ready)
+
+        t0 = _time.time()
+        await _run_task(task.id, store, registry, verifier)
+        elapsed = round(_time.time() - t0, 2)
+        sequential_s += elapsed
+
+        task = await store.tasks.get(task.id)
+        artifacts = await store.artifacts.list_by_task(task.id)
+        output = next(
+            (a.location.get("content", "") for a in artifacts if a.type == "text_output"), ""
+        )
+        status = "success" if task.status == TaskStatus.completed else "failed"
+
+        results.append({
+            "task_index": i,
+            "status": status,
+            "agent": selected,
+            "resource_group": get_resource_group(selected),
+            "wave": len(results) + 1,
+            "elapsed_s": elapsed,
+            "output": output,
+        })
+        completed_ids.add(task.id)
+        remaining.remove(i)
+
+    total_elapsed = round(_time.time() - t_batch_start, 2)
+    speedup = round(sequential_s / total_elapsed, 2) if total_elapsed > 0 else 1.0
+
+    return {
+        "batch_id": batch_id,
+        "total_wall_clock_s": total_elapsed,
+        "sequential_estimate_s": round(sequential_s, 2),
+        "speedup": f"{speedup}x",
+        "waves_executed": len(results),
+        "results": results,
+    }

@@ -22,6 +22,16 @@ logger = logging.getLogger(__name__)
 
 _TERMINAL = frozenset({"attempt.completed", "attempt.failed", "attempt.blocked"})
 
+# Side-channel: Ollama emits a "metrics" WorkerEvent (not in ALL_EVENT_TYPES, so not
+# persisted to the events table). We cache it here by task_id so /api/task can read
+# token/throughput data after execution without changing the event schema.
+_task_metrics_cache: dict[str, dict] = {}
+
+
+def pop_task_metrics(task_id: str) -> dict:
+    """Pop and return cached Ollama metrics for a completed task. Returns {} if none."""
+    return _task_metrics_cache.pop(task_id, {})
+
 
 async def run_task(
     task_id: str,
@@ -93,6 +103,10 @@ async def run_task(
         # ── STREAM ──────────────────────────────────────────────────────────
         outcome: WorkerEvent | None = None
         async for w_ev in worker.execute(attempt, dispatch_task, feedback=_retry_feedback):
+            if w_ev.type == "metrics":
+                # Ollama performance metrics — not a lifecycle event, cache for caller
+                _task_metrics_cache[task_id] = w_ev.payload
+                continue
             if w_ev.type in _TERMINAL:
                 outcome = w_ev
                 break

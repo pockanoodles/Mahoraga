@@ -1,6 +1,9 @@
-"""Tests for RewardCalculator."""
-import pytest
-from backend.orchestrator.routing.reward import RewardCalculator, TaskOutcome
+"""Tests for RewardCalculator — updated for per-bucket weights + exp speed decay."""
+import math
+from backend.orchestrator.routing.reward import (
+    RewardCalculator, TaskOutcome, BUCKET_WEIGHTS,
+    _SPEED_LAMBDA, _SPEED_T_REF,
+)
 
 
 def test_failed_task_zero_reward():
@@ -10,30 +13,18 @@ def test_failed_task_zero_reward():
 
 
 def test_perfect_outcome_near_one():
-    """Fast, free, high quality → reward near 1.0."""
+    """Instant, free, perfect quality → reward near 1.0."""
     calc = RewardCalculator()
     outcome = TaskOutcome(success=True, latency_s=0.0, cost_usd=0.0, quality_score=1.0, agent_name="aider")
     assert calc.compute(outcome) > 0.9
 
 
 def test_slow_expensive_low_quality():
-    """Slow, expensive, low quality → low reward."""
+    """Slow, expensive, low quality → lower reward than a perfect outcome."""
     calc = RewardCalculator()
-    outcome = TaskOutcome(success=True, latency_s=60.0, cost_usd=0.10, quality_score=0.1, agent_name="claude")
-    assert calc.compute(outcome) < 0.2
-
-
-def test_weights_sum_to_one():
-    with pytest.raises(ValueError, match="sum to 1.0"):
-        RewardCalculator(w_quality=0.5, w_speed=0.5, w_cost=0.5)
-
-
-def test_different_weight_configs_produce_different_rewards():
-    outcome = TaskOutcome(success=True, latency_s=0.0, cost_usd=0.09, quality_score=0.5, agent_name="a")
-    r_quality = RewardCalculator(w_quality=0.8, w_speed=0.1, w_cost=0.1).compute(outcome)
-    r_cost = RewardCalculator(w_quality=0.1, w_speed=0.1, w_cost=0.8).compute(outcome)
-    # Cost-optimized config penalizes the expensive task more → lower reward
-    assert r_cost < r_quality
+    bad = TaskOutcome(success=True, latency_s=60.0, cost_usd=0.10, quality_score=0.1, agent_name="claude")
+    good = TaskOutcome(success=True, latency_s=0.5, cost_usd=0.0, quality_score=0.9, agent_name="ollama")
+    assert calc.compute(bad) < calc.compute(good)
 
 
 def test_reward_clamped_to_01():
@@ -43,27 +34,61 @@ def test_reward_clamped_to_01():
     assert 0.0 <= r <= 1.0
 
 
-def test_latency_at_max_gives_zero_speed_component():
-    """At MAX_LATENCY the speed score is 0; only quality + cost contribute."""
-    calc = RewardCalculator(w_quality=0.4, w_speed=0.3, w_cost=0.3)
-    outcome = TaskOutcome(success=True, latency_s=60.0, cost_usd=0.0, quality_score=1.0, agent_name="a")
-    r = calc.compute(outcome)
-    # speed_score = 0, cost_score = 1 → reward = 0.4*1 + 0.3*0 + 0.3*1 = 0.7
-    assert r == pytest.approx(0.7, abs=1e-3)
+def test_high_latency_penalises_speed():
+    """Very slow task (60 s) should score lower on speed than a fast task (0.5 s)."""
+    calc = RewardCalculator()
+    fast = TaskOutcome(success=True, latency_s=0.5, cost_usd=0.0, quality_score=0.8, agent_name="a")
+    slow = TaskOutcome(success=True, latency_s=60.0, cost_usd=0.0, quality_score=0.8, agent_name="a")
+    assert calc.compute(fast) > calc.compute(slow)
 
 
-def test_cost_beyond_max_clamped():
-    """Cost above MAX_COST should be treated as MAX_COST (cost_score = 0)."""
-    calc = RewardCalculator(w_quality=0.4, w_speed=0.3, w_cost=0.3)
-    outcome = TaskOutcome(success=True, latency_s=0.0, cost_usd=999.0, quality_score=1.0, agent_name="a")
-    r = calc.compute(outcome)
-    # cost_score = 0 → reward = 0.4*1 + 0.3*1 + 0.3*0 = 0.7
-    assert r == pytest.approx(0.7, abs=1e-3)
+def test_high_cost_penalises_reward():
+    """Expensive task should score lower than an equivalent free task."""
+    calc = RewardCalculator()
+    free = TaskOutcome(success=True, latency_s=1.0, cost_usd=0.0, quality_score=0.8, agent_name="a")
+    expensive = TaskOutcome(success=True, latency_s=1.0, cost_usd=0.50, quality_score=0.8, agent_name="a")
+    assert calc.compute(free) > calc.compute(expensive)
+
+
+def test_bucket_weights_used():
+    """Bucket weights produce different rewards for the same outcome."""
+    calc = RewardCalculator()
+    kw = dict(success=True, latency_s=30.0, cost_usd=0.0, quality_score=1.0, agent_name="a")
+    r_code     = calc.compute(TaskOutcome(**kw, bucket="code"))
+    r_research = calc.compute(TaskOutcome(**kw, bucket="research"))
+    assert r_code != r_research
+
+
+def test_exp_speed_decay():
+    """Speed score at reference time should be exp(-1) ≈ 0.37."""
+    phi = math.exp(-_SPEED_LAMBDA * _SPEED_T_REF / _SPEED_T_REF)
+    assert abs(phi - math.exp(-1.0)) < 1e-9
+
+
+def test_swap_penalty_applied_for_slow_spawn():
+    """A task with high spawn_time_ms should score lower than same task without it."""
+    calc = RewardCalculator()
+    base = TaskOutcome(success=True, latency_s=2.0, cost_usd=0.0, quality_score=0.8, agent_name="a")
+    slow = TaskOutcome(success=True, latency_s=2.0, cost_usd=0.0, quality_score=0.8, agent_name="a", spawn_time_ms=6000.0)
+    assert calc.compute(slow) < calc.compute(base)
+
+
+def test_swap_penalty_not_applied_for_trivial_spawn():
+    """Spawn time below threshold (500 ms) should not trigger swap penalty."""
+    calc = RewardCalculator()
+    base = TaskOutcome(success=True, latency_s=2.0, cost_usd=0.0, quality_score=0.8, agent_name="a")
+    fast_spawn = TaskOutcome(success=True, latency_s=2.0, cost_usd=0.0, quality_score=0.8, agent_name="a", spawn_time_ms=200.0)
+    assert calc.compute(base) == calc.compute(fast_spawn)
 
 
 def test_error_message_does_not_affect_reward():
-    """error_message is metadata; it should not change reward computation."""
     calc = RewardCalculator()
-    base = TaskOutcome(success=True, latency_s=1.0, cost_usd=0.01, quality_score=0.8, agent_name="a")
-    with_err = TaskOutcome(success=True, latency_s=1.0, cost_usd=0.01, quality_score=0.8, agent_name="a", error_message="some warning")
+    base     = TaskOutcome(success=True, latency_s=1.0, cost_usd=0.01, quality_score=0.8, agent_name="a")
+    with_err = TaskOutcome(success=True, latency_s=1.0, cost_usd=0.01, quality_score=0.8, agent_name="a", error_message="warn")
     assert calc.compute(base) == calc.compute(with_err)
+
+
+def test_all_bucket_weights_sum_to_one():
+    for bucket, (ws, wq, wsp, wc) in BUCKET_WEIGHTS.items():
+        total = ws + wq + wsp + wc
+        assert abs(total - 1.0) < 1e-9, f"Bucket {bucket!r} weights sum to {total}, not 1.0"

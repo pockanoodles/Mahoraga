@@ -422,29 +422,33 @@
   const costSession = document.getElementById('cost-session');
   const costTotal = document.getElementById('cost-total');
   const costFill = document.getElementById('cost-fill');
-  const costTooltipEl = document.getElementById('cost-tooltip');
+  function renderMetrics(data) {
+    const el = document.getElementById('metrics-text');
+    if (!el) return;
 
-  const WARN_USD = parseFloat(window.MAHORAGA_COST_WARN || '1.0');
-  const ALERT_USD = parseFloat(window.MAHORAGA_COST_ALERT || '5.0');
+    const s = data.session;
+    if (!s || s.task_count === 0) {
+      el.textContent = 'Session: idle';
+      el.removeAttribute('data-health');
+      return;
+    }
 
-  function renderCost(data) {
-    const session = data.session_usd || 0;
-    const total = data.total_usd || 0;
-    costSession.textContent = `Session: $${session.toFixed(3)}`;
-    costTotal.textContent = `Total: $${total.toFixed(3)}`;
+    const parts = [
+      `${s.wall_time_s}s`,
+      `${s.tokens.toLocaleString()} tok`,
+      s.avg_throughput_tps > 0 ? `${s.avg_throughput_tps} t/s` : null,
+      `${s.task_count} task${s.task_count !== 1 ? 's' : ''}`,
+      `${(s.success_rate * 100).toFixed(0)}% ok`,
+    ].filter(Boolean).join(' · ');
 
-    const pct = Math.min((session / ALERT_USD) * 100, 100);
-    costFill.style.width = pct + '%';
-    costFill.className = 'cost-fill';
-    if (session >= ALERT_USD) costFill.classList.add('alert');
-    else if (session >= WARN_USD) costFill.classList.add('warn');
+    el.textContent = `Session: ${parts}`;
 
-    if (data.breakdown && data.breakdown.length > 0) {
-      costTooltipEl.innerHTML = data.breakdown
-        .map(b => `${b.model.replace('claude-', '').replace('-20251001', '')}: $${b.cost_usd.toFixed(4)}`)
-        .join('<br>');
-    } else {
-      costTooltipEl.textContent = 'No spend this session';
+    const health = data.routing_health;
+    if (health) {
+      el.setAttribute('data-health', health.status);
+      el.title = health.alerts.length
+        ? health.alerts.map(a => a.message).join('\n')
+        : 'Routing healthy';
     }
   }
 
@@ -452,10 +456,10 @@
 
   async function refresh() {
     try {
-      const [vineRes, logsRes, costRes] = await Promise.all([
+      const [vineRes, logsRes, metricsRes] = await Promise.all([
         fetch('/missions/active'),
         fetch('/logs/recent?limit=20'),
-        fetch('/cost/summary'),
+        fetch('/api/metrics'),
       ]);
 
       if (vineRes.ok) {
@@ -466,9 +470,9 @@
         const data = await logsRes.json();
         renderLogs(data.entries || []);
       }
-      if (costRes.ok) {
-        const data = await costRes.json();
-        renderCost(data);
+      if (metricsRes.ok) {
+        const data = await metricsRes.json();
+        renderMetrics(data);
       }
     } catch (_) {
       // Network error — fail silently, try again on next poll

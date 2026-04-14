@@ -44,10 +44,11 @@ from ..adapters.opencode_adapter import OpenCodeAdapter
 from ..adapters.goose_adapter import GooseAdapter
 from ..config import ENABLED_BACKENDS, MahoragaConfig, get_workdir
 from .approvals import grant_approval, reject_approval
-from .executor import run_task as _run_task
+from .executor import run_task as _run_task, pop_task_metrics
 from .run_executor import run_run as _run_run
 from ..planning.planner import generate_tasks, PlannerError
 from ..routing import BanditRouter, STRATEGIES, TaskOutcome
+from ..routing.implicit_quality import ImplicitQualityTracker
 
 # ── singletons (replaced via dependency_overrides in tests) ──────────────────
 
@@ -60,6 +61,8 @@ _cost_ledger: CostLedger | None = None
 _config: MahoragaConfig | None = None
 _adapter_registry: AdapterRegistry | None = None
 _bandit_router: BanditRouter | None = None
+_implicit_tracker: ImplicitQualityTracker | None = None
+_START_TIME: float = time.time()
 
 
 def get_store() -> Store:
@@ -108,7 +111,7 @@ async def lifespan(app: FastAPI):
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
         force=True,
     )
-    global _store, _registry, _verifier, _gateway, _adaptive_store, _cost_ledger, _config, _adapter_registry, _bandit_router
+    global _store, _registry, _verifier, _gateway, _adaptive_store, _cost_ledger, _config, _adapter_registry, _bandit_router, _implicit_tracker
     _store = await Store.connect()
     _registry = WorkerRegistry()
 
@@ -198,6 +201,9 @@ async def lifespan(app: FastAPI):
         strategy="linucb",
         registry=_adapter_registry,
     )
+
+    global _implicit_tracker
+    _implicit_tracker = ImplicitQualityTracker()
 
     # Orphan recovery: tasks left in_progress from a crashed previous run
     for orphan in await _store.tasks.list_by_status(TaskStatus.in_progress):
@@ -301,6 +307,25 @@ class LogEventItem(BaseModel):
     ts: float
 
 
+class TaskRequest(BaseModel):
+    prompt: str
+    capability_hint: str | None = None
+    agent_override: str | None = None
+
+
+class BatchTaskItem(BaseModel):
+    prompt: str
+    depends_on: list[int] = []
+    expected_files: list[str] = []
+    capability_hint: str | None = None
+
+
+class BatchRequest(BaseModel):
+    tasks: list[BatchTaskItem]
+    parallel: bool = True
+    max_concurrent: int = 2
+
+
 class LogRunItem(BaseModel):
     id: str
     mission_id: str
@@ -387,6 +412,28 @@ async def workers_health(registry: RegistryDep):
     results = await registry.health_all()
     return {worker_id: {"worker_id": h.worker_id, "healthy": h.healthy, "detail": h.detail}
             for worker_id, h in results.items()}
+
+
+@app.get("/api/health")
+async def api_health(adapter_reg: AdapterRegistryDep):
+    """Lightweight heartbeat for MCP clients. No heavy computation."""
+    router = get_bandit_router()
+    agents_online = 0
+    for adapter in adapter_reg.all():
+        try:
+            status = await adapter.health_check()
+            if status.available:
+                agents_online += 1
+        except Exception:
+            pass
+    return {
+        "status": "ok",
+        "uptime_s": int(time.time() - _START_TIME),
+        "agents_registered": len(list(adapter_reg.all())),
+        "agents_online": agents_online,
+        "strategy": router.strategy.name,
+        "total_decisions": router.logger.count(),
+    }
 
 
 @app.get("/api/agents/status")
@@ -499,7 +546,7 @@ async def cost_summary(store: StoreDep, user_id: str = "web-user"):
     }
 
 
-# ── In-memory session metrics (reset on restart) ──────────────────────────────
+# ── In-memory session metrics (legacy — kept for chat SSE stream path) ────────
 _session_metrics = {"total_elapsed_s": 0.0, "total_tokens": 0, "task_count": 0}
 
 
@@ -510,17 +557,20 @@ def _record_metrics(elapsed_s: float, tokens: int) -> None:
 
 
 @app.get("/api/metrics")
-async def get_metrics():
-    m = _session_metrics
-    avg_tps = (
-        round(m["total_tokens"] / m["total_elapsed_s"], 1)
-        if m["total_elapsed_s"] > 0 else 0.0
-    )
+async def get_metrics(store: StoreDep):
+    router = get_bandit_router()
+    total_decisions = router.logger.count()
+
+    session   = await store.metrics.get_session_aggregates()
+    agents    = await store.metrics.get_agent_breakdown()
+    buckets   = await store.metrics.get_bucket_breakdown()
+    health    = await store.metrics.get_routing_health(total_decisions)
+
     return {
-        "elapsed_s": round(m["total_elapsed_s"], 1),
-        "tokens": m["total_tokens"],
-        "avg_throughput_tps": avg_tps,
-        "task_count": m["task_count"],
+        "session": session,
+        "agents": agents,
+        "buckets": buckets,
+        "routing_health": health,
     }
 
 
@@ -815,3 +865,365 @@ async def set_routing_strategy(body: dict):
         raise HTTPException(status_code=400, detail=f"Unknown strategy: {name}. Options: {list(STRATEGIES)}")
     router.set_strategy(name)
     return {"strategy": name, "message": f"Switched to {name}"}
+
+
+@app.post("/api/routing/dry-run")
+async def routing_dry_run(body: dict):
+    """Score all available agents for a prompt without committing a routing decision."""
+    prompt = body.get("prompt", "")
+    if not prompt:
+        raise HTTPException(status_code=422, detail="prompt is required")
+
+    router = get_bandit_router()
+
+    class _FakeTask:
+        goal = prompt
+        tier = 2
+
+    result = router.score_all(_FakeTask())
+    scores_list = [
+        {
+            "agent": agent,
+            "ucb_score": s["ucb"],
+            "exploit": s["exploit"],
+            "explore": s["explore"],
+        }
+        for agent, s in sorted(
+            result["scores"].items(), key=lambda x: x[1]["ucb"], reverse=True
+        )
+    ]
+    selected = scores_list[0]["agent"] if scores_list else None
+
+    from ..routing.context import CODE_KEYWORDS, RESEARCH_KEYWORDS
+    words = set(prompt.lower().split())
+    bucket = "code" if words & CODE_KEYWORDS else "general"
+
+    return {
+        "prompt": prompt,
+        "keyword_classification": {"capability_bucket": bucket},
+        "bandit_selection": {
+            "strategy": result["strategy"],
+            "selected_agent": selected,
+            "scores": scores_list,
+        },
+    }
+
+
+@app.get("/api/routing/decisions")
+async def routing_decisions(
+    limit: int = 10,
+    agent: str | None = None,
+    since: str | None = None,
+):
+    """Query recent routing decisions from the decision log."""
+    limit = min(limit, 50)
+    router = get_bandit_router()
+    decisions = router.logger.get_recent(limit=limit, agent=agent, since=since)
+    return {
+        "decisions": decisions,
+        "total_available": router.logger.count(),
+        "filters_applied": {k: v for k, v in {"agent": agent, "since": since}.items() if v},
+    }
+
+
+@app.get("/api/resource-groups")
+async def resource_groups_endpoint():
+    """Resource group config. current_load is populated in Task 5."""
+    from ..resource_groups import RESOURCE_GROUPS
+    return {
+        name: {
+            "agents": group["agents"],
+            "max_concurrent": group["max_concurrent"],
+            "description": group["description"],
+            "current_load": 0,
+        }
+        for name, group in RESOURCE_GROUPS.items()
+    }
+
+
+async def _is_ollama_warm() -> bool:
+    """Return True if any Ollama model is currently loaded in memory."""
+    import httpx as _httpx
+    try:
+        async with _httpx.AsyncClient(timeout=2.0) as client:
+            resp = await client.get("http://localhost:11434/api/ps")
+            if resp.status_code == 200:
+                return bool(resp.json().get("models"))
+    except Exception:
+        pass
+    return False
+
+
+@app.post("/api/task")
+async def run_api_task(
+    req: TaskRequest,
+    store: StoreDep,
+    registry: RegistryDep,
+    verifier: VerifierDep,
+):
+    """Execute a single task synchronously. Waits for completion (up to 5 min)."""
+    import dataclasses
+    import time as _time
+    from ..domain.models import Mission, Plan, Run, Task, RunMode, TaskStatus
+    from ..routing.reward import TaskOutcome
+    from ..resource_groups import get_resource_group
+    from ..store.metrics import _classify_bucket
+
+    router = get_bandit_router()
+    adapter_reg = get_adapter_registry()
+
+    # Implicit quality: check if this new submission is a retry or accept signal
+    from hashlib import sha256 as _sha256
+    _task_hash = _sha256(req.prompt.encode()).hexdigest()[:16]
+    if _implicit_tracker is not None:
+        _signal = _implicit_tracker.on_task_submitted(task_hash=_task_hash)
+        if _signal is not None:
+            _prev_id, _score = _signal
+            import asyncio as _asyncio
+            _asyncio.ensure_future(
+                _store.metrics.update_implicit_quality(task_id=_prev_id, implicit_quality=_score)
+            )
+
+    # Minimal infrastructure: one mission → plan → run → task
+    mission = Mission.new(title=f"MCP: {req.prompt[:40]}", goal=req.prompt)
+    await store.missions.save(mission)
+    plan = Plan.new(mission_id=mission.id)
+    await store.missions.save_plan(plan)
+    run = Run.new(mission_id=mission.id, plan_id=plan.id, mode=RunMode.direct)
+    await store.missions.save_run(run)
+
+    task = Task.new(run_id=run.id, title=req.prompt[:80], goal=req.prompt)
+    await store.tasks.save(task)
+
+    # Check Ollama warm state before routing decision
+    model_was_warm = await _is_ollama_warm() if not req.agent_override else False
+
+    # Route via bandit (logs the decision, populates _last_scores)
+    t_route_start = _time.monotonic()
+    selected_agent = req.agent_override or router.route(task, model_warm_norm=1.0 if model_was_warm else 0.0)
+    routing_time_ms = (_time.monotonic() - t_route_start) * 1000
+    scores = router.strategy.get_scores()  # populated by route() above
+
+    # Determine exploration flag: was the bandit exploring (UCB bonus > exploit lead)?
+    exploration_flag = False
+    if scores and len(scores) > 1:
+        best_exploit = max(scores, key=lambda a: scores[a].get("exploit", 0))
+        exploration_flag = (selected_agent != best_exploit)
+
+    # Map adapter name → worker_id so executor uses the bandit's choice
+    adapter = adapter_reg.get(selected_agent)
+    if adapter:
+        task = dataclasses.replace(task, preferred_worker_type=adapter.worker_id)
+
+    # Transition task to ready so executor can pick it up
+    await store.tasks.update_status(task.id, TaskStatus.ready)
+
+    t0 = _time.monotonic()
+    await _run_task(task.id, store, registry, verifier)
+    wall_time_ms = (_time.monotonic() - t0) * 1000
+    elapsed = round(wall_time_ms / 1000, 2)
+
+    # Collect result
+    task = await store.tasks.get(task.id)
+    attempts = await store.tasks.list_attempts(task.id)
+    artifacts = await store.artifacts.list_by_task(task.id)
+
+    output = next(
+        (a.location.get("content", "") for a in artifacts if a.type == "text_output"), ""
+    )
+    used_worker = attempts[-1].worker_id if attempts else selected_agent
+    status = "success" if task.status == TaskStatus.completed else "failed"
+    success = status == "success"
+
+    # Pull Ollama token metrics captured by executor side-channel
+    ollama_m = pop_task_metrics(task.id)
+    tokens_generated = ollama_m.get("tokens", 0)
+    tokens_per_second = ollama_m.get("throughput_tps", 0.0)
+    prompt_tokens = ollama_m.get("prompt_tokens", 0)
+    prompt_eval_rate = ollama_m.get("prompt_eval_rate", 0.0)
+    agent_spawn_ms = max(0.0, wall_time_ms - routing_time_ms - (ollama_m.get("elapsed_s", 0) * 1000))
+
+    bucket = _classify_bucket(req.prompt)
+    from ..routing.quality import score_quality as _score_quality
+    quality_score = (await _score_quality(req.prompt, output, bucket)) if success else 0.0
+
+    # Update bandit with the outcome
+    outcome = TaskOutcome(
+        success=success,
+        latency_s=elapsed,
+        cost_usd=0.0,
+        quality_score=quality_score,
+        agent_name=selected_agent,
+        bucket=bucket,
+        spawn_time_ms=agent_spawn_ms,
+    )
+    router.observe(task, outcome)
+    reward = router.reward_calc.compute(outcome)
+
+    # Write to task_metrics
+    ucb_score = scores.get(selected_agent, {}).get("ucb", 0.0) if scores else 0.0
+    await store.metrics.record(
+        task_id=task.id,
+        prompt_text=req.prompt,
+        agent_name=selected_agent,
+        capability_bucket=_classify_bucket(req.prompt),
+        wall_time_ms=round(wall_time_ms, 2),
+        routing_time_ms=round(routing_time_ms, 2),
+        agent_spawn_time_ms=round(agent_spawn_ms, 2),
+        tokens_generated=tokens_generated,
+        tokens_per_second=tokens_per_second,
+        prompt_tokens=prompt_tokens,
+        prompt_eval_rate=prompt_eval_rate,
+        model_was_warm=model_was_warm,
+        bandit_ucb_score=ucb_score,
+        bandit_exploration_flag=exploration_flag,
+        reward_score=reward,
+        success=success,
+        quality_score=quality_score,
+        cost_usd=0.0,
+    )
+
+    # implicit quality tracking
+    if _implicit_tracker is not None:
+        from hashlib import sha256 as _sha256
+        _th = _sha256((task.goal if hasattr(task, 'goal') else '').encode()).hexdigest()[:16]
+        _implicit_tracker.on_task_complete(task_id=task.id, task_hash=_th)
+
+    # Build runner-up from scores
+    runner_up = None
+    if scores:
+        sorted_scores = sorted(scores.items(), key=lambda x: x[1]["ucb"], reverse=True)
+        if len(sorted_scores) > 1:
+            runner_up = {"agent": sorted_scores[1][0], "ucb_score": sorted_scores[1][1]["ucb"]}
+
+    return {
+        "task_id": task.id,
+        "status": status,
+        "agent": selected_agent,
+        "worker_id": used_worker,
+        "resource_group": get_resource_group(selected_agent),
+        "elapsed_s": elapsed,
+        "output": output,
+        "metrics": {
+            "wall_time_ms": round(wall_time_ms, 1),
+            "routing_time_ms": round(routing_time_ms, 2),
+            "tokens": tokens_generated,
+            "tps": tokens_per_second,
+            "model_was_warm": model_was_warm,
+        },
+        "routing": {
+            "strategy": router.strategy.name,
+            "ucb_score": ucb_score,
+            "exploration": exploration_flag,
+            "runner_up": runner_up,
+        },
+    }
+
+
+@app.post("/api/batch")
+async def run_batch(
+    req: BatchRequest,
+    store: StoreDep,
+    registry: RegistryDep,
+    verifier: VerifierDep,
+):
+    """Batch task execution. Sequential in this version — parallel added in Task 5."""
+    import dataclasses
+    import time as _time
+    import uuid as _uuid
+    from ..domain.models import (
+        Mission, Plan, Run, Task, RunMode, TaskStatus,
+        Dependency, DependencyType,
+    )
+    from ..resource_groups import get_resource_group
+
+    batch_id = f"b_{_uuid.uuid4().hex[:8]}"
+    t_batch_start = _time.time()
+
+    router = get_bandit_router()
+    adapter_reg = get_adapter_registry()
+
+    # Create shared run for the batch
+    mission = Mission.new(title=f"Batch {batch_id}", goal=f"{len(req.tasks)} tasks")
+    await store.missions.save(mission)
+    plan = Plan.new(mission_id=mission.id)
+    await store.missions.save_plan(plan)
+    run = Run.new(mission_id=mission.id, plan_id=plan.id, mode=RunMode.direct)
+    await store.missions.save_run(run)
+
+    # Create all tasks upfront (scope stores expected_files)
+    created: list[Task] = []
+    for i, item in enumerate(req.tasks):
+        deps = [
+            Dependency(task_id=created[j].id, type=DependencyType.completion)
+            for j in item.depends_on
+            if 0 <= j < i
+        ]
+        task = Task.new(
+            run_id=run.id,
+            title=item.prompt[:80],
+            goal=item.prompt,
+            dependencies=deps,
+            scope=item.expected_files,
+        )
+        await store.tasks.save(task)
+        created.append(task)
+
+    # Pre-route all tasks through bandit
+    assignments: dict[str, str] = {}
+    for task in created:
+        assignments[task.id] = router.route(task)
+
+    sequential_s = 0.0
+
+    async def _run_single(task: Task, agent: str) -> dict:
+        nonlocal sequential_s
+        adapter = adapter_reg.get(agent)
+        t_run = dataclasses.replace(task, preferred_worker_type=adapter.worker_id) if adapter else task
+        await store.tasks.update_status(t_run.id, TaskStatus.ready)
+
+        t0 = _time.time()
+        await _run_task(t_run.id, store, registry, verifier)
+        elapsed = round(_time.time() - t0, 2)
+        sequential_s += elapsed
+
+        t_result = await store.tasks.get(t_run.id)
+        artifacts = await store.artifacts.list_by_task(t_run.id)
+        output = next(
+            (a.location.get("content", "") for a in artifacts if a.type == "text_output"), ""
+        )
+        task_index = next((i for i, t in enumerate(created) if t.id == task.id), -1)
+        return {
+            "task_index": task_index,
+            "status": "success" if t_result.status == TaskStatus.completed else "failed",
+            "agent": agent,
+            "resource_group": get_resource_group(agent),
+            "elapsed_s": elapsed,
+            "output": output,
+        }
+
+    if req.parallel:
+        from .wave_executor import WaveExecutor
+        wave_exec = WaveExecutor(max_concurrent=req.max_concurrent)
+        all_results = await wave_exec.execute_batch(created, assignments, _run_single)
+        waves_executed = max((r.get("wave", 1) for r in all_results), default=1)
+    else:
+        # Sequential fallback (parallel=false safety valve)
+        all_results = []
+        for i, task in enumerate(created):
+            result = await _run_single(task, assignments[task.id])
+            result["wave"] = i + 1
+            all_results.append(result)
+        waves_executed = len(all_results)
+
+    total_elapsed = round(_time.time() - t_batch_start, 2)
+    speedup = round(sequential_s / total_elapsed, 2) if total_elapsed > 0 else 1.0
+
+    return {
+        "batch_id": batch_id,
+        "total_wall_clock_s": total_elapsed,
+        "sequential_estimate_s": round(sequential_s, 2),
+        "speedup": f"{speedup}x",
+        "waves_executed": waves_executed,
+        "results": sorted(all_results, key=lambda r: r.get("task_index", 0)),
+    }

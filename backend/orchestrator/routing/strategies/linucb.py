@@ -31,9 +31,9 @@ class LinUCBRouter(RoutingStrategy):
 
     def __init__(
         self,
-        d: int = 8,
+        d: int = 9,
         alpha: float = 1.0,
-        decay: float = 1.0,
+        decay: float = 0.98,
         priors: dict[str, float] | None = None,
     ):
         self.d = d
@@ -45,13 +45,40 @@ class LinUCBRouter(RoutingStrategy):
         self.t: int = 0
 
     def _init_agent(self, agent: str) -> None:
-        if agent not in self.A:
+        if agent in self.A:
+            return  # already initialized
+
+        existing = [a for a in self.A if a != agent]
+        if not existing or self.t == 0:
+            # First arm, or no real routing yet (e.g. during warm-start injection) — cold start.
             self.A[agent] = np.identity(self.d)
-            # Seed b with prior so θ̂ = A⁻¹b ≈ prior·ones on cold start.
-            # This biases early exploration toward confident agents without
-            # locking in — the bandit learns and overwrites after a few rounds.
             prior = self.priors.get(agent, 0.5)
             self.b[agent] = prior * np.ones((self.d, 1))
+            return
+
+        # Average-init: blend average of existing arms with λI to give the new
+        # arm moderate exploration without the huge UCB bonus of pure cold start.
+        avg_A = np.mean([self.A[a] for a in existing], axis=0)
+        avg_b = np.mean([self.b[a] for a in existing], axis=0)
+        self.A[agent] = 0.5 * avg_A + 0.5 * np.identity(self.d)
+        self.b[agent] = 0.5 * avg_b
+
+        # Override with compatibility_matrix prior if available for this specific agent
+        from ..warm_start import load_compatibility_matrix, warm_start_from_matrix
+        matrix = load_compatibility_matrix()
+        if matrix and agent in matrix:
+            warm_start_from_matrix(self, {agent: matrix[agent]}, lambda_prior=2.0)
+
+    def inject_pseudo_obs(self, agent: str, x: np.ndarray, reward: float, lambda_prior: float = 1.0) -> None:
+        """Inject one pseudo-observation into arm `agent`.
+
+        A[agent] += lambda_prior * outer(x, x)
+        b[agent] += lambda_prior * reward * x.reshape(-1,1)
+        """
+        self._init_agent(agent)
+        x = x.reshape(-1, 1)  # d×1
+        self.A[agent] += lambda_prior * (x @ x.T)
+        self.b[agent] += lambda_prior * reward * x
 
     def select_agent(self, context, available_agents: list[str]) -> str:
         if not available_agents:
@@ -92,6 +119,25 @@ class LinUCBRouter(RoutingStrategy):
     def get_scores(self) -> dict:
         return getattr(self, '_last_scores', {})
 
+    def compute_scores(self, context, available_agents: list[str]) -> dict:
+        """Compute UCB scores for all agents without incrementing t or storing _last_scores."""
+        if not available_agents:
+            return {}
+        x = context.to_vector().reshape(-1, 1)
+        scores = {}
+        for a in available_agents:
+            self._init_agent(a)  # idempotent — only initialises on first call
+            theta = np.linalg.solve(self.A[a], self.b[a])
+            exploit = float((x.T @ theta).item())
+            explore_sq = float((x.T @ np.linalg.solve(self.A[a], x)).item())
+            explore = self.alpha * float(np.sqrt(max(0.0, explore_sq)))
+            scores[a] = {
+                "ucb": round(exploit + explore, 4),
+                "exploit": round(exploit, 4),
+                "explore": round(explore, 4),
+            }
+        return scores
+
     def get_theta(self, agent: str) -> np.ndarray:
         self._init_agent(agent)
         return (np.linalg.inv(self.A[agent]) @ self.b[agent]).flatten()
@@ -115,9 +161,15 @@ class LinUCBRouter(RoutingStrategy):
 
     def load_state(self, path: str) -> None:
         state = json.loads(Path(path).read_text())
+        if state.get("d") != self.d:
+            raise ValueError(
+                f"Persisted state has d={state.get('d')}, but router expects d={self.d}. "
+                "Delete the state file to reset."
+            )
         self.d = state["d"]
         self.alpha = state["alpha"]
-        self.decay = state.get("decay", 1.0)
+        # decay is a constructor hyperparameter — don't restore from file so that
+        # changing the default takes effect without needing to delete the state file.
         self.t = state["t"]
         for a, data in state["agents"].items():
             self.A[a] = np.array(data["A"])

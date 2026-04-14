@@ -1,12 +1,30 @@
 # Mahoraga
 
-Self-hosted multi-agent orchestrator with online bandit routing. Learns from your traffic, adapts to your hardware, zero cloud cost for 70%+ of tasks.
+> Agent-agnostic LLM orchestration framework with online bandit routing. Unifies any AI coding agent — local or cloud — into an intelligent workflow with learned routing, quality evaluation, and real-time visual feedback.
+
+*Named after the adaptive deity from Buddhist mythology — Mahoraga analyzes, adapts, and overcomes.*
 
 ![Python 3.12](https://img.shields.io/badge/python-3.12-blue)
 ![License: MIT](https://img.shields.io/badge/license-MIT-green)
 ![Last commit](https://img.shields.io/github/last-commit/pockanoodles/Mahoraga)
 
+<!-- TODO: record demo GIF after collecting 50+ real routing decisions -->
 ![demo](docs/demo.gif)
+
+---
+
+## What It Does
+
+Mahoraga is not an agent. It orchestrates agents. When you give it a task, it:
+
+1. Classifies complexity via keyword gate into a capability bucket (code, debug, plan, research, general…)
+2. Routes to the best agent using a LinUCB contextual bandit that learns from every task
+3. Streams the response in real time with markdown rendering
+4. Evaluates output quality via heuristic scoring + embedding similarity
+5. Records metrics, updates the bandit, and stores the episode in episodic memory
+6. Retries with feedback context or escalates to cloud on failure
+
+Any agent plugs in through the `AgentAdapter` interface.
 
 ---
 
@@ -21,12 +39,16 @@ graph LR
     EM[Episodic Memory] -->|α=0.20 bias| LB
     RL[Reward Learner] -->|OLS weights| LB
     LB -->|select arm| Agents
-    Agents --> ollama[ollama\nQwen3 4B · free]
-    Agents --> codex[codex-cli\nOpenAI CLI]
-    Agents --> aider[aider\ngit-native]
-    Agents --> cloud[cloud escalation\nGemini · Goose · Claude]
-    Agents --> Metrics[task_metrics\nSQLite]
-    Metrics -->|reward| LB
+    Agents --> ollama[ollama · Qwen3 4B · free]
+    Agents --> codex[codex-cli · OpenAI CLI]
+    Agents --> aider[aider · git-native]
+    Agents --> gemini[gemini-cli · Google]
+    Agents --> goose[goose · Block]
+    Agents --> opencode[opencode · sst]
+    Agents --> cloud[claude · escalation]
+    Agents --> Metrics[task_metrics · SQLite]
+    Metrics -->|composite reward| LB
+    Metrics -->|episode| EM
 ```
 
 ---
@@ -39,6 +61,20 @@ Cloud coding agents burn credits on tasks a 4B local model handles fine. Mahorag
 
 ## Benchmark Results
 
+### Model Throughput
+
+**Hardware:** MacBook Pro (Nov 2024), M-series, 16 GB unified memory
+
+| Model | Throughput | Easy | Medium | Hard |
+|-------|-----------|------|--------|------|
+| Qwen2.5 7B Q4 (baseline) | 12–14 t/s | 23s | 39s | 40s |
+| **Qwen3 4B Q4_K_M** | **21–23 t/s** | **12s** | **36s** | **48s** |
+| Qwen3 8B Q4 | 12–13 t/s | 27s | 58s | — |
+
+Qwen3 4B in nothink mode is the default — 80% faster than the 7B baseline with comparable quality on short-to-medium tasks.
+
+### Routing Strategy Comparison
+
 Strategy comparison over 200 simulated tasks with a ground-truth compatibility matrix:
 
 | Strategy | Mean Reward | Total Regret | β | Sublinear? |
@@ -48,9 +84,24 @@ Strategy comparison over 200 simulated tasks with a ground-truth compatibility m
 | Thompson Sampling | 0.8070 | 17.73 | 1.175 | No |
 | **LinUCB** | **0.8049** | **18.38** | **0.659** | **Yes** |
 
-β < 1.0 means sublinear regret — the algorithm is learning and making fewer mistakes over time. LinUCB is the only strategy that converges. Its per-step regret halves from the first 20% of tasks to the last 20%.
+β < 1.0 means sublinear regret — the algorithm converges. LinUCB is the only strategy where per-step regret decreases over time. Early regret: 0.1431/task → Late regret: 0.0887/task.
 
 Naive model alternation between Ollama models costs ~0.10 reward points per task. Hardware-aware routing (swap penalty + warm/cold detection) eliminates this.
+
+<!-- TODO: embed regret_curve.png once ablation runs clean -->
+
+### Oracle Compatibility Matrix (Ground Truth)
+
+```
+simple_chat        → ollama       (0.92)
+code_generation    → opencode     (0.85)
+code_refactoring   → aider        (0.92)
+debugging          → aider        (0.88)
+file_operations    → codex-cli    (0.93)
+research           → gemini-cli   (0.88)
+planning           → gemini-cli   (0.80)
+complex_reasoning  → gemini-cli   (0.82)
+```
 
 ---
 
@@ -58,24 +109,33 @@ Naive model alternation between Ollama models costs ~0.10 reward points per task
 
 ```bash
 git clone https://github.com/pockanoodles/Mahoraga.git && cd Mahoraga
-pip install -e .
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
 ollama pull qwen3:4b
 orch serve        # starts at localhost:8000
 ```
 
+Open http://localhost:8000.
+
 Optional cloud keys (set in `.env` or shell):
 
 ```bash
-ANTHROPIC_API_KEY=sk-ant-...   # enables Claude escalation
-OPENAI_API_KEY=sk-...          # enables Codex CLI
-GEMINI_API_KEY=...             # enables Gemini CLI
+ANTHROPIC_API_KEY=sk-ant-...   # Claude escalation
+OPENAI_API_KEY=sk-...          # Codex CLI
+GEMINI_API_KEY=...             # Gemini CLI
 ```
 
 ---
 
-## Adaptive Routing
+## How It Works
 
-Tasks are classified by keyword gate into a capability bucket (code, debug, plan, research, general…). Within each bucket, a **LinUCB contextual bandit** selects the agent.
+### Task Classification
+
+Tasks are classified by keyword gate into capability buckets (code, debug, plan, research, general, security, test, review, refactor). Short direct tasks route immediately. Complex tasks decompose through the planner first.
+
+### Adaptive Routing
+
+Within each bucket, a **LinUCB contextual bandit** selects the agent.
 
 **The 9-dimensional context vector** — each feature is normalised to [0, 1]:
 
@@ -99,30 +159,53 @@ UCB_a = x'θ_a + α√(x' A_a⁻¹ x)    where θ_a = A_a⁻¹ b_a
 
 Three learning layers run in parallel:
 
-1. **dLinUCB (γ=0.97)** — discounted updates handle non-stationarity as agents improve or degrade over time
-2. **Reward Learner** — OLS fits per-capability-bucket reward weights after 100 observations; well-calibrated priors used before that
-3. **Episodic Memory** — HNSW index over past context vectors; nearest-neighbour rewards bias selection at α=0.20
+- **dLinUCB (γ=0.97)** — discounted updates handle non-stationarity as agents improve or degrade over time
+- **Reward Learner** — OLS fits per-bucket reward weights after 100 observations; well-calibrated priors before convergence; simplex projection prevents weight collapse
+- **Episodic Memory** — HNSW index (hnswlib) over past context vectors; k=10 nearest-neighbour rewards bias selection at α=0.20; FIFO cap at 10k episodes
 
-**Implicit quality signals** are wired without requiring explicit feedback: a retry within 5 minutes signals failure (reward 0.0) and accepting an agent's output without change signals success (+0.6 bonus).
+The composite reward: `r = w₁·success + w₂·quality + w₃·speed + w₄·cost` where weights are per-bucket and learnable. Swap cost penalty adjusts reward when the bandit switches between Ollama models (3–8s latency hit on 16 GB unified memory).
 
-On first startup, if `~/.mahoraga/compatibility_matrix.json` exists (from `orch benchmark simulate --save-matrix`), the bandit is warm-started with pseudo-observations — skipping the cold-start exploration phase. New agents added at runtime are average-initialised from existing arm matrices, ensuring moderate exploration without a regret spike.
+### Quality Evaluation
 
-For full technical depth: [`docs/MAHORAGA_METRICS_AND_RESEARCH.md`](docs/MAHORAGA_METRICS_AND_RESEARCH.md)
+After every execution, the validator checks:
+
+- **Code outputs:** compilation check, code block presence, import/def/class patterns, syntax closure
+- **General outputs:** substance check — length and content, not padding
+- **Embedding similarity:** cosine between prompt and output embeddings via nomic-embed-text (catches off-topic or degenerate outputs)
+
+Outcomes: pass → stream response; retry → same worker with feedback context; escalate → next-best adapter.
+
+**Implicit quality signals** require no explicit feedback: a retry within 5 minutes signals failure (reward 0.0) and accepting an agent's output without change signals success (+0.6 bonus).
+
+### Warm Start
+
+On first startup, if `~/.mahoraga/compatibility_matrix.json` exists (from `orch benchmark simulate --save-matrix`), the bandit injects pseudo-observations instead of cold-starting from zero. Based on PILOT (Panda et al., EMNLP 2025) — reduces early exploration waste. New agents added at runtime are average-initialised from existing arm matrices, ensuring moderate exploration without a regret spike.
 
 ---
 
-## Run the Benchmark
+## Adapter Interface
 
-```bash
-orch benchmark simulate          # strategy comparison, 50 synthetic tasks
-orch benchmark simulate --warm-start --save-matrix  # with warm-start
-orch benchmark ablation          # full ablation study (5 experiments, 5 charts)
-orch benchmark pareto-sweep      # sweep (α, γ, β) grid, write tuned_hyperparams.json
-orch benchmark live-report       # analyse real routing decisions from SQLite
-orch benchmark report --json     # machine-readable last-run summary
+Any agent that implements `AgentAdapter` is automatically registered and routed to:
+
+```python
+class MyAdapter(AgentAdapter):
+    @property
+    def name(self) -> str:
+        return "my-agent"
+
+    @property
+    def worker_id(self) -> str:
+        return "my-agent:default"
+
+    @property
+    def capabilities(self) -> list[AgentCapability]:
+        return [AgentCapability(task_type="code", confidence=0.8, cost_usd=0.0)]
+
+    async def health_check(self) -> AgentStatus:
+        return AgentStatus(name=self.name, available=True)
 ```
 
-Run `orch benchmark` with no arguments to see all subcommands.
+The `AdapterRegistry` scores all registered adapters by `capability_confidence × (1 / (1 + cost_usd))` and routes to the highest scorer. See `backend/orchestrator/adapters/base.py` for the full interface.
 
 ---
 
@@ -136,37 +219,51 @@ Run `orch benchmark` with no arguments to see all subcommands.
 | gemini-cli | Google Gemini CLI | code, explain, research, general | Free tier (Flash) |
 | goose | Block's open-source agent | research, general, explain | Free/API (provider-dependent) |
 | opencode | sst/opencode, multi-provider | code, refactor, test, explain, general | Free/API |
+| claude | Anthropic API (escalation) | all buckets | Per-token |
 
-New agents implement the `AgentAdapter` interface (`backend/orchestrator/adapters/base.py`) and register with the `AdapterRegistry`. The bandit adds new arms on registration; average-init ensures the new agent gets moderate exploration without a regret spike.
+---
+
+## Run the Benchmark
+
+```bash
+orch benchmark simulate          # strategy comparison, 200 synthetic tasks
+orch benchmark simulate --warm-start --save-matrix  # with warm-start + export matrix
+orch benchmark ablation          # full ablation study (5 experiments, 5 charts)
+orch benchmark pareto-sweep      # sweep (α, γ, β) grid, write tuned_hyperparams.json
+orch benchmark live-report       # analyse real routing decisions from SQLite
+orch benchmark report --json     # machine-readable last-run summary
+```
+
+Run `orch benchmark` with no arguments to see all subcommands.
 
 ---
 
 ## Related Work
 
-Mahoraga builds on ideas from **RouteLLM** (Chen et al., 2024) — learned routing between strong and weak models — but extends it to 6+ heterogeneous local/cloud agents with online learning. **PILOT** (Panda et al., EMNLP 2025) demonstrated that warm-starting bandits from prior observations reduces regret by Ω(‖θ*−θ_prior‖²); Mahoraga uses this for both startup and new-agent onboarding. **BaRP** showed that reward shaping with swap-cost awareness stabilizes routing under hardware constraints; the β_swap term in Mahoraga's reward function is a direct application. **ParetoBandit** (March 2026) motivated the joint sweep over (α, γ, β_swap) to find Pareto-optimal hyperparameter configurations rather than tuning one at a time.
+Mahoraga builds on **RouteLLM** (Ong et al., ICLR 2025) — the first learned router for LLM selection — but extends it from offline binary classification to online multi-agent bandit routing with 6+ heterogeneous local/cloud agents. **PILOT** (Panda et al., EMNLP 2025) demonstrated that warm-starting LinUCB from preference priors reduces regret by Ω(‖θ*−θ_prior‖²); Mahoraga applies this via the benchmark compatibility matrix. **BaRP** showed that reward shaping with swap-cost awareness stabilizes routing under hardware constraints; the β_swap term in Mahoraga's reward function is a direct application. **ParetoBandit** (Taberner-Miller et al., March 2026) introduced geometric forgetting for non-stationary LLM routing; Mahoraga's dLinUCB (γ=0.97) is the same mechanism.
 
-Mahoraga's distinguishing contributions: local hardware state as a routing context feature, HNSW episodic memory for prompt-level priors, and OLS-learned reward weights from implicit user signals.
+What no existing paper addresses: local hardware state as a routing context feature, HNSW episodic memory for prompt-level priors, and OLS-learned reward weights from implicit user signals.
 
 ---
 
 ## Roadmap
 
 - [x] Ollama local inference with quality scoring
-- [x] Claude API (Haiku → Sonnet → Opus chain)
+- [x] Claude API (Haiku → Sonnet → Opus escalation chain)
 - [x] `AgentAdapter` interface with capability-based routing
-- [x] Codex CLI adapter
-- [x] Aider adapter
-- [x] OpenCode adapter
-- [x] Gemini CLI adapter
-- [x] Goose adapter
+- [x] Codex CLI, Aider, OpenCode, Gemini CLI, Goose adapters
 - [x] Real-time web UI with vine chart task visualization
 - [x] Per-agent, per-session cost tracking
-- [x] LinUCB bandit routing with episodic memory + reward learner
-- [x] Benchmark suite (pareto-sweep, ablation, live-report)
+- [x] LinUCB bandit routing with dLinUCB, episodic memory, reward learner
+- [x] Benchmark suite (strategy comparison, ablation, pareto sweep, live report)
+- [x] Warm-start from compatibility matrix
+- [x] Implicit quality signals (retry detection → reward signal)
 - [x] MCP server — expose orchestration as MCP tools (`run_task`, `run_batch`, `routing_stats`, `recent_decisions`)
 - [ ] Native macOS dashboard ([Noctis](https://github.com/pockanoodles/noctis))
 - [ ] Multi-user session isolation
 - [ ] Skill marketplace
+
+---
 
 ## License
 

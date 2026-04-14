@@ -1,6 +1,16 @@
 """Unit tests for MCP server tool handlers."""
 import pytest
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, patch, MagicMock
+
+
+@pytest.mark.asyncio
+async def test_handle_health_check():
+    from backend.mcp.server import _handle_health_check
+    with patch("backend.mcp.server._get", new_callable=AsyncMock) as mock:
+        mock.return_value = {"status": "ok", "uptime_s": 120, "agents_online": 3}
+        result = await _handle_health_check({})
+        mock.assert_called_once_with("/api/health")
+        assert result["status"] == "ok"
 
 
 @pytest.mark.asyncio
@@ -11,6 +21,18 @@ async def test_handle_run_task_basic():
         result = await _handle_run_task({"prompt": "create test.py"})
         mock.assert_called_once_with("/api/task", {"prompt": "create test.py"})
         assert result["status"] == "success"
+
+
+@pytest.mark.asyncio
+async def test_handle_run_task_with_cwd():
+    from backend.mcp.server import _handle_run_task
+    with patch("backend.mcp.server._post", new_callable=AsyncMock) as mock:
+        mock.return_value = {"status": "success"}
+        await _handle_run_task({"prompt": "create app.py", "cwd": "~/Projects/myapp"})
+        mock.assert_called_once_with("/api/task", {
+            "prompt": "create app.py",
+            "cwd": "~/Projects/myapp",
+        })
 
 
 @pytest.mark.asyncio
@@ -78,4 +100,15 @@ async def test_handle_recent_decisions_with_agent_filter():
         await _handle_recent_decisions({"limit": 5, "agent_filter": "aider"})
         mock.assert_called_once_with(
             "/api/routing/decisions", {"limit": 5, "agent": "aider"}
+        )
+
+
+@pytest.mark.asyncio
+async def test_handle_recent_decisions_with_batch_id():
+    from backend.mcp.server import _handle_recent_decisions
+    with patch("backend.mcp.server._get", new_callable=AsyncMock) as mock:
+        mock.return_value = {"decisions": []}
+        await _handle_recent_decisions({"batch_id": "batch-abc123"})
+        mock.assert_called_once_with(
+            "/api/routing/decisions", {"limit": 10, "batch_id": "batch-abc123"}
         )

@@ -60,6 +60,7 @@ _cost_ledger: CostLedger | None = None
 _config: MahoragaConfig | None = None
 _adapter_registry: AdapterRegistry | None = None
 _bandit_router: BanditRouter | None = None
+_START_TIME: float = time.time()
 
 
 def get_store() -> Store:
@@ -406,6 +407,28 @@ async def workers_health(registry: RegistryDep):
     results = await registry.health_all()
     return {worker_id: {"worker_id": h.worker_id, "healthy": h.healthy, "detail": h.detail}
             for worker_id, h in results.items()}
+
+
+@app.get("/api/health")
+async def api_health(adapter_reg: AdapterRegistryDep):
+    """Lightweight heartbeat for MCP clients. No heavy computation."""
+    router = get_bandit_router()
+    agents_online = 0
+    for adapter in adapter_reg.all():
+        try:
+            status = await adapter.health_check()
+            if status.available:
+                agents_online += 1
+        except Exception:
+            pass
+    return {
+        "status": "ok",
+        "uptime_s": int(time.time() - _START_TIME),
+        "agents_registered": len(list(adapter_reg.all())),
+        "agents_online": agents_online,
+        "strategy": router.strategy.name,
+        "total_decisions": router.logger.count(),
+    }
 
 
 @app.get("/api/agents/status")

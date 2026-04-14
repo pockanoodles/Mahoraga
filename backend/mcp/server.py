@@ -27,6 +27,8 @@ from mcp.types import Tool, TextContent
 
 MAHORAGA_BASE = os.environ.get("MAHORAGA_BASE", "http://localhost:8000")
 TIMEOUT = httpx.Timeout(connect=5.0, read=300.0, write=10.0, pool=5.0)
+_MAX_RETRIES = 1
+_RETRY_DELAY = 1.0
 _NOT_RUNNING = (
     "Mahoraga is not running. "
     "Start it with: cd ~/Projects/Mahoraga && python -m backend.main"
@@ -36,51 +38,86 @@ server = Server("mahoraga")
 
 
 async def _post(path: str, body: dict) -> dict:
-    async with httpx.AsyncClient(base_url=MAHORAGA_BASE, timeout=TIMEOUT) as client:
-        try:
-            resp = await client.post(path, json=body)
-            resp.raise_for_status()
-            return resp.json()
-        except httpx.ConnectError:
-            return {"error": _NOT_RUNNING}
-        except httpx.HTTPStatusError as e:
-            return {"error": f"Mahoraga {e.response.status_code}: {e.response.text[:200]}"}
+    for attempt in range(_MAX_RETRIES + 1):
+        async with httpx.AsyncClient(base_url=MAHORAGA_BASE, timeout=TIMEOUT) as client:
+            try:
+                resp = await client.post(path, json=body)
+                resp.raise_for_status()
+                return resp.json()
+            except httpx.ConnectError:
+                return {"error": _NOT_RUNNING}
+            except httpx.ReadTimeout:
+                if attempt < _MAX_RETRIES:
+                    await asyncio.sleep(_RETRY_DELAY)
+                    continue
+                return {
+                    "error": f"Mahoraga timed out after {TIMEOUT.read}s.",
+                    "suggestion": "Try again, or use a faster agent with agent_override.",
+                }
+            except httpx.HTTPStatusError as e:
+                return {"error": f"Mahoraga {e.response.status_code}: {e.response.text[:200]}"}
+    return {"error": "Unexpected retry exhaustion"}
 
 
 async def _get(path: str, params: dict | None = None) -> dict:
-    async with httpx.AsyncClient(base_url=MAHORAGA_BASE, timeout=TIMEOUT) as client:
-        try:
-            resp = await client.get(path, params=params or {})
-            resp.raise_for_status()
-            return resp.json()
-        except httpx.ConnectError:
-            return {"error": _NOT_RUNNING}
-        except httpx.HTTPStatusError as e:
-            return {"error": f"Mahoraga {e.response.status_code}: {e.response.text[:200]}"}
+    for attempt in range(_MAX_RETRIES + 1):
+        async with httpx.AsyncClient(base_url=MAHORAGA_BASE, timeout=TIMEOUT) as client:
+            try:
+                resp = await client.get(path, params=params or {})
+                resp.raise_for_status()
+                return resp.json()
+            except httpx.ConnectError:
+                return {"error": _NOT_RUNNING}
+            except httpx.ReadTimeout:
+                if attempt < _MAX_RETRIES:
+                    await asyncio.sleep(_RETRY_DELAY)
+                    continue
+                return {
+                    "error": f"Mahoraga timed out after {TIMEOUT.read}s.",
+                    "suggestion": "Try again.",
+                }
+            except httpx.HTTPStatusError as e:
+                return {"error": f"Mahoraga {e.response.status_code}: {e.response.text[:200]}"}
+    return {"error": "Unexpected retry exhaustion"}
 
 
 @server.list_tools()
 async def list_tools() -> list[Tool]:
     return [
         Tool(
+            name="health_check",
+            description=(
+                "Check if Mahoraga is running and responsive. Returns status, uptime, version, "
+                "and number of registered agents. Use this before running tasks to verify the "
+                "backend is available."
+            ),
+            inputSchema={"type": "object", "properties": {}, "required": []},
+        ),
+        Tool(
             name="run_task",
             description=(
-                "Route and execute a single task through Mahoraga. The bandit selects the best "
-                "available agent based on task type and learned performance. Returns the agent's "
-                "output, routing decision, and execution metadata."
+                "Send a task to Mahoraga for execution. Mahoraga automatically picks the best "
+                "available AI agent for the job based on the task type — code tasks go to coding "
+                "agents, research tasks go to research agents. Use this for tasks like creating "
+                "files, refactoring code, writing tests, running shell commands, or researching a "
+                "topic. Returns the result, which agent handled it, and how well it performed."
             ),
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "prompt": {"type": "string"},
+                    "prompt": {"type": "string", "description": "What you want done."},
+                    "cwd": {
+                        "type": "string",
+                        "description": "Optional. Working directory for the agent. Defaults to Mahoraga's configured project directory.",
+                    },
                     "capability_hint": {
                         "type": "string",
                         "enum": ["code", "plan", "general"],
-                        "description": "Optional. Override keyword classification.",
+                        "description": "Optional. Override automatic task classification.",
                     },
                     "agent_override": {
                         "type": "string",
-                        "description": "Optional. Force a specific agent (e.g. 'aider', 'codex-cli').",
+                        "description": "Optional. Force a specific agent. e.g. 'aider', 'ollama', 'codex-cli'.",
                     },
                 },
                 "required": ["prompt"],
@@ -89,10 +126,10 @@ async def list_tools() -> list[Tool]:
         Tool(
             name="run_batch",
             description=(
-                "Execute multiple tasks concurrently through Mahoraga. Tasks are routed through "
-                "the bandit, grouped into resource-aware execution waves, and run in parallel where "
-                "safe. Supports dependency chains via depends_on (0-indexed). Returns all results "
-                "in a single response."
+                "Send multiple tasks to Mahoraga at once. Tasks run in parallel where safe — "
+                "Mahoraga groups them into waves based on which agents share hardware and which "
+                "files overlap. Use this when you have 3+ independent subtasks. Returns all "
+                "results together with timing comparison vs sequential execution."
             ),
             inputSchema={
                 "type": "object",
@@ -107,12 +144,15 @@ async def list_tools() -> list[Tool]:
                                     "type": "array",
                                     "items": {"type": "integer"},
                                     "default": [],
+                                    "description": "Indices of tasks that must complete first.",
                                 },
                                 "expected_files": {
                                     "type": "array",
                                     "items": {"type": "string"},
                                     "default": [],
+                                    "description": "File paths this task will write. Tasks with overlapping files run sequentially.",
                                 },
+                                "cwd": {"type": "string"},
                                 "capability_hint": {
                                     "type": "string",
                                     "enum": ["code", "plan", "general"],
@@ -129,6 +169,7 @@ async def list_tools() -> list[Tool]:
                         "default": 2,
                         "minimum": 1,
                         "maximum": 5,
+                        "description": "Maximum tasks running simultaneously. Raise only if tasks hit different backends.",
                     },
                 },
                 "required": ["tasks"],
@@ -137,13 +178,14 @@ async def list_tools() -> list[Tool]:
         Tool(
             name="route_task",
             description=(
-                "Dry-run: show which agent Mahoraga would select for a task without executing it. "
-                "Returns keyword classification and UCB scores for all candidate agents."
+                "Preview which agent Mahoraga would pick for a task without actually running it. "
+                "Shows task classification and all candidate agents with their scores. Use this "
+                "to understand routing behavior before committing."
             ),
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "prompt": {"type": "string"},
+                    "prompt": {"type": "string", "description": "The task to classify and route."},
                 },
                 "required": ["prompt"],
             },
@@ -151,16 +193,17 @@ async def list_tools() -> list[Tool]:
         Tool(
             name="agent_status",
             description=(
-                "Show the status of all registered agents: online/offline, model info, "
-                "resource group, and current queue depth."
+                "Show all registered AI agents, whether they're online, what model they run, "
+                "and how busy they are. Use this to check what's available before sending tasks."
             ),
             inputSchema={"type": "object", "properties": {}, "required": []},
         ),
         Tool(
             name="routing_stats",
             description=(
-                "Get aggregate routing statistics: selection counts, reward distributions, "
-                "and strategy performance."
+                "Get performance statistics for Mahoraga's routing: how often each agent is "
+                "selected, average reward scores, success rates, and whether the system is "
+                "improving over time."
             ),
             inputSchema={
                 "type": "object",
@@ -169,6 +212,7 @@ async def list_tools() -> list[Tool]:
                         "type": "string",
                         "enum": ["1h", "24h", "7d", "30d", "all"],
                         "default": "24h",
+                        "description": "Time window for statistics.",
                     }
                 },
                 "required": [],
@@ -176,7 +220,11 @@ async def list_tools() -> list[Tool]:
         ),
         Tool(
             name="switch_strategy",
-            description="Switch Mahoraga's routing strategy at runtime (linucb, ucb1, thompson, static).",
+            description=(
+                "Change how Mahoraga picks agents. 'linucb' learns which agent is best per task "
+                "type (recommended). 'ucb1' is simpler. 'thompson' explores more. 'static' always "
+                "picks the same agent. Changes take effect immediately."
+            ),
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -190,7 +238,11 @@ async def list_tools() -> list[Tool]:
         ),
         Tool(
             name="recent_decisions",
-            description="Retrieve recent routing decisions from Mahoraga's decision log.",
+            description=(
+                "See Mahoraga's recent routing decisions: what tasks were sent, which agent "
+                "handled each one, how well it performed, and how long it took. Use this to "
+                "review batch results or debug routing issues."
+            ),
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -200,10 +252,17 @@ async def list_tools() -> list[Tool]:
                         "minimum": 1,
                         "maximum": 50,
                     },
-                    "agent_filter": {"type": "string"},
+                    "agent_filter": {
+                        "type": "string",
+                        "description": "Only show decisions for this agent.",
+                    },
                     "capability_filter": {
                         "type": "string",
                         "enum": ["code", "plan", "general"],
+                    },
+                    "batch_id": {
+                        "type": "string",
+                        "description": "Only show decisions from a specific batch. Use the batch_id from a run_batch response.",
                     },
                 },
                 "required": [],
@@ -215,6 +274,7 @@ async def list_tools() -> list[Tool]:
 @server.call_tool()
 async def call_tool(name: str, arguments: dict) -> list[TextContent]:
     handlers = {
+        "health_check": _handle_health_check,
         "run_task": _handle_run_task,
         "run_batch": _handle_run_batch,
         "route_task": _handle_route_task,
@@ -230,8 +290,14 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
     return [TextContent(type="text", text=json.dumps(result, indent=2))]
 
 
+async def _handle_health_check(args: dict) -> dict:
+    return await _get("/api/health")
+
+
 async def _handle_run_task(args: dict) -> dict:
     body = {"prompt": args["prompt"]}
+    if "cwd" in args:
+        body["cwd"] = args["cwd"]
     if "capability_hint" in args:
         body["capability_hint"] = args["capability_hint"]
     if "agent_override" in args:
@@ -269,6 +335,8 @@ async def _handle_recent_decisions(args: dict) -> dict:
         params["agent"] = args["agent_filter"]
     if "capability_filter" in args:
         params["capability"] = args["capability_filter"]
+    if "batch_id" in args:
+        params["batch_id"] = args["batch_id"]
     return await _get("/api/routing/decisions", params)
 
 

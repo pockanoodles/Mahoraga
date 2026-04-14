@@ -113,6 +113,33 @@ CREATE TABLE IF NOT EXISTS events (
 CREATE INDEX IF NOT EXISTS idx_events_run_id ON events(run_id);
 CREATE INDEX IF NOT EXISTS idx_events_task_id ON events(task_id);
 CREATE INDEX IF NOT EXISTS idx_events_type ON events(type);
+
+CREATE TABLE IF NOT EXISTS task_metrics (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp TEXT NOT NULL,
+    task_id TEXT NOT NULL,
+    task_hash TEXT NOT NULL,
+    agent_name TEXT NOT NULL,
+    capability_bucket TEXT NOT NULL,
+    wall_time_ms REAL NOT NULL,
+    routing_time_ms REAL NOT NULL,
+    agent_spawn_time_ms REAL NOT NULL,
+    tokens_generated INTEGER NOT NULL,
+    tokens_per_second REAL NOT NULL,
+    prompt_tokens INTEGER DEFAULT 0,
+    prompt_eval_rate REAL DEFAULT 0.0,
+    model_was_warm INTEGER DEFAULT 0,
+    bandit_ucb_score REAL DEFAULT 0.0,
+    bandit_exploration_flag INTEGER DEFAULT 0,
+    reward_score REAL DEFAULT 0.0,
+    success INTEGER DEFAULT 0,
+    quality_score REAL DEFAULT 0.0,
+    cost_usd REAL DEFAULT 0.0
+);
+
+CREATE INDEX IF NOT EXISTS idx_task_metrics_agent ON task_metrics(agent_name);
+CREATE INDEX IF NOT EXISTS idx_task_metrics_bucket ON task_metrics(capability_bucket);
+CREATE INDEX IF NOT EXISTS idx_task_metrics_timestamp ON task_metrics(timestamp);
 """
 
 

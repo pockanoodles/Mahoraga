@@ -9,3 +9,4 @@ typer[all]>=0.12
 python-dotenv>=1.0.0
 aiogram>=3.4.0
 mcp>=1.27.0
+hnswlib>=0.8.0

@@ -33,7 +33,7 @@ class LinUCBRouter(RoutingStrategy):
         self,
         d: int = 9,
         alpha: float = 1.0,
-        decay: float = 1.0,
+        decay: float = 0.98,
         priors: dict[str, float] | None = None,
     ):
         self.d = d
@@ -168,7 +168,8 @@ class LinUCBRouter(RoutingStrategy):
             )
         self.d = state["d"]
         self.alpha = state["alpha"]
-        self.decay = state.get("decay", 1.0)
+        # decay is a constructor hyperparameter — don't restore from file so that
+        # changing the default takes effect without needing to delete the state file.
         self.t = state["t"]
         for a, data in state["agents"].items():
             self.A[a] = np.array(data["A"])

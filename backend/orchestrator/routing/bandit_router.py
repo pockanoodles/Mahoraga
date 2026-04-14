@@ -103,6 +103,7 @@ class BanditRouter:
             if matrix:
                 warm_start_from_matrix(self.strategy, matrix)
 
+
     def route(
         self,
         task: Any,

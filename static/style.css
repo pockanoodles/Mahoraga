@@ -461,7 +461,10 @@ html, body { height: 100%; overflow: hidden; font-family: var(--font-ui); color:
   font-family: var(--font-mono);
   font-size: 10px;
   color: var(--text-muted);
+  cursor: default;
 }
+.metrics-text[data-health="degraded"] { color: #f59e0b; }
+.metrics-text[data-health="critical"]  { color: #ef4444; }
 
 /* ── Settings inputs (workdir section) ── */
 .settings-input {

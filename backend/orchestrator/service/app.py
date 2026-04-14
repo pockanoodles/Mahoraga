@@ -44,7 +44,7 @@ from ..adapters.opencode_adapter import OpenCodeAdapter
 from ..adapters.goose_adapter import GooseAdapter
 from ..config import ENABLED_BACKENDS, MahoragaConfig, get_workdir
 from .approvals import grant_approval, reject_approval
-from .executor import run_task as _run_task
+from .executor import run_task as _run_task, pop_task_metrics
 from .run_executor import run_run as _run_run
 from ..planning.planner import generate_tasks, PlannerError
 from ..routing import BanditRouter, STRATEGIES, TaskOutcome
@@ -546,7 +546,7 @@ async def cost_summary(store: StoreDep, user_id: str = "web-user"):
     }
 
 
-# ── In-memory session metrics (reset on restart) ──────────────────────────────
+# ── In-memory session metrics (legacy — kept for chat SSE stream path) ────────
 _session_metrics = {"total_elapsed_s": 0.0, "total_tokens": 0, "task_count": 0}
 
 
@@ -557,17 +557,20 @@ def _record_metrics(elapsed_s: float, tokens: int) -> None:
 
 
 @app.get("/api/metrics")
-async def get_metrics():
-    m = _session_metrics
-    avg_tps = (
-        round(m["total_tokens"] / m["total_elapsed_s"], 1)
-        if m["total_elapsed_s"] > 0 else 0.0
-    )
+async def get_metrics(store: StoreDep):
+    router = get_bandit_router()
+    total_decisions = router.logger.count()
+
+    session   = await store.metrics.get_session_aggregates()
+    agents    = await store.metrics.get_agent_breakdown()
+    buckets   = await store.metrics.get_bucket_breakdown()
+    health    = await store.metrics.get_routing_health(total_decisions)
+
     return {
-        "elapsed_s": round(m["total_elapsed_s"], 1),
-        "tokens": m["total_tokens"],
-        "avg_throughput_tps": avg_tps,
-        "task_count": m["task_count"],
+        "session": session,
+        "agents": agents,
+        "buckets": buckets,
+        "routing_health": health,
     }
 
 
@@ -938,6 +941,19 @@ async def resource_groups_endpoint():
     }
 
 
+async def _is_ollama_warm() -> bool:
+    """Return True if any Ollama model is currently loaded in memory."""
+    import httpx as _httpx
+    try:
+        async with _httpx.AsyncClient(timeout=2.0) as client:
+            resp = await client.get("http://localhost:11434/api/ps")
+            if resp.status_code == 200:
+                return bool(resp.json().get("models"))
+    except Exception:
+        pass
+    return False
+
+
 @app.post("/api/task")
 async def run_api_task(
     req: TaskRequest,
@@ -951,6 +967,7 @@ async def run_api_task(
     from ..domain.models import Mission, Plan, Run, Task, RunMode, TaskStatus
     from ..routing.reward import TaskOutcome
     from ..resource_groups import get_resource_group
+    from ..store.metrics import _classify_bucket
 
     router = get_bandit_router()
     adapter_reg = get_adapter_registry()
@@ -978,9 +995,20 @@ async def run_api_task(
     task = Task.new(run_id=run.id, title=req.prompt[:80], goal=req.prompt)
     await store.tasks.save(task)
 
+    # Check Ollama warm state before routing decision
+    model_was_warm = await _is_ollama_warm() if not req.agent_override else False
+
     # Route via bandit (logs the decision, populates _last_scores)
-    selected_agent = req.agent_override or router.route(task)
+    t_route_start = _time.monotonic()
+    selected_agent = req.agent_override or router.route(task, model_warm_norm=1.0 if model_was_warm else 0.0)
+    routing_time_ms = (_time.monotonic() - t_route_start) * 1000
     scores = router.strategy.get_scores()  # populated by route() above
+
+    # Determine exploration flag: was the bandit exploring (UCB bonus > exploit lead)?
+    exploration_flag = False
+    if scores and len(scores) > 1:
+        best_exploit = max(scores, key=lambda a: scores[a].get("exploit", 0))
+        exploration_flag = (selected_agent != best_exploit)
 
     # Map adapter name → worker_id so executor uses the bandit's choice
     adapter = adapter_reg.get(selected_agent)
@@ -990,9 +1018,10 @@ async def run_api_task(
     # Transition task to ready so executor can pick it up
     await store.tasks.update_status(task.id, TaskStatus.ready)
 
-    t0 = _time.time()
+    t0 = _time.monotonic()
     await _run_task(task.id, store, registry, verifier)
-    elapsed = round(_time.time() - t0, 2)
+    wall_time_ms = (_time.monotonic() - t0) * 1000
+    elapsed = round(wall_time_ms / 1000, 2)
 
     # Collect result
     task = await store.tasks.get(task.id)
@@ -1004,16 +1033,55 @@ async def run_api_task(
     )
     used_worker = attempts[-1].worker_id if attempts else selected_agent
     status = "success" if task.status == TaskStatus.completed else "failed"
+    success = status == "success"
+
+    # Pull Ollama token metrics captured by executor side-channel
+    ollama_m = pop_task_metrics(task.id)
+    tokens_generated = ollama_m.get("tokens", 0)
+    tokens_per_second = ollama_m.get("throughput_tps", 0.0)
+    prompt_tokens = ollama_m.get("prompt_tokens", 0)
+    prompt_eval_rate = ollama_m.get("prompt_eval_rate", 0.0)
+    agent_spawn_ms = max(0.0, wall_time_ms - routing_time_ms - (ollama_m.get("elapsed_s", 0) * 1000))
+
+    bucket = _classify_bucket(req.prompt)
+    from ..routing.quality import score_quality as _score_quality
+    quality_score = (await _score_quality(req.prompt, output, bucket)) if success else 0.0
 
     # Update bandit with the outcome
     outcome = TaskOutcome(
-        success=(status == "success"),
+        success=success,
         latency_s=elapsed,
         cost_usd=0.0,
-        quality_score=0.8 if status == "success" else 0.0,
+        quality_score=quality_score,
         agent_name=selected_agent,
+        bucket=bucket,
+        spawn_time_ms=agent_spawn_ms,
     )
     router.observe(task, outcome)
+    reward = router.reward_calc.compute(outcome)
+
+    # Write to task_metrics
+    ucb_score = scores.get(selected_agent, {}).get("ucb", 0.0) if scores else 0.0
+    await store.metrics.record(
+        task_id=task.id,
+        prompt_text=req.prompt,
+        agent_name=selected_agent,
+        capability_bucket=_classify_bucket(req.prompt),
+        wall_time_ms=round(wall_time_ms, 2),
+        routing_time_ms=round(routing_time_ms, 2),
+        agent_spawn_time_ms=round(agent_spawn_ms, 2),
+        tokens_generated=tokens_generated,
+        tokens_per_second=tokens_per_second,
+        prompt_tokens=prompt_tokens,
+        prompt_eval_rate=prompt_eval_rate,
+        model_was_warm=model_was_warm,
+        bandit_ucb_score=ucb_score,
+        bandit_exploration_flag=exploration_flag,
+        reward_score=reward,
+        success=success,
+        quality_score=quality_score,
+        cost_usd=0.0,
+    )
 
     # implicit quality tracking
     if _implicit_tracker is not None:
@@ -1036,9 +1104,17 @@ async def run_api_task(
         "resource_group": get_resource_group(selected_agent),
         "elapsed_s": elapsed,
         "output": output,
+        "metrics": {
+            "wall_time_ms": round(wall_time_ms, 1),
+            "routing_time_ms": round(routing_time_ms, 2),
+            "tokens": tokens_generated,
+            "tps": tokens_per_second,
+            "model_was_warm": model_was_warm,
+        },
         "routing": {
             "strategy": router.strategy.name,
-            "ucb_score": scores.get(selected_agent, {}).get("ucb") if scores else None,
+            "ucb_score": ucb_score,
+            "exploration": exploration_flag,
             "runner_up": runner_up,
         },
     }

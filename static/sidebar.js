@@ -2,8 +2,8 @@
 (() => {
   // ── Agent color palette ──────────────────────────────────────────────────
   const AGENT_PALETTE = [
-    '#4A90D9', '#7B68EE', '#50C878', '#FF8C69', '#DDA0DD',
-    '#87CEEB', '#F0A500', '#20B2AA', '#CD853F', '#6495ED',
+    '#818cf8', '#a78bfa', '#22d3ee', '#4ade80', '#fb923c',
+    '#f472b6', '#facc15', '#34d399', '#60a5fa', '#c084fc',
   ];
 
   function esc(str) {
@@ -176,8 +176,8 @@
       const spine = svgEl('line', {
         x1: spineX, y1: firstPos.y,
         x2: spineX, y2: lastPos.y,
-        stroke: '#2a2a40',
-        'stroke-width': '2',
+        stroke: 'rgba(255,255,255,0.07)',
+        'stroke-width': '1.5',
       });
       svg.appendChild(spine);
     }
@@ -196,10 +196,10 @@
           const isDone = childTask?.status === 'done' || childTask?.status === 'completed';
           const isFailed = childTask?.status === 'failed';
 
-          let stroke = '#2a2a40';
-          if (isActive) stroke = 'rgba(0,122,255,0.6)';
-          else if (isDone) stroke = 'rgba(63,185,80,0.25)';
-          else if (isFailed) stroke = 'rgba(248,81,73,0.4)';
+          let stroke = 'rgba(255,255,255,0.06)';
+          if (isActive) stroke = 'rgba(129,140,248,0.55)';
+          else if (isDone) stroke = 'rgba(74,222,128,0.22)';
+          else if (isFailed) stroke = 'rgba(248,113,113,0.35)';
 
           const path = svgEl('path', {
             d: bezierPath(p.x, p.y + NODE_R, c.x, c.y - NODE_R),
@@ -222,12 +222,12 @@
       const isDone = task.status === 'done' || task.status === 'completed';
       const isFailed = task.status === 'failed';
 
-      const ringColor = isActive ? '#007AFF'
-        : isDone ? '#3fb950'
-        : isFailed ? '#f85149'
-        : '#3a3a5a';
+      const ringColor = isActive ? '#818cf8'
+        : isDone ? '#4ade80'
+        : isFailed ? '#f87171'
+        : '#2c2c3e';
 
-      const fillColor = task.worker_id ? agentColor(task.worker_id) : '#1e1e2e';
+      const fillColor = task.worker_id ? agentColor(task.worker_id) : '#111116';
       const nodeOpacity = isDone ? 0.5 : 1;
 
       const g = svgEl('g', { style: 'cursor:pointer' });
@@ -239,7 +239,7 @@
             cx: pos.x, cy: pos.y,
             r: NODE_R + 4,
             fill: 'none',
-            stroke: '#007AFF',
+            stroke: '#818cf8',
             'stroke-width': '1',
             opacity: '0',
           });
@@ -270,7 +270,7 @@
           'font-family': 'var(--font-ui, system-ui)',
           'font-size': '11',
           'font-weight': isDone ? '400' : '500',
-          fill: isDone ? '#5a5a72' : isActive ? '#e8e8f0' : '#9090aa',
+          fill: isDone ? '#3a3a58' : isActive ? '#f0f0f6' : '#6060a0',
         });
         const title = (task.title || '').length > 22
           ? task.title.slice(0, 20) + '…'
@@ -296,7 +296,7 @@
           'text-anchor': 'middle',
           'font-family': 'var(--font-ui, system-ui)',
           'font-size': '9',
-          fill: isDone ? '#5a5a72' : '#e8e8f0',
+          fill: isDone ? '#3a3a58' : '#f0f0f6',
         });
         titleEl.textContent = (task.title || '').length > 14
           ? task.title.slice(0, 12) + '…'
@@ -519,6 +519,13 @@
 
   // ── Agent status panel ───────────────────────────────────────────────────
 
+  function getAgentCap(name) {
+    const n = (name || '').toLowerCase();
+    if (/aider|codex|opencode/.test(n)) return { label: 'code', cls: 'code' };
+    if (/plan/.test(n))                 return { label: 'plan', cls: 'plan' };
+    return { label: 'gen', cls: 'gen' };
+  }
+
   async function renderAgentStatus() {
     const container = document.getElementById('agent-status-panel');
     if (!container) return;
@@ -527,15 +534,18 @@
       if (!res.ok) return;
       const agents = await res.json();
       container.innerHTML = agents.map(agent => {
-        const dot = agent.available ? '●' : '○';
-        const cls = agent.available ? 'agent-dot-active' : 'agent-dot-inactive';
-        const label = agent.name;
+        const statusCls = agent.available ? 'online' : 'offline';
         const detail = agent.detail || agent.error || '';
-        const detailShort = detail.split('model=')[1] || (agent.available ? 'ready' : 'unavailable');
-        return `<div class="agent-row" title="${esc(detail)}">
-          <span class="agent-dot ${cls}">${dot}</span>
-          <span class="agent-label">${esc(label)}</span>
-          <span class="agent-detail">${esc(detailShort)}</span>
+        const model = detail.split('model=')[1]?.split(/[\s,)]/)[0]
+          || (agent.available ? 'ready' : '—');
+        const cap = getAgentCap(agent.name);
+        return `<div class="agent-card ${statusCls}" title="${esc(detail)}">
+          <div class="agent-status-dot ${statusCls}"></div>
+          <div class="agent-card-body">
+            <span class="agent-name">${esc(agent.name)}</span>
+            <span class="agent-model">${esc(model)}</span>
+          </div>
+          <span class="cap-badge cap-${cap.cls}">${cap.label}</span>
         </div>`;
       }).join('');
     } catch (_) {}

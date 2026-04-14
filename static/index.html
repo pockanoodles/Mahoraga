@@ -10,25 +10,25 @@
   <link rel="stylesheet" href="/static/style.css" />
 </head>
 <body>
-  <div class="layout">
+  <div class="app-shell">
 
-    <!-- Sidebar ops panel -->
-    <div class="sidebar" id="sidebar">
-      <div class="sidebar-header">
-        <span class="sidebar-title">Ops</span>
-        <div class="sidebar-header-actions">
-          <button class="icon-btn" id="reset-workflow-btn" title="Reset workflow (Ctrl+Shift+R)">↺ Reset</button>
-        </div>
+    <!-- ── Sidebar ─────────────────────────────────────────────────── -->
+    <aside id="sidebar" class="sidebar">
+
+      <!-- Brand -->
+      <div class="sidebar-brand">
+        <div class="brand-mark">M</div>
+        <span class="brand-name">Mahoraga</span>
       </div>
 
-      <!-- Agent status section -->
-      <section class="sidebar-section">
-        <div class="sidebar-section-header">Agents</div>
-        <div id="agent-status-panel" class="agent-status-panel"></div>
-      </section>
+      <!-- Agent fleet -->
+      <div class="sidebar-block">
+        <div class="block-label">Fleet</div>
+        <div id="agent-status-panel" class="agent-fleet"></div>
+      </div>
 
-      <!-- Vine chart section -->
-      <div class="sidebar-section" id="vine-section">
+      <!-- Workflow -->
+      <div class="sidebar-section flex-section" id="vine-section">
         <div class="section-header">
           <span class="section-title">Workflow</span>
           <button class="section-chevron" data-section="vine">▾</button>
@@ -42,77 +42,111 @@
         </div>
       </div>
 
-      <!-- Logs section -->
+      <!-- History -->
       <div class="sidebar-section" id="logs-section">
         <div class="section-header">
-          <span class="section-title">Recent</span>
+          <span class="section-title">History</span>
           <button class="section-chevron" data-section="logs">▾</button>
         </div>
         <div class="section-body" id="logs-body">
           <div id="logs-list" class="logs-list"></div>
-          <div id="logs-empty" class="logs-empty" style="display:none">No recent activity.</div>
+          <div id="logs-empty" class="logs-empty" style="display:none">No history yet.</div>
         </div>
       </div>
 
-      <!-- Metrics bar — pinned to bottom -->
-      <div class="metrics-bar" id="metrics-bar">
-        <span class="metrics-text" id="metrics-text">Session: idle</span>
+      <!-- Footer -->
+      <div class="sidebar-footer">
+        <button id="reset-workflow-btn" class="reset-btn" title="Reset workflow (Ctrl+Shift+R)">↺ Reset</button>
+        <span id="metrics-text" class="metrics-text">idle</span>
       </div>
+
+    </aside>
+
+    <!-- ── Resize handle ───────────────────────────────────────────── -->
+    <div id="divider" class="resize-handle">
+      <button id="sidebar-collapse-btn" class="icon-btn collapse-btn" title="Toggle sidebar">‹</button>
     </div>
 
-    <!-- Resize divider -->
-    <div class="divider" id="divider">
-      <button class="icon-btn" id="sidebar-collapse-btn" title="Toggle sidebar">‹</button>
-    </div>
+    <!-- ── Main column ────────────────────────────────────────────── -->
+    <main class="main-col">
 
-    <!-- Chat column -->
-    <div class="chat-col" id="chat-col">
-      <div class="chat-header">
-        <div class="chat-header-left">
-          <div class="chat-header-logo">M</div>
-          <div>
-            <div class="chat-header-title">Mahoraga</div>
+      <!-- Animated processing bar -->
+      <div id="progress-bar" class="progress-bar"></div>
+
+      <!-- Top bar -->
+      <div class="main-topbar">
+        <div class="backend-switcher" id="backend-switcher">
+          <button class="backend-opt" data-backend="claude">Claude</button>
+          <button class="backend-opt" data-backend="ollama">Ollama</button>
+        </div>
+        <button id="settings-btn" class="icon-btn topbar-btn" title="Settings">⚙</button>
+      </div>
+
+      <!-- Messages -->
+      <div id="messages" class="messages" aria-live="polite">
+
+        <!-- Empty / welcome state -->
+        <div id="messages-empty" class="empty-state">
+          <div class="empty-logo">M</div>
+          <h2 class="empty-title">What can I help with?</h2>
+          <p class="empty-sub">Routed intelligently across Claude, Ollama, Aider, Codex and more.</p>
+          <div class="suggestion-chips">
+            <button class="suggestion-chip" data-msg="Write a Python function to parse and validate JSON from an API response">
+              <span class="chip-icon">⌥</span> Write code
+            </button>
+            <button class="suggestion-chip" data-msg="Plan an MVP for a habit tracking app — break it into concrete tasks">
+              <span class="chip-icon">⬡</span> Plan a project
+            </button>
+            <button class="suggestion-chip" data-msg="Explain how attention mechanisms work in transformer models">
+              <span class="chip-icon">◈</span> Explain a concept
+            </button>
           </div>
         </div>
-        <button class="icon-btn" id="settings-btn" title="Settings">⚙</button>
+
       </div>
 
-      <div class="messages" id="messages" aria-live="polite">
-        <!-- Empty state — hidden once first message arrives -->
-        <div class="messages-empty" id="messages-empty">
-          <div class="messages-empty-logo">M</div>
-          <div class="messages-empty-title">Mahoraga</div>
-          <div class="messages-empty-hint">Multi-agent AI assistant. Ask anything — code, planning, research, or general tasks.</div>
+      <!-- Routing status (visible while processing) -->
+      <div id="routing-bar" class="routing-bar">
+        <div class="routing-dots">
+          <span></span><span></span><span></span>
         </div>
+        <span id="routing-text" class="routing-text">Analyzing…</span>
       </div>
 
-      <div class="input-area">
-        <div class="input-wrapper">
+      <!-- Composer -->
+      <div class="composer">
+        <div id="composer-box" class="composer-box">
           <textarea
             id="user-input"
             placeholder="Message Mahoraga…"
             rows="1"
             aria-label="Message"
           ></textarea>
+          <div class="composer-controls">
+            <span id="complexity-chip" class="complexity-chip" style="display:none"></span>
+            <button id="send-btn" class="send-btn" aria-label="Send" disabled>
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none">
+                <path d="M12 19V5M5 12l7-7 7 7" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+            </button>
+          </div>
         </div>
-        <button class="send-btn" id="send-btn" aria-label="Send">
-          <svg width="15" height="15" viewBox="0 0 16 16" fill="none">
-            <path d="M2 8h12M8 2l6 6-6 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-          </svg>
-        </button>
+        <div class="composer-footer">
+          <span>Enter to send · Shift+Enter for new line · Ctrl+Shift+R to reset</span>
+        </div>
       </div>
-    </div>
 
+    </main>
   </div>
 
-  <!-- Settings drawer -->
-  <div class="drawer-overlay" id="drawer-overlay" style="display:none"></div>
-  <div class="settings-drawer" id="settings-drawer" style="display:none">
+  <!-- ── Settings drawer ────────────────────────────────────────────── -->
+  <div id="drawer-overlay" class="drawer-overlay" style="display:none"></div>
+  <div id="settings-drawer" class="settings-drawer" style="display:none">
     <div class="drawer-header">
       <span class="drawer-title">Settings</span>
-      <button class="icon-btn" id="drawer-close-btn">✕</button>
+      <button id="drawer-close-btn" class="icon-btn">✕</button>
     </div>
-    <div class="drawer-body" id="drawer-body">
+    <div id="drawer-body" class="drawer-body">
       <p class="drawer-loading">Loading…</p>
     </div>
   </div>

@@ -7,6 +7,7 @@ that routing strategies use to make contextualised arm selections.
 import re
 import numpy as np
 from dataclasses import dataclass
+from typing import ClassVar
 
 
 CODE_KEYWORDS = frozenset({
@@ -49,7 +50,7 @@ class TaskContext:
     has_research_keywords: float
     queue_depth_norm: float = 0.0  # fraction of resource group capacity in use at selection time
 
-    QUEUE_DEPTH_CAP: float = 5.0   # normalize queue depth by this cap
+    QUEUE_DEPTH_CAP: ClassVar[float] = 5.0   # normalize queue depth by this cap
 
     @property
     def d(self) -> int:

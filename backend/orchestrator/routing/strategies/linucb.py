@@ -134,6 +134,11 @@ class LinUCBRouter(RoutingStrategy):
 
     def load_state(self, path: str) -> None:
         state = json.loads(Path(path).read_text())
+        if state.get("d") != self.d:
+            raise ValueError(
+                f"Persisted state has d={state.get('d')}, but router expects d={self.d}. "
+                "Delete the state file to reset."
+            )
         self.d = state["d"]
         self.alpha = state["alpha"]
         self.decay = state.get("decay", 1.0)

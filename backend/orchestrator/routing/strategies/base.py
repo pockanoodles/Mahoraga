@@ -16,6 +16,14 @@ class RoutingStrategy(ABC):
     def get_scores(self) -> dict:
         return {}
 
+    def compute_scores(self, context, available_agents: list[str]) -> dict:
+        """Read-only UCB scoring without state mutation.
+
+        Override in strategies that support true read-only computation.
+        Default returns empty dict (non-contextual strategies).
+        """
+        return {}
+
     def save_state(self, path: str) -> None:
         pass
 

@@ -92,6 +92,25 @@ class LinUCBRouter(RoutingStrategy):
     def get_scores(self) -> dict:
         return getattr(self, '_last_scores', {})
 
+    def compute_scores(self, context, available_agents: list[str]) -> dict:
+        """Compute UCB scores for all agents without incrementing t or storing _last_scores."""
+        if not available_agents:
+            return {}
+        x = context.to_vector().reshape(-1, 1)
+        scores = {}
+        for a in available_agents:
+            self._init_agent(a)  # idempotent — only initialises on first call
+            theta = np.linalg.solve(self.A[a], self.b[a])
+            exploit = float((x.T @ theta).item())
+            explore_sq = float((x.T @ np.linalg.solve(self.A[a], x)).item())
+            explore = self.alpha * float(np.sqrt(max(0.0, explore_sq)))
+            scores[a] = {
+                "ucb": round(exploit + explore, 4),
+                "exploit": round(exploit, 4),
+                "explore": round(explore, 4),
+            }
+        return scores
+
     def get_theta(self, agent: str) -> np.ndarray:
         self._init_agent(agent)
         return (np.linalg.inv(self.A[agent]) @ self.b[agent]).flatten()

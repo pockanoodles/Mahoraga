@@ -115,6 +115,19 @@ class BanditRouter:
             "scores": self.strategy.get_scores(),
         }
 
+    def score_all(self, task, available_agents: list[str] | None = None) -> dict:
+        """Read-only UCB scoring — no logged decision, no state mutation.
+
+        Used by POST /api/routing/dry-run.
+        """
+        context = TaskContext.from_task(task)
+        available = available_agents if available_agents is not None else self._available_agents()
+        scores = self.strategy.compute_scores(context, available)
+        return {
+            "strategy": self.strategy.name,
+            "scores": scores,
+        }
+
     def _available_agents(self) -> list[str]:
         if self.registry is not None:
             return [a.name for a in self.registry.all()]

@@ -6,7 +6,6 @@ Self-hosted multi-agent orchestrator with online bandit routing. Learns from you
 ![License: MIT](https://img.shields.io/badge/license-MIT-green)
 ![Last commit](https://img.shields.io/github/last-commit/pockanoodles/Mahoraga)
 
-<!-- TODO: record demo GIF after initial traffic data is collected -->
 ![demo](docs/demo.gif)
 
 ---
@@ -53,8 +52,6 @@ Strategy comparison over 200 simulated tasks with a ground-truth compatibility m
 
 Naive model alternation between Ollama models costs ~0.10 reward points per task. Hardware-aware routing (swap penalty + warm/cold detection) eliminates this.
 
-<!-- TODO: embed benchmark_results/ablation/strategy_comparison.png after first ablation run -->
-
 ---
 
 ## Quick Start
@@ -78,7 +75,21 @@ GEMINI_API_KEY=...             # enables Gemini CLI
 
 ## Adaptive Routing
 
-Tasks are classified by keyword gate into a capability bucket (code, debug, plan, research, general…). Within each bucket, a **LinUCB contextual bandit** selects the agent. The 9-dimensional context vector captures: word count, code keyword density, question flag, complexity tier, file references, error/creation/research keyword presence, and queue depth.
+Tasks are classified by keyword gate into a capability bucket (code, debug, plan, research, general…). Within each bucket, a **LinUCB contextual bandit** selects the agent.
+
+**The 9-dimensional context vector** — each feature is normalised to [0, 1]:
+
+| # | Feature | Captures |
+|---|---------|---------|
+| 1 | `word_count_norm` | Task length — longer tasks favour agents with larger context windows |
+| 2 | `code_keyword_density` | Fraction of tokens that are code keywords — routes code-heavy tasks to coding agents |
+| 3 | `is_question` | 1.0 if phrased as a question — research/explain agents tend to score higher |
+| 4 | `complexity_tier` | 0.33 / 0.67 / 1.0 for simple / moderate / complex — complex tasks favour cloud agents |
+| 5 | `file_count` | Number of file paths mentioned — multi-file tasks suit git-native agents like aider |
+| 6 | `has_error_keywords` | Error/exception/traceback presence — debug-capable agents get an edge |
+| 7 | `has_creation_keywords` | Create/build/scaffold language — generative agents favoured |
+| 8 | `has_research_keywords` | Explain/compare/summarise language — Gemini and Goose favoured |
+| 9 | `queue_depth_norm` | Agent queue fraction — congestion-aware routing avoids overloaded agents |
 
 Per agent, the bandit maintains **A** (9×9 covariance) and **b** (9×1 reward accumulator). At selection time:
 
@@ -88,11 +99,13 @@ UCB_a = x'θ_a + α√(x' A_a⁻¹ x)    where θ_a = A_a⁻¹ b_a
 
 Three learning layers run in parallel:
 
-1. **dLinUCB (γ=0.97)** — discounted updates handle non-stationarity as agents improve or degrade
-2. **Reward Learner** — OLS fits per-bucket reward weights after 100 observations; priors used before that
+1. **dLinUCB (γ=0.97)** — discounted updates handle non-stationarity as agents improve or degrade over time
+2. **Reward Learner** — OLS fits per-capability-bucket reward weights after 100 observations; well-calibrated priors used before that
 3. **Episodic Memory** — HNSW index over past context vectors; nearest-neighbour rewards bias selection at α=0.20
 
-On first startup, if `~/.mahoraga/compatibility_matrix.json` exists (from `orch benchmark simulate --save-matrix`), the bandit is warm-started with pseudo-observations — skipping the cold-start exploration phase.
+**Implicit quality signals** are wired without requiring explicit feedback: a retry within 5 minutes signals failure (reward 0.0) and accepting an agent's output without change signals success (+0.6 bonus).
+
+On first startup, if `~/.mahoraga/compatibility_matrix.json` exists (from `orch benchmark simulate --save-matrix`), the bandit is warm-started with pseudo-observations — skipping the cold-start exploration phase. New agents added at runtime are average-initialised from existing arm matrices, ensuring moderate exploration without a regret spike.
 
 For full technical depth: [`docs/MAHORAGA_METRICS_AND_RESEARCH.md`](docs/MAHORAGA_METRICS_AND_RESEARCH.md)
 
@@ -117,12 +130,12 @@ Run `orch benchmark` with no arguments to see all subcommands.
 
 | Agent | What It Is | Capability Buckets | Cost |
 |-------|-----------|-------------------|------|
-| ollama | Local Qwen3 4B via Ollama | general, plan, research | Free |
-| codex-cli | OpenAI Codex CLI subprocess | code, refactor, test | API cost |
-| aider | git-native multi-file editor | code, debug, refactor | API cost |
-| gemini-cli | Google Gemini CLI | research, plan, general | Free tier |
-| goose | Block's open-source agent | code, general | API cost |
-| opencode | sst/opencode, Ollama-backed | code, debug | Free/API |
+| ollama | Local Qwen3 4B via Ollama | general, plan, explain | Free |
+| codex-cli | OpenAI Codex CLI subprocess | code, refactor, test, explain | API cost |
+| aider | git-native multi-file editor | refactor, code, test, explain | API cost |
+| gemini-cli | Google Gemini CLI | code, explain, research, general | Free tier (Flash) |
+| goose | Block's open-source agent | research, general, explain | Free/API (provider-dependent) |
+| opencode | sst/opencode, multi-provider | code, refactor, test, explain, general | Free/API |
 
 New agents implement the `AgentAdapter` interface (`backend/orchestrator/adapters/base.py`) and register with the `AdapterRegistry`. The bandit adds new arms on registration; average-init ensures the new agent gets moderate exploration without a regret spike.
 
@@ -150,7 +163,7 @@ Mahoraga's distinguishing contributions: local hardware state as a routing conte
 - [x] Per-agent, per-session cost tracking
 - [x] LinUCB bandit routing with episodic memory + reward learner
 - [x] Benchmark suite (pareto-sweep, ablation, live-report)
-- [ ] MCP server — expose orchestration as MCP tools
+- [x] MCP server — expose orchestration as MCP tools (`run_task`, `run_batch`, `routing_stats`, `recent_decisions`)
 - [ ] Native macOS dashboard ([Noctis](https://github.com/pockanoodles/noctis))
 - [ ] Multi-user session isolation
 - [ ] Skill marketplace

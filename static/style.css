@@ -491,6 +491,22 @@ html, body { height: 100%; overflow: hidden; font-family: var(--font-ui); color:
 }
 .settings-btn:hover { background: var(--accent); }
 
+.drawer-row-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  padding: 5px 0;
+}
+.drawer-workdir-hint {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.drawer-workdir-status {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
 /* ── Settings Drawer ── */
 .drawer-overlay {
   position: fixed;
@@ -539,40 +555,6 @@ html, body { height: 100%; overflow: hidden; font-family: var(--font-ui); color:
   font-size: 13px;
   color: var(--text-muted);
 }
-.settings-group {
-  margin-bottom: 24px;
-}
-.settings-group-title {
-  font-family: var(--font-ui);
-  font-size: 11px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--text-muted);
-  margin-bottom: 12px;
-}
-.settings-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-  padding: 8px 0;
-  border-bottom: 1px solid var(--divider);
-}
-.settings-key {
-  font-family: var(--font-ui);
-  font-size: 13px;
-  color: var(--text-primary);
-}
-.settings-val {
-  font-family: var(--font-mono);
-  font-size: 12px;
-  color: var(--text-muted);
-  max-width: 180px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 /* ── Settings drawer sections ── */
 .drawer-section {
   margin-bottom: 20px;
@@ -612,7 +594,7 @@ html, body { height: 100%; overflow: hidden; font-family: var(--font-ui); color:
 }
 
 #reset-workflow-btn {
-  font-size: 10px;
+  font-size: 14px;
   padding: 2px 8px;
   border: 1px solid #555;
   border-radius: 3px;
@@ -624,6 +606,17 @@ html, body { height: 100%; overflow: hidden; font-family: var(--font-ui); color:
 #reset-workflow-btn:hover {
   color: #ccc;
   border-color: #888;
+}
+
+/* ── Agent section label ── */
+.sidebar-section-header {
+  font-family: var(--font-ui);
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+  padding: 8px 14px 4px;
 }
 
 /* ── Agent status panel ─────────────────────────────────────────────── */

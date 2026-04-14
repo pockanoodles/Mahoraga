@@ -8,7 +8,7 @@
   function openDrawer() {
     drawer.style.display = 'flex';
     overlay.style.display = 'block';
-    // Force a reflow before adding .open so the slide-in transition fires
+    // Force reflow so the slide-in transition fires
     requestAnimationFrame(() => drawer.classList.add('open'));
     loadSettings();
   }
@@ -16,7 +16,6 @@
   function closeDrawer() {
     drawer.classList.remove('open');
     overlay.style.display = 'none';
-    // Hide after the slide-out transition completes (0.25s)
     setTimeout(() => { drawer.style.display = 'none'; }, 260);
   }
 
@@ -48,13 +47,13 @@
         </div>
         <div class="drawer-section">
           <div class="drawer-section-label">WORKING DIRECTORY</div>
-          <div class="drawer-row" style="flex-direction:column;align-items:stretch;gap:6px">
-            <span style="font-size:11px;color:var(--text-muted)">Files written by Aider, Codex, Gemini, OpenCode land here.</span>
+          <div class="drawer-row-stack">
+            <span class="drawer-workdir-hint">Files written by Aider, Codex, Gemini, OpenCode land here.</span>
             <input type="text" id="workdir-input" class="settings-input"
                    value="${w.workdir || ''}"
                    placeholder="(uvicorn CWD — set to override)" />
             <button id="workdir-save" class="settings-btn">Save</button>
-            <span id="workdir-status" style="font-size:11px;color:var(--text-muted)"></span>
+            <span id="workdir-status" class="drawer-workdir-status"></span>
           </div>
         </div>
         <p class="drawer-hint">To change Ollama settings, edit your .env file and restart Mahoraga.</p>
@@ -70,28 +69,21 @@
             body: JSON.stringify({ workdir: wd }),
           });
           const data = await res.json();
-          if (res.ok) {
-            statusEl.textContent = `Saved: ${data.workdir}`;
-            statusEl.style.color = 'var(--success)';
-          } else {
-            statusEl.textContent = data.detail || 'Error saving workdir';
-            statusEl.style.color = 'var(--error)';
-          }
+          statusEl.textContent = res.ok ? `Saved: ${data.workdir}` : (data.detail || 'Error saving workdir');
+          statusEl.style.color = res.ok ? 'var(--success)' : 'var(--error)';
         } catch (err) {
           statusEl.textContent = `Network error: ${err.message}`;
           statusEl.style.color = 'var(--error)';
         }
       });
 
-    } catch (err) {
-      drawerBody.innerHTML = `<p class="drawer-loading">Failed to load settings.</p>`;
+    } catch (_) {
+      drawerBody.innerHTML = '<p class="drawer-loading">Failed to load settings.</p>';
     }
   }
 
   settingsBtn.addEventListener('click', openDrawer);
   closeBtn.addEventListener('click', closeDrawer);
   overlay.addEventListener('click', closeDrawer);
-  document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') closeDrawer();
-  });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeDrawer(); });
 })();

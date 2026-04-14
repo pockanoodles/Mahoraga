@@ -1,24 +1,6 @@
 // static/app.js
 
-// ── Inference metrics ────────────────────────────────────────────────────────
-async function updateMetrics() {
-  try {
-    const res = await fetch('/api/metrics');
-    if (!res.ok) return;
-    const m = await res.json();
-    const el = document.getElementById('metrics-text');
-    if (!el) return;
-    if (m.task_count === 0) {
-      el.textContent = 'Session: idle';
-      return;
-    }
-    el.textContent = `Session: ${m.elapsed_s}s · ${m.tokens} tok · avg ${m.avg_throughput_tps} t/s`;
-  } catch (_) { /* non-critical */ }
-}
-setInterval(updateMetrics, 5000);
-
 (() => {
-  const form = document.querySelector('.input-area');
   const input = document.getElementById('user-input');
   const sendBtn = document.getElementById('send-btn');
   const messages = document.getElementById('messages');
@@ -26,14 +8,13 @@ setInterval(updateMetrics, 5000);
   // ── Markdown renderer (no external deps) ────────────────────────────────
 
   function renderMarkdown(text) {
-    // Escape HTML first
     let html = text
       .replace(/&/g, '&amp;')
       .replace(/</g, '&lt;')
       .replace(/>/g, '&gt;');
 
-    // Fenced code blocks ```lang\n...\n```
-    html = html.replace(/```(\w*)\n([\s\S]*?)```/g, (_, lang, code) => {
+    // Fenced code blocks
+    html = html.replace(/```(\w*)\n([\s\S]*?)```/g, (_, _lang, code) => {
       const id = 'cb-' + Math.random().toString(36).slice(2, 7);
       return `<div class="code-block-wrapper">
         <button class="copy-btn" data-target="${id}">Copy</button>
@@ -41,20 +22,11 @@ setInterval(updateMetrics, 5000);
       </div>`;
     });
 
-    // Inline code `...`
     html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
-
-    // Bold **...**
     html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
-
-    // Italic _..._
     html = html.replace(/_(.+?)_/g, '<em>$1</em>');
-
-    // Paragraph breaks
     html = html.replace(/\n{2,}/g, '</p><p>');
     html = '<p>' + html + '</p>';
-
-    // Single newlines → <br> inside paragraphs
     html = html.replace(/\n/g, '<br>');
 
     return html;
@@ -69,14 +41,8 @@ setInterval(updateMetrics, 5000);
     const bubble = document.createElement('div');
     bubble.classList.add('bubble');
 
-    if (role === 'assistant') {
-      if (isStreaming) {
-        bubble.innerHTML = '<span class="cursor"></span>';
-      } else {
-        bubble.innerHTML = renderMarkdown(text);
-      }
-    } else if (role === 'system') {
-      bubble.textContent = text;
+    if (role === 'assistant' && isStreaming) {
+      bubble.innerHTML = '<span class="cursor"></span>';
     } else {
       bubble.textContent = text;
     }
@@ -89,7 +55,6 @@ setInterval(updateMetrics, 5000);
 
   function finalizeAssistantBubble(bubble, fullText) {
     bubble.innerHTML = renderMarkdown(fullText);
-    // Wire copy buttons
     bubble.querySelectorAll('.copy-btn').forEach(btn => {
       btn.addEventListener('click', () => {
         const target = document.getElementById(btn.dataset.target);
@@ -103,14 +68,28 @@ setInterval(updateMetrics, 5000);
     messages.scrollTop = messages.scrollHeight;
   }
 
+  // ── Metrics ──────────────────────────────────────────────────────────────
+
+  async function updateMetrics() {
+    try {
+      const res = await fetch('/api/metrics');
+      if (!res.ok) return;
+      const m = await res.json();
+      const el = document.getElementById('metrics-text');
+      if (!el) return;
+      el.textContent = m.task_count === 0
+        ? 'Session: idle'
+        : `Session: ${m.elapsed_s}s · ${m.tokens} tok · avg ${m.avg_throughput_tps} t/s`;
+    } catch (_) { /* non-critical */ }
+  }
+  setInterval(updateMetrics, 5000);
+
   // ── Input auto-grow ──────────────────────────────────────────────────────
 
   input.addEventListener('input', () => {
     input.style.height = 'auto';
     input.style.height = Math.min(input.scrollHeight, 160) + 'px';
   });
-
-  // ── Send on Enter, newline on Shift+Enter ────────────────────────────────
 
   input.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -162,14 +141,14 @@ setInterval(updateMetrics, 5000);
           try {
             chunk = JSON.parse(line.slice(6));
           } catch (_) {
-            chunk = line.slice(6); // fallback for non-JSON frames
+            chunk = line.slice(6);
           }
           if (chunk === '[DONE]') break;
           if (typeof chunk === 'string' && chunk.startsWith('[ERROR]')) {
             assistantBubble.textContent = chunk;
             return;
           }
-          // Metrics event from OllamaWorker — update display immediately
+          // Metrics event from OllamaWorker — update bar immediately
           if (chunk && typeof chunk === 'object' && chunk.type === 'metrics') {
             const el = document.getElementById('metrics-text');
             if (el) el.textContent = `Last: ${chunk.elapsed_s}s · ${chunk.tokens} tok · ${chunk.throughput_tps} t/s`;
@@ -177,7 +156,6 @@ setInterval(updateMetrics, 5000);
           }
           if (typeof chunk !== 'string') continue;
           fullText += chunk;
-          // Update bubble raw while streaming (no markdown parse mid-stream)
           const cursor = assistantBubble.querySelector('.cursor');
           if (cursor) {
             assistantBubble.textContent = fullText;
@@ -197,11 +175,9 @@ setInterval(updateMetrics, 5000);
     } finally {
       sendBtn.disabled = false;
       input.focus();
-      // Trigger sidebar refresh after a message completes
       if (window.sidebarRefresh) window.sidebarRefresh();
     }
   }
 
   sendBtn.addEventListener('click', submitMessage);
 })();
-

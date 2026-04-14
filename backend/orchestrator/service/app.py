@@ -48,6 +48,7 @@ from .executor import run_task as _run_task
 from .run_executor import run_run as _run_run
 from ..planning.planner import generate_tasks, PlannerError
 from ..routing import BanditRouter, STRATEGIES, TaskOutcome
+from ..routing.implicit_quality import ImplicitQualityTracker
 
 # ── singletons (replaced via dependency_overrides in tests) ──────────────────
 
@@ -60,6 +61,7 @@ _cost_ledger: CostLedger | None = None
 _config: MahoragaConfig | None = None
 _adapter_registry: AdapterRegistry | None = None
 _bandit_router: BanditRouter | None = None
+_implicit_tracker: ImplicitQualityTracker | None = None
 _START_TIME: float = time.time()
 
 
@@ -109,7 +111,7 @@ async def lifespan(app: FastAPI):
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
         force=True,
     )
-    global _store, _registry, _verifier, _gateway, _adaptive_store, _cost_ledger, _config, _adapter_registry, _bandit_router
+    global _store, _registry, _verifier, _gateway, _adaptive_store, _cost_ledger, _config, _adapter_registry, _bandit_router, _implicit_tracker
     _store = await Store.connect()
     _registry = WorkerRegistry()
 
@@ -199,6 +201,9 @@ async def lifespan(app: FastAPI):
         strategy="linucb",
         registry=_adapter_registry,
     )
+
+    global _implicit_tracker
+    _implicit_tracker = ImplicitQualityTracker()
 
     # Orphan recovery: tasks left in_progress from a crashed previous run
     for orphan in await _store.tasks.list_by_status(TaskStatus.in_progress):
@@ -950,6 +955,18 @@ async def run_api_task(
     router = get_bandit_router()
     adapter_reg = get_adapter_registry()
 
+    # Implicit quality: check if this new submission is a retry or accept signal
+    from hashlib import sha256 as _sha256
+    _task_hash = _sha256(req.prompt.encode()).hexdigest()[:16]
+    if _implicit_tracker is not None:
+        _signal = _implicit_tracker.on_task_submitted(task_hash=_task_hash)
+        if _signal is not None:
+            _prev_id, _score = _signal
+            import asyncio as _asyncio
+            _asyncio.ensure_future(
+                _store.metrics.update_implicit_quality(task_id=_prev_id, implicit_quality=_score)
+            )
+
     # Minimal infrastructure: one mission → plan → run → task
     mission = Mission.new(title=f"MCP: {req.prompt[:40]}", goal=req.prompt)
     await store.missions.save(mission)
@@ -997,6 +1014,12 @@ async def run_api_task(
         agent_name=selected_agent,
     )
     router.observe(task, outcome)
+
+    # implicit quality tracking
+    if _implicit_tracker is not None:
+        from hashlib import sha256 as _sha256
+        _th = _sha256((task.goal if hasattr(task, 'goal') else '').encode()).hexdigest()[:16]
+        _implicit_tracker.on_task_complete(task_id=task.id, task_hash=_th)
 
     # Build runner-up from scores
     runner_up = None

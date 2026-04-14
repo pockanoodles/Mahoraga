@@ -7,6 +7,7 @@ from .tasks import TaskStore
 from .artifacts import ArtifactStore
 from .events import EventStore
 from .chat_log import ChatLogStore
+from .metrics import MetricsStore
 
 DEFAULT_DB_PATH = Path.home() / ".mahoraga" / "mahoraga.db"
 
@@ -118,6 +119,8 @@ CREATE INDEX IF NOT EXISTS idx_events_type ON events(type);
 _MIGRATIONS = [
     # v1: add output column to task_attempts (was missing from original schema)
     "ALTER TABLE task_attempts ADD COLUMN output TEXT NOT NULL DEFAULT ''",
+    # v2: implicit quality signal column
+    "ALTER TABLE task_metrics ADD COLUMN implicit_quality REAL DEFAULT NULL",
 ]
 
 
@@ -143,6 +146,7 @@ class Store:
         self.artifacts = ArtifactStore(conn)
         self.events = EventStore(conn)
         self.chat_log = ChatLogStore(conn)
+        self.metrics = MetricsStore(conn)
 
     async def close(self) -> None:
         await self._conn.close()
@@ -155,4 +159,6 @@ class Store:
         store = cls(conn)
         # chat_log runs its own migration — must come after base schema
         await store.chat_log.migrate()
+        # metrics runs its own migration for task_metrics table
+        await store.metrics.migrate()
         return store

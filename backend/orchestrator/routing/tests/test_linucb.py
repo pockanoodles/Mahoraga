@@ -128,3 +128,44 @@ def test_b_vector_accumulates_reward_signal(ctx_code):
     router = LinUCBRouter(d=9)
     router.update(ctx_code, "aider", 1.0)
     assert not np.allclose(router.b["aider"], np.zeros((9, 1)))
+
+
+def test_new_arm_initialized_from_average_of_existing():
+    """A new arm added after training should not be pure cold start (identity A, zero b)."""
+    import numpy as np
+    from backend.orchestrator.routing.strategies.linucb import LinUCBRouter
+    from backend.orchestrator.routing.context import TaskContext
+
+    router = LinUCBRouter(d=9)
+    ctx = TaskContext(0.1, 0.5, 0.0, 0.67, 0.0, 0.0, 0.7, 0.0, 0.0)
+
+    # Train on two existing arms for 20 steps
+    for i in range(20):
+        selected = router.select_agent(ctx, ["aider", "ollama"])
+        router.update(ctx, selected, 0.8 if selected == "aider" else 0.4)
+
+    # Add a new arm — should be average-init, not cold start
+    router._init_agent("new_agent")
+
+    # A should NOT be pure identity (cold start would be)
+    assert not np.allclose(router.A["new_agent"], np.eye(9)), \
+        "New arm A should differ from cold-start identity — expected average-init"
+
+    # b should not be all zeros
+    assert np.linalg.norm(router.b["new_agent"]) > 0.0, \
+        "New arm b should not be zero — expected average-init"
+
+
+def test_new_arm_cold_start_when_no_existing_arms():
+    """First arm always gets pure cold start."""
+    import numpy as np
+    from backend.orchestrator.routing.strategies.linucb import LinUCBRouter
+
+    router = LinUCBRouter(d=9)
+    router._init_agent("ollama")
+    assert router.A["ollama"].shape == (9, 9)
+    assert router.b["ollama"].shape == (9, 1)
+    # b should be seeded with the prior (not zeros)
+    prior = router.priors.get("ollama", 0.5)
+    expected_b = prior * np.ones((9, 1))
+    np.testing.assert_allclose(router.b["ollama"], expected_b, rtol=1e-6)

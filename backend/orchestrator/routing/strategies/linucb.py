@@ -45,13 +45,29 @@ class LinUCBRouter(RoutingStrategy):
         self.t: int = 0
 
     def _init_agent(self, agent: str) -> None:
-        if agent not in self.A:
+        if agent in self.A:
+            return  # already initialized
+
+        existing = [a for a in self.A if a != agent]
+        if not existing or self.t == 0:
+            # First arm, or no real routing yet (e.g. during warm-start injection) — cold start.
             self.A[agent] = np.identity(self.d)
-            # Seed b with prior so θ̂ = A⁻¹b ≈ prior·ones on cold start.
-            # This biases early exploration toward confident agents without
-            # locking in — the bandit learns and overwrites after a few rounds.
             prior = self.priors.get(agent, 0.5)
             self.b[agent] = prior * np.ones((self.d, 1))
+            return
+
+        # Average-init: blend average of existing arms with λI to give the new
+        # arm moderate exploration without the huge UCB bonus of pure cold start.
+        avg_A = np.mean([self.A[a] for a in existing], axis=0)
+        avg_b = np.mean([self.b[a] for a in existing], axis=0)
+        self.A[agent] = 0.5 * avg_A + 0.5 * np.identity(self.d)
+        self.b[agent] = 0.5 * avg_b
+
+        # Override with compatibility_matrix prior if available for this specific agent
+        from ..warm_start import load_compatibility_matrix, warm_start_from_matrix
+        matrix = load_compatibility_matrix()
+        if matrix and agent in matrix:
+            warm_start_from_matrix(self, {agent: matrix[agent]}, lambda_prior=2.0)
 
     def inject_pseudo_obs(self, agent: str, x: np.ndarray, reward: float, lambda_prior: float = 1.0) -> None:
         """Inject one pseudo-observation into arm `agent`.

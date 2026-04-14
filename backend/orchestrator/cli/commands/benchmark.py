@@ -9,7 +9,11 @@ import random
 import typer
 from typing import Optional
 
-app = typer.Typer(name="benchmark", help="Offline routing benchmark / simulation tools")
+app = typer.Typer(
+    name="benchmark",
+    help="Offline routing benchmark / simulation tools",
+    no_args_is_help=True,
+)
 
 # Synthetic task pool: (goal, bucket, oracle_agent, latency_s, oracle_qual)
 # oracle_agent = the agent that *should* win this task type
@@ -105,7 +109,7 @@ def simulate(
         selected_strategies = list(strategy_map)
 
     all_agents = ["ollama", "aider", "codex-cli", "gemini-cli"]
-    reward_calc = RewardCalculator(0.4, 0.3, 0.3)
+    reward_calc = RewardCalculator()
 
     results: dict[str, dict] = {}
 
@@ -181,4 +185,85 @@ def simulate(
             _, bucket, oracle_agent, _, oracle_qual = t
             oracle_matrix.setdefault(oracle_agent, {})[bucket] = round(oracle_qual, 3)
         save_compatibility_matrix(oracle_matrix)
-        typer.echo(f"\n[saved] compatibility_matrix.json → ~/.mahoraga/")
+        typer.echo("\n[saved] compatibility_matrix.json → ~/.mahoraga/")
+
+
+@app.command("report")
+def report(
+    json_out: bool = typer.Option(False, "--json", help="Output machine-readable JSON"),
+    dpi: int = typer.Option(150, "--dpi", help="Ignored (reserved for future chart export)"),
+):
+    """Print a summary report from the last simulate run.
+
+    Reads benchmark/results/strategy_results.json. Use --json for
+    machine-readable output.
+    """
+    import json as _json
+    from pathlib import Path as _Path
+    results_path = (
+        _Path(__file__).parent.parent.parent
+        / "routing" / "benchmark" / "results" / "strategy_results.json"
+    )
+    if not results_path.exists():
+        typer.echo("No results found. Run 'orch benchmark simulate' first.", err=True)
+        raise typer.Exit(1)
+    data = _json.loads(results_path.read_text())
+    if json_out:
+        typer.echo(_json.dumps(data, indent=2))
+        return
+    typer.echo("\n=== Benchmark Report ===\n")
+    for name, r in data.items():
+        typer.echo(
+            f"  {name:<12}  reward={r.get('mean_reward', 0):.4f}"
+            f"  regret={r.get('total_regret', 0):.2f}"
+            f"  beta={r.get('regret_growth_exponent', 0):.3f}"
+            f"  sublinear={'yes' if r.get('is_sublinear') else 'no'}"
+        )
+
+
+@app.command("ablation")
+def ablation(
+    tasks: int = typer.Option(200, "--tasks", "-n", help="Tasks per experiment run"),
+    seed: int = typer.Option(42, "--seed", help="Random seed"),
+    output: Optional[str] = typer.Option(None, "--output", help="Output directory (default: benchmark/results/ablation/)"),
+    dpi: int = typer.Option(150, "--dpi", help="Chart DPI (use 300 for publication-quality)"),
+):
+    """Run full ablation study: 5 experiments, 5 regret charts, JSON + MD summary.
+
+    Experiments: strategy comparison, warm-start, episodic memory,
+    swap penalty, and bucket granularity.
+    """
+    from backend.orchestrator.routing.benchmark.ablation_study import run_ablation
+    run_ablation(n_tasks=tasks, seed=seed, output_dir=output, dpi=dpi)
+
+
+@app.command("live-report")
+def live_report(
+    db: Optional[str] = typer.Option(None, "--db", help="Path to routing_decisions.db"),
+    output: Optional[str] = typer.Option(None, "--output", help="Output directory for charts"),
+    json_out: bool = typer.Option(False, "--json", help="Output machine-readable JSON"),
+    dpi: int = typer.Option(150, "--dpi", help="Chart DPI"),
+):
+    """Analyse real routing decisions from routing_decisions.db.
+
+    Prints a text report and generates 3 charts: reward over time,
+    exploration rate, and bucket distribution.
+    """
+    from backend.orchestrator.routing.benchmark.live_report import run_live_report
+    run_live_report(db_path=db, output_dir=output, as_json=json_out, dpi=dpi)
+
+
+@app.command("pareto-sweep")
+def pareto_sweep(
+    tasks: int = typer.Option(200, "--tasks", "-n", help="Tasks per config run (default 200)"),
+    seed: int = typer.Option(42, "--seed", help="Random seed"),
+    output: Optional[str] = typer.Option(None, "--output", help="Output directory (default: benchmark/results/)"),
+    dpi: int = typer.Option(150, "--dpi", help="Chart DPI (use 300 for publication-quality)"),
+):
+    """Sweep (alpha, gamma, beta_swap) grid and find the Pareto knee-point config.
+
+    Runs 100 configs × N tasks. Writes tuned_hyperparams.json to ~/.mahoraga/
+    for automatic loading by BanditRouter on next startup.
+    """
+    from backend.orchestrator.routing.benchmark.pareto_sweep import run_pareto_sweep
+    run_pareto_sweep(n_tasks=tasks, seed=seed, output_dir=output, dpi=dpi)

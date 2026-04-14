@@ -53,6 +53,17 @@ class LinUCBRouter(RoutingStrategy):
             prior = self.priors.get(agent, 0.5)
             self.b[agent] = prior * np.ones((self.d, 1))
 
+    def inject_pseudo_obs(self, agent: str, x: np.ndarray, reward: float, lambda_prior: float = 1.0) -> None:
+        """Inject one pseudo-observation into arm `agent`.
+
+        A[agent] += lambda_prior * outer(x, x)
+        b[agent] += lambda_prior * reward * x.reshape(-1,1)
+        """
+        self._init_agent(agent)
+        x = x.reshape(-1, 1)  # d×1
+        self.A[agent] += lambda_prior * (x @ x.T)
+        self.b[agent] += lambda_prior * reward * x
+
     def select_agent(self, context, available_agents: list[str]) -> str:
         if not available_agents:
             raise ValueError("available_agents must not be empty")

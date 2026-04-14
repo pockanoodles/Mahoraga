@@ -1047,52 +1047,52 @@ async def run_batch(
         await store.tasks.save(task)
         created.append(task)
 
-    # Execute tasks in dependency order, sequentially
-    results: list[dict] = []
+    # Pre-route all tasks through bandit
+    assignments: dict[str, str] = {}
+    for task in created:
+        assignments[task.id] = router.route(task)
+
     sequential_s = 0.0
-    completed_ids: set[str] = set()
-    remaining = list(range(len(created)))
 
-    while remaining:
-        ready_indices = [
-            i for i in remaining
-            if all(created[j].id in completed_ids for j in req.tasks[i].depends_on if 0 <= j < i)
-        ]
-        if not ready_indices:
-            break
-
-        i = ready_indices[0]
-        task = created[i]
-
-        selected = router.route(task)
-        adapter = adapter_reg.get(selected)
-        if adapter:
-            task = dataclasses.replace(task, preferred_worker_type=adapter.worker_id)
-        await store.tasks.update_status(task.id, TaskStatus.ready)
+    async def _run_single(task: Task, agent: str) -> dict:
+        nonlocal sequential_s
+        adapter = adapter_reg.get(agent)
+        t_run = dataclasses.replace(task, preferred_worker_type=adapter.worker_id) if adapter else task
+        await store.tasks.update_status(t_run.id, TaskStatus.ready)
 
         t0 = _time.time()
-        await _run_task(task.id, store, registry, verifier)
+        await _run_task(t_run.id, store, registry, verifier)
         elapsed = round(_time.time() - t0, 2)
         sequential_s += elapsed
 
-        task = await store.tasks.get(task.id)
-        artifacts = await store.artifacts.list_by_task(task.id)
+        t_result = await store.tasks.get(t_run.id)
+        artifacts = await store.artifacts.list_by_task(t_run.id)
         output = next(
             (a.location.get("content", "") for a in artifacts if a.type == "text_output"), ""
         )
-        status = "success" if task.status == TaskStatus.completed else "failed"
-
-        results.append({
-            "task_index": i,
-            "status": status,
-            "agent": selected,
-            "resource_group": get_resource_group(selected),
-            "wave": len(results) + 1,
+        task_index = next(i for i, t in enumerate(created) if t.id == task.id)
+        return {
+            "task_index": task_index,
+            "status": "success" if t_result.status == TaskStatus.completed else "failed",
+            "agent": agent,
+            "resource_group": get_resource_group(agent),
             "elapsed_s": elapsed,
             "output": output,
-        })
-        completed_ids.add(task.id)
-        remaining.remove(i)
+        }
+
+    if req.parallel:
+        from .wave_executor import WaveExecutor
+        wave_exec = WaveExecutor(max_concurrent=req.max_concurrent)
+        all_results = await wave_exec.execute_batch(created, assignments, _run_single)
+        waves_executed = max((r.get("wave", 1) for r in all_results), default=1)
+    else:
+        # Sequential fallback (parallel=false safety valve)
+        all_results = []
+        for i, task in enumerate(created):
+            result = await _run_single(task, assignments[task.id])
+            result["wave"] = i + 1
+            all_results.append(result)
+        waves_executed = len(all_results)
 
     total_elapsed = round(_time.time() - t_batch_start, 2)
     speedup = round(sequential_s / total_elapsed, 2) if total_elapsed > 0 else 1.0
@@ -1102,6 +1102,6 @@ async def run_batch(
         "total_wall_clock_s": total_elapsed,
         "sequential_estimate_s": round(sequential_s, 2),
         "speedup": f"{speedup}x",
-        "waves_executed": len(results),
-        "results": results,
+        "waves_executed": waves_executed,
+        "results": sorted(all_results, key=lambda r: r.get("task_index", 0)),
     }

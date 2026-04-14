@@ -234,6 +234,35 @@ class DecisionLogger:
             writer.writerow(col_names)
             writer.writerows(rows)
 
+    def get_recent(
+        self,
+        limit: int = 10,
+        agent: str | None = None,
+        since: str | None = None,
+    ) -> list[dict]:
+        """Return recent routing decisions, newest first.
+
+        Columns returned: id, timestamp, task_id, task_goal, strategy,
+        selected_agent, scores, success, latency_s, reward, error_message.
+        """
+        with self._lock:
+            filters, params = [], []
+            if agent:
+                filters.append("selected_agent = ?")
+                params.append(agent)
+            if since:
+                filters.append("timestamp >= ?")
+                params.append(since)
+            where = ("WHERE " + " AND ".join(filters)) if filters else ""
+            cur = self._conn.execute(
+                f"SELECT id, timestamp, task_id, task_goal, strategy, selected_agent, "
+                f"scores, success, latency_s, reward, error_message "
+                f"FROM decisions {where} ORDER BY id DESC LIMIT ?",
+                params + [limit],
+            )
+            col_names = [d[0] for d in cur.description]
+            return [dict(zip(col_names, row)) for row in cur.fetchall()]
+
     def count(self) -> int:
         """Return total number of logged decisions."""
         with self._lock:

@@ -1,6 +1,6 @@
 # Mahoraga
 
-> Agent-agnostic LLM orchestration framework with online bandit routing. Unifies any AI coding agent — local or cloud — into an intelligent workflow with learned routing, quality evaluation, and real-time visual feedback.
+> Agent-agnostic LLM orchestration framework with online bandit routing. Unifies any AI coding agent (local or cloud) into an intelligent workflow with learned routing, quality evaluation, and real-time visual feedback.
 
 *Named after the adaptive deity from Buddhist mythology — Mahoraga analyzes, adapts, and overcomes.*
 
@@ -53,9 +53,34 @@ graph LR
 
 ---
 
-## Why This Exists
+## Motivation
 
-Cloud coding agents burn credits on tasks a 4B local model handles fine. Mahoraga routes each task to the right agent — local for the easy stuff, cloud when it matters. The bandit learns your patterns and gets smarter over time.
+The LLM tooling ecosystem has three established layers, each solving a different part of the problem:
+
+**Gateways** (LiteLLM, Bifrost, OpenRouter) normalize provider APIs — unified interface, failover, load balancing across OpenAI/Anthropic/etc. Their routing is rule-based and doesn't adapt.
+
+**Trained routers** (RouteLLM, LLMRouter) learn to route between models, typically a strong/weak pair, using classifiers trained offline on Chatbot Arena preference data. RouteLLM achieves up to 85% cost savings on cloud-to-cloud routing. But the policy is frozen at training time, routes between two model endpoints, and assumes cloud inference throughout.
+
+**Orchestration frameworks** (CrewAI, LangGraph, Microsoft Agent Framework) coordinate multi-agent workflows — they define what agents *do*, not which agent to dispatch for a given task.
+
+The gap: no existing system learns *online* which heterogeneous agent to route to, across a pool that spans local models at zero marginal cost alongside cloud APIs.
+
+Mahoraga extends the trained-router category in three ways: online feedback rather than offline training, N heterogeneous agents (CLI tools, local models, cloud APIs) rather than two model endpoints, and local inference as the default cost tier rather than cloud escalation. The bandit accumulates experience from every routing decision and gets incrementally better — no retraining step, no deployment cycle.
+
+---
+
+## Where It Sits
+
+| | Mahoraga | RouteLLM | LLMRouter | BaRP (ICLR '26) | CrewAI | LiteLLM |
+|---|---|---|---|---|---|---|
+| **Routes to** | Agents (local + cloud) | 2 models | N models | N models | Defines agents | API proxy |
+| **Learns online** | ✅ LinUCB bandit | ❌ Static | ❌ Static | ✅ Bandit | — | — |
+| **Local inference** | ✅ Ollama ($0/task) | ❌ | ❌ | ❌ | ❌ | ❌ |
+| **Two-stage routing** | ✅ Keyword → bandit | ❌ Flat | ❌ Flat | ❌ Flat | — | — |
+| **Self-hosted** | ✅ | ✅ | ✅ | Paper only | ✅ | ✅ |
+| **Persistent learning** | ✅ Cross-session state | — | — | No runtime | — | — |
+
+**BaRP** (Anonymous, ICLR 2026 submission) is the closest academic analog — it also frames LLM routing as a contextual bandit problem and argues against static offline training. Mahoraga implements the same core insight with a deployed runtime, local inference support, and heterogeneous agent coverage.
 
 ---
 
@@ -240,9 +265,30 @@ Run `orch benchmark` with no arguments to see all subcommands.
 
 ## Related Work
 
-Mahoraga builds on **RouteLLM** (Ong et al., ICLR 2025) — the first learned router for LLM selection — but extends it from offline binary classification to online multi-agent bandit routing with 6+ heterogeneous local/cloud agents. **PILOT** (Panda et al., EMNLP 2025) demonstrated that warm-starting LinUCB from preference priors reduces regret by Ω(‖θ*−θ_prior‖²); Mahoraga applies this via the benchmark compatibility matrix. **BaRP** showed that reward shaping with swap-cost awareness stabilizes routing under hardware constraints; the β_swap term in Mahoraga's reward function is a direct application. **ParetoBandit** (Taberner-Miller et al., March 2026) introduced geometric forgetting for non-stationary LLM routing; Mahoraga's dLinUCB (γ=0.97) is the same mechanism.
+**Foundational:**
+- **LinUCB** (Li et al., WWW 2010) — the contextual bandit algorithm Mahoraga uses for routing. Originally applied to news article recommendation; the per-arm A/b update rule and UCB exploration bonus are directly adopted here.
+- **RouteLLM** (Ong et al., 2024) — the paper that established learned LLM routing as a problem worth solving. Trains 4 routers (matrix factorization, weighted Elo, BERT, causal LLM) on Chatbot Arena preference data. Binary strong/weak routing, offline, cloud-only. Mahoraga extends it to N heterogeneous agents with online learning.
+
+**Online / bandit routing:**
+- **BaRP** (Anonymous, ICLR 2026 submission) — multi-objective contextual bandit for LLM routing with REINFORCE policy gradient. Validates the bandit framing; paper only, no runtime. Mahoraga's two-stage bucketing (keyword classifier → per-bucket bandit) should accelerate convergence by narrowing the action space before the bandit runs — analogous to a hierarchical bandit.
+- **LLM Bandit** (Li, arXiv 2025) — multi-armed bandit with preference conditioning. Partial online learning; offline pretraining requires full-information labels.
+- **MAR** (Zhang et al., 2025) — multi-armed router that avoids full-information supervision.
+- **C2MAB-V** (Dai et al., 2024) — combinatorial contextual volatile MAB; online feedback, no preference tuning.
+
+**Cost-aware cascading:**
+- **FrugalGPT** (Chen et al., 2023) — LLM cascade: try cheap first, escalate on failure. Sequential rather than learned. Mahoraga's escalation path (Ollama → cloud) implements the same intuition with a bandit replacing the fixed threshold.
+- **AutoMix** (2024) — routes to larger LMs based on approximate correctness of smaller LM output. Complementary; Mahoraga could use AutoMix-style correctness detection as a reward signal.
+
+**Warm start and non-stationarity:**
+- **PILOT** (Panda et al., EMNLP 2025) — warm-starting LinUCB from preference priors reduces regret by Ω(‖θ*−θ_prior‖²). Mahoraga applies this via the benchmark compatibility matrix (`orch benchmark simulate --save-matrix`).
+- **ParetoBandit** (Taberner-Miller et al., March 2026) — geometric forgetting for non-stationary LLM routing. Mahoraga's dLinUCB discount factor (γ=0.97) applies the same mechanism.
+
+**Context:**
+- **Bouneffouf & Feraud — "Bandits, LLMs, and Agentic AI"** (AAAI 2026 Tutorial, IBM Research) — survey of how bandit algorithms support adaptive decision-making in agentic systems. Validates the research direction.
 
 What no existing paper addresses: local hardware state as a routing context feature, HNSW episodic memory for prompt-level priors, and OLS-learned reward weights from implicit user signals.
+
+**In progress:** ablation comparing two-stage bucketed routing against flat routing on the same 200-task benchmark (expected: faster convergence due to smaller per-bucket action space). Cost savings estimate versus all-cloud baseline is pending real routing data.
 
 ---
 
@@ -262,6 +308,44 @@ What no existing paper addresses: local hardware state as a routing context feat
 - [ ] Native macOS dashboard ([Noctis](https://github.com/pockanoodles/noctis))
 - [ ] Multi-user session isolation
 - [ ] Skill marketplace
+
+---
+
+## References
+
+```
+Li, L., Chu, W., Langford, J., & Schapire, R. E. (2010).
+  A Contextual-Bandit Approach to Personalized News Article Recommendation.
+  WWW 2010. [The LinUCB paper]
+
+Ong, I., Almahairi, A., Wu, V., et al. (2024).
+  RouteLLM: Learning to Route LLMs with Preference Data.
+  arXiv:2406.18665. https://github.com/lm-sys/RouteLLM
+
+Anonymous (2025/2026).
+  Learning to Route LLMs from Bandit Feedback: One Policy, Many Trade-offs.
+  ICLR 2026 submission. [BaRP]
+
+Li, Z. (2025).
+  LLM Bandit: Cost-Efficient LLM Generation via Preference-Conditioned Dynamic Routing.
+  arXiv:2502.02743.
+
+Chen, L., Zaharia, M., & Zou, J. (2023).
+  FrugalGPT: How to Use Large Language Models While Reducing Cost and Improving Performance.
+  arXiv:2305.05176.
+
+Panda, A., et al. (2025).
+  PILOT: Preference-Informed LinUCB with Transfer for Online Routing.
+  EMNLP 2025.
+
+Taberner-Miller, E., et al. (2026).
+  ParetoBandit: Multi-Objective Non-Stationary Routing for Language Models.
+  March 2026.
+
+Bouneffouf, D., & Feraud, R. (2026).
+  Bandits, LLMs, and Agentic AI.
+  AAAI 2026 Tutorial. IBM Research.
+```
 
 ---
 

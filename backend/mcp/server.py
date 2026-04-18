@@ -8,7 +8,7 @@ Claude Code config (~/.claude/settings.json):
     {
         "mcpServers": {
             "mahoraga": {
-                "command": "python",
+                "command": "/Users/kaitosoeno/Projects/Mahoraga/.venv/bin/python",
                 "args": ["-m", "backend.mcp.server"],
                 "cwd": "/Users/kaitosoeno/Projects/Mahoraga"
             }

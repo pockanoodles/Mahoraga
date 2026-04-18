@@ -24,11 +24,17 @@ Mahoraga is not an agent. It orchestrates agents. When you give it a task, it:
 5. Records metrics, updates the bandit, and stores the episode in episodic memory
 6. Retries with feedback context or escalates to cloud on failure
 
+Any agent that implements `AgentAdapter` is automatically registered and routed to — see [Adapter Interface](#adapter-interface).
+
 ---
 
 ## Research Engine
 
-Mahoraga routes research tasks to agents built for retrieval and synthesis — Gemini CLI for broad search and summarization, Qwen for reasoning-heavy questions, and escalation to Claude only when the task genuinely requires it. The bandit learns which agent performs best per task bucket from real routing decisions, not offline training data. No configuration needed — it improves with use.
+`research` is a dedicated capability bucket in Mahoraga's keyword classifier. Tasks that trigger it — explain, compare, summarise, survey — are routed by the bandit using a context vector that includes `has_research_keywords` (feature 8) and `is_question` (feature 3) as strong signals.
+
+In the oracle compatibility matrix, Gemini CLI scores 0.88 on research tasks and 0.82 on complex reasoning — the highest of any registered agent on those buckets. The bandit learns these priors from real routing decisions and refines them episode by episode. Qwen handles shorter reasoning tasks at zero marginal cost. Escalation to Claude happens only on retry, when the verifier scores the output below threshold.
+
+The result: most research queries route to free agents. The bandit gets better the more it runs. No rules to write, no routing config to maintain.
 
 ---
 

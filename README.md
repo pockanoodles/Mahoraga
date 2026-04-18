@@ -1,6 +1,6 @@
 # Mahoraga
 
-> Agent-agnostic LLM orchestration framework with online bandit routing. Unifies any AI coding agent (local or cloud) into an intelligent workflow with learned routing, quality evaluation, and real-time visual feedback.
+An online bandit routing engine for heterogeneous AI agents. Local-first, research-capable, learns from every task.
 
 *Named after the adaptive deity from Buddhist mythology — Mahoraga analyzes, adapts, and overcomes.*
 
@@ -24,7 +24,67 @@ Mahoraga is not an agent. It orchestrates agents. When you give it a task, it:
 5. Records metrics, updates the bandit, and stores the episode in episodic memory
 6. Retries with feedback context or escalates to cloud on failure
 
-Any agent plugs in through the `AgentAdapter` interface.
+---
+
+## Research Engine
+
+Mahoraga routes research tasks to agents built for retrieval and synthesis — Gemini CLI for broad search and summarization, Qwen for reasoning-heavy questions, and escalation to Claude only when the task genuinely requires it. The bandit learns which agent performs best per task bucket from real routing decisions, not offline training data. No configuration needed — it improves with use.
+
+---
+
+## How It Works
+
+### Task Classification
+
+Tasks are classified by keyword gate into capability buckets (code, debug, plan, research, general, security, test, review, refactor). Short direct tasks route immediately. Complex tasks decompose through the planner first.
+
+### Adaptive Routing
+
+Within each bucket, a **LinUCB contextual bandit** selects the agent.
+
+**The 9-dimensional context vector** — each feature is normalised to [0, 1]:
+
+| # | Feature | Captures |
+|---|---------|---------|
+| 1 | `word_count_norm` | Task length — longer tasks favour agents with larger context windows |
+| 2 | `code_keyword_density` | Fraction of tokens that are code keywords — routes code-heavy tasks to coding agents |
+| 3 | `is_question` | 1.0 if phrased as a question — research/explain agents tend to score higher |
+| 4 | `complexity_tier` | 0.33 / 0.67 / 1.0 for simple / moderate / complex — complex tasks favour cloud agents |
+| 5 | `file_count` | Number of file paths mentioned — multi-file tasks suit git-native agents like aider |
+| 6 | `has_error_keywords` | Error/exception/traceback presence — debug-capable agents get an edge |
+| 7 | `has_creation_keywords` | Create/build/scaffold language — generative agents favoured |
+| 8 | `has_research_keywords` | Explain/compare/summarise language — Gemini and Goose favoured |
+| 9 | `queue_depth_norm` | Agent queue fraction — congestion-aware routing avoids overloaded agents |
+
+Per agent, the bandit maintains **A** (9×9 covariance) and **b** (9×1 reward accumulator). At selection time:
+
+```
+UCB_a = x'θ_a + α√(x' A_a⁻¹ x)    where θ_a = A_a⁻¹ b_a
+```
+
+Three learning layers run in parallel:
+
+- **dLinUCB (γ=0.97)** — discounted updates handle non-stationarity as agents improve or degrade over time
+- **Reward Learner** — OLS fits per-bucket reward weights after 100 observations; well-calibrated priors before convergence; simplex projection prevents weight collapse
+- **Episodic Memory** — HNSW index (hnswlib) over past context vectors; k=10 nearest-neighbour rewards bias selection at α=0.20; FIFO cap at 10k episodes
+
+The composite reward: `r = w₁·success + w₂·quality + w₃·speed + w₄·cost` where weights are per-bucket and learnable. Swap cost penalty adjusts reward when the bandit switches between Ollama models (3–8s latency hit on 16 GB unified memory).
+
+### Quality Evaluation
+
+After every execution, the validator checks:
+
+- **Code outputs:** compilation check, code block presence, import/def/class patterns, syntax closure
+- **General outputs:** substance check — length and content, not padding
+- **Embedding similarity:** cosine between prompt and output embeddings via nomic-embed-text (catches off-topic or degenerate outputs)
+
+Outcomes: pass → stream response; retry → same worker with feedback context; escalate → next-best adapter.
+
+**Implicit quality signals** require no explicit feedback: a retry within 5 minutes signals failure (reward 0.0) and accepting an agent's output without change signals success (+0.6 bonus).
+
+### Warm Start
+
+On first startup, if `~/.mahoraga/compatibility_matrix.json` exists (from `orch benchmark simulate --save-matrix`), the bandit injects pseudo-observations instead of cold-starting from zero. Based on PILOT (Panda et al., EMNLP 2025) — reduces early exploration waste. New agents added at runtime are average-initialised from existing arm matrices, ensuring moderate exploration without a regret spike.
 
 ---
 
@@ -50,22 +110,6 @@ graph LR
     Metrics -->|composite reward| LB
     Metrics -->|episode| EM
 ```
-
----
-
-## Motivation
-
-The LLM tooling ecosystem has three established layers, each solving a different part of the problem:
-
-**Gateways** (LiteLLM, Bifrost, OpenRouter) normalize provider APIs — unified interface, failover, load balancing across OpenAI/Anthropic/etc. Their routing is rule-based and doesn't adapt.
-
-**Trained routers** (RouteLLM, LLMRouter) learn to route between models, typically a strong/weak pair, using classifiers trained offline on Chatbot Arena preference data. RouteLLM achieves up to 85% cost savings on cloud-to-cloud routing. But the policy is frozen at training time, routes between two model endpoints, and assumes cloud inference throughout.
-
-**Orchestration frameworks** (CrewAI, LangGraph, Microsoft Agent Framework) coordinate multi-agent workflows — they define what agents *do*, not which agent to dispatch for a given task.
-
-The gap: no existing system learns *online* which heterogeneous agent to route to, across a pool that spans local models at zero marginal cost alongside cloud APIs.
-
-Mahoraga extends the trained-router category in three ways: online feedback rather than offline training, N heterogeneous agents (CLI tools, local models, cloud APIs) rather than two model endpoints, and local inference as the default cost tier rather than cloud escalation. The bandit accumulates experience from every routing decision and gets incrementally better — no retraining step, no deployment cycle.
 
 ---
 
@@ -152,62 +196,6 @@ GEMINI_API_KEY=...             # Gemini CLI
 
 ---
 
-## How It Works
-
-### Task Classification
-
-Tasks are classified by keyword gate into capability buckets (code, debug, plan, research, general, security, test, review, refactor). Short direct tasks route immediately. Complex tasks decompose through the planner first.
-
-### Adaptive Routing
-
-Within each bucket, a **LinUCB contextual bandit** selects the agent.
-
-**The 9-dimensional context vector** — each feature is normalised to [0, 1]:
-
-| # | Feature | Captures |
-|---|---------|---------|
-| 1 | `word_count_norm` | Task length — longer tasks favour agents with larger context windows |
-| 2 | `code_keyword_density` | Fraction of tokens that are code keywords — routes code-heavy tasks to coding agents |
-| 3 | `is_question` | 1.0 if phrased as a question — research/explain agents tend to score higher |
-| 4 | `complexity_tier` | 0.33 / 0.67 / 1.0 for simple / moderate / complex — complex tasks favour cloud agents |
-| 5 | `file_count` | Number of file paths mentioned — multi-file tasks suit git-native agents like aider |
-| 6 | `has_error_keywords` | Error/exception/traceback presence — debug-capable agents get an edge |
-| 7 | `has_creation_keywords` | Create/build/scaffold language — generative agents favoured |
-| 8 | `has_research_keywords` | Explain/compare/summarise language — Gemini and Goose favoured |
-| 9 | `queue_depth_norm` | Agent queue fraction — congestion-aware routing avoids overloaded agents |
-
-Per agent, the bandit maintains **A** (9×9 covariance) and **b** (9×1 reward accumulator). At selection time:
-
-```
-UCB_a = x'θ_a + α√(x' A_a⁻¹ x)    where θ_a = A_a⁻¹ b_a
-```
-
-Three learning layers run in parallel:
-
-- **dLinUCB (γ=0.97)** — discounted updates handle non-stationarity as agents improve or degrade over time
-- **Reward Learner** — OLS fits per-bucket reward weights after 100 observations; well-calibrated priors before convergence; simplex projection prevents weight collapse
-- **Episodic Memory** — HNSW index (hnswlib) over past context vectors; k=10 nearest-neighbour rewards bias selection at α=0.20; FIFO cap at 10k episodes
-
-The composite reward: `r = w₁·success + w₂·quality + w₃·speed + w₄·cost` where weights are per-bucket and learnable. Swap cost penalty adjusts reward when the bandit switches between Ollama models (3–8s latency hit on 16 GB unified memory).
-
-### Quality Evaluation
-
-After every execution, the validator checks:
-
-- **Code outputs:** compilation check, code block presence, import/def/class patterns, syntax closure
-- **General outputs:** substance check — length and content, not padding
-- **Embedding similarity:** cosine between prompt and output embeddings via nomic-embed-text (catches off-topic or degenerate outputs)
-
-Outcomes: pass → stream response; retry → same worker with feedback context; escalate → next-best adapter.
-
-**Implicit quality signals** require no explicit feedback: a retry within 5 minutes signals failure (reward 0.0) and accepting an agent's output without change signals success (+0.6 bonus).
-
-### Warm Start
-
-On first startup, if `~/.mahoraga/compatibility_matrix.json` exists (from `orch benchmark simulate --save-matrix`), the bandit injects pseudo-observations instead of cold-starting from zero. Based on PILOT (Panda et al., EMNLP 2025) — reduces early exploration waste. New agents added at runtime are average-initialised from existing arm matrices, ensuring moderate exploration without a regret spike.
-
----
-
 ## Adapter Interface
 
 Any agent that implements `AgentAdapter` is automatically registered and routed to:
@@ -260,6 +248,22 @@ orch benchmark report --json     # machine-readable last-run summary
 ```
 
 Run `orch benchmark` with no arguments to see all subcommands.
+
+---
+
+## Motivation
+
+The LLM tooling ecosystem has three established layers, each solving a different part of the problem:
+
+**Gateways** (LiteLLM, Bifrost, OpenRouter) normalize provider APIs — unified interface, failover, load balancing across OpenAI/Anthropic/etc. Their routing is rule-based and doesn't adapt.
+
+**Trained routers** (RouteLLM, LLMRouter) learn to route between models, typically a strong/weak pair, using classifiers trained offline on Chatbot Arena preference data. RouteLLM achieves up to 85% cost savings on cloud-to-cloud routing. But the policy is frozen at training time, routes between two model endpoints, and assumes cloud inference throughout.
+
+**Orchestration frameworks** (CrewAI, LangGraph, Microsoft Agent Framework) coordinate multi-agent workflows — they define what agents *do*, not which agent to dispatch for a given task.
+
+The gap: no existing system learns *online* which heterogeneous agent to route to, across a pool that spans local models at zero marginal cost alongside cloud APIs.
+
+Mahoraga extends the trained-router category in three ways: online feedback rather than offline training, N heterogeneous agents (CLI tools, local models, cloud APIs) rather than two model endpoints, and local inference as the default cost tier rather than cloud escalation. The bandit accumulates experience from every routing decision and gets incrementally better — no retraining step, no deployment cycle.
 
 ---
 

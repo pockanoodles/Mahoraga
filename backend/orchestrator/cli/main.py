@@ -5,6 +5,7 @@ from .commands.plan import app as plan_app
 from .commands.run import app as run_app
 from .commands.task import app as task_app
 from .commands.benchmark import app as benchmark_app
+from .commands.eval import app as eval_app
 from .commands import ops
 
 app = typer.Typer(
@@ -18,6 +19,7 @@ app.add_typer(plan_app, name="plan")
 app.add_typer(run_app, name="run")
 app.add_typer(task_app, name="task")
 app.add_typer(benchmark_app, name="benchmark")
+app.add_typer(eval_app, name="eval")
 
 # Flat commands
 app.command("status")(ops.status)

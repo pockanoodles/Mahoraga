@@ -137,7 +137,8 @@ async def test_gateway_handles_planner_error():
     gw = _make_gateway(store)
 
     planner_error = AsyncMock(side_effect=PlannerError("model overloaded"))
-    msg = _make_msg()
+    # Use a tier-3 message (contains "architecture" keyword) so the planner is invoked
+    msg = _make_msg("Design the full system architecture for a microservices platform")
 
     with patch("backend.orchestrator.gateway.generate_tasks", planner_error):
         chunks = [c async for c in gw.handle_message(msg)]

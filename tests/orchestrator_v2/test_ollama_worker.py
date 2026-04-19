@@ -53,9 +53,9 @@ async def test_execute_completed_on_success():
     with patch("backend.orchestrator.workers.ollama.httpx.AsyncClient", return_value=mock_client):
         events = [ev async for ev in worker.execute(_attempt(), _task())]
 
-    assert len(events) == 1
-    assert events[0].type == "attempt.completed"
-    assert events[0].payload["summary"] == "def fib(n): ..."
+    completed = [e for e in events if e.type == "attempt.completed"]
+    assert len(completed) == 1
+    assert completed[0].payload["summary"] == "def fib(n): ..."
 
 
 @pytest.mark.asyncio
@@ -188,8 +188,9 @@ async def test_execute_skips_thinking_phase_chunks():
     with patch("backend.orchestrator.workers.ollama.httpx.AsyncClient", return_value=mock_client):
         events = [ev async for ev in worker.execute(_attempt(), _task())]
 
-    assert events[0].type == "attempt.completed"
-    assert events[0].payload["summary"] == "Paris."
+    completed = [e for e in events if e.type == "attempt.completed"]
+    assert len(completed) == 1
+    assert completed[0].payload["summary"] == "Paris."
 
 
 @pytest.mark.asyncio

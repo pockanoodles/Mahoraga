@@ -912,6 +912,7 @@ async def eval_start(
 async def eval_task(
     req: _EvalTaskRequest,
     registry: RegistryDep,
+    adapter_reg: AdapterRegistryDep,
     bandit: Annotated[BanditRouter, Depends(get_bandit_router)],
     eval_store: EvalStoreDep,
 ) -> _EvalTaskResult:
@@ -919,7 +920,8 @@ async def eval_task(
     import time as _time
     import uuid as _uuid
 
-    # Select agent
+    # Select agent — bandit returns adapter name (e.g. "claude"); we need worker_id
+    _bandit_adapter_name: str | None = None
     if req.routing_mode.startswith("fixed:"):
         agent_id = req.routing_mode.removeprefix("fixed:")
     else:
@@ -927,7 +929,9 @@ async def eval_task(
         class _EvalTask:
             title: str
             goal: str
-        agent_id = bandit.route(_EvalTask(title=req.text, goal=req.text))
+        _bandit_adapter_name = bandit.route(_EvalTask(title=req.text, goal=req.text))
+        adapter = adapter_reg.get(_bandit_adapter_name)
+        agent_id = adapter.worker_id if adapter else _bandit_adapter_name
 
     # Build minimal task and attempt objects
     task_id = req.task_id or str(_uuid.uuid4())
@@ -966,6 +970,20 @@ async def eval_task(
 
     latency_ms = (_time.monotonic() - start) * 1000
     reward = 0.7 if success else 0.0
+
+    # Feed outcome back to bandit (same as production routing) — only for adaptive mode
+    if _bandit_adapter_name is not None:
+        from ..routing.reward import TaskOutcome as _TaskOutcome
+        bandit.observe(
+            type("_T", (), {"goal": req.text, "id": task_id})(),
+            _TaskOutcome(
+                success=success,
+                latency_s=latency_ms / 1000,
+                cost_usd=0.0,
+                quality_score=reward,
+                agent_name=_bandit_adapter_name,
+            ),
+        )
 
     if req.run_id is not None:
         await eval_store.insert_run_task(

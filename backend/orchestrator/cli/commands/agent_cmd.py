@@ -18,7 +18,7 @@ def add_agent(
     """Register a new agent, run smoke test, benchmark it, and update rankings."""
 
     async def _run():
-        from ..routing.benchmark.agent_benchmark import run_agent_benchmark
+        from ...routing.benchmark.agent_benchmark import run_agent_benchmark
 
         # 1. Check the agent is registered and healthy
         typer.echo(f"Checking agent: {model}")

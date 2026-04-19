@@ -24,7 +24,7 @@ def ab_eval(
     json_output: bool = typer.Option(False, "--json", help="Output JSON"),
 ) -> None:
     """Run A/B evaluation: compare routing OFF vs ON on a fixed task suite."""
-    from ..eval.runner import run_ab_eval, print_ab_report
+    from ...eval.runner import run_ab_eval, print_ab_report
 
     if not tasks.exists():
         typer.echo(f"Task suite not found: {tasks}", err=True)

@@ -1,6 +1,8 @@
 from __future__ import annotations
 import logging
+import sqlite3
 from math import sqrt
+from pathlib import Path
 
 log = logging.getLogger(__name__)
 
@@ -9,6 +11,30 @@ HARNESS_WEIGHT = 0.3
 
 _BUCKETS = ["code", "test", "refactor", "debug", "research", "plan", "review", "security"]
 _DIFFICULTIES = ["simple", "medium", "complex"]
+_DECISION_LOG_PATH = Path.home() / ".mahoraga" / "routing_decisions.db"
+
+
+def _load_decision_log(limit: int = 5000) -> list[dict]:
+    """Read routing decisions directly from the bandit decision log."""
+    if not _DECISION_LOG_PATH.exists():
+        return []
+    try:
+        conn = sqlite3.connect(str(_DECISION_LOG_PATH), check_same_thread=False)
+        cur = conn.execute(
+            "SELECT selected_agent, success, reward, latency_s "
+            "FROM decisions WHERE reward IS NOT NULL "
+            "ORDER BY id DESC LIMIT ?",
+            (limit,),
+        )
+        rows = [
+            {"agent_name": r[0], "success": r[1], "reward_score": r[2], "wall_time_ms": (r[3] or 0) * 1000}
+            for r in cur.fetchall()
+        ]
+        conn.close()
+        return rows
+    except Exception as e:
+        log.warning("could not read decision log: %s", e)
+        return []
 
 
 def wilson_interval(successes: int, total: int, z: float = 1.96) -> tuple[float, float]:
@@ -56,7 +82,10 @@ def build_rankings_rows(metrics: list[dict]) -> list[dict]:
 async def rebuild_rankings(metrics_store, rankings_store) -> None:
     """Recompute and persist all ranking scopes from live history + harness data."""
 
-    live_history = await metrics_store.get_history(limit=5000)
+    # Combine task_metrics (orchestrator runs) + decision log (bandit routing history)
+    task_history = await metrics_store.get_history(limit=5000)
+    decision_log_rows = _load_decision_log(limit=5000)
+    live_history = task_history + decision_log_rows
 
     def _agg_live(rows: list[dict]) -> dict[str, dict]:
         agents: dict[str, dict] = {}

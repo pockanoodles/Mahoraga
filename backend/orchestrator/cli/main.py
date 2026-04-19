@@ -7,6 +7,7 @@ from .commands.task import app as task_app
 from .commands.benchmark import app as benchmark_app
 from .commands.eval import app as eval_app
 from .commands.rankings import app as rankings_app
+from .commands.agent_cmd import app as agent_app
 from .commands import ops
 
 app = typer.Typer(
@@ -22,6 +23,7 @@ app.add_typer(task_app, name="task")
 app.add_typer(benchmark_app, name="benchmark")
 app.add_typer(eval_app, name="eval")
 app.add_typer(rankings_app, name="rankings")
+app.add_typer(agent_app, name="agent")
 
 # Flat commands
 app.command("status")(ops.status)

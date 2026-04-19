@@ -1029,6 +1029,43 @@ async def get_rankings(
     return {"scope_type": scope_type, "scope_value": scope_value, "rankings": rows}
 
 
+class _BenchmarkRunRequest(BaseModel):
+    agent: str
+    bucket: str | None = None
+    difficulty: str | None = None
+    avg_latency_ms: float | None = None
+    median_latency_ms: float | None = None
+    p90_latency_ms: float | None = None
+    win_rate: float | None = None
+    reward_mean: float | None = None
+    sample_count: int = 0
+    source: str = "harness"
+
+
+@app.post("/api/rankings/benchmark")
+async def upsert_benchmark_run(
+    req: _BenchmarkRunRequest,
+    rankings_store: RankingsStoreDep,
+    metrics_store: MetricsStoreDep,
+) -> dict:
+    """Record a benchmark result and rebuild rankings."""
+    await rankings_store.upsert_benchmark_run(
+        agent=req.agent,
+        bucket=req.bucket,
+        difficulty=req.difficulty,
+        avg_latency_ms=req.avg_latency_ms,
+        median_latency_ms=req.median_latency_ms,
+        p90_latency_ms=req.p90_latency_ms,
+        win_rate=req.win_rate,
+        reward_mean=req.reward_mean,
+        sample_count=req.sample_count,
+        source=req.source,
+    )
+    from ..rankings.aggregator import rebuild_rankings
+    await rebuild_rankings(metrics_store, rankings_store)
+    return {"ok": True}
+
+
 # ── routing endpoints ─────────────────────────────────────────────────────────
 
 @app.get("/api/routing/stats")

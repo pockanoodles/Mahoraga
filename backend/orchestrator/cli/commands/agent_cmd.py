@@ -53,8 +53,21 @@ def add_agent(
 
         typer.echo(f"Smoke test: PASSED")
 
-        # Now trigger rankings rebuild so the new agent appears.
-        if not skip_benchmark:
+        # Record benchmark results in benchmark_runs table and rebuild rankings.
+        if not skip_benchmark and result.benchmark_n > 0:
+            typer.echo("Recording benchmark results and rebuilding rankings...")
+            successes = int(result.benchmark_success_rate * result.benchmark_n)
+            win_rate = successes / result.benchmark_n if result.benchmark_n > 0 else 0.0
+            httpx.post(f"{BASE_URL}/api/rankings/benchmark", json={
+                "agent": model,
+                "avg_latency_ms": result.benchmark_mean_latency_ms,
+                "median_latency_ms": result.benchmark_mean_latency_ms,
+                "win_rate": win_rate,
+                "reward_mean": result.benchmark_mean_reward,
+                "sample_count": result.benchmark_n,
+                "source": "harness",
+            }, timeout=60.0)
+        elif not skip_benchmark:
             typer.echo("Rebuilding rankings...")
             httpx.get(f"{BASE_URL}/api/rankings", params={"refresh": "true"}, timeout=60.0)
 

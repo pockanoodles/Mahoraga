@@ -70,5 +70,5 @@ def rankings(
         typer.echo(f"{rank:<6} {a:<22} {wr:<10} {ci:<16} {lat:<14} {rwd:<12} {n:<6}")
 
     if verbose:
-        typer.echo("\n(verbose: source breakdown coming in --refresh mode)")
+        typer.echo("\n(verbose: per-bucket and per-difficulty breakdown not yet implemented)")
     typer.echo()

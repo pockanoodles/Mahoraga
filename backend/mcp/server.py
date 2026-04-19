@@ -268,6 +268,27 @@ async def list_tools() -> list[Tool]:
                 "required": [],
             },
         ),
+        Tool(
+            name="switch_routing_mode",
+            description=(
+                "Set Mahoraga's routing mode preference. 'local_first' restricts routing to free "
+                "agents (ollama, aider, gemini-cli) when any are available — good for budget-conscious "
+                "use. 'balanced' lets the bandit decide based on composite reward (default). "
+                "'quality_first' routes to the highest-reward agent regardless of cost. "
+                "Changes take effect on the next routing decision."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "mode": {
+                        "type": "string",
+                        "enum": ["local_first", "balanced", "quality_first"],
+                        "description": "The routing mode to activate.",
+                    }
+                },
+                "required": ["mode"],
+            },
+        ),
     ]
 
 
@@ -282,6 +303,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         "routing_stats": _handle_routing_stats,
         "switch_strategy": _handle_switch_strategy,
         "recent_decisions": _handle_recent_decisions,
+        "switch_routing_mode": _handle_switch_routing_mode,
     }
     handler = handlers.get(name)
     if not handler:
@@ -327,6 +349,10 @@ async def _handle_routing_stats(args: dict) -> dict:
 
 async def _handle_switch_strategy(args: dict) -> dict:
     return await _post("/api/routing/strategy", {"strategy": args["strategy"]})
+
+
+async def _handle_switch_routing_mode(args: dict) -> dict:
+    return await _post("/api/routing/mode", {"mode": args["mode"]})
 
 
 async def _handle_recent_decisions(args: dict) -> dict:

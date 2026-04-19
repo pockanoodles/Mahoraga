@@ -26,6 +26,7 @@ from .episodic_memory import EpisodicMemory, MEMORY_ALPHA
 from .decision_log import DecisionLogger
 from .strategies import StaticRouter, UCB1Router, ThompsonSamplingRouter, LinUCBRouter
 from .warm_start import load_compatibility_matrix, warm_start_from_matrix
+from ..config import MahoragaConfig
 
 if TYPE_CHECKING:
     from ..adapters.registry import AdapterRegistry
@@ -129,6 +130,17 @@ class BanditRouter:
         if not available:
             raise RuntimeError("No agents registered in the adapter registry")
 
+        # Apply routing_mode preference
+        _mode = MahoragaConfig().get("routing_mode") or "balanced"
+        _FREE = {"ollama", "aider", "gemini-cli"}
+
+        if _mode == "local_first":
+            free_available = [a for a in available if a in _FREE]
+            if free_available:
+                available = free_available
+        elif _mode == "quality_first":
+            pass  # bandit selects freely — cost weight in reward function handles this naturally
+
         # Query episodic memory for similarity-weighted reward biases
         vec = context.to_vector()
         memory_biases = self._memory.query_biases(vec, available_agents=available)
@@ -184,6 +196,39 @@ class BanditRouter:
         self.strategy.save_state(str(self.state_path))
 
         self.logger.log_outcome(task=task, outcome=outcome, reward=reward)
+
+    def apply_implicit_reward(
+        self,
+        task_id: str,
+        agent_name: str,
+        task_goal: str,
+        implicit_signal: float,
+    ) -> None:
+        """Nudge the bandit with an implicit quality signal (retry=0.0, accept=0.6).
+
+        Does NOT call reward_calc — the signal is already a reward value.
+        Does NOT update the OLS learner — we lack the full outcome.
+        """
+        # Build a minimal task-like object so TaskContext.from_task() has what it needs.
+        @dataclasses.dataclass
+        class _MinimalTask:
+            title: str
+            goal: str
+
+        context = TaskContext.from_task(_MinimalTask(title=task_goal, goal=task_goal))
+
+        self.strategy.update(context, agent_name, implicit_signal)
+        self._memory.add(context.to_vector(), agent=agent_name, reward=implicit_signal)
+
+        self.state_path.parent.mkdir(parents=True, exist_ok=True)
+        self.strategy.save_state(str(self.state_path))
+
+        _log.debug(
+            "implicit reward applied: agent=%s signal=%.2f task_id=%s",
+            agent_name,
+            implicit_signal,
+            task_id,
+        )
 
     def set_strategy(self, name: str) -> None:
         """Switch routing strategy at runtime. Resets to fresh state."""

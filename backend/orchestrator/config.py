@@ -13,6 +13,7 @@ _DEFAULTS: dict = {
     "active_backend": "ollama",
     "ollama_base_url": "http://localhost:11434",
     "workdir": None,  # None = inherit uvicorn CWD
+    "routing_mode": "balanced",  # "local_first" | "balanced" | "quality_first"
 }
 
 

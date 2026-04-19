@@ -134,4 +134,41 @@ class GooseWorker(WorkerAdapter):
                 healthy=False,
                 detail="goose not found in PATH. Install: brew install goose",
             )
+
+        # Verify this is the Block AI Goose agent, not the Pressly DB migration tool.
+        # The DB migration tool prints keywords like "postgres", "mysql", "sqlite3",
+        # "driver", or "migration" in its version output.
+        _DB_MIGRATION_KEYWORDS = {"postgres", "mysql", "sqlite3", "driver", "migration"}
+        try:
+            proc = await asyncio.wait_for(
+                asyncio.create_subprocess_exec(
+                    binary, "--version",
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                ),
+                timeout=3.0,
+            )
+            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=3.0)
+            version_output = (stdout + stderr).decode("utf-8", errors="replace").lower()
+            if not version_output.strip():
+                raise ValueError("empty version output")
+            if any(kw in version_output for kw in _DB_MIGRATION_KEYWORDS):
+                return WorkerHealth(
+                    worker_id=self._worker_id,
+                    healthy=False,
+                    detail=(
+                        "goose binary is a DB migration tool, not the Block AI agent. "
+                        "See https://github.com/block/goose for install instructions."
+                    ),
+                )
+        except Exception as exc:
+            return WorkerHealth(
+                worker_id=self._worker_id,
+                healthy=False,
+                detail=(
+                    "goose binary is a DB migration tool, not the Block AI agent. "
+                    "See https://github.com/block/goose for install instructions."
+                ),
+            )
+
         return WorkerHealth(worker_id=self._worker_id, healthy=True, detail=f"binary={binary}")

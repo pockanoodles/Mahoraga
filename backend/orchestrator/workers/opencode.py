@@ -4,9 +4,14 @@ Requirements: npm install -g opencode-ai
               OR: curl -fsSL https://opencode.ai/install | bash
 Spawns `opencode -p` (non-interactive prompt mode) and collects stdout.
 
-NOTE: Verify flags with `opencode --help` if behavior is unexpected.
-The -p flag is the standard non-interactive convention shared by Claude Code,
-Gemini CLI, and OpenCode.
+REQUIREMENT: OpenCode must support headless/non-interactive mode via the -p or
+--prompt flag. If your installed version is interactive-only, this worker will
+report unhealthy. Check `opencode --help` and upgrade to a version that includes
+the -p / --prompt flag before routing tasks here.
+
+NOTE: The -p flag is the standard non-interactive convention shared by Claude Code,
+Gemini CLI, and OpenCode. If `opencode --help` shows a different flag, update the
+execute() command accordingly.
 """
 from __future__ import annotations
 import asyncio
@@ -139,4 +144,38 @@ class OpenCodeWorker(WorkerAdapter):
                 healthy=False,
                 detail="opencode not found in PATH. Install: npm install -g opencode-ai",
             )
+
+        # Verify headless/non-interactive mode is available via -p / --prompt.
+        # If the installed version is interactive-only it will not list these flags,
+        # and any attempt to invoke `opencode -p <message>` will fail with "unknown flag".
+        try:
+            proc = await asyncio.wait_for(
+                asyncio.create_subprocess_exec(
+                    binary, "--help",
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                ),
+                timeout=3.0,
+            )
+            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=3.0)
+            help_output = (stdout + stderr).decode("utf-8", errors="replace")
+            if "-p" not in help_output and "--prompt" not in help_output:
+                return WorkerHealth(
+                    worker_id=self._worker_id,
+                    healthy=False,
+                    detail=(
+                        "opencode does not support headless/non-interactive mode "
+                        "(-p flag not found). Headless support is required for Mahoraga."
+                    ),
+                )
+        except Exception:
+            return WorkerHealth(
+                worker_id=self._worker_id,
+                healthy=False,
+                detail=(
+                    "opencode does not support headless/non-interactive mode "
+                    "(-p flag not found). Headless support is required for Mahoraga."
+                ),
+            )
+
         return WorkerHealth(worker_id=self._worker_id, healthy=True, detail=f"binary={binary}, model={self._model or 'auto'}")

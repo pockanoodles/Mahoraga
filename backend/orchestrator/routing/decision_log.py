@@ -263,6 +263,24 @@ class DecisionLogger:
             col_names = [d[0] for d in cur.description]
             return [dict(zip(col_names, row)) for row in cur.fetchall()]
 
+    def get_decision_by_task_id(self, task_id: str) -> dict | None:
+        """Return the most-recent decision row for the given task_id as a dict.
+
+        Returned dict includes at least: task_id, task_goal, selected_agent,
+        context_vector.  Returns None if no matching row is found.
+        """
+        with self._lock:
+            cur = self._conn.execute(
+                "SELECT task_id, task_goal, selected_agent, context_vector "
+                "FROM decisions WHERE task_id = ? ORDER BY id DESC LIMIT 1",
+                (task_id,),
+            )
+            row = cur.fetchone()
+            if row is None:
+                return None
+            col_names = [d[0] for d in cur.description]
+            return dict(zip(col_names, row))
+
     def count(self) -> int:
         """Return total number of logged decisions."""
         with self._lock:

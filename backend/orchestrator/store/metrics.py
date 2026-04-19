@@ -1,7 +1,30 @@
 from __future__ import annotations
+import re
 import time
 from typing import Any
 import aiosqlite
+
+_BUCKET_KEYWORDS: dict[str, list[str]] = {
+    "code":     ["write", "implement", "function", "class", "script", "module", "def ", "return"],
+    "test":     ["test", "pytest", "unittest", "spec", "assert"],
+    "refactor": ["refactor", "rename", "restructure", "clean up", "simplify"],
+    "debug":    ["debug", "fix", "bug", "error", "traceback", "exception"],
+    "research": ["search", "summarize", "find", "look up", "research", "what is"],
+    "plan":     ["plan", "design", "architect", "outline", "steps", "approach"],
+    "review":   ["review", "audit", "check", "evaluate", "assess"],
+    "security": ["security", "vulnerability", "exploit", "auth", "injection"],
+}
+
+
+def _classify_bucket(text: str, hint: str | None = None) -> str:
+    """Map a prompt (and optional capability hint) to a reward bucket name."""
+    if hint and hint in _BUCKET_KEYWORDS:
+        return hint
+    lower = text.lower()
+    for bucket, keywords in _BUCKET_KEYWORDS.items():
+        if any(kw in lower for kw in keywords):
+            return bucket
+    return "general"
 
 
 class MetricsStore:

@@ -49,6 +49,8 @@ from ..planning.planner import generate_tasks, PlannerError
 from ..routing import BanditRouter, STRATEGIES, TaskOutcome
 from ..routing.implicit_quality import ImplicitQualityTracker
 from ..store.eval_store import EvalStore
+from ..store.rankings_store import RankingsStore
+from ..store.metrics import MetricsStore
 from ..domain.models import TaskAttempt
 
 # ── singletons (replaced via dependency_overrides in tests) ──────────────────
@@ -108,6 +110,23 @@ VerifierDep = Annotated[Verifier, Depends(get_verifier)]
 GatewayDep = Annotated[Gateway, Depends(get_gateway)]
 AdapterRegistryDep = Annotated[AdapterRegistry, Depends(get_adapter_registry)]
 EvalStoreDep = Annotated[EvalStore, Depends(get_eval_store)]
+
+_rankings_store: RankingsStore | None = None
+_metrics_store: MetricsStore | None = None
+
+
+def get_rankings_store() -> RankingsStore:
+    assert _rankings_store is not None
+    return _rankings_store
+
+
+def get_metrics_store() -> MetricsStore:
+    assert _metrics_store is not None
+    return _metrics_store
+
+
+RankingsStoreDep = Annotated[RankingsStore, Depends(get_rankings_store)]
+MetricsStoreDep = Annotated[MetricsStore, Depends(get_metrics_store)]
 
 
 # ── lifespan ─────────────────────────────────────────────────────────────────
@@ -230,6 +249,12 @@ async def lifespan(app: FastAPI):
     global _eval_store
     _eval_store = EvalStore(_store._conn)
     await _eval_store.migrate()
+
+    global _rankings_store, _metrics_store
+    _rankings_store = RankingsStore(_store._conn)
+    await _rankings_store.migrate()
+    _metrics_store = MetricsStore(_store._conn)
+    await _metrics_store.migrate()
 
     _gateway = Gateway(
         store=_store,
@@ -973,6 +998,35 @@ async def eval_finish(
 ) -> dict:
     await eval_store.finish_run(req.run_id)
     return {"ok": True}
+
+
+@app.get("/api/rankings")
+async def get_rankings(
+    rankings_store: RankingsStoreDep,
+    metrics_store: MetricsStoreDep,
+    scope_type: str = "overall",
+    scope_value: str = "all",
+    bucket: str | None = None,
+    difficulty: str | None = None,
+    agent: str | None = None,
+    limit: int = 20,
+    refresh: bool = False,
+) -> dict:
+    from ..rankings.aggregator import rebuild_rankings
+    if refresh:
+        await rebuild_rankings(metrics_store, rankings_store)
+
+    if bucket:
+        scope_type, scope_value = "bucket", bucket
+    elif difficulty:
+        scope_type, scope_value = "difficulty", difficulty
+
+    rows = await rankings_store.get_rankings(
+        scope_type=scope_type, scope_value=scope_value, limit=limit
+    )
+    if agent:
+        rows = [r for r in rows if r["agent"] == agent]
+    return {"scope_type": scope_type, "scope_value": scope_value, "rankings": rows}
 
 
 # ── routing endpoints ─────────────────────────────────────────────────────────

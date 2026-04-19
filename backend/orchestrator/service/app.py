@@ -48,6 +48,8 @@ from .run_executor import run_run as _run_run
 from ..planning.planner import generate_tasks, PlannerError
 from ..routing import BanditRouter, STRATEGIES, TaskOutcome
 from ..routing.implicit_quality import ImplicitQualityTracker
+from ..store.eval_store import EvalStore
+from ..domain.models import TaskAttempt
 
 # ── singletons (replaced via dependency_overrides in tests) ──────────────────
 
@@ -61,6 +63,7 @@ _config: MahoragaConfig | None = None
 _adapter_registry: AdapterRegistry | None = None
 _bandit_router: BanditRouter | None = None
 _implicit_tracker: ImplicitQualityTracker | None = None
+_eval_store: EvalStore | None = None
 _START_TIME: float = time.time()
 
 
@@ -94,11 +97,17 @@ def get_bandit_router() -> BanditRouter:
     return _bandit_router
 
 
+def get_eval_store() -> EvalStore:
+    assert _eval_store is not None, "EvalStore not initialised"
+    return _eval_store
+
+
 StoreDep = Annotated[Store, Depends(get_store)]
 RegistryDep = Annotated[WorkerRegistry, Depends(get_registry)]
 VerifierDep = Annotated[Verifier, Depends(get_verifier)]
 GatewayDep = Annotated[Gateway, Depends(get_gateway)]
 AdapterRegistryDep = Annotated[AdapterRegistry, Depends(get_adapter_registry)]
+EvalStoreDep = Annotated[EvalStore, Depends(get_eval_store)]
 
 
 # ── lifespan ─────────────────────────────────────────────────────────────────
@@ -218,6 +227,10 @@ async def lifespan(app: FastAPI):
     _cost_ledger = CostLedger(_store._conn)
     await _cost_ledger.migrate()
 
+    global _eval_store
+    _eval_store = EvalStore(_store._conn)
+    await _eval_store.migrate()
+
     _gateway = Gateway(
         store=_store,
         registry=_registry,
@@ -241,6 +254,36 @@ app = FastAPI(title="Orchestrator v2", lifespan=lifespan)
 class _ChatRequest(BaseModel):
     message: str
     user_id: str = "web-user"
+
+
+class _EvalStartRequest(BaseModel):
+    run_type: str
+    routing_enabled: bool
+    baseline_policy: str | None = None
+    suite_name: str
+    repeat_index: int = 0
+
+
+class _EvalTaskRequest(BaseModel):
+    text: str
+    bucket: str = "general"
+    difficulty: str = "medium"
+    routing_mode: str = "adaptive"  # "adaptive" | "fixed:agent_id"
+    run_id: int | None = None
+    task_id: str | None = None
+
+
+class _EvalTaskResult(BaseModel):
+    agent: str
+    latency_ms: float
+    ttft_ms: float | None
+    success: bool
+    reward: float | None
+    output_preview: str
+
+
+class _EvalFinishRequest(BaseModel):
+    run_id: int
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -823,6 +866,115 @@ async def list_plans(store: StoreDep, mission_id: str | None = None):
              "version": p.version} for p in plans]
 
 
+# ── eval endpoints ───────────────────────────────────────────────────────────
+
+@app.post("/api/eval/start")
+async def eval_start(
+    req: _EvalStartRequest,
+    eval_store: EvalStoreDep,
+) -> dict:
+    run_id = await eval_store.create_run(
+        run_type=req.run_type,
+        routing_enabled=req.routing_enabled,
+        baseline_policy=req.baseline_policy,
+        suite_name=req.suite_name,
+        repeat_index=req.repeat_index,
+    )
+    return {"run_id": run_id}
+
+
+@app.post("/api/eval/task", response_model=_EvalTaskResult)
+async def eval_task(
+    req: _EvalTaskRequest,
+    registry: RegistryDep,
+    bandit: Annotated[BanditRouter, Depends(get_bandit_router)],
+    eval_store: EvalStoreDep,
+) -> _EvalTaskResult:
+    import dataclasses as _dc
+    import time as _time
+    import uuid as _uuid
+
+    # Select agent
+    if req.routing_mode.startswith("fixed:"):
+        agent_id = req.routing_mode.removeprefix("fixed:")
+    else:
+        @_dc.dataclass
+        class _EvalTask:
+            title: str
+            goal: str
+        agent_id = bandit.route(_EvalTask(title=req.text, goal=req.text))
+
+    # Build minimal task and attempt objects
+    task_id = req.task_id or str(_uuid.uuid4())
+
+    @_dc.dataclass
+    class _EvalTaskObj:
+        id: str
+        goal: str
+        title: str
+        scope: str = ""
+        context_refs: list = _dc.field(default_factory=list)
+        constraints: list = _dc.field(default_factory=list)
+        done_criteria: str = ""
+
+    task_obj = _EvalTaskObj(id=task_id, goal=req.text, title=req.text[:80])
+    attempt = TaskAttempt.new(task_id=task_id, worker_id=agent_id)
+
+    # Execute
+    worker = registry.get(agent_id)
+    start = _time.monotonic()
+    ttft_ms: float | None = None
+    output_parts: list[str] = []
+    success = False
+
+    try:
+        async for event in worker.execute(attempt, task_obj, None):
+            if ttft_ms is None:
+                ttft_ms = (_time.monotonic() - start) * 1000
+            if event.type == "attempt.completed":
+                success = True
+                output_parts.append(event.payload.get("summary", ""))
+            elif event.type == "attempt.failed":
+                success = False
+    except Exception:
+        success = False
+
+    latency_ms = (_time.monotonic() - start) * 1000
+    reward = 0.7 if success else 0.0
+
+    if req.run_id is not None:
+        await eval_store.insert_run_task(
+            run_id=req.run_id,
+            task_id=task_id,
+            task_text=req.text,
+            bucket=req.bucket,
+            difficulty=req.difficulty,
+            selected_agent=agent_id,
+            latency_ms=latency_ms,
+            success=success,
+            reward=reward,
+            ttft_ms=ttft_ms,
+        )
+
+    return _EvalTaskResult(
+        agent=agent_id,
+        latency_ms=latency_ms,
+        ttft_ms=ttft_ms,
+        success=success,
+        reward=reward,
+        output_preview="".join(output_parts)[:200],
+    )
+
+
+@app.post("/api/eval/finish")
+async def eval_finish(
+    req: _EvalFinishRequest,
+    eval_store: EvalStoreDep,
+) -> dict:
+    await eval_store.finish_run(req.run_id)
+    return {"ok": True}
+
+
 # ── routing endpoints ─────────────────────────────────────────────────────────
 
 @app.get("/api/routing/stats")
@@ -867,6 +1019,29 @@ async def set_routing_strategy(body: dict):
         raise HTTPException(status_code=400, detail=f"Unknown strategy: {name}. Options: {list(STRATEGIES)}")
     router.set_strategy(name)
     return {"strategy": name, "message": f"Switched to {name}"}
+
+
+_VALID_ROUTING_MODES = {"local_first", "balanced", "quality_first"}
+
+
+@app.get("/api/routing/mode")
+async def get_routing_mode():
+    """Return the current routing_mode preference."""
+    mode = MahoragaConfig().get("routing_mode") or "balanced"
+    return {"routing_mode": mode}
+
+
+@app.post("/api/routing/mode")
+async def set_routing_mode(body: dict):
+    """Set the routing_mode preference. Takes effect on the next routing decision."""
+    mode = body.get("mode", "")
+    if mode not in _VALID_ROUTING_MODES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid mode {mode!r}. Options: {sorted(_VALID_ROUTING_MODES)}",
+        )
+    MahoragaConfig().set("routing_mode", mode)
+    return {"routing_mode": mode, "message": f"Switched to {mode}"}
 
 
 @app.post("/api/routing/dry-run")
@@ -985,6 +1160,16 @@ async def run_api_task(
             _asyncio.ensure_future(
                 _store.metrics.update_implicit_quality(task_id=_prev_id, implicit_quality=_score)
             )
+            # Also nudge the bandit with the implicit signal
+            _bandit_router = get_bandit_router()
+            _prev_decision = _bandit_router.logger.get_decision_by_task_id(_prev_id)
+            if _prev_decision:
+                _bandit_router.apply_implicit_reward(
+                    task_id=_prev_id,
+                    agent_name=_prev_decision["selected_agent"],
+                    task_goal=_prev_decision.get("task_goal", ""),
+                    implicit_signal=_score,
+                )
 
     # Minimal infrastructure: one mission → plan → run → task
     mission = Mission.new(title=f"MCP: {req.prompt[:40]}", goal=req.prompt)
@@ -1045,7 +1230,7 @@ async def run_api_task(
     prompt_eval_rate = ollama_m.get("prompt_eval_rate", 0.0)
     agent_spawn_ms = max(0.0, wall_time_ms - routing_time_ms - (ollama_m.get("elapsed_s", 0) * 1000))
 
-    bucket = _classify_bucket(req.prompt)
+    bucket = _classify_bucket(req.prompt, hint=req.capability_hint)
     from ..routing.quality import score_quality as _score_quality
     quality_score = (await _score_quality(req.prompt, output, bucket)) if success else 0.0
 
@@ -1068,7 +1253,7 @@ async def run_api_task(
         task_id=task.id,
         prompt_text=req.prompt,
         agent_name=selected_agent,
-        capability_bucket=_classify_bucket(req.prompt),
+        capability_bucket=_classify_bucket(req.prompt, hint=req.capability_hint),
         wall_time_ms=round(wall_time_ms, 2),
         routing_time_ms=round(routing_time_ms, 2),
         agent_spawn_time_ms=round(agent_spawn_ms, 2),
@@ -1173,13 +1358,18 @@ async def run_batch(
 
     # Pre-route all tasks through bandit
     assignments: dict[str, str] = {}
-    for task in created:
+    hints: dict[str, str | None] = {}
+    for task, item in zip(created, req.tasks):
         assignments[task.id] = router.route(task)
+        hints[task.id] = item.capability_hint
 
     sequential_s = 0.0
 
     async def _run_single(task: Task, agent: str) -> dict:
         nonlocal sequential_s
+        from ..store.metrics import _classify_bucket
+        from ..routing.quality import score_quality as _score_quality
+
         adapter = adapter_reg.get(agent)
         t_run = dataclasses.replace(task, preferred_worker_type=adapter.worker_id) if adapter else task
         await store.tasks.update_status(t_run.id, TaskStatus.ready)
@@ -1195,9 +1385,26 @@ async def run_batch(
             (a.location.get("content", "") for a in artifacts if a.type == "text_output"), ""
         )
         task_index = next((i for i, t in enumerate(created) if t.id == task.id), -1)
+        status = "success" if t_result.status == TaskStatus.completed else "failed"
+        success = status == "success"
+
+        # Feed outcome back to bandit — same path as single-task endpoint
+        bucket = _classify_bucket(task.goal, hint=hints.get(task.id))
+        quality_score = (await _score_quality(task.goal, output, bucket)) if success else 0.0
+        outcome = TaskOutcome(
+            success=success,
+            latency_s=elapsed,
+            cost_usd=0.0,
+            quality_score=quality_score,
+            agent_name=agent,
+            bucket=bucket,
+            spawn_time_ms=0.0,
+        )
+        router.observe(task, outcome)
+
         return {
             "task_index": task_index,
-            "status": "success" if t_result.status == TaskStatus.completed else "failed",
+            "status": status,
             "agent": agent,
             "resource_group": get_resource_group(agent),
             "elapsed_s": elapsed,

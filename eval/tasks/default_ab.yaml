@@ -1,0 +1,75 @@
+suite: default_ab
+seed: 42
+tasks:
+  - id: code_simple_1
+    text: "Write a Python function that returns the median of a list of numbers"
+    bucket: code
+    difficulty: simple
+  - id: code_medium_1
+    text: "Implement a Python class for a thread-safe LRU cache with get and put methods"
+    bucket: code
+    difficulty: medium
+  - id: debug_simple_1
+    text: "Find the bug in this function: def add(a, b): return a - b"
+    bucket: debug
+    difficulty: simple
+  - id: debug_medium_1
+    text: "Explain what causes this error and how to fix it: AttributeError: 'NoneType' object has no attribute 'split'"
+    bucket: debug
+    difficulty: medium
+  - id: refactor_simple_1
+    text: "Rename the variable x to count in this function: def f(x): return x * 2"
+    bucket: refactor
+    difficulty: simple
+  - id: refactor_medium_1
+    text: "Refactor this code to use a list comprehension: results = []\nfor item in items:\n    if item > 0:\n        results.append(item * 2)"
+    bucket: refactor
+    difficulty: medium
+  - id: research_simple_1
+    text: "What is the difference between a list and a tuple in Python?"
+    bucket: research
+    difficulty: simple
+  - id: research_medium_1
+    text: "Compare SQLite and PostgreSQL for a local single-user development tool. Which should you choose and why?"
+    bucket: research
+    difficulty: medium
+  - id: plan_simple_1
+    text: "Outline the steps to set up a Python virtual environment and install a requirements.txt"
+    bucket: plan
+    difficulty: simple
+  - id: plan_medium_1
+    text: "Design a simple REST API for a todo list app: list the endpoints, HTTP methods, and data model"
+    bucket: plan
+    difficulty: medium
+  - id: test_simple_1
+    text: "Write a pytest test for a function add(a, b) that returns a + b"
+    bucket: test
+    difficulty: simple
+  - id: test_medium_1
+    text: "Write pytest tests for a Stack class with push, pop, peek, and is_empty methods, covering edge cases including empty stack"
+    bucket: test
+    difficulty: medium
+  - id: review_simple_1
+    text: "Review this code for obvious problems: def divide(a, b): return a / b"
+    bucket: review
+    difficulty: simple
+  - id: review_medium_1
+    text: "Review this Python function for security issues: def get_user(uid): return db.execute(f'SELECT * FROM users WHERE id={uid}')"
+    bucket: review
+    difficulty: medium
+  - id: security_simple_1
+    text: "What is SQL injection and how do you prevent it?"
+    bucket: security
+    difficulty: simple
+  - id: security_medium_1
+    text: "Review this authentication check for vulnerabilities: if password == stored_password: grant_access()"
+    bucket: security
+    difficulty: medium
+  - id: code_complex_1
+    text: "Implement a generic event bus in Python with subscribe, unsubscribe, and publish methods, with type-safe handlers"
+    bucket: code
+    difficulty: complex
+  - id: debug_complex_1
+    text: "Given this traceback from a FastAPI app with async SQLite, diagnose and fix the 'RuntimeError: no running event loop' error that occurs only under load"
+    bucket: debug
+    difficulty: complex

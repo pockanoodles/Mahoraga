@@ -1,7 +1,6 @@
 from unittest.mock import MagicMock, patch
 
 import httpx
-import pytest
 
 from benchmark.model_bench import discover_models, run_prompt
 

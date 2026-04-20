@@ -99,3 +99,49 @@ def append_to_log(section: str, path: Path = LOG_PATH) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "a") as f:
         f.write("\n" + section)
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Benchmark local Ollama models")
+    parser.add_argument("models", nargs="*", help="Model names (default: all from ollama list)")
+    parser.add_argument("--role", choices=ROLES, help="Run a single role set only")
+    args = parser.parse_args()
+
+    if args.models:
+        models = args.models
+    else:
+        try:
+            models = discover_models()
+        except Exception as e:
+            print(f"Error connecting to Ollama: {e}", file=sys.stderr)
+            sys.exit(1)
+
+    if not models:
+        print("No models found. Pull a model with: ollama pull <model>", file=sys.stderr)
+        sys.exit(1)
+
+    roles = [args.role] if args.role else list(ROLES)
+    run_time = datetime.datetime.now()
+
+    print(f"Benchmarking {len(models)} model(s) across {len(roles)} role set(s)...")
+    print(f"Models: {', '.join(models)}\n")
+
+    roles_data: dict[str, dict[str, dict]] = {role: {} for role in roles}
+
+    for model in models:
+        print(f"  [{model}]")
+        for role in roles:
+            print(f"    {role}... ", end="", flush=True)
+            result = bench_role(model, role)
+            roles_data[role][model] = result
+            tps_str = _fmt_tps(result["tps"])
+            print(f"done ({tps_str})")
+
+    section = format_run_section(roles_data, run_time, roles)
+    print("\n" + section)
+    append_to_log(section)
+    print(f"Results appended to {LOG_PATH}")
+
+
+if __name__ == "__main__":
+    main()

@@ -180,3 +180,58 @@ def test_append_to_log_creates_file_and_appends():
         assert "## second run" in content
         # second run comes after first
         assert content.index("first") < content.index("second")
+
+
+from unittest.mock import call, patch
+from benchmark.model_bench import main
+
+
+def test_main_full_run(capsys):
+    fake_result = {"tps": 21.0, "easy": 11.0, "medium": 34.0, "hard": 47.0}
+
+    with (
+        patch("benchmark.model_bench.discover_models", return_value=["qwen3:4b"]),
+        patch("benchmark.model_bench.bench_role", return_value=fake_result),
+        patch("benchmark.model_bench.append_to_log") as mock_log,
+    ):
+        import sys
+        sys.argv = ["model_bench.py"]
+        main()
+
+    captured = capsys.readouterr()
+    assert "qwen3:4b" in captured.out
+    assert mock_log.called
+
+
+def test_main_specific_models(capsys):
+    fake_result = {"tps": 12.0, "easy": 27.0, "medium": 58.0, "hard": None}
+
+    with (
+        patch("benchmark.model_bench.discover_models") as mock_disc,
+        patch("benchmark.model_bench.bench_role", return_value=fake_result),
+        patch("benchmark.model_bench.append_to_log"),
+    ):
+        import sys
+        sys.argv = ["model_bench.py", "qwen3:8b"]
+        main()
+        mock_disc.assert_not_called()
+
+    captured = capsys.readouterr()
+    assert "qwen3:8b" in captured.out
+
+
+def test_main_single_role(capsys):
+    fake_result = {"tps": 21.0, "easy": 11.0, "medium": 34.0, "hard": 47.0}
+
+    with (
+        patch("benchmark.model_bench.discover_models", return_value=["qwen3:4b"]),
+        patch("benchmark.model_bench.bench_role", return_value=fake_result) as mock_bench,
+        patch("benchmark.model_bench.append_to_log"),
+    ):
+        import sys
+        sys.argv = ["model_bench.py", "--role", "builder"]
+        main()
+
+    # Only called once — for the single role
+    assert mock_bench.call_count == 1
+    assert mock_bench.call_args == call("qwen3:4b", "builder")

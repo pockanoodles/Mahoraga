@@ -109,3 +109,56 @@ def test_bench_role_partial_failure():
     # Only one successful result per tier → avg of one = that value
     assert result["easy"] == 5.0
     assert result["tps"] == 10.0
+
+
+import datetime
+
+from benchmark.prompts import ROLES
+from benchmark.model_bench import format_table, format_run_section
+
+
+def test_format_table_renders_values():
+    model_results = {
+        "qwen3:4b": {"tps": 21.0, "easy": 11.0, "medium": 34.0, "hard": 47.0},
+    }
+    table = format_table("builder", model_results)
+    assert "### Builder" in table
+    assert "qwen3:4b" in table
+    assert "21 t/s" in table
+    assert "11s" in table
+    assert "34s" in table
+    assert "47s" in table
+
+
+def test_format_table_renders_dash_for_none():
+    model_results = {
+        "qwen3:8b": {"tps": None, "easy": None, "medium": None, "hard": None},
+    }
+    table = format_table("security", model_results)
+    assert "—" in table
+
+
+def test_format_run_section_contains_header_and_hardware():
+    roles_data = {
+        "builder": {"qwen3:4b": {"tps": 21.0, "easy": 11.0, "medium": 34.0, "hard": 47.0}},
+    }
+    run_time = datetime.datetime(2026, 4, 19, 14, 32)
+    section = format_run_section(roles_data, run_time, ["builder"])
+    assert "2026-04-19 14:32" in section
+    assert "MacBook Pro" in section
+    assert "### Builder" in section
+    assert section.endswith("---\n")
+
+
+def test_format_run_section_full_suite_label():
+    roles_data = {r: {} for r in ROLES}
+    run_time = datetime.datetime(2026, 4, 19, 14, 32)
+    section = format_run_section(roles_data, run_time, list(ROLES))
+    assert "Full Suite" in section
+
+
+def test_format_run_section_partial_label():
+    roles_data = {"builder": {}}
+    run_time = datetime.datetime(2026, 4, 19, 14, 32)
+    section = format_run_section(roles_data, run_time, ["builder"])
+    assert "Roles: builder" in section

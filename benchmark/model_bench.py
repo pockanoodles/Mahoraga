@@ -56,3 +56,40 @@ def bench_role(model: str, role: str) -> dict:
         },
         "tps": round(sum(all_tps) / len(all_tps), 1) if all_tps else None,
     }
+
+
+def _fmt_tier(val: Optional[float]) -> str:
+    return "—" if val is None else f"{val:.0f}s"
+
+
+def _fmt_tps(val: Optional[float]) -> str:
+    return "—" if val is None else f"{val:.0f} t/s"
+
+
+def format_table(role: str, model_results: dict[str, dict]) -> str:
+    lines = [
+        f"### {role.capitalize()}",
+        "| Model | Throughput | Easy | Medium | Hard |",
+        "|-------|-----------|------|--------|------|",
+    ]
+    for model, r in model_results.items():
+        lines.append(
+            f"| {model} | {_fmt_tps(r['tps'])} | {_fmt_tier(r['easy'])} | {_fmt_tier(r['medium'])} | {_fmt_tier(r['hard'])} |"
+        )
+    return "\n".join(lines) + "\n"
+
+
+def format_run_section(
+    roles_data: dict[str, dict[str, dict]],
+    run_time: datetime.datetime,
+    roles: list[str],
+) -> str:
+    suite_label = "Full Suite" if set(roles) == set(ROLES) else f"Roles: {', '.join(roles)}"
+    parts = [
+        f"## {run_time.strftime('%Y-%m-%d %H:%M')} — {suite_label}",
+        "**Hardware:** MacBook Pro M-series, 16 GB unified memory\n",
+    ]
+    for role in roles:
+        parts.append(format_table(role, roles_data[role]))
+    parts.append("---\n")
+    return "\n".join(parts)

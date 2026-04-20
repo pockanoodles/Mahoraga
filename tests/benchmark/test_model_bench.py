@@ -61,3 +61,51 @@ def test_run_prompt_returns_none_on_http_error():
     with patch("httpx.post", side_effect=httpx.HTTPError("bad")):
         result = run_prompt("qwen3:4b", "hello")
     assert result is None
+
+
+from benchmark.model_bench import bench_role
+
+
+def test_bench_role_averages_tiers():
+    call_count = 0
+
+    def fake_run_prompt(model, prompt, timeout=120.0):
+        nonlocal call_count
+        call_count += 1
+        # Return increasing durations so easy < medium < hard
+        return {"tps": 20.0, "duration_s": float(call_count * 10)}
+
+    with patch("benchmark.model_bench.run_prompt", side_effect=fake_run_prompt):
+        result = bench_role("qwen3:4b", "builder")
+
+    # 2 prompts per tier × 3 tiers = 6 calls
+    assert call_count == 6
+    # easy prompts: calls 1 (10s) and 2 (20s) → avg 15s
+    assert result["easy"] == 15.0
+    # medium prompts: calls 3 (30s) and 4 (40s) → avg 35.0
+    assert result["medium"] == 35.0
+    # hard prompts: calls 5 (50s) and 6 (60s) → avg 55.0
+    assert result["hard"] == 55.0
+    # tps: all 20.0 → avg 20.0
+    assert result["tps"] == 20.0
+
+
+def test_bench_role_handles_none_results():
+    with patch("benchmark.model_bench.run_prompt", return_value=None):
+        result = bench_role("qwen3:4b", "builder")
+
+    assert result["easy"] is None
+    assert result["medium"] is None
+    assert result["hard"] is None
+    assert result["tps"] is None
+
+
+def test_bench_role_partial_failure():
+    responses = [{"tps": 10.0, "duration_s": 5.0}, None]
+
+    with patch("benchmark.model_bench.run_prompt", side_effect=responses * 3):
+        result = bench_role("qwen3:4b", "builder")
+
+    # Only one successful result per tier → avg of one = that value
+    assert result["easy"] == 5.0
+    assert result["tps"] == 10.0

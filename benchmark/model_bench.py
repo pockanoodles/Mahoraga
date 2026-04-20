@@ -35,3 +35,24 @@ def run_prompt(model: str, prompt: str, timeout: float = PROMPT_TIMEOUT) -> Opti
         return {"tps": tps, "duration_s": total_duration_ns / 1e9}
     except (httpx.TimeoutException, httpx.HTTPError):
         return None
+
+
+def bench_role(model: str, role: str) -> dict:
+    prompts = PROMPT_SETS[role]
+    tier_times: dict[str, list[float]] = {t: [] for t in TIERS}
+    all_tps: list[float] = []
+
+    for tier in TIERS:
+        for prompt in prompts[tier]:
+            result = run_prompt(model, prompt)
+            if result is not None:
+                tier_times[tier].append(result["duration_s"])
+                all_tps.append(result["tps"])
+
+    return {
+        **{
+            tier: round(sum(times) / len(times), 1) if times else None
+            for tier, times in tier_times.items()
+        },
+        "tps": round(sum(all_tps) / len(all_tps), 1) if all_tps else None,
+    }

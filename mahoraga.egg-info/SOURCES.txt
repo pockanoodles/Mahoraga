@@ -10,6 +10,7 @@ backend/orchestrator/__init__.py
 backend/orchestrator/brain_logger.py
 backend/orchestrator/config.py
 backend/orchestrator/gateway.py
+backend/orchestrator/lru_cache.py
 backend/orchestrator/resource_groups.py
 backend/orchestrator/adapters/__init__.py
 backend/orchestrator/adapters/aider_adapter.py
@@ -143,6 +144,7 @@ backend/orchestrator/workers/postprocess.py
 backend/orchestrator/workers/registry.py
 backend/orchestrator/workers/router.py
 backend/orchestrator/workers/validator.py
+benchmark/__init__.py
 mahoraga.egg-info/PKG-INFO
 mahoraga.egg-info/SOURCES.txt
 mahoraga.egg-info/dependency_links.txt

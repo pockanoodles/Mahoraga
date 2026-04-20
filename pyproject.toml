@@ -12,4 +12,4 @@ orch = "backend.orchestrator.cli.main:main"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["backend*"]
+include = ["backend*", "benchmark*"]

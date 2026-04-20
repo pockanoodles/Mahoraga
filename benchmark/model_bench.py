@@ -93,3 +93,9 @@ def format_run_section(
         parts.append(format_table(role, roles_data[role]))
     parts.append("---\n")
     return "\n".join(parts)
+
+
+def append_to_log(section: str, path: Path = LOG_PATH) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "a") as f:
+        f.write("\n" + section)

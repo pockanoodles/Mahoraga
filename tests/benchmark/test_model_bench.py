@@ -162,3 +162,21 @@ def test_format_run_section_partial_label():
     run_time = datetime.datetime(2026, 4, 19, 14, 32)
     section = format_run_section(roles_data, run_time, ["builder"])
     assert "Roles: builder" in section
+
+
+import tempfile
+from pathlib import Path
+from benchmark.model_bench import append_to_log
+
+
+def test_append_to_log_creates_file_and_appends():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        log_path = Path(tmpdir) / "sub" / "hardware_log.md"
+        append_to_log("## first run\n---\n", path=log_path)
+        append_to_log("## second run\n---\n", path=log_path)
+
+        content = log_path.read_text()
+        assert "## first run" in content
+        assert "## second run" in content
+        # second run comes after first
+        assert content.index("first") < content.index("second")

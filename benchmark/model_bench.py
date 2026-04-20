@@ -97,8 +97,9 @@ def format_run_section(
 
 def append_to_log(section: str, path: Path = LOG_PATH) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
+    prefix = "" if not path.exists() or path.stat().st_size == 0 else "\n"
     with open(path, "a") as f:
-        f.write("\n" + section)
+        f.write(prefix + section)
 
 
 def main() -> None:

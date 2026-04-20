@@ -1,8 +1,21 @@
-from unittest.mock import MagicMock, patch
+import datetime
+import sys
+import tempfile
+from pathlib import Path
+from unittest.mock import MagicMock, call, patch
 
 import httpx
 
-from benchmark.model_bench import discover_models, run_prompt
+from benchmark.model_bench import (
+    append_to_log,
+    bench_role,
+    discover_models,
+    format_run_section,
+    format_table,
+    main,
+    run_prompt,
+)
+from benchmark.prompts import PROMPT_SETS, ROLES, TIERS
 
 
 def _mock_tags_response():
@@ -63,9 +76,6 @@ def test_run_prompt_returns_none_on_http_error():
     assert result is None
 
 
-from benchmark.model_bench import bench_role
-
-
 def test_bench_role_averages_tiers():
     call_count = 0
 
@@ -109,12 +119,6 @@ def test_bench_role_partial_failure():
     # Only one successful result per tier → avg of one = that value
     assert result["easy"] == 5.0
     assert result["tps"] == 10.0
-
-
-import datetime
-
-from benchmark.prompts import ROLES
-from benchmark.model_bench import format_table, format_run_section
 
 
 def test_format_table_renders_values():
@@ -164,11 +168,6 @@ def test_format_run_section_partial_label():
     assert "Roles: builder" in section
 
 
-import tempfile
-from pathlib import Path
-from benchmark.model_bench import append_to_log
-
-
 def test_append_to_log_creates_file_and_appends():
     with tempfile.TemporaryDirectory() as tmpdir:
         log_path = Path(tmpdir) / "sub" / "hardware_log.md"
@@ -182,10 +181,6 @@ def test_append_to_log_creates_file_and_appends():
         assert content.index("first") < content.index("second")
 
 
-from unittest.mock import call, patch
-from benchmark.model_bench import main
-
-
 def test_main_full_run(capsys):
     fake_result = {"tps": 21.0, "easy": 11.0, "medium": 34.0, "hard": 47.0}
 
@@ -194,7 +189,6 @@ def test_main_full_run(capsys):
         patch("benchmark.model_bench.bench_role", return_value=fake_result),
         patch("benchmark.model_bench.append_to_log") as mock_log,
     ):
-        import sys
         sys.argv = ["model_bench.py"]
         main()
 
@@ -211,7 +205,6 @@ def test_main_specific_models(capsys):
         patch("benchmark.model_bench.bench_role", return_value=fake_result),
         patch("benchmark.model_bench.append_to_log"),
     ):
-        import sys
         sys.argv = ["model_bench.py", "qwen3:8b"]
         main()
         mock_disc.assert_not_called()
@@ -228,7 +221,6 @@ def test_main_single_role(capsys):
         patch("benchmark.model_bench.bench_role", return_value=fake_result) as mock_bench,
         patch("benchmark.model_bench.append_to_log"),
     ):
-        import sys
         sys.argv = ["model_bench.py", "--role", "builder"]
         main()
 

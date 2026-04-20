@@ -730,3 +730,185 @@ done
 ```
 Task done.
 ```
+
+---
+
+### 06:51 — Message from test-user
+
+- **Agent:** claude:sonnet
+- **Cost:** $0.0000
+- **Goal:** Do something useful
+
+**Output preview:**
+```
+Task done.
+```
+
+---
+
+### 06:51 — Message from test-user
+
+- **Agent:** claude:sonnet
+- **Cost:** $0.0000
+- **Goal:** Do something useful
+
+**Output preview:**
+```
+Great success.
+```
+
+---
+
+### 06:51 — Message from test-user
+
+- **Agent:** claude:sonnet
+- **Cost:** $0.0000
+- **Goal:** Do something useful
+
+**Output preview:**
+```
+Done without adaptation.
+```
+
+---
+
+### 06:51 — Message from test-user
+
+- **Agent:** claude:sonnet
+- **Cost:** $0.0000
+- **Goal:** Do something useful
+
+**Output preview:**
+```
+Task done.
+```
+
+---
+
+### 06:51 — Message from test
+
+- **Agent:** ollama:general
+- **Cost:** $0.0000
+- **Goal:** write fibonacci
+
+**Output preview:**
+```
+done
+```
+
+---
+
+### 06:51 — Message from test-user
+
+- **Agent:** claude:sonnet
+- **Cost:** $0.0000
+- **Goal:** whats 2+2
+
+**Output preview:**
+```
+4
+```
+
+---
+
+### 06:51 — Message from test-user
+
+- **Agent:** claude:sonnet
+- **Cost:** $0.0000
+- **Goal:** write a hello world function
+
+**Output preview:**
+```
+Task done.
+```
+
+---
+
+### 07:40 — Message from test-user
+
+- **Agent:** claude:sonnet
+- **Cost:** $0.0000
+- **Goal:** Do something useful
+
+**Output preview:**
+```
+Task done.
+```
+
+---
+
+### 07:40 — Message from test-user
+
+- **Agent:** claude:sonnet
+- **Cost:** $0.0000
+- **Goal:** Do something useful
+
+**Output preview:**
+```
+Great success.
+```
+
+---
+
+### 07:40 — Message from test-user
+
+- **Agent:** claude:sonnet
+- **Cost:** $0.0000
+- **Goal:** Do something useful
+
+**Output preview:**
+```
+Done without adaptation.
+```
+
+---
+
+### 07:40 — Message from test-user
+
+- **Agent:** claude:sonnet
+- **Cost:** $0.0000
+- **Goal:** Do something useful
+
+**Output preview:**
+```
+Task done.
+```
+
+---
+
+### 07:40 — Message from test
+
+- **Agent:** ollama:general
+- **Cost:** $0.0000
+- **Goal:** write fibonacci
+
+**Output preview:**
+```
+done
+```
+
+---
+
+### 07:40 — Message from test-user
+
+- **Agent:** claude:sonnet
+- **Cost:** $0.0000
+- **Goal:** whats 2+2
+
+**Output preview:**
+```
+4
+```
+
+---
+
+### 07:40 — Message from test-user
+
+- **Agent:** claude:sonnet
+- **Cost:** $0.0000
+- **Goal:** write a hello world function
+
+**Output preview:**
+```
+Task done.
+```

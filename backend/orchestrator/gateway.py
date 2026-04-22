@@ -190,12 +190,20 @@ class Gateway:
                     response_chunks.append(output)
                     yield output
                     try:
+                        _duration = (
+                            attempt.ended_at - attempt.started_at
+                            if attempt.started_at is not None and attempt.ended_at is not None
+                            else None
+                        )
+                        _quality = 1.0 if attempt.status.value == "completed" else 0.0
                         log_task_completion(
                             task_title=task.title or mission.title,
                             task_goal=task.goal or "",
                             agent_used=attempt.worker_id or "unknown",
                             output_preview=output[:500] if output else "",
                             cost=0.0,
+                            quality_score=_quality,
+                            duration_seconds=_duration,
                         )
                     except Exception:
                         pass  # Never let logging break the main flow

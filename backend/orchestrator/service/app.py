@@ -47,6 +47,7 @@ from .executor import run_task as _run_task, pop_task_metrics
 from .run_executor import run_run as _run_run
 from ..planning.planner import generate_tasks, PlannerError
 from ..routing import BanditRouter, STRATEGIES, TaskOutcome
+from ..brain_logger import log_session_summary
 from ..routing.implicit_quality import ImplicitQualityTracker
 from ..store.eval_store import EvalStore
 from ..store.rankings_store import RankingsStore
@@ -268,6 +269,10 @@ async def lifespan(app: FastAPI):
     )
 
     yield
+    try:
+        log_session_summary(notes="Mahoraga backend shutdown")
+    except Exception:
+        pass
     await _store.close()
 
 

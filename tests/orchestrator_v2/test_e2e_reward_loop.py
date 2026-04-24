@@ -404,3 +404,43 @@ async def test_implicit_signal_triggers_bandit_nudge(
     assert task_a_rows[0]["reward"] is not None, (
         "Task A's decision row missing reward — router.observe() was not called"
     )
+
+
+async def test_batch_run_single_observe_fires_on_exception(store, client_setup, router):
+    """Regression: router.observe() must fire even when _run_task raises in _run_single.
+
+    Previously, an unhandled exception propagated out of _run_task and skipped
+    the observe() call entirely, leaking 41% of codex-cli rewards.
+    """
+    with patch(
+        "backend.orchestrator.service.app._run_task",
+        side_effect=RuntimeError("simulated failure"),
+    ):
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as ac:
+            resp = await ac.post(
+                "/api/batch",
+                json={
+                    "tasks": [{"prompt": "task: write a hello world function"}],
+                    "parallel": False,
+                },
+            )
+
+    # Endpoint must not crash — returns 200 with a failed result
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    results = body["results"]
+    assert len(results) == 1
+    assert results[0]["status"] == "failed"
+
+    # observe() must have been called with success=False
+    rows = _decision_rows(router)
+    assert len(rows) == 1, f"Expected 1 decision row, got {rows}"
+    row = rows[0]
+    assert row["success"] is not None, (
+        "success must be non-null after observe() — reward leak regression"
+    )
+    assert row["success"] == 0, f"Expected success=0 (False), got {row['success']}"
+    assert row["reward"] is not None, "reward must be non-null after observe()"
+    assert row["reward"] == 0.0, f"Expected reward=0.0 for failed task, got {row['reward']}"

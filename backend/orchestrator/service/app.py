@@ -1603,22 +1603,50 @@ async def run_batch(
         t_run = dataclasses.replace(task, preferred_worker_type=adapter.worker_id) if adapter else task
         await store.tasks.update_status(t_run.id, TaskStatus.ready)
 
+        bucket = _classify_bucket(task.goal, hint=hints.get(task.id))
+        task_index = next((i for i, t in enumerate(created) if t.id == task.id), -1)
         t0 = _time.time()
-        await _run_task(t_run.id, store, registry, verifier)
-        elapsed = round(_time.time() - t0, 2)
-        sequential_s += elapsed
+        _run_exc: Exception | None = None
+        try:
+            await _run_task(t_run.id, store, registry, verifier)
+        except Exception as exc:
+            _run_exc = exc
+        finally:
+            elapsed = round(_time.time() - t0, 2)
+            sequential_s += elapsed
+
+        if _run_exc is not None:
+            outcome = TaskOutcome(
+                success=False,
+                latency_s=elapsed,
+                cost_usd=0.0,
+                quality_score=0.0,
+                agent_name=agent,
+                bucket=bucket,
+                spawn_time_ms=0.0,
+            )
+            try:
+                router.observe(task, outcome)
+            except Exception:
+                pass  # never let bandit updates break responses
+            return {
+                "task_index": task_index,
+                "status": "failed",
+                "agent": agent,
+                "resource_group": get_resource_group(agent),
+                "elapsed_s": elapsed,
+                "output": "",
+            }
 
         t_result = await store.tasks.get(t_run.id)
         artifacts = await store.artifacts.list_by_task(t_run.id)
         output = next(
             (a.location.get("content", "") for a in artifacts if a.type == "text_output"), ""
         )
-        task_index = next((i for i, t in enumerate(created) if t.id == task.id), -1)
         status = "success" if t_result.status == TaskStatus.completed else "failed"
         success = status == "success"
 
         # Feed outcome back to bandit — same path as single-task endpoint
-        bucket = _classify_bucket(task.goal, hint=hints.get(task.id))
         quality_score = (await _score_quality(task.goal, output, bucket)) if success else 0.0
         outcome = TaskOutcome(
             success=success,
@@ -1629,7 +1657,10 @@ async def run_batch(
             bucket=bucket,
             spawn_time_ms=0.0,
         )
-        router.observe(task, outcome)
+        try:
+            router.observe(task, outcome)
+        except Exception:
+            pass  # never let bandit updates break responses
 
         return {
             "task_index": task_index,

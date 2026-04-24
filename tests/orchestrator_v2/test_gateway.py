@@ -312,3 +312,40 @@ async def test_gateway_uses_adapter_registry_for_routing():
     with gw._planner_patch, gw._run_task_patch:
         chunks = [c async for c in gw.handle_message(msg)]
     # No assertion on content — just verify no exception raised when adapter_registry is provided
+
+
+@pytest.mark.asyncio
+async def test_gateway_observe_fires_on_run_task_exception():
+    """Regression: observe() must be called even when run_task raises.
+
+    Previously, the `continue` in the except block skipped observe(), leaking
+    37% of rewards from the bandit decision log.
+    """
+    from backend.orchestrator.routing.reward import TaskOutcome
+
+    task = _make_task()
+    store = _make_store(task=task, attempts=[])
+
+    bandit_router = MagicMock()
+    bandit_router.observe = MagicMock()
+
+    gw = _make_gateway(
+        store,
+        tasks_from_planner=[task],
+        run_task_side_effect=RuntimeError("simulated failure"),
+    )
+    gw._bandit_router = bandit_router
+
+    msg = _make_msg()
+    with gw._planner_patch, gw._run_task_patch:
+        chunks = [c async for c in gw.handle_message(msg)]
+
+    # Error chunk still yielded to the user
+    assert any("failed" in c.lower() or "simulated failure" in c for c in chunks)
+
+    # observe() must have been called exactly once with success=False
+    bandit_router.observe.assert_called_once()
+    _, outcome = bandit_router.observe.call_args[0]
+    assert isinstance(outcome, TaskOutcome)
+    assert outcome.success is False
+    assert outcome.quality_score == 0.0

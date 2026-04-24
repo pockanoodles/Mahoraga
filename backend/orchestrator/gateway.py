@@ -169,58 +169,74 @@ class Gateway:
                 # Only execute ready tasks — pending means unmet dependencies
                 continue
 
+            _run_task_exc: Exception | None = None
             try:
                 await run_task(task.id, self._store, self._registry, self._verifier)
             except Exception as exc:
+                _run_task_exc = exc
                 logger.error("gateway: run_task error for %s: %s", task.id, exc)
                 chunk = f"[Task '{task.title}' failed: {exc}]"
                 response_chunks.append(chunk)
                 yield chunk
-                continue
 
             # Collect the latest completed attempt output as a response chunk.
             # Fall back to summary for legacy DB rows where output column is empty.
-            attempts = await self._store.tasks.list_attempts(task.id)
-            completed = [a for a in attempts if a.status.value == "completed"]
-            logger.info("GATEWAY ATTEMPT OUTPUT: %s", [a.output[:100] for a in completed])
-            if completed:
-                attempt = completed[-1]
-                output = attempt.output or attempt.summary
-                if output:
-                    response_chunks.append(output)
-                    yield output
-                    try:
-                        _duration = (
-                            attempt.ended_at - attempt.started_at
-                            if attempt.started_at is not None and attempt.ended_at is not None
-                            else None
-                        )
-                        _quality = 1.0 if attempt.status.value == "completed" else 0.0
-                        log_task_completion(
-                            task_title=task.title or mission.title,
-                            task_goal=task.goal or "",
-                            agent_used=attempt.worker_id or "unknown",
-                            output_preview=output[:500] if output else "",
-                            cost=0.0,
-                            quality_score=_quality,
-                            duration_seconds=_duration,
-                        )
-                    except Exception:
-                        pass  # Never let logging break the main flow
+            completed: list = []
+            if _run_task_exc is None:
+                attempts = await self._store.tasks.list_attempts(task.id)
+                completed = [a for a in attempts if a.status.value == "completed"]
+                logger.info("GATEWAY ATTEMPT OUTPUT: %s", [a.output[:100] for a in completed])
+                if completed:
+                    attempt = completed[-1]
+                    output = attempt.output or attempt.summary
+                    if output:
+                        response_chunks.append(output)
+                        yield output
+                        try:
+                            _duration = (
+                                attempt.ended_at - attempt.started_at
+                                if attempt.started_at is not None and attempt.ended_at is not None
+                                else None
+                            )
+                            _quality = 1.0 if attempt.status.value == "completed" else 0.0
+                            log_task_completion(
+                                task_title=task.title or mission.title,
+                                task_goal=task.goal or "",
+                                agent_used=attempt.worker_id or "unknown",
+                                output_preview=output[:500] if output else "",
+                                cost=0.0,
+                                quality_score=_quality,
+                                duration_seconds=_duration,
+                            )
+                        except Exception:
+                            pass  # Never let logging break the main flow
 
-            if self._bandit_router is not None and completed:
-                attempt = completed[-1]
-                bandit_outcome = TaskOutcome(
-                    success=(attempt.status.value == "completed"),
-                    latency_s=0.0,
-                    cost_usd=0.0,
-                    quality_score=1.0 if attempt.status.value == "completed" else 0.0,
-                    agent_name=attempt.worker_id or "unknown",
-                )
+            if self._bandit_router is not None:
+                if completed:
+                    attempt = completed[-1]
+                    bandit_outcome = TaskOutcome(
+                        success=(attempt.status.value == "completed"),
+                        latency_s=0.0,
+                        cost_usd=0.0,
+                        quality_score=1.0 if attempt.status.value == "completed" else 0.0,
+                        agent_name=attempt.worker_id or "unknown",
+                    )
+                else:
+                    # Exception in run_task or no completed attempt (escalated/blocked/retry-exhausted)
+                    bandit_outcome = TaskOutcome(
+                        success=False,
+                        latency_s=0.0,
+                        cost_usd=0.0,
+                        quality_score=0.0,
+                        agent_name="unknown",
+                    )
                 try:
                     self._bandit_router.observe(task, bandit_outcome)
                 except Exception:
                     pass  # never let bandit updates break responses
+
+            if _run_task_exc is not None:
+                continue
 
         # ── 7. Adaptive learning (fire-and-forget) ───────────────────────────
         full_response = "\n".join(response_chunks)

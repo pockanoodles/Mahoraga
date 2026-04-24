@@ -15,16 +15,18 @@ from ..domain.models import Task, TaskAttempt
 
 logger = logging.getLogger(__name__)
 
-_SYSTEM_PROMPTS: dict[str, str] = {
-    "ollama:planner": (
+# Role → system prompt. New worker_ids may look like "ollama:gemma4-e4b:coder";
+# we extract the trailing role segment to resolve a default prompt.
+ROLE_PROMPTS: dict[str, str] = {
+    "planner": (
         "You are a planning assistant. Given a planning or analysis task, produce a concise structured plan. "
         "Use a numbered list. No preamble, no sign-off."
     ),
-    "ollama:fast": (
+    "fast": (
         "You are a concise assistant. Answer directly and briefly. "
         "Do not include unnecessary preamble, examples, or sign-offs."
     ),
-    "ollama:coder": (
+    "coder": (
         "You are a code generator. Follow these rules strictly:\n"
         "1. Output ONLY the code in a single code block.\n"
         "2. No explanations, no usage examples, no notes.\n"
@@ -32,26 +34,57 @@ _SYSTEM_PROMPTS: dict[str, str] = {
         "4. Use standard library solutions when available.\n"
         "5. Handle basic edge cases (empty input, null checks)."
     ),
-    "ollama:general": (
+    "general": (
         "You are a concise assistant. Answer directly and briefly. "
         "Do not include unnecessary preamble, examples, or sign-offs."
     ),
 }
 
-_OLLAMA_OPTIONS = {"num_ctx": 4096}
+# Back-compat: legacy single-model worker_ids (ollama:planner etc).
+_SYSTEM_PROMPTS: dict[str, str] = {f"ollama:{role}": prompt for role, prompt in ROLE_PROMPTS.items()}
+
+_DEFAULT_OPTIONS = {"num_ctx": 4096}
+
+
+def _role_of(worker_id: str) -> str:
+    """Extract trailing role segment from a worker_id like 'ollama:gemma4-e4b:coder'."""
+    tail = worker_id.rsplit(":", 1)[-1]
+    return tail if tail in ROLE_PROMPTS else "general"
 
 
 class OllamaWorker(WorkerAdapter):
+    """Streams responses from an Ollama model via /api/chat.
+
+    Each worker instance binds a single (model, system_prompt) pair. Instances
+    with the same model but different prompts are cheap — no shared state.
+    Model-specific knobs (generation params, think toggle, context cap) are
+    passed via `options` and `extra_payload` at construction time.
+    """
+
     def __init__(
         self,
         model: str,
         worker_id: str,
         base_url: str = "http://localhost:11434",
+        system_prompt: str | None = None,
+        options: dict | None = None,
+        extra_payload: dict | None = None,
+        max_ctx: int | None = None,
     ) -> None:
         self._model = model
         self._worker_id = worker_id
         self._base_url = base_url.rstrip("/")
-        self._system_prompt = _SYSTEM_PROMPTS.get(worker_id, "You are a helpful assistant.")
+        # Priority: explicit arg → legacy lookup by full id → role-derived → fallback.
+        if system_prompt is not None:
+            self._system_prompt = system_prompt
+        elif worker_id in _SYSTEM_PROMPTS:
+            self._system_prompt = _SYSTEM_PROMPTS[worker_id]
+        else:
+            self._system_prompt = ROLE_PROMPTS.get(_role_of(worker_id), "You are a helpful assistant.")
+        self._options = {**_DEFAULT_OPTIONS, **(options or {})}
+        self._extra_payload = extra_payload if extra_payload is not None else {"think": False}
+        self._max_ctx = max_ctx
+        self._role = _role_of(worker_id)
 
     @property
     def id(self) -> str:
@@ -60,6 +93,10 @@ class OllamaWorker(WorkerAdapter):
     @property
     def capabilities(self) -> list[str]:
         return ["general", "code_generation", "analysis"]
+
+    @property
+    def max_ctx(self) -> int | None:
+        return self._max_ctx
 
     async def execute(
         self,
@@ -80,27 +117,27 @@ class OllamaWorker(WorkerAdapter):
             {"role": "user", "content": user_content},
         ]
 
+        payload = {
+            "model": self._model,
+            "messages": messages,
+            "stream": True,
+            "options": self._options,
+            **self._extra_payload,
+        }
+
         full_response: list[str] = []
         _ollama_metrics: dict | None = None
         try:
             async with httpx.AsyncClient(timeout=120.0) as client:
                 async with client.stream(
-                    "POST",
-                    f"{self._base_url}/api/chat",
-                    json={
-                        "model": self._model,
-                        "messages": messages,
-                        "stream": True,
-                        "think": False,
-                        "options": _OLLAMA_OPTIONS,
-                    },
+                    "POST", f"{self._base_url}/api/chat", json=payload,
                 ) as response:
                     if response.status_code != 200:
                         yield WorkerEvent(
                             type="attempt.failed",
                             payload={
                                 "error_code": "http_error",
-                                "error": f"Ollama returned HTTP {response.status_code}",
+                                "error": f"Ollama returned HTTP {response.status_code} for {self._model}",
                             },
                         )
                         return
@@ -113,13 +150,9 @@ class OllamaWorker(WorkerAdapter):
                             continue
                         msg = chunk.get("message", {})
                         content = msg.get("content", "")
-                        # Collect content tokens; skip empty chunks (thinking-phase chunks
-                        # have content="" with thinking in message.thinking or <think> tags).
-                        # _THINK_TAG_RE strips any residual <think>...</think> blocks below.
                         if content:
                             full_response.append(content)
                         if chunk.get("done"):
-                            # Extract exact token/timing metrics from the final Ollama chunk
                             eval_count = chunk.get("eval_count", 0)
                             eval_duration_ns = chunk.get("eval_duration", 0)
                             eval_duration_s = eval_duration_ns / 1e9 if eval_duration_ns else 0.0
@@ -146,6 +179,8 @@ class OllamaWorker(WorkerAdapter):
             )
             return
 
+        # Strip any <think>...</think> reasoning chain. Applies regardless of
+        # model — DeepSeek-R1 emits them unconditionally; others don't.
         summary = _THINK_TAG_RE.sub("", "".join(full_response)).strip()
         if not summary:
             yield WorkerEvent(
@@ -154,8 +189,9 @@ class OllamaWorker(WorkerAdapter):
             )
             return
 
-        # Post-process: strip non-code content for coder, strip preamble for others
-        if self._worker_id == "ollama:coder":
+        # Role-based postprocess — same semantics as before, just keyed on the
+        # trailing role segment so multi-model worker_ids work.
+        if self._role == "coder":
             summary = extract_code(summary)
         else:
             summary = strip_preamble(summary)
@@ -166,10 +202,9 @@ class OllamaWorker(WorkerAdapter):
         yield WorkerEvent(type="attempt.completed", payload={"summary": summary})
 
     async def cancel(self, attempt_id: str) -> None:
-        pass  # Ollama HTTP streaming cannot be cancelled mid-flight; no-op
+        pass
 
     async def warm(self) -> None:
-        """Pre-load the model into Ollama's memory. Fire-and-forget at startup."""
         try:
             async with httpx.AsyncClient(timeout=30.0) as client:
                 await client.post(

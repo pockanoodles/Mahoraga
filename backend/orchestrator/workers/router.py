@@ -19,9 +19,16 @@ _PLANNING_KEYWORDS = frozenset({
 _FAST_PHRASES = frozenset({"what is", "define", "how many", "what are", "who is"})
 
 
+_DEFAULT_OLLAMA_ADAPTER = "ollama:qwen3-4b"
+
+
 class TaskRouter:
     def route(self, task: Task, backend: str) -> str:
         """Return the worker_id for a task given the active backend.
+
+        Falls back to the default Qwen3 adapter's sub-worker when the bandit
+        isn't available. Multi-model routing happens through the adapter
+        registry + gateway._resolve_worker_id, not here.
 
         Raises ValueError if backend is not "ollama".
         """
@@ -31,16 +38,13 @@ class TaskRouter:
         text = f"{task.title} {task.goal}".lower()
         words = set(text.split())
 
-        # Code task first — takes priority over everything else
         if any(kw in words for kw in _CODE_KEYWORDS):
-            return "ollama:coder"
+            return f"{_DEFAULT_OLLAMA_ADAPTER}:coder"
 
-        # Planning-type task — whole-word match only (also catches "break down" as phrase)
         if any(kw in words for kw in _PLANNING_KEYWORDS) or "break down" in text:
-            return "ollama:planner"
+            return f"{_DEFAULT_OLLAMA_ADAPTER}:planner"
 
-        # Fast: short task or simple Q&A phrase
         if len(words) <= 8 or any(phrase in text for phrase in _FAST_PHRASES):
-            return "ollama:fast"
+            return f"{_DEFAULT_OLLAMA_ADAPTER}:fast"
 
-        return "ollama:general"
+        return f"{_DEFAULT_OLLAMA_ADAPTER}:general"

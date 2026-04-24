@@ -267,7 +267,7 @@ async def test_gateway_sets_preferred_worker_for_ollama_backend(store, tmp_path)
 
     assert any(t.preferred_worker_type is not None for t in saved_tasks), \
         "Expected gateway to set preferred_worker_type for ollama tasks"
-    assert saved_tasks[0].preferred_worker_type == "ollama:coder"
+    assert saved_tasks[0].preferred_worker_type == "ollama:qwen3-4b:coder"
 
 
 @pytest.mark.asyncio

@@ -328,14 +328,17 @@ class Gateway:
         return None
 
     def _resolve_worker_id(self, adapter, capability: str) -> str:
-        """Map OllamaAdapter to the right sub-worker for the capability.
+        """Map an Ollama adapter to the right sub-worker for the capability.
 
-        OllamaAdapter has a single adapter entry but 4 sub-workers.
-        Route code → coder, plan → planner, everything else → general.
+        Each Ollama adapter (ollama:qwen3-4b, ollama:gemma4-e4b, etc.) has
+        four sub-workers — one per role-prompt (planner / coder / fast /
+        general). Adapter selection is the bandit arm; role selection is a
+        deterministic capability → role mapping below the bandit.
         """
-        if adapter.name == "ollama":
-            return {
-                "code": "ollama:coder",
-                "plan": "ollama:planner",
-            }.get(capability, "ollama:general")
+        role_for_capability = {"code": "coder", "plan": "planner"}
+        if adapter.name == "ollama":  # legacy single-model adapter
+            return f"ollama:{role_for_capability.get(capability, 'general')}"
+        if adapter.name.startswith("ollama:"):
+            role = role_for_capability.get(capability, "general")
+            return f"{adapter.name}:{role}"
         return adapter.worker_id

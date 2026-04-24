@@ -34,6 +34,7 @@ from ..workers.opencode import OpenCodeWorker
 from ..workers.gemini import GeminiWorker
 from ..workers.goose import GooseWorker
 from ..workers.registry import WorkerRegistry
+from ..adapters.base import AgentCapability
 from ..adapters.registry import AdapterRegistry
 from ..adapters.ollama_adapter import OllamaAdapter
 from ..adapters.claude_adapter import ClaudeAdapter
@@ -167,21 +168,74 @@ async def lifespan(app: FastAPI):
     else:
         _verifier = _PassthroughVerifier()
 
-    # Register Ollama workers — available regardless of active_backend
+    # ── Register Ollama workers + adapters ───────────────────────────────────
+    # Four models, four role-prompts each = 16 workers. Each adapter is one
+    # bandit arm; role resolves below the bandit in gateway._resolve_worker_id.
     _config = MahoragaConfig()
-    ollama_url = _config.get("ollama_base_url")
-    _MODEL = "qwen3:4b-q4_K_M"
-    _ollama_workers = [
-        OllamaWorker(model=_MODEL, worker_id="ollama:planner", base_url=ollama_url),
-        OllamaWorker(model=_MODEL, worker_id="ollama:fast",    base_url=ollama_url),
-        OllamaWorker(model=_MODEL, worker_id="ollama:coder",   base_url=ollama_url),
-        OllamaWorker(model=_MODEL, worker_id="ollama:general", base_url=ollama_url),
+    ollama_url = _config.get("ollama_base_url") or "http://localhost:11434"
+    _ROLES = ("planner", "fast", "coder", "general")
+
+    _OLLAMA_MODELS: list[dict] = [
+        {
+            "name": "ollama:qwen3-4b",
+            "model": "qwen3:4b-q4_K_M",
+            "max_ctx": 131072,
+            "options": None,
+            "extra_payload": {"think": False},
+            "warm": True,
+        },
+        {
+            "name": "ollama:gemma4-e4b",
+            "model": "gemma4:e4b",
+            "max_ctx": 131072,
+            "options": None,
+            "extra_payload": {"think": False},
+            "warm": False,
+        },
+        {
+            "name": "ollama:deepseek-r1",
+            "model": "deepseek-r1:8b",
+            "max_ctx": 131072,
+            "options": {"temperature": 0.6},
+            # R1 thinks unconditionally; don't try to suppress it.
+            "extra_payload": {},
+            "warm": False,
+        },
+        {
+            "name": "ollama:lfm2",
+            "model": "maternion/lfm2:8b-a1b",
+            "max_ctx": 32768,  # hard cap — LFM2 spec
+            "options": {"temperature": 0.3, "min_p": 0.15, "repeat_penalty": 1.05},
+            "extra_payload": {},
+            "warm": False,
+        },
     ]
-    for w in _ollama_workers:
-        _registry.register(w)
-    # Pre-warm qwen3:4b-q4_K_M — stays loaded for the full session
+
+    _first_workers: list[OllamaWorker] = []
+    for spec in _OLLAMA_MODELS:
+        for role in _ROLES:
+            w = OllamaWorker(
+                model=spec["model"],
+                worker_id=f"{spec['name']}:{role}",
+                base_url=ollama_url,
+                options=spec["options"],
+                extra_payload=spec["extra_payload"],
+                max_ctx=spec["max_ctx"],
+            )
+            _registry.register(w)
+        if spec["warm"]:
+            # Pre-warm the qwen3 baseline — stays loaded for the session.
+            _first_workers.append(OllamaWorker(
+                model=spec["model"],
+                worker_id=f"{spec['name']}:general",
+                base_url=ollama_url,
+                options=spec["options"],
+                extra_payload=spec["extra_payload"],
+                max_ctx=spec["max_ctx"],
+            ))
     import asyncio as _asyncio
-    _asyncio.ensure_future(_ollama_workers[0].warm())
+    for w in _first_workers:
+        _asyncio.ensure_future(w.warm())
 
     # ── CWD for file-writing workers ──────────────────────────────────────────
     _workdir = get_workdir()
@@ -209,9 +263,45 @@ async def lifespan(app: FastAPI):
 
     # ── Build AdapterRegistry ─────────────────────────────────────────────────
     _adapter_registry = AdapterRegistry()
-    _adapter_registry.register(OllamaAdapter(
-        model=_MODEL, ollama_base_url=ollama_url or "http://localhost:11434"
-    ))
+    # One adapter per Ollama model. Capability profile per §5.4 of the
+    # new-agents spec: narrow for LFM2 (speed specialist, Liquid AI explicitly
+    # recommends against code/security/review), broad for Gemma (quality
+    # generalist), reasoning-heavy for DeepSeek-R1.
+    _OLLAMA_ADAPTER_CAPS = {
+        "ollama:qwen3-4b": [
+            AgentCapability("general", 0.90),
+            AgentCapability("plan",    0.85),
+            AgentCapability("explain", 0.80),
+        ],
+        "ollama:gemma4-e4b": [
+            AgentCapability("general",  0.88),
+            AgentCapability("plan",     0.82),
+            AgentCapability("research", 0.82),
+            AgentCapability("review",   0.75),
+            AgentCapability("explain",  0.80),
+        ],
+        "ollama:deepseek-r1": [
+            AgentCapability("code",     0.78),
+            AgentCapability("research", 0.85),
+            AgentCapability("review",   0.88),
+            AgentCapability("refactor", 0.82),
+            AgentCapability("security", 0.88),
+            AgentCapability("test",     0.80),
+        ],
+        "ollama:lfm2": [
+            AgentCapability("plan",     0.72),
+            AgentCapability("general",  0.68),
+            AgentCapability("research", 0.65),
+        ],
+    }
+    for spec in _OLLAMA_MODELS:
+        _adapter_registry.register(OllamaAdapter(
+            model=spec["model"],
+            ollama_base_url=ollama_url,
+            name=spec["name"],
+            worker_id=f"{spec['name']}:general",
+            capabilities=_OLLAMA_ADAPTER_CAPS[spec["name"]],
+        ))
     if "claude" in ENABLED_BACKENDS and os.getenv("ANTHROPIC_API_KEY"):
         _adapter_registry.register(ClaudeAdapter(
             api_key=os.getenv("ANTHROPIC_API_KEY"),

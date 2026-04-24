@@ -1,4 +1,9 @@
-"""OllamaAdapter — wraps OllamaWorker for the AgentAdapter routing interface."""
+"""OllamaAdapter — bandit-facing metadata for an Ollama-backed model.
+
+One adapter per model. The sub-worker selection (coder / planner / general /
+fast) happens below the bandit in gateway._resolve_worker_id, which maps the
+current task's capability onto a role and composes `{adapter.name}:{role}`.
+"""
 from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
@@ -12,10 +17,8 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+
 _DEFAULT_CAPABILITIES = [
-    # Ollama generates code *text* but cannot create or modify files on disk.
-    # Keeping it out of the "code" pool forces file-writing tasks to subprocess
-    # agents (codex-cli, aider, gemini-cli) that can actually write files.
     AgentCapability("general", confidence=0.90),
     AgentCapability("plan",    confidence=0.85),
     AgentCapability("explain", confidence=0.80),
@@ -23,27 +26,33 @@ _DEFAULT_CAPABILITIES = [
 
 
 class OllamaAdapter(AgentAdapter):
-    """Routes tasks to the OllamaWorker pool (ollama:coder / ollama:fast / ollama:general)."""
+    """Routes tasks to an Ollama model. Sub-worker role resolves in the gateway."""
 
     def __init__(
         self,
         model: str = "qwen3:4b-q4_K_M",
         ollama_base_url: str = "http://localhost:11434",
+        name: str = "ollama",
+        worker_id: str = "ollama:general",
+        capabilities: list[AgentCapability] | None = None,
     ) -> None:
         self._model = model
         self._base_url = ollama_base_url.rstrip("/")
+        self._name = name
+        self._worker_id = worker_id
+        self._capabilities = capabilities if capabilities is not None else _DEFAULT_CAPABILITIES
 
     @property
     def name(self) -> str:
-        return "ollama"
+        return self._name
 
     @property
     def worker_id(self) -> str:
-        return "ollama:general"
+        return self._worker_id
 
     @property
     def capabilities(self) -> list[AgentCapability]:
-        return _DEFAULT_CAPABILITIES
+        return self._capabilities
 
     def estimate_cost(self, task: "Task") -> CostEstimate:
         return CostEstimate(

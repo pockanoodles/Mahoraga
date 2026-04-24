@@ -245,6 +245,7 @@ async def lifespan(app: FastAPI):
     _registry.register(_codex_worker)
 
     # ── Register Aider worker ─────────────────────────────────────────────────
+    # aider CLI doesn't recognize Ollama quant suffixes (`-q4_K_M`); use base tag.
     _aider_model = os.getenv("AIDER_MODEL", "ollama_chat/qwen3:4b")
     _aider_worker = AiderWorker(model=_aider_model, cwd=_workdir)
     _registry.register(_aider_worker)

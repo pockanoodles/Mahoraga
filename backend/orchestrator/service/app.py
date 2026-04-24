@@ -316,8 +316,17 @@ class _EvalFinishRequest(BaseModel):
     run_id: int
 
 
+# Resolve the React SPA dist directory: repo_root/frontend/dist.
+# _STATIC_DIR already points at repo_root/static, so its parent is repo_root.
+_FRONTEND_DIST = _STATIC_DIR.parent / "frontend" / "dist"
+
+
 @app.get("/", response_class=HTMLResponse)
 async def serve_index() -> HTMLResponse:
+    # Prefer the built React SPA; fall back to the legacy static shell.
+    dist_index = _FRONTEND_DIST / "index.html"
+    if dist_index.exists():
+        return HTMLResponse(content=dist_index.read_text())
     index_path = _STATIC_DIR / "index.html"
     if not index_path.exists():
         return HTMLResponse(content="<html><body><h1>Mahoraga</h1></body></html>")
@@ -351,9 +360,14 @@ async def chat(request: _ChatRequest, gateway: GatewayDep) -> StreamingResponse:
     return StreamingResponse(event_stream(), media_type="text/event-stream")
 
 
-# Mount static files if the static directory exists
+# Mount static files if the static directory exists (legacy UI).
 if _STATIC_DIR.exists():
     app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
+
+# Mount the React SPA's hashed asset bundle when a production build is present.
+_DIST_ASSETS = _FRONTEND_DIST / "assets"
+if _DIST_ASSETS.exists():
+    app.mount("/assets", StaticFiles(directory=str(_DIST_ASSETS)), name="frontend-assets")
 
 
 # ── request / response models ─────────────────────────────────────────────────
@@ -1550,3 +1564,30 @@ async def run_batch(
         "waves_executed": waves_executed,
         "results": sorted(all_results, key=lambda r: r.get("task_index", 0)),
     }
+
+
+# ── SPA catch-all ──────────────────────────────────────────────────────────
+# Registered last so every other route wins first. Any path that isn't an
+# API endpoint, static asset, or streaming endpoint falls through here and
+# gets the React shell — so `/observatory`, `/chat`, etc. survive hard reload.
+# The SPA catch-all only runs for GETs that no earlier route matched. Since
+# `/chat` is POST-only, a GET `/chat` reaches this handler — and we want it
+# to serve the SPA so the React route loads on hard-reload. Only namespace
+# prefixes that are exclusively API / static belong in this exclude list.
+_SPA_EXCLUDE_PREFIXES = (
+    "api/", "assets/", "static/", "logs/", "missions/",
+    "runs/", "settings/", "approvals/", "batch/", "tasks/",
+)
+
+
+@app.get("/{full_path:path}", response_class=HTMLResponse)
+async def spa_catch_all(full_path: str) -> HTMLResponse:
+    if any(full_path.startswith(p) for p in _SPA_EXCLUDE_PREFIXES):
+        raise HTTPException(status_code=404, detail="not found")
+    dist_index = _FRONTEND_DIST / "index.html"
+    if dist_index.exists():
+        return HTMLResponse(content=dist_index.read_text())
+    index_path = _STATIC_DIR / "index.html"
+    if index_path.exists():
+        return HTMLResponse(content=index_path.read_text())
+    raise HTTPException(status_code=404, detail="SPA not built")

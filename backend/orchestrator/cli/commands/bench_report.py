@@ -81,8 +81,16 @@ def _fetch_rows(
         params.extend(buckets_filter)
 
     # bench_run_id requires joining the decisions DB
-    if bench_run_id is not None and decisions_db_path.exists():
-        conn.execute(f"ATTACH DATABASE '{decisions_db_path}' AS ddb")
+    if bench_run_id is not None:
+        resolved = decisions_db_path.resolve()
+        if not resolved.is_file():
+            raise typer.BadParameter(
+                f"--bench-run-id given but decisions DB not found at {resolved}. "
+                "Pass --decisions-db to override."
+            )
+        # SQLite ATTACH doesn't accept parameter binding; canonicalize the path
+        # and sanity-check it's a real file to keep injection surface minimal.
+        conn.execute("ATTACH DATABASE ? AS ddb", (str(resolved),))
         wheres.append(
             "m.task_id IN (SELECT task_id FROM ddb.decisions WHERE bench_run_id = ?)"
         )
@@ -110,8 +118,21 @@ def _fetch_rows(
     return rows
 
 
-def _aggregate(rows: list[dict]) -> dict:
-    """Return matrix[bucket][agent] = cell_agg, per_agent, per_bucket dicts."""
+_METRIC_TO_FIELD = {
+    "quality": "avg_quality",
+    "reward": "avg_reward",
+    "pass_rate": "pass_rate",
+    "latency_s": "avg_latency_s",
+    "tokens": "avg_tokens",
+    "tps": "avg_tps",
+}
+
+
+def _aggregate(rows: list[dict], best_by: str = "quality") -> dict:
+    """Return matrix[bucket][agent] = cell_agg, per_agent, per_bucket dicts.
+
+    `best_by` is the metric key used to pick the winning agent per bucket.
+    """
     # Group by (bucket, agent)
     cells: dict[tuple[str, str], list[dict]] = {}
     for r in rows:
@@ -155,34 +176,35 @@ def _aggregate(rows: list[dict]) -> dict:
     for r in rows:
         bucket_rows.setdefault(r["capability_bucket"] or "", []).append(r)
 
+    best_field = _METRIC_TO_FIELD.get(best_by, "avg_quality")
+    # For latency, lower is better; everything else, higher.
+    reverse = best_by == "latency_s"
     for bucket, br in bucket_rows.items():
         agg = _cell_agg(br)
-        # Find best agent by avg_quality in this bucket
         best_agent = None
         best_score: Optional[float] = None
         if bucket in matrix:
             for agent, cell in matrix[bucket].items():
-                q = cell.get("avg_quality")
-                if q is not None and (best_score is None or q > best_score):
-                    best_score = q
+                v = cell.get(best_field)
+                if v is None:
+                    continue
+                if best_score is None:
+                    better = True
+                else:
+                    better = v < best_score if reverse else v > best_score
+                if better:
+                    best_score = v
                     best_agent = agent
         agg["best_agent"] = best_agent
         agg["best_score"] = best_score
+        agg["best_by"] = best_by
         per_bucket[bucket] = agg
 
     return {"matrix": matrix, "per_agent": per_agent, "per_bucket": per_bucket}
 
 
 def _metric_value(cell: dict, metric: str) -> Optional[float]:
-    mapping = {
-        "quality": "avg_quality",
-        "reward": "avg_reward",
-        "pass_rate": "pass_rate",
-        "latency_s": "avg_latency_s",
-        "tokens": "avg_tokens",
-        "tps": "avg_tps",
-    }
-    return cell.get(mapping[metric])
+    return cell.get(_METRIC_TO_FIELD[metric])
 
 
 def _render_table(agg: dict, metric: str, min_samples: int) -> None:
@@ -202,7 +224,6 @@ def _render_table(agg: dict, metric: str, min_samples: int) -> None:
             if agent not in seen:
                 all_agents.append(agent)
                 seen.add(agent)
-    all_agents.sort()
 
     metric_label = {
         "quality": "avg quality score",
@@ -310,7 +331,7 @@ def compat_matrix(
         typer.echo("No data")
         raise typer.Exit(0)
 
-    agg = _aggregate(rows)
+    agg = _aggregate(rows, best_by=metric)
 
     if output_json:
         typer.echo(json.dumps(agg, indent=2))

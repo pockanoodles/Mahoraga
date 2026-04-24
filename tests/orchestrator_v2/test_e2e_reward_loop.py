@@ -406,6 +406,42 @@ async def test_implicit_signal_triggers_bandit_nudge(
     )
 
 
+async def test_single_task_observe_fires_on_exception(store, client_setup, router):
+    """Regression: router.observe() must fire even when _run_task raises in /api/task.
+
+    Previously, an unhandled exception propagated out of _run_task at the single-task
+    endpoint and skipped observe + metrics entirely, leaking rewards on the happy-path
+    endpoint as well as the batch one.
+    """
+    # ASGITransport re-raises unhandled exceptions into the test client by
+    # default (raise_app_exceptions=True), so we expect a RuntimeError here.
+    # In production FastAPI surfaces this as HTTP 500. Either way, the
+    # critical contract is that observe + metrics fire before the raise.
+    with patch(
+        "backend.orchestrator.service.app._run_task",
+        side_effect=RuntimeError("simulated failure"),
+    ):
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as ac:
+            with pytest.raises(RuntimeError, match="simulated failure"):
+                await ac.post(
+                    "/api/task",
+                    json={"prompt": "write a hello world function"},
+                )
+
+    # The decision log MUST still have a row with reward written
+    rows = _decision_rows(router)
+    assert len(rows) == 1, f"Expected 1 decision row, got {rows}"
+    row = rows[0]
+    assert row["success"] is not None, (
+        "success must be non-null after observe() — reward leak regression"
+    )
+    assert row["success"] == 0, f"Expected success=0 (False), got {row['success']}"
+    assert row["reward"] is not None, "reward must be non-null after observe()"
+    assert row["reward"] == 0.0, f"Expected reward=0.0 for failed task, got {row['reward']}"
+
+
 async def test_batch_run_single_observe_fires_on_exception(store, client_setup, router):
     """Regression: router.observe() must fire even when _run_task raises in _run_single.
 

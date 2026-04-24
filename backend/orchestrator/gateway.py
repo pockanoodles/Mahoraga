@@ -212,7 +212,7 @@ class Gateway:
                             pass  # Never let logging break the main flow
 
             if self._bandit_router is not None:
-                if completed:
+                if _run_task_exc is None and completed:
                     attempt = completed[-1]
                     bandit_outcome = TaskOutcome(
                         success=(attempt.status.value == "completed"),
@@ -222,8 +222,9 @@ class Gateway:
                         agent_name=attempt.worker_id or "unknown",
                     )
                 else:
-                    # Exception or no completed attempt — attribute to the most
-                    # recent attempt's worker if any was made, else "unknown".
+                    # Exception raised, or no completed attempt (escalated /
+                    # blocked / retry-exhausted). Attribute to the latest
+                    # attempt's worker if any was made, else "unknown".
                     fallback_agent = attempts[-1].worker_id if attempts else "unknown"
                     bandit_outcome = TaskOutcome(
                         success=False,

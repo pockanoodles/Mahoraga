@@ -1433,21 +1433,32 @@ async def run_api_task(
     await store.tasks.update_status(task.id, TaskStatus.ready)
 
     t0 = _time.monotonic()
-    await _run_task(task.id, store, registry, verifier)
+    _run_task_exc: Exception | None = None
+    try:
+        await _run_task(task.id, store, registry, verifier)
+    except Exception as exc:
+        _run_task_exc = exc
+        logging.getLogger(__name__).exception(
+            "/api/task: _run_task raised for %s", task.id
+        )
     wall_time_ms = (_time.monotonic() - t0) * 1000
     elapsed = round(wall_time_ms / 1000, 2)
 
-    # Collect result
+    # Collect result — even on failure, attempts/artifacts may have partial data
     task = await store.tasks.get(task.id)
     attempts = await store.tasks.list_attempts(task.id)
     artifacts = await store.artifacts.list_by_task(task.id)
 
-    output = next(
+    output = "" if _run_task_exc is not None else next(
         (a.location.get("content", "") for a in artifacts if a.type == "text_output"), ""
     )
     used_worker = attempts[-1].worker_id if attempts else selected_agent
-    status = "success" if task.status == TaskStatus.completed else "failed"
-    success = status == "success"
+    if _run_task_exc is not None:
+        status = "failed"
+        success = False
+    else:
+        status = "success" if task.status == TaskStatus.completed else "failed"
+        success = status == "success"
 
     # Pull Ollama token metrics captured by executor side-channel
     ollama_m = pop_task_metrics(task.id)
@@ -1461,7 +1472,8 @@ async def run_api_task(
     from ..routing.quality import score_quality as _score_quality
     quality_score = (await _score_quality(req.prompt, output, bucket)) if success else 0.0
 
-    # Update bandit with the outcome
+    # Always update the bandit — even on failure — so the decision row gets a
+    # reward and the selected agent is penalized for the failure.
     outcome = TaskOutcome(
         success=success,
         latency_s=elapsed,
@@ -1471,7 +1483,12 @@ async def run_api_task(
         bucket=bucket,
         spawn_time_ms=agent_spawn_ms,
     )
-    router.observe(task, outcome)
+    try:
+        router.observe(task, outcome)
+    except Exception:
+        logging.getLogger(__name__).exception(
+            "/api/task: bandit observe failed for %s", task.id
+        )
     reward = router.reward_calc.compute(outcome)
 
     # Write to task_metrics
@@ -1499,11 +1516,15 @@ async def run_api_task(
         cost_usd=0.0,
     )
 
-    # implicit quality tracking
-    if _implicit_tracker is not None:
+    # implicit quality tracking — only on actual completion, not failure
+    if _implicit_tracker is not None and success:
         from hashlib import sha256 as _sha256
         _th = _sha256((task.goal if hasattr(task, 'goal') else '').encode()).hexdigest()[:16]
         _implicit_tracker.on_task_complete(task_id=task.id, task_hash=_th)
+
+    # Re-raise now that observe + metrics have been recorded — FastAPI returns 500
+    if _run_task_exc is not None:
+        raise _run_task_exc
 
     # Build runner-up from scores
     runner_up = None

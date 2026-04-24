@@ -1471,9 +1471,15 @@ async def run_api_task(
     # Check Ollama warm state before routing decision
     model_was_warm = await _is_ollama_warm() if not req.agent_override else False
 
-    # Route via bandit (logs the decision, populates _last_scores)
+    # Route via bandit (logs the decision, populates _last_scores).
+    # When agent_override is set, log a synthetic decision row with
+    # strategy="override" so bench analytics can still join via bench_run_id.
     t_route_start = _time.monotonic()
-    selected_agent = req.agent_override or router.route(task, bench_run_id=req.bench_run_id)
+    if req.agent_override:
+        selected_agent = req.agent_override
+        router.log_override(task, selected_agent, bench_run_id=req.bench_run_id)
+    else:
+        selected_agent = router.route(task, bench_run_id=req.bench_run_id)
     routing_time_ms = (_time.monotonic() - t_route_start) * 1000
     scores = router.strategy.get_scores()  # populated by route() above
 

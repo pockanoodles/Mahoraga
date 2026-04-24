@@ -181,6 +181,33 @@ class BanditRouter:
 
         return agent
 
+    def log_override(
+        self,
+        task: Any,
+        agent: str,
+        bench_run_id: int | None = None,
+        available_agents: list[str] | None = None,
+    ) -> int:
+        """Log a decisions row for a manually-pinned agent (agent_override /
+        batch _run_single). Does NOT run the bandit strategy — no learning
+        happens from the pick itself. The row is marked `strategy='override'`
+        so bandit analytics can exclude it, and `observe()` can still back-fill
+        success/reward/quality via log_outcome() on the same task_id.
+
+        Returns the inserted decisions.id.
+        """
+        available = available_agents if available_agents is not None else self._available_agents()
+        context = TaskContext.from_task(task)
+        return self.logger.log_decision(
+            task=task,
+            context=context,
+            selected_agent=agent,
+            available_agents=available,
+            strategy="override",
+            scores=None,
+            bench_run_id=bench_run_id,
+        )
+
     def observe(self, task: Any, outcome: TaskOutcome) -> None:
         """Update all three learning layers after observing a task outcome."""
         context = TaskContext.from_task(task)

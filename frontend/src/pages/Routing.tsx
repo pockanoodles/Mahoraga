@@ -23,7 +23,7 @@ export default function RoutingPage() {
   const total = health.data?.total_decisions ?? stats.data?.total_decisions ?? 0;
 
   return (
-    <>
+    <div className="h-full overflow-y-auto px-8 py-8">
       <PageHeader
         title="Routing"
         subtitle="Bandit strategy, routing mode, and live engine state."
@@ -62,6 +62,6 @@ export default function RoutingPage() {
           </p>
         </Panel>
       </div>
-    </>
+    </div>
   );
 }

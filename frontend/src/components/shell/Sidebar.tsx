@@ -6,11 +6,14 @@ import {
   Gauge,
   MessageSquare,
   Github,
+  Moon,
   Network,
+  Sun,
+  Type,
 } from "lucide-react";
 import type { ComponentType } from "react";
-import ThemeToggle from "./ThemeToggle";
-import FontPicker from "./FontPicker";
+import { useTheme } from "../../theme/useTheme";
+import { useFont, FONT_SCHEMES } from "../../theme/useFont";
 import { cn } from "../../lib/cn";
 
 type IconType = ComponentType<{ size?: number | string; className?: string }>;
@@ -35,7 +38,7 @@ const SECTIONS: NavSection[] = [
     ],
   },
   {
-    label: "Interact",
+    label: "Command",
     items: [{ to: "/chat", label: "Chat", Icon: MessageSquare }],
   },
   {
@@ -47,7 +50,41 @@ const SECTIONS: NavSection[] = [
   },
 ];
 
+// Action row — styled like nav rows but triggers a callback instead of routing.
+function ActionRow({
+  Icon,
+  label,
+  hint,
+  onClick,
+  titleAttr,
+}: {
+  Icon: IconType;
+  label: string;
+  hint?: string;
+  onClick: () => void;
+  titleAttr?: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={titleAttr}
+      className="mx-2 my-0.5 flex w-[calc(100%-1rem)] items-center gap-2 rounded-md px-4 py-1.5 text-left text-sm text-sidebar-foreground transition-colors hover:bg-sidebar-accent/70 hover:text-sidebar-accent-foreground"
+    >
+      <Icon size={15} className="shrink-0 opacity-80" />
+      <span className="flex-1 truncate">{label}</span>
+      {hint && (
+        <span className="font-mono text-[10px] text-muted-foreground">{hint}</span>
+      )}
+    </button>
+  );
+}
+
 export default function Sidebar() {
+  const { theme, toggle } = useTheme();
+  const { current: currentFont, cycle: cycleFont } = useFont();
+  const isDark = theme === "dark";
+
   return (
     <nav
       aria-label="Primary"
@@ -78,11 +115,34 @@ export default function Sidebar() {
             ))}
           </div>
         ))}
+
+        {/* Settings — theme + font are click-to-cycle action rows. */}
+        <div className="pb-2">
+          <div className="px-6 pb-1 pt-3 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+            Settings
+          </div>
+          <ActionRow
+            Icon={isDark ? Sun : Moon}
+            label={isDark ? "Light theme" : "Dark theme"}
+            hint={isDark ? "dark" : "light"}
+            onClick={toggle}
+            titleAttr={`Switch to ${isDark ? "light" : "dark"} theme`}
+          />
+          <ActionRow
+            Icon={Type}
+            label="Font"
+            hint={
+              FONT_SCHEMES.find((s) => s.id === currentFont.id)?.sampleFamily?.split(
+                " "
+              )[0] ?? ""
+            }
+            onClick={cycleFont}
+            titleAttr={`Current: ${currentFont.label} — click to cycle`}
+          />
+        </div>
       </div>
 
-      <div className="flex flex-col gap-2 border-t border-sidebar-border p-3">
-        <ThemeToggle />
-        <FontPicker />
+      <div className="border-t border-sidebar-border p-3">
         <a
           href="https://github.com/pockanoodles/Mahoraga"
           target="_blank"

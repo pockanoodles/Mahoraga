@@ -24,7 +24,7 @@ export default function AgentsPage() {
   const agents = data ?? [];
 
   return (
-    <>
+    <div className="h-full overflow-y-auto px-8 py-8">
       <PageHeader
         title="Agents"
         subtitle="Registered workers and their current health."
@@ -86,6 +86,6 @@ export default function AgentsPage() {
           </tbody>
         </table>
       </Panel>
-    </>
+    </div>
   );
 }

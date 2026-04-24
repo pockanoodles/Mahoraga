@@ -42,7 +42,7 @@ export default function ActivityPage() {
   };
 
   return (
-    <>
+    <div className="h-full overflow-y-auto px-8 py-8">
       <PageHeader
         title="Activity"
         subtitle="Every prompt that's passed through Mahoraga and how it got answered."
@@ -122,6 +122,6 @@ export default function ActivityPage() {
           </table>
         )}
       </Panel>
-    </>
+    </div>
   );
 }

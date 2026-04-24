@@ -56,7 +56,7 @@ export default function ObservatoryPage() {
   }, [agents.data]);
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
+    <div className="flex h-full flex-col overflow-hidden px-8 py-8">
       <PageHeader
         title="Observatory"
         subtitle="The bandit's decisions in real time — what it chose, what it considered, and whether it played it safe."
@@ -67,8 +67,8 @@ export default function ObservatoryPage() {
         }
       />
 
-      {/* Quick-context row */}
-      <div className="mb-5 grid grid-cols-[repeat(auto-fit,minmax(220px,1fr))] gap-4">
+      {/* Quick-context row — fixed height */}
+      <div className="mb-5 grid shrink-0 grid-cols-[repeat(auto-fit,minmax(220px,1fr))] gap-4">
         <Panel>
           <div className="text-sm font-medium text-muted-foreground">Shown</div>
           <div className="mt-1 font-heading text-2xl font-bold tracking-tight">
@@ -98,14 +98,10 @@ export default function ObservatoryPage() {
         </Panel>
       </div>
 
-      {/*
-        Bounded region. min-h-0 + overflow-hidden on the grid parent lets the
-        feed scroll internally instead of pushing the page. Side column gets
-        its own scroll if needed.
-      */}
+      {/* Feed + side. Both columns flex to fill remaining space; feed scrolls internally. */}
       <div className="grid min-h-0 flex-1 gap-5 overflow-hidden md:grid-cols-[1fr_320px]">
         <div className="flex min-h-0 flex-col overflow-hidden rounded-lg bg-card shadow-[rgba(0,0,0,0.08)_0px_0px_0px_1px]">
-          <div className="flex items-center justify-between border-b border-border px-5 py-3.5">
+          <div className="flex shrink-0 items-center justify-between border-b border-border px-5 py-3.5">
             <h2 className="text-sm font-semibold text-foreground">Live routing decisions</h2>
             <span className="font-mono text-[11px] text-muted-foreground">
               last {parsed.length} · refresh {REFRESH_MS / 1000}s

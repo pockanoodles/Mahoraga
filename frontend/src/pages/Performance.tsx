@@ -108,7 +108,7 @@ export default function PerformancePage() {
   const now = Date.now();
 
   return (
-    <>
+    <div className="h-full overflow-y-auto px-8 py-8">
       <PageHeader
         title="Performance"
         subtitle="How the routing engine is doing across every task it has handled."
@@ -263,6 +263,6 @@ export default function PerformancePage() {
           <div className="text-sm text-destructive">Routing stats error: {stats.error}</div>
         </Panel>
       )}
-    </>
+    </div>
   );
 }

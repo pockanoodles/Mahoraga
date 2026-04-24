@@ -118,18 +118,26 @@ async def _run_one(
 def _build_schedule(
     prompts: list[dict[str, Any]], agents: list[str], mode: str, repeats: int
 ) -> list[tuple[str, Optional[str], Optional[str]]]:
-    """Yield (prompt, bucket, pinned_agent) triples."""
+    """Yield (prompt, bucket, pinned_agent) triples.
+
+    Agent-major order: run all prompts through each agent before switching.
+    Keeps each Ollama model loaded for its block of tasks instead of paying
+    a 30-60s cold-start every swap. Cheaper for local models; neutral for
+    CLI agents.
+    """
     out: list[tuple[str, Optional[str], Optional[str]]] = []
-    for p in prompts:
-        prompt_text = p.get("prompt")
-        bucket = p.get("bucket")
-        if not prompt_text:
-            continue
-        if mode == "force-explore":
-            for a in agents:
+    valid_prompts = [
+        (p["prompt"], p.get("bucket"))
+        for p in prompts
+        if p.get("prompt")
+    ]
+    if mode == "force-explore":
+        for a in agents:
+            for prompt_text, bucket in valid_prompts:
                 for _ in range(repeats):
                     out.append((prompt_text, bucket, a))
-        else:  # bandit
+    else:  # bandit
+        for prompt_text, bucket in valid_prompts:
             for _ in range(repeats):
                 out.append((prompt_text, bucket, None))
     return out

@@ -63,7 +63,7 @@ class TaskOutcome:
     error_message: str = ""
     bucket: str = "general"
     spawn_time_ms: float = 0.0   # agent_spawn_time_ms; used for swap penalty
-    quality_components: "dict[str, float | None] | None" = None
+    quality_components: dict[str, float | None] | None = None
 
 
 class RewardCalculator:

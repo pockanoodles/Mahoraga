@@ -95,10 +95,10 @@ export default function PulseCanvas() {
               y1={360}
               x2={pos.x}
               y2={pos.y}
-              stroke="hsl(var(--border))"
-              strokeOpacity="0.4"
+              stroke="hsl(var(--pulse-structural))"
+              strokeOpacity="0.22"
               strokeDasharray="2 6"
-              strokeWidth="0.8"
+              strokeWidth="0.9"
             />
           );
         })}

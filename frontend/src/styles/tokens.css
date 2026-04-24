@@ -44,6 +44,11 @@
   --success: 178 75% 44%;
   --success-foreground: 0 0% 100%;
 
+  /* Pulse visualization: structural (halos, spokes, borders). In light mode
+   * this is a deep slate so it reads against the cream background. In dark
+   * mode it matches the teal accent. Particles keep their own chart colors. */
+  --pulse-structural: 197 37% 24%;
+
   --radius: 0.5rem;
   --radius-sm: 0.375rem;
 
@@ -110,4 +115,6 @@ html.font-manrope {
 
   --success: 178 70% 50%;
   --success-foreground: 0 0% 100%;
+
+  --pulse-structural: 178 70% 55%;
 }

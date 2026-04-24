@@ -1469,9 +1469,11 @@ async def run_api_task(
 
     # Write to task_metrics
     ucb_score = scores.get(selected_agent, {}).get("ucb", 0.0) if scores else 0.0
+    from hashlib import sha256 as _sha
+    _prompt_hash = _sha(req.prompt.encode()).hexdigest()[:16]
     await store.metrics.record(
         task_id=task.id,
-        prompt_text=req.prompt,
+        task_hash=_prompt_hash,
         agent_name=selected_agent,
         capability_bucket=_classify_bucket(req.prompt, hint=req.capability_hint),
         wall_time_ms=round(wall_time_ms, 2),

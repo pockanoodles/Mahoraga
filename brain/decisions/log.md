@@ -361,3 +361,48 @@ Auto-appended by Mahoraga.
 **Reasoning:** strategy=LinUCBRouter
 
 **Context:** mahoraga-router
+
+
+---
+
+## 2026-04-24 — Routed to aider
+
+**Reasoning:** strategy=LinUCBRouter
+
+**Context:** mahoraga-router
+
+
+---
+
+## 2026-04-24 — Routed to aider
+
+**Reasoning:** strategy=LinUCBRouter
+
+**Context:** mahoraga-router
+
+
+---
+
+## 2026-04-24 — Routed to gemini-cli
+
+**Reasoning:** strategy=LinUCBRouter
+
+**Context:** mahoraga-router
+
+
+---
+
+## 2026-04-24 — Routed to gemini-cli
+
+**Reasoning:** strategy=LinUCBRouter
+
+**Context:** mahoraga-router
+
+
+---
+
+## 2026-04-24 — Routed to gemini-cli
+
+**Reasoning:** strategy=LinUCBRouter
+
+**Context:** mahoraga-router

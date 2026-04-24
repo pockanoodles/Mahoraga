@@ -1,0 +1,49 @@
+# experiments/prompts_v1.jsonl — first-pass force-explore seed set.
+# 30 prompts across 6 buckets. Short + self-contained so local models
+# (Ollama variants) have a fair shot. Mix of genuine work (code/plan) and
+# factual Q&A (research/general) so success isn't bimodal.
+#
+# Usage:
+#   orch bench run --prompts experiments/prompts_v1.jsonl --mode force-explore \
+#     --agents ollama:qwen3-4b,ollama:gemma4-e4b,ollama:deepseek-r1,ollama:lfm2 \
+#     --repeats 1 --output experiments/results_v1.jsonl
+
+# ── code (6) ────────────────────────────────────────────────────────────
+{"prompt": "Write a Python function that returns the nth Fibonacci number using memoization.", "bucket": "code"}
+{"prompt": "Write a Python function to merge two sorted lists into one sorted list.", "bucket": "code"}
+{"prompt": "Write a Python decorator that caches function results for 60 seconds.", "bucket": "code"}
+{"prompt": "Implement a basic LRU cache in Python with a max size parameter.", "bucket": "code"}
+{"prompt": "Write a Python function to flatten a nested list of arbitrary depth.", "bucket": "code"}
+{"prompt": "Write a Python generator that yields primes up to N using the Sieve of Eratosthenes.", "bucket": "code"}
+
+# ── plan (6) ────────────────────────────────────────────────────────────
+{"prompt": "Outline the steps to deploy a FastAPI application to production.", "bucket": "plan"}
+{"prompt": "Plan how to migrate a SQLite database to PostgreSQL without downtime.", "bucket": "plan"}
+{"prompt": "Break down the work required to add OAuth2 login to a web application.", "bucket": "plan"}
+{"prompt": "Design a caching strategy for an API with high read, low write traffic.", "bucket": "plan"}
+{"prompt": "Plan a testing strategy for a multi-agent orchestration system.", "bucket": "plan"}
+{"prompt": "Outline how to set up CI/CD for a Python project from scratch.", "bucket": "plan"}
+
+# ── research (6) ────────────────────────────────────────────────────────
+{"prompt": "Explain how transformer attention works in two short paragraphs.", "bucket": "research"}
+{"prompt": "What is the CAP theorem? Give a one-paragraph explanation with an example.", "bucket": "research"}
+{"prompt": "Summarize the difference between TCP and UDP in 4 bullet points.", "bucket": "research"}
+{"prompt": "Explain how gradient descent finds a local minimum. Keep it under 5 sentences.", "bucket": "research"}
+{"prompt": "What is a multi-armed bandit? Give a concise definition and one real-world example.", "bucket": "research"}
+{"prompt": "Compare SQL and NoSQL databases. List 3 strengths of each.", "bucket": "research"}
+
+# ── review (6) ──────────────────────────────────────────────────────────
+{"prompt": "Review this function for bugs: def add(a,b): return a-b", "bucket": "review"}
+{"prompt": "What are three things wrong with this pattern: using bare 'except:' in Python?", "bucket": "review"}
+{"prompt": "Critique using MD5 for password hashing — give two concrete issues.", "bucket": "review"}
+{"prompt": "Review: storing API keys as plaintext environment variables — list the risks.", "bucket": "review"}
+{"prompt": "Analyze the tradeoffs of using a single shared database for microservices.", "bucket": "review"}
+{"prompt": "Identify three anti-patterns in a REST API that uses GET requests with side effects.", "bucket": "review"}
+
+# ── general (6) ─────────────────────────────────────────────────────────
+{"prompt": "Name three popular Python web frameworks and one defining trait of each.", "bucket": "general"}
+{"prompt": "What does 'idempotent' mean in an HTTP context? One sentence.", "bucket": "general"}
+{"prompt": "What is the difference between async and multithreading in Python?", "bucket": "general"}
+{"prompt": "Write a one-line description of what Docker is, aimed at a junior engineer.", "bucket": "general"}
+{"prompt": "Define 'eventual consistency' in one short paragraph.", "bucket": "general"}
+{"prompt": "List three strengths of Rust compared to C++.", "bucket": "general"}

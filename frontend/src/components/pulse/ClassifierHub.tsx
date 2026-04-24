@@ -12,15 +12,15 @@ export default function ClassifierHub({ intensity }: ClassifierHubProps) {
   return (
     <g transform={`translate(${HUB.x} ${HUB.y})`} aria-label="Classifier">
       {/* Outer faint ring — always-on ambient breath */}
-      <circle r={36} fill="none" stroke="hsl(var(--chart-1))" strokeOpacity="0.18" strokeWidth="1">
+      <circle r={36} fill="none" stroke="hsl(var(--pulse-structural))" strokeOpacity="0.35" strokeWidth="1">
         <animate attributeName="r" values="34;44;34" dur="4.2s" repeatCount="indefinite" />
-        <animate attributeName="stroke-opacity" values="0.12;0.26;0.12" dur="4.2s" repeatCount="indefinite" />
+        <animate attributeName="stroke-opacity" values="0.25;0.5;0.25" dur="4.2s" repeatCount="indefinite" />
       </circle>
-      <circle r={24} fill="none" stroke="hsl(var(--chart-1))" strokeOpacity="0.3" strokeWidth="1.5">
+      <circle r={24} fill="none" stroke="hsl(var(--pulse-structural))" strokeOpacity="0.5" strokeWidth="1.5">
         <animate attributeName="r" values="22;30;22" dur="3s" repeatCount="indefinite" />
       </circle>
       {/* Core */}
-      <circle r={14 * scale} fill="hsl(var(--chart-1))" fillOpacity="0.85" />
+      <circle r={14 * scale} fill="hsl(var(--pulse-structural))" fillOpacity="0.9" />
       <circle r={9 * scale} fill="hsl(var(--background))" />
       <circle r={4 * scale} fill="hsl(var(--chart-1))" />
     </g>

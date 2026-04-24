@@ -16,7 +16,10 @@ export default function AgentNode({ vital, x, y, activity }: AgentNodeProps) {
   // Label: shorten "ollama:qwen3-4b" → "qwen3-4b"; keep short CLI names as-is.
   const short = vital.name.startsWith("ollama:") ? vital.name.slice(7) : vital.name;
   const haloR = 18 + vital.weight * 22;
-  const haloOpacity = 0.05 + vital.weight * 0.18;
+  // Opacity ramp tuned so the halo is visible on both cream (light) and
+  // charcoal (dark) backgrounds. Chart-1 teal at low opacity disappeared
+  // on cream; pulse-structural is a deep slate in light mode.
+  const haloOpacity = 0.12 + vital.weight * 0.3;
 
   // Angle from hub → node for label placement (outward).
   const dx = x - HUB.x;
@@ -34,7 +37,7 @@ export default function AgentNode({ vital, x, y, activity }: AgentNodeProps) {
         cx={x}
         cy={y}
         r={haloR}
-        fill="hsl(var(--chart-1))"
+        fill="hsl(var(--pulse-structural))"
         fillOpacity={haloOpacity}
       />
 
@@ -45,8 +48,8 @@ export default function AgentNode({ vital, x, y, activity }: AgentNodeProps) {
           cy={y}
           r={AGENT_NODE_R + activity * 34}
           fill="none"
-          stroke="hsl(var(--chart-1))"
-          strokeOpacity={0.6 * (1 - activity)}
+          stroke="hsl(var(--pulse-structural))"
+          strokeOpacity={0.8 * (1 - activity)}
           strokeWidth="1.5"
         />
       )}
@@ -57,7 +60,7 @@ export default function AgentNode({ vital, x, y, activity }: AgentNodeProps) {
         cy={y}
         r={AGENT_NODE_R}
         fill={vital.healthy ? "hsl(var(--card))" : "hsl(var(--muted))"}
-        stroke={vital.healthy ? "hsl(var(--chart-1))" : "hsl(var(--muted-foreground))"}
+        stroke={vital.healthy ? "hsl(var(--pulse-structural))" : "hsl(var(--muted-foreground))"}
         strokeWidth="1.5"
       />
       {/* Inner dot — denotes weight */}
@@ -65,8 +68,8 @@ export default function AgentNode({ vital, x, y, activity }: AgentNodeProps) {
         cx={x}
         cy={y}
         r={3 + vital.weight * 5}
-        fill={vital.healthy ? "hsl(var(--chart-1))" : "hsl(var(--muted-foreground))"}
-        fillOpacity={0.7 + vital.weight * 0.3}
+        fill={vital.healthy ? "hsl(var(--pulse-structural))" : "hsl(var(--muted-foreground))"}
+        fillOpacity={0.75 + vital.weight * 0.25}
       />
 
       {/* Label */}

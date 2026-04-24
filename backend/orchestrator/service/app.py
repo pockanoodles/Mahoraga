@@ -69,6 +69,7 @@ _bandit_router: BanditRouter | None = None
 _implicit_tracker: ImplicitQualityTracker | None = None
 _eval_store: EvalStore | None = None
 _START_TIME: float = time.time()
+_bandit_seed: int | None = None
 
 
 def get_store() -> Store:
@@ -140,7 +141,22 @@ async def lifespan(app: FastAPI):
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
         force=True,
     )
-    global _store, _registry, _verifier, _gateway, _adaptive_store, _cost_ledger, _config, _adapter_registry, _bandit_router, _implicit_tracker
+    global _store, _registry, _verifier, _gateway, _adaptive_store, _cost_ledger, _config, _adapter_registry, _bandit_router, _implicit_tracker, _bandit_seed
+    _startup_logger = logging.getLogger(__name__)
+    _bandit_seed_env = os.getenv("MAHORAGA_BANDIT_SEED")
+    if _bandit_seed_env is not None:
+        try:
+            _seed = int(_bandit_seed_env)
+            import random as _random
+            import numpy as _np
+            _random.seed(_seed)
+            _np.random.seed(_seed)
+            _bandit_seed = _seed
+            _startup_logger.info("MAHORAGA_BANDIT_SEED=%d — seeded random + numpy", _seed)
+        except ValueError:
+            _startup_logger.warning("MAHORAGA_BANDIT_SEED=%r is not an integer; ignoring", _bandit_seed_env)
+    else:
+        _startup_logger.info("MAHORAGA_BANDIT_SEED not set — bandit randomness is unseeded")
     _store = await Store.connect()
     _registry = WorkerRegistry()
 
@@ -1148,6 +1164,12 @@ async def eval_finish(
 ) -> dict:
     await eval_store.finish_run(req.run_id)
     return {"ok": True}
+
+
+@app.get("/api/bench_run/seed")
+async def get_bench_run_seed() -> dict:
+    """Return the bandit_seed this server was started with (or null)."""
+    return {"bandit_seed": _bandit_seed}
 
 
 @app.post("/api/bench_run")

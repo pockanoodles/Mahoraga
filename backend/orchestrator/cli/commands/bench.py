@@ -18,6 +18,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import random
 import socket
 import subprocess
 import sys
@@ -182,14 +183,23 @@ async def _run_one(
 
 
 def _build_schedule(
-    prompts: list[dict[str, Any]], agents: list[str], mode: str, repeats: int
+    prompts: list[dict[str, Any]],
+    agents: list[str],
+    mode: str,
+    repeats: int,
+    prompt_seed: Optional[int] = None,
 ) -> list[tuple[str, Optional[str], Optional[str]]]:
-    """Yield (prompt, bucket, pinned_agent) triples.
+    """Return (prompt, bucket, pinned_agent) triples.
 
     Agent-major order: run all prompts through each agent before switching.
     Keeps each Ollama model loaded for its block of tasks instead of paying
     a 30-60s cold-start every swap. Cheaper for local models; neutral for
     CLI agents.
+
+    If prompt_seed is given:
+      - force-explore: agent-major order is preserved; prompts within each
+        agent block are shuffled deterministically.
+      - bandit: the entire schedule is shuffled deterministically.
     """
     out: list[tuple[str, Optional[str], Optional[str]]] = []
     valid_prompts = [
@@ -199,13 +209,19 @@ def _build_schedule(
     ]
     if mode == "force-explore":
         for a in agents:
+            block: list[tuple[str, Optional[str], Optional[str]]] = []
             for prompt_text, bucket in valid_prompts:
                 for _ in range(repeats):
-                    out.append((prompt_text, bucket, a))
+                    block.append((prompt_text, bucket, a))
+            if prompt_seed is not None:
+                random.Random(prompt_seed).shuffle(block)
+            out.extend(block)
     else:  # bandit
         for prompt_text, bucket in valid_prompts:
             for _ in range(repeats):
                 out.append((prompt_text, bucket, None))
+        if prompt_seed is not None:
+            random.Random(prompt_seed).shuffle(out)
     return out
 
 
@@ -261,14 +277,18 @@ def bench_run(
         typer.echo("No prompts loaded.", err=True)
         raise typer.Exit(1)
 
+    _prompt_seed_env = os.getenv("MAHORAGA_PROMPT_SEED")
+    prompt_seed: Optional[int] = None
+    if _prompt_seed_env is not None:
+        try:
+            prompt_seed = int(_prompt_seed_env)
+        except ValueError:
+            typer.echo(f"warn: MAHORAGA_PROMPT_SEED={_prompt_seed_env!r} is not an integer; ignoring", err=True)
+
     agent_list = [a.strip() for a in agents.split(",") if a.strip()] or DEFAULT_AGENTS
-    schedule = _build_schedule(prompt_items, agent_list, mode, repeats)
+    schedule = _build_schedule(prompt_items, agent_list, mode, repeats, prompt_seed=prompt_seed)
     if limit is not None:
         schedule = schedule[:limit]
-
-    typer.echo(f"mode={mode}  prompts={len(prompt_items)}  agents={len(agent_list)}")
-    typer.echo(f"tasks_to_run={len(schedule)}  est_wall_min={len(schedule)*8/60:.1f} (at 8s/task)")
-    typer.echo("")
 
     results: list[dict[str, Any]] = []
     start = time.time()
@@ -276,7 +296,23 @@ def bench_run(
     async def go() -> None:
         run_ctx = await _capture_run_context()
         bench_run_id: Optional[int] = None
+
+        bandit_seed: Optional[int] = None
         async with httpx.AsyncClient(timeout=timeout) as client:
+            try:
+                seed_resp = await client.get(f"{base_url}/api/bench_run/seed")
+                if seed_resp.status_code == 200:
+                    bandit_seed = seed_resp.json().get("bandit_seed")
+            except Exception:
+                pass
+
+            typer.echo(
+                f"mode={mode}  prompts={len(prompt_items)}  agents={len(agent_list)}"
+                f"  bandit_seed={bandit_seed}  prompt_seed={prompt_seed}"
+            )
+            typer.echo(f"tasks_to_run={len(schedule)}  est_wall_min={len(schedule)*8/60:.1f} (at 8s/task)")
+            typer.echo("")
+
             try:
                 bench_payload: dict[str, Any] = {
                     "mode": mode,
@@ -286,6 +322,10 @@ def bench_run(
                     "task_count_planned": len(schedule),
                     **{k: v for k, v in run_ctx.items() if v is not None},
                 }
+                if bandit_seed is not None:
+                    bench_payload["bandit_seed"] = bandit_seed
+                if prompt_seed is not None:
+                    bench_payload["prompt_seed"] = prompt_seed
                 resp = await client.post(f"{base_url}/api/bench_run", json=bench_payload)
                 if resp.status_code == 200:
                     bench_run_id = resp.json().get("bench_run_id")

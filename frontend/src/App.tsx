@@ -3,6 +3,7 @@ import Shell from "./components/shell/Shell";
 import ErrorBoundary from "./components/shell/ErrorBoundary";
 import PerformancePage from "./pages/Performance";
 import ObservatoryPage from "./pages/Observatory";
+import PulsePage from "./pages/Pulse";
 import ActivityPage from "./pages/Activity";
 import ChatPage from "./pages/Chat";
 import AgentsPage from "./pages/Agents";
@@ -21,6 +22,7 @@ export default function App() {
           <Route index element={<Navigate to="/performance" replace />} />
           <Route path="/performance" element={<Boundary><PerformancePage /></Boundary>} />
           <Route path="/observatory" element={<Boundary><ObservatoryPage /></Boundary>} />
+          <Route path="/pulse" element={<Boundary><PulsePage /></Boundary>} />
           <Route path="/activity" element={<Boundary><ActivityPage /></Boundary>} />
           <Route path="/chat" element={<Boundary><ChatPage /></Boundary>} />
           <Route path="/agents" element={<Boundary><AgentsPage /></Boundary>} />

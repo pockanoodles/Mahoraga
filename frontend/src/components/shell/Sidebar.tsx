@@ -10,6 +10,7 @@ import {
   Network,
   Sun,
   Type,
+  Waves,
 } from "lucide-react";
 import type { ComponentType } from "react";
 import { useTheme } from "../../theme/useTheme";
@@ -34,7 +35,8 @@ const SECTIONS: NavSection[] = [
     items: [
       { to: "/performance", label: "Performance", Icon: Gauge },
       { to: "/observatory", label: "Observatory", Icon: Binoculars },
-      { to: "/activity", label: "Activity", Icon: ActivityIcon },
+      { to: "/pulse",       label: "Pulse",       Icon: Waves },
+      { to: "/activity",    label: "Activity",    Icon: ActivityIcon },
     ],
   },
   {

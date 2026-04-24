@@ -349,3 +349,51 @@ async def test_gateway_observe_fires_on_run_task_exception():
     assert isinstance(outcome, TaskOutcome)
     assert outcome.success is False
     assert outcome.quality_score == 0.0
+
+
+@pytest.mark.asyncio
+async def test_gateway_observe_preserves_agent_attribution_on_failure():
+    """When run_task raises but attempts exist, observe() must attribute the
+    failure to the attempt's worker_id — not "unknown" — so the bandit learns
+    that the selected agent failed.
+    """
+    from backend.orchestrator.routing.reward import TaskOutcome
+
+    task = _make_task()
+    failed_attempt = TaskAttempt(
+        id=str(uuid.uuid4()),
+        task_id=task.id,
+        worker_id="ollama:qwen3-4b",
+        status=AttemptStatus.failed,
+        error_code="worker_error",
+        blocking_reason="",
+        started_at=time.time(),
+        ended_at=time.time(),
+        summary="",
+        output="",
+        artifact_refs=[],
+        validator_refs=[],
+    )
+    store = _make_store(task=task, attempts=[failed_attempt])
+
+    bandit_router = MagicMock()
+    bandit_router.observe = MagicMock()
+
+    gw = _make_gateway(
+        store,
+        tasks_from_planner=[task],
+        run_task_side_effect=RuntimeError("simulated failure"),
+    )
+    gw._bandit_router = bandit_router
+
+    msg = _make_msg()
+    with gw._planner_patch, gw._run_task_patch:
+        _ = [c async for c in gw.handle_message(msg)]
+
+    bandit_router.observe.assert_called_once()
+    _, outcome = bandit_router.observe.call_args[0]
+    assert isinstance(outcome, TaskOutcome)
+    assert outcome.success is False
+    assert outcome.agent_name == "ollama:qwen3-4b", (
+        f"attribution lost: expected 'ollama:qwen3-4b', got {outcome.agent_name!r}"
+    )

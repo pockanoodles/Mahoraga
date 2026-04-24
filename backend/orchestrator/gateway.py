@@ -179,12 +179,12 @@ class Gateway:
                 response_chunks.append(chunk)
                 yield chunk
 
-            # Collect the latest completed attempt output as a response chunk.
-            # Fall back to summary for legacy DB rows where output column is empty.
-            completed: list = []
+            # Always fetch attempts so the bandit gets attribution even on
+            # failure paths (preserves learning signal for the selected agent).
+            attempts = await self._store.tasks.list_attempts(task.id)
+            completed = [a for a in attempts if a.status.value == "completed"]
+
             if _run_task_exc is None:
-                attempts = await self._store.tasks.list_attempts(task.id)
-                completed = [a for a in attempts if a.status.value == "completed"]
                 logger.info("GATEWAY ATTEMPT OUTPUT: %s", [a.output[:100] for a in completed])
                 if completed:
                     attempt = completed[-1]
@@ -222,13 +222,15 @@ class Gateway:
                         agent_name=attempt.worker_id or "unknown",
                     )
                 else:
-                    # Exception in run_task or no completed attempt (escalated/blocked/retry-exhausted)
+                    # Exception or no completed attempt — attribute to the most
+                    # recent attempt's worker if any was made, else "unknown".
+                    fallback_agent = attempts[-1].worker_id if attempts else "unknown"
                     bandit_outcome = TaskOutcome(
                         success=False,
                         latency_s=0.0,
                         cost_usd=0.0,
                         quality_score=0.0,
-                        agent_name="unknown",
+                        agent_name=fallback_agent or "unknown",
                     )
                 try:
                     self._bandit_router.observe(task, bandit_outcome)

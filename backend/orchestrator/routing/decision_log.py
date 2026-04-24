@@ -42,6 +42,26 @@ CREATE TABLE IF NOT EXISTS decisions (
 CREATE INDEX IF NOT EXISTS idx_strategy ON decisions(strategy);
 CREATE INDEX IF NOT EXISTS idx_agent ON decisions(selected_agent);
 CREATE INDEX IF NOT EXISTS idx_ts ON decisions(timestamp);
+CREATE TABLE IF NOT EXISTS bench_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    started_at TEXT NOT NULL,
+    ended_at TEXT,
+    mode TEXT,
+    git_sha TEXT,
+    git_dirty INTEGER,
+    ollama_version TEXT,
+    hostname TEXT,
+    on_charger INTEGER,
+    bandit_seed INTEGER,
+    prompt_seed INTEGER,
+    prompts_file TEXT,
+    agents TEXT,
+    repeats INTEGER,
+    task_count_planned INTEGER,
+    task_count_completed INTEGER,
+    notes TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_bench_runs_started ON bench_runs(started_at);
 """
 
 _QUALITY_COMPONENT_COLUMNS = [
@@ -81,7 +101,7 @@ class DecisionLogger:
         self._migrate()
 
     def _migrate(self) -> None:
-        """Add quality component columns to existing DBs that pre-date this schema."""
+        """Add columns to existing DBs that pre-date the current schema."""
         existing = {
             row[1]
             for row in self._conn.execute("PRAGMA table_info(decisions)").fetchall()
@@ -89,6 +109,11 @@ class DecisionLogger:
         for col in _QUALITY_COMPONENT_COLUMNS:
             if col not in existing:
                 self._conn.execute(f"ALTER TABLE decisions ADD COLUMN {col} REAL")
+        if "bench_run_id" not in existing:
+            self._conn.execute("ALTER TABLE decisions ADD COLUMN bench_run_id INTEGER")
+            self._conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_decisions_bench_run ON decisions(bench_run_id)"
+            )
         self._conn.commit()
 
     # ------------------------------------------------------------------
@@ -103,6 +128,7 @@ class DecisionLogger:
         available_agents: list,
         strategy: str,
         scores: Optional[dict] = None,
+        bench_run_id: Optional[int] = None,
     ) -> int:
         """Insert a routing decision row and return its row id."""
         with self._lock:
@@ -115,8 +141,8 @@ class DecisionLogger:
                 """
                 INSERT INTO decisions
                     (timestamp, task_id, task_goal, strategy, selected_agent,
-                     available_agents, context_vector, scores)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                     available_agents, context_vector, scores, bench_run_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     ts,
@@ -127,10 +153,44 @@ class DecisionLogger:
                     json.dumps(available_agents),
                     ctx_vec,
                     json.dumps(scores) if scores else None,
+                    bench_run_id,
                 ),
             )
             self._conn.commit()
             return cur.lastrowid
+
+    def create_bench_run(self, **fields) -> int:
+        """Insert a bench_runs row and return its id."""
+        columns = [
+            "started_at", "mode", "git_sha", "git_dirty", "ollama_version",
+            "hostname", "on_charger", "bandit_seed", "prompt_seed",
+            "prompts_file", "agents", "repeats", "task_count_planned", "notes",
+        ]
+        col_names = []
+        values = []
+        for col in columns:
+            if col in fields:
+                col_names.append(col)
+                values.append(fields[col])
+        if "started_at" not in fields:
+            col_names.append("started_at")
+            values.append(datetime.now(timezone.utc).isoformat())
+        placeholders = ", ".join("?" * len(col_names))
+        sql = f"INSERT INTO bench_runs ({', '.join(col_names)}) VALUES ({placeholders})"
+        with self._lock:
+            cur = self._conn.execute(sql, values)
+            self._conn.commit()
+            return cur.lastrowid
+
+    def finalize_bench_run(self, run_id: int, task_count_completed: int) -> None:
+        """Set ended_at + task_count_completed on the bench_runs row."""
+        ended_at = datetime.now(timezone.utc).isoformat()
+        with self._lock:
+            self._conn.execute(
+                "UPDATE bench_runs SET ended_at = ?, task_count_completed = ? WHERE id = ?",
+                (ended_at, task_count_completed, run_id),
+            )
+            self._conn.commit()
 
     def log_outcome(self, task, outcome: TaskOutcome, reward: float) -> None:
         """Back-fill outcome columns on the most-recent decision for this task."""

@@ -491,6 +491,28 @@ class TaskRequest(BaseModel):
     prompt: str
     capability_hint: str | None = None
     agent_override: str | None = None
+    bench_run_id: int | None = None
+
+
+class BenchRunCreate(BaseModel):
+    started_at: str | None = None
+    mode: str | None = None
+    git_sha: str | None = None
+    git_dirty: int | None = None
+    ollama_version: str | None = None
+    hostname: str | None = None
+    on_charger: int | None = None
+    bandit_seed: int | None = None
+    prompt_seed: int | None = None
+    prompts_file: str | None = None
+    agents: str | None = None
+    repeats: int | None = None
+    task_count_planned: int | None = None
+    notes: str | None = None
+
+
+class BenchRunFinalize(BaseModel):
+    task_count_completed: int
 
 
 class BatchTaskItem(BaseModel):
@@ -1128,6 +1150,23 @@ async def eval_finish(
     return {"ok": True}
 
 
+@app.post("/api/bench_run")
+async def create_bench_run(req: BenchRunCreate) -> dict:
+    """Create a bench_runs row at session start. Returns bench_run_id."""
+    router = get_bandit_router()
+    fields = {k: v for k, v in req.model_dump().items() if v is not None}
+    run_id = router.logger.create_bench_run(**fields)
+    return {"bench_run_id": run_id}
+
+
+@app.post("/api/bench_run/{run_id}/finalize")
+async def finalize_bench_run(run_id: int, req: BenchRunFinalize) -> dict:
+    """Set ended_at + task_count_completed on the bench_runs row."""
+    router = get_bandit_router()
+    router.logger.finalize_bench_run(run_id, req.task_count_completed)
+    return {"ok": True}
+
+
 @app.get("/api/rankings")
 async def get_rankings(
     rankings_store: RankingsStoreDep,
@@ -1412,7 +1451,7 @@ async def run_api_task(
 
     # Route via bandit (logs the decision, populates _last_scores)
     t_route_start = _time.monotonic()
-    selected_agent = req.agent_override or router.route(task, model_warm_norm=1.0 if model_was_warm else 0.0)
+    selected_agent = req.agent_override or router.route(task, bench_run_id=req.bench_run_id)
     routing_time_ms = (_time.monotonic() - t_route_start) * 1000
     scores = router.strategy.get_scores()  # populated by route() above
 

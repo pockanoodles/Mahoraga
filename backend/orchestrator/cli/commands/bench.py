@@ -17,6 +17,8 @@ Requires `uvicorn backend.orchestrator.service.app:app` to be running.
 from __future__ import annotations
 import asyncio
 import json
+import socket
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -24,6 +26,11 @@ from typing import Any, Optional
 
 import httpx
 import typer
+
+try:
+    import psutil as _psutil
+except ImportError:
+    _psutil = None
 
 app = typer.Typer(
     name="bench",
@@ -43,6 +50,57 @@ DEFAULT_AGENTS = [
     "goose",
     "opencode",
 ]
+
+
+async def _capture_run_context(base_url: str) -> dict[str, Any]:
+    """Capture git SHA, Ollama version, hostname, and battery state."""
+    ctx: dict[str, Any] = {}
+
+    ctx["hostname"] = socket.gethostname()
+
+    # git SHA + dirty flag
+    try:
+        sha_result = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            capture_output=True, text=True, timeout=5,
+        )
+        if sha_result.returncode == 0:
+            ctx["git_sha"] = sha_result.stdout.strip()
+            dirty_result = subprocess.run(
+                ["git", "status", "--porcelain"],
+                capture_output=True, text=True, timeout=5,
+            )
+            ctx["git_dirty"] = 1 if dirty_result.stdout.strip() else 0
+        else:
+            ctx["git_sha"] = None
+            ctx["git_dirty"] = None
+    except Exception:
+        ctx["git_sha"] = None
+        ctx["git_dirty"] = None
+
+    # Ollama version
+    try:
+        ollama_url = "http://localhost:11434/api/version"
+        async with httpx.AsyncClient(timeout=2.0) as client:
+            resp = await client.get(ollama_url)
+            if resp.status_code == 200:
+                ctx["ollama_version"] = resp.json().get("version")
+            else:
+                ctx["ollama_version"] = None
+    except Exception:
+        ctx["ollama_version"] = None
+
+    # Battery / charger state
+    if _psutil is not None:
+        try:
+            battery = _psutil.sensors_battery()
+            ctx["on_charger"] = 1 if (battery is not None and battery.power_plugged) else 0
+        except Exception:
+            ctx["on_charger"] = None
+    else:
+        ctx["on_charger"] = None
+
+    return ctx
 
 
 def _load_prompts(path: Path) -> list[dict[str, Any]]:
@@ -65,6 +123,7 @@ async def _run_one(
     prompt: str,
     bucket: Optional[str],
     agent: Optional[str],
+    bench_run_id: Optional[int] = None,
 ) -> dict[str, Any]:
     """POST a single task. Returns a flat record for summary aggregation."""
     body: dict[str, Any] = {"prompt": prompt}
@@ -72,6 +131,8 @@ async def _run_one(
         body["capability_hint"] = bucket
     if agent:
         body["agent_override"] = agent
+    if bench_run_id is not None:
+        body["bench_run_id"] = bench_run_id
     t0 = time.time()
     try:
         resp = await client.post(f"{base_url}/api/task", json=body)
@@ -208,9 +269,26 @@ def bench_run(
     start = time.time()
 
     async def go() -> None:
+        run_ctx = await _capture_run_context(base_url)
+        bench_run_id: Optional[int] = None
         async with httpx.AsyncClient(timeout=timeout) as client:
+            try:
+                bench_payload: dict[str, Any] = {
+                    "mode": mode,
+                    "prompts_file": str(prompts_path),
+                    "agents": json.dumps(agent_list),
+                    "repeats": repeats,
+                    "task_count_planned": len(schedule),
+                    **{k: v for k, v in run_ctx.items() if v is not None},
+                }
+                resp = await client.post(f"{base_url}/api/bench_run", json=bench_payload)
+                if resp.status_code == 200:
+                    bench_run_id = resp.json().get("bench_run_id")
+            except Exception as exc:
+                typer.echo(f"warn: could not create bench_run row: {exc}", err=True)
+
             for i, (p, b, a) in enumerate(schedule, start=1):
-                r = await _run_one(client, base_url, p, b, a)
+                r = await _run_one(client, base_url, p, b, a, bench_run_id=bench_run_id)
                 results.append(r)
                 elapsed = time.time() - start
                 remaining = (elapsed / i) * (len(schedule) - i) if i > 0 else 0
@@ -222,6 +300,16 @@ def bench_run(
                 )
                 sys.stdout.flush()
             sys.stdout.write("\n")
+
+            if bench_run_id is not None:
+                completed = sum(1 for r in results if r.get("success"))
+                try:
+                    await client.post(
+                        f"{base_url}/api/bench_run/{bench_run_id}/finalize",
+                        json={"task_count_completed": completed},
+                    )
+                except Exception as exc:
+                    typer.echo(f"warn: could not finalize bench_run: {exc}", err=True)
 
     asyncio.run(go())
 

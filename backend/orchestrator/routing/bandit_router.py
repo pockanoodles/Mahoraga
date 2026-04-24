@@ -111,6 +111,7 @@ class BanditRouter:
         task: Any,
         available_agents: list[str] | None = None,
         queue_depth_norm: float = 0.0,
+        bench_run_id: int | None = None,
     ) -> str:
         """Select the best agent for this task. Returns agent name.
 
@@ -167,6 +168,7 @@ class BanditRouter:
             available_agents=available,
             strategy=self.strategy.name,
             scores=self.strategy.get_scores(),
+            bench_run_id=bench_run_id,
         )
         try:
             brain_log_decision(

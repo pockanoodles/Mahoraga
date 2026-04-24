@@ -245,7 +245,7 @@ async def lifespan(app: FastAPI):
     _registry.register(_codex_worker)
 
     # ── Register Aider worker ─────────────────────────────────────────────────
-    _aider_model = os.getenv("AIDER_MODEL", "ollama_chat/qwen3:4b-q4_K_M")
+    _aider_model = os.getenv("AIDER_MODEL", "ollama_chat/qwen3:4b")
     _aider_worker = AiderWorker(model=_aider_model, cwd=_workdir)
     _registry.register(_aider_worker)
 

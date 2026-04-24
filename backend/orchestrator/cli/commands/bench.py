@@ -297,14 +297,25 @@ def bench_run(
         run_ctx = await _capture_run_context()
         bench_run_id: Optional[int] = None
 
+        # Probe the server for its bandit seed with a short timeout so an
+        # unreachable server doesn't stall bench startup by the per-task budget.
         bandit_seed: Optional[int] = None
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            try:
-                seed_resp = await client.get(f"{base_url}/api/bench_run/seed")
+        try:
+            async with httpx.AsyncClient(timeout=2.0) as probe:
+                seed_resp = await probe.get(f"{base_url}/api/bench_run/seed")
                 if seed_resp.status_code == 200:
                     bandit_seed = seed_resp.json().get("bandit_seed")
-            except Exception:
-                pass
+        except Exception:
+            pass
+
+        if bandit_seed is None and os.environ.get("MAHORAGA_BANDIT_SEED") is not None:
+            typer.echo(
+                "note: MAHORAGA_BANDIT_SEED is set locally but the server's seed is "
+                "authoritative — set it in the server's environment, not here.",
+                err=True,
+            )
+
+        async with httpx.AsyncClient(timeout=timeout) as client:
 
             typer.echo(
                 f"mode={mode}  prompts={len(prompt_items)}  agents={len(agent_list)}"

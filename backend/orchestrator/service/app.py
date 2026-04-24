@@ -1400,7 +1400,11 @@ async def run_api_task(
     await store.missions.save_run(run)
 
     task = Task.new(run_id=run.id, title=req.prompt[:80], goal=req.prompt)
-    await store.tasks.save(task)
+    # IMPORTANT: don't save yet. We need to persist the task WITH the
+    # resolved preferred_worker_type so the executor's re-fetch sees it.
+    # Saving before the routing decision means assign_worker falls back
+    # to candidates[0] and every task lands on the first-registered worker,
+    # which was a silent bug that broke agent_override completely.
 
     # Check Ollama warm state before routing decision
     model_was_warm = await _is_ollama_warm() if not req.agent_override else False
@@ -1422,6 +1426,8 @@ async def run_api_task(
     if adapter:
         task = dataclasses.replace(task, preferred_worker_type=adapter.worker_id)
 
+    # Now persist — after preferred_worker_type is set.
+    await store.tasks.save(task)
     # Transition task to ready so executor can pick it up
     await store.tasks.update_status(task.id, TaskStatus.ready)
 

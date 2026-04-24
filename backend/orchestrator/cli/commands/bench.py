@@ -17,6 +17,7 @@ Requires `uvicorn backend.orchestrator.service.app:app` to be running.
 from __future__ import annotations
 import asyncio
 import json
+import os
 import socket
 import subprocess
 import sys
@@ -52,8 +53,12 @@ DEFAULT_AGENTS = [
 ]
 
 
-async def _capture_run_context(base_url: str) -> dict[str, Any]:
-    """Capture git SHA, Ollama version, hostname, and battery state."""
+async def _capture_run_context() -> dict[str, Any]:
+    """Capture git SHA, Ollama version, hostname, and battery state.
+
+    Ollama is probed at its default local URL (localhost:11434); override via
+    `OLLAMA_BASE_URL` env var if the server runs elsewhere.
+    """
     ctx: dict[str, Any] = {}
 
     ctx["hostname"] = socket.gethostname()
@@ -80,9 +85,9 @@ async def _capture_run_context(base_url: str) -> dict[str, Any]:
 
     # Ollama version
     try:
-        ollama_url = "http://localhost:11434/api/version"
+        ollama_base = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434").rstrip("/")
         async with httpx.AsyncClient(timeout=2.0) as client:
-            resp = await client.get(ollama_url)
+            resp = await client.get(f"{ollama_base}/api/version")
             if resp.status_code == 200:
                 ctx["ollama_version"] = resp.json().get("version")
             else:
@@ -269,7 +274,7 @@ def bench_run(
     start = time.time()
 
     async def go() -> None:
-        run_ctx = await _capture_run_context(base_url)
+        run_ctx = await _capture_run_context()
         bench_run_id: Optional[int] = None
         async with httpx.AsyncClient(timeout=timeout) as client:
             try:

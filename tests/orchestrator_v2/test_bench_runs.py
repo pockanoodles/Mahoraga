@@ -203,7 +203,7 @@ async def test_capture_run_context_all_failures(monkeypatch):
 
     monkeypatch.setattr("httpx.AsyncClient", lambda **kw: _FailClient())
 
-    ctx = await bench_mod._capture_run_context("http://localhost:8000")
+    ctx = await bench_mod._capture_run_context()
 
     assert ctx["git_sha"] is None
     assert ctx["git_dirty"] is None
@@ -247,7 +247,7 @@ async def test_capture_run_context_git_works(monkeypatch):
 
     monkeypatch.setattr("httpx.AsyncClient", lambda **kw: _FailClient())
 
-    ctx = await bench_mod._capture_run_context("http://localhost:8000")
+    ctx = await bench_mod._capture_run_context()
 
     assert ctx["git_sha"] == "deadbeef1234567890"
     assert ctx["git_dirty"] == 0  # clean
@@ -280,6 +280,6 @@ async def test_capture_run_context_ollama_version(monkeypatch):
 
     monkeypatch.setattr("httpx.AsyncClient", lambda **kw: _FakeOllamaClient())
 
-    ctx = await bench_mod._capture_run_context("http://localhost:8000")
+    ctx = await bench_mod._capture_run_context()
 
     assert ctx["ollama_version"] == "0.6.1"

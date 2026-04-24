@@ -166,6 +166,9 @@ class DecisionLogger:
             "hostname", "on_charger", "bandit_seed", "prompt_seed",
             "prompts_file", "agents", "repeats", "task_count_planned", "notes",
         ]
+        unknown = set(fields) - set(columns)
+        if unknown:
+            raise ValueError(f"create_bench_run: unknown fields {unknown}")
         col_names = []
         values = []
         for col in columns:

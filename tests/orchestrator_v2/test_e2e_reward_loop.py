@@ -179,14 +179,6 @@ def client_setup(store, registry, router, adapter_registry, implicit_tracker):
     app.dependency_overrides[get_verifier] = lambda: verifier
     app.dependency_overrides[get_adapter_registry] = lambda: adapter_registry
 
-    # app.py calls router.route(..., model_warm_norm=...) which is not in the
-    # BanditRouter.route() signature.  Wrap the real method to absorb that kwarg.
-    _real_route = router.route
-    def _compat_route(task, **kwargs):
-        kwargs.pop("model_warm_norm", None)
-        return _real_route(task, **kwargs)
-    router.route = _compat_route
-
     patches = [
         patch("backend.orchestrator.service.app._bandit_router", router),
         patch("backend.orchestrator.service.app._adapter_registry", adapter_registry),
@@ -215,7 +207,6 @@ def client_setup(store, registry, router, adapter_registry, implicit_tracker):
 
     for p in patches:
         p.stop()
-    router.route = _real_route  # restore
     app.dependency_overrides.clear()
 
 

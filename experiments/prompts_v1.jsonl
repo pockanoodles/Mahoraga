@@ -1,5 +1,5 @@
 # experiments/prompts_v1.jsonl — first-pass force-explore seed set.
-# 30 prompts across 6 buckets. Short + self-contained so local models
+# 42 prompts across 7 buckets. Short + self-contained so local models
 # (Ollama variants) have a fair shot. Mix of genuine work (code/plan) and
 # factual Q&A (research/general) so success isn't bimodal.
 #
@@ -47,3 +47,19 @@
 {"prompt": "Write a one-line description of what Docker is, aimed at a junior engineer.", "bucket": "general"}
 {"prompt": "Define 'eventual consistency' in one short paragraph.", "bucket": "general"}
 {"prompt": "List three strengths of Rust compared to C++.", "bucket": "general"}
+
+# ── security (6) ─────────────────────────────────────────────────────────
+{"prompt": "What are the top 3 OWASP REST API vulnerabilities and how do you prevent each?", "bucket": "security"}
+{"prompt": "Explain the risk of concatenating user input directly into a SQL query and describe the fix.", "bucket": "security"}
+{"prompt": "Why is storing JWT tokens in localStorage a security risk, and what are better alternatives?", "bucket": "security"}
+{"prompt": "How would you prevent prompt injection attacks in an LLM application that accepts arbitrary user text?", "bucket": "security"}
+{"prompt": "Critique this approach: storing API keys as plaintext environment variables in a .env file checked into git.", "bucket": "security"}
+{"prompt": "What is cross-site request forgery (CSRF) and how do you defend against it in a web application?", "bucket": "security"}
+
+# ── refactor (6) ─────────────────────────────────────────────────────────
+{"prompt": "Refactor to a dict lookup: if x==1: return 'one' elif x==2: return 'two' elif x==3: return 'three' else: return 'other'", "bucket": "refactor"}
+{"prompt": "Clean this up: data=[]; for i in range(10): if i%2==0: data.append(i*2)", "bucket": "refactor"}
+{"prompt": "Reduce nesting: if a: if b: if c: return True; return False", "bucket": "refactor"}
+{"prompt": "Simplify this: result = [] for x in items: if x > 0: result.append(x ** 2)", "bucket": "refactor"}
+{"prompt": "Extract repeated logic: obj.validate(); if obj.is_valid: obj.save(); print('saved'); else: obj.log_error(); print('failed')", "bucket": "refactor"}
+{"prompt": "Refactor for readability: status = 'ok' if code == 200 else 'err' if code >= 400 else 'pending'", "bucket": "refactor"}

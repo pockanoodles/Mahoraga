@@ -31,6 +31,11 @@ CREATE TABLE IF NOT EXISTS decisions (
     latency_s REAL,
     cost_usd REAL,
     quality_score REAL,
+    quality_structural REAL,
+    quality_novelty REAL,
+    quality_not_plan REAL,
+    quality_length REAL,
+    quality_embed REAL,
     reward REAL,
     error_message TEXT
 );
@@ -38,6 +43,14 @@ CREATE INDEX IF NOT EXISTS idx_strategy ON decisions(strategy);
 CREATE INDEX IF NOT EXISTS idx_agent ON decisions(selected_agent);
 CREATE INDEX IF NOT EXISTS idx_ts ON decisions(timestamp);
 """
+
+_QUALITY_COMPONENT_COLUMNS = [
+    "quality_structural",
+    "quality_novelty",
+    "quality_not_plan",
+    "quality_length",
+    "quality_embed",
+]
 
 
 def _task_id(task) -> Optional[str]:
@@ -64,6 +77,18 @@ class DecisionLogger:
         self._conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
         self._lock = threading.Lock()
         self._conn.executescript(_SCHEMA)
+        self._conn.commit()
+        self._migrate()
+
+    def _migrate(self) -> None:
+        """Add quality component columns to existing DBs that pre-date this schema."""
+        existing = {
+            row[1]
+            for row in self._conn.execute("PRAGMA table_info(decisions)").fetchall()
+        }
+        for col in _QUALITY_COMPONENT_COLUMNS:
+            if col not in existing:
+                self._conn.execute(f"ALTER TABLE decisions ADD COLUMN {col} REAL")
         self._conn.commit()
 
     # ------------------------------------------------------------------
@@ -128,15 +153,21 @@ class DecisionLogger:
             if row is None:
                 return  # no matching decision row; nothing to update
 
+            qc = outcome.quality_components or {}
             self._conn.execute(
                 """
                 UPDATE decisions
-                SET success       = ?,
-                    latency_s     = ?,
-                    cost_usd      = ?,
-                    quality_score = ?,
-                    reward        = ?,
-                    error_message = ?
+                SET success            = ?,
+                    latency_s          = ?,
+                    cost_usd           = ?,
+                    quality_score      = ?,
+                    quality_structural = ?,
+                    quality_novelty    = ?,
+                    quality_not_plan   = ?,
+                    quality_length     = ?,
+                    quality_embed      = ?,
+                    reward             = ?,
+                    error_message      = ?
                 WHERE id = ?
                 """,
                 (
@@ -144,6 +175,11 @@ class DecisionLogger:
                     outcome.latency_s,
                     outcome.cost_usd,
                     outcome.quality_score,
+                    qc.get("structural"),
+                    qc.get("novelty"),
+                    qc.get("not_plan"),
+                    qc.get("length"),
+                    qc.get("embed"),
                     reward,
                     outcome.error_message,
                     row[0],

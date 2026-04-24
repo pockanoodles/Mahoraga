@@ -299,13 +299,21 @@ def score_heuristic(prompt: str, output: str, bucket: str = "general") -> float:
     return round(min(score, 1.0), 4)
 
 
-async def score_quality(prompt: str, output: str, bucket: str = "general") -> float:
-    """Full quality score including embedding band when available."""
+async def score_quality_detailed(
+    prompt: str, output: str, bucket: str = "general"
+) -> tuple[float, dict[str, float | None] | None]:
+    """Full quality score with per-component breakdown.
+
+    Returns (composite, components) where components has keys:
+      structural, novelty, not_plan, length, embed
+    For code-bucket tasks components is None (no 5-layer breakdown).
+    When embeddings are unavailable, embed is None (not 0.0).
+    """
     if bucket in _CODE_BUCKETS:
-        return round(_score_code(output), 4)
+        return round(_score_code(output), 4), None
 
     if not output.strip():
-        return 0.0
+        return 0.0, {"structural": 0.0, "novelty": 0.0, "not_plan": 0.0, "length": 0.0, "embed": None}
 
     c = _prose_components(prompt, output, bucket)
     embed = await _similarity_band_score(prompt, output)
@@ -324,4 +332,16 @@ async def score_quality(prompt: str, output: str, bucket: str = "general") -> fl
             + _W_LENGTH * c["length"]
             + _W_EMBED * embed
         )
-    return round(min(score, 1.0), 4)
+    components: dict[str, float | None] = {
+        "structural": c["structural"],
+        "novelty": c["novelty"],
+        "not_plan": c["not_plan"],
+        "length": c["length"],
+        "embed": embed,
+    }
+    return round(min(score, 1.0), 4), components
+
+
+async def score_quality(prompt: str, output: str, bucket: str = "general") -> float:
+    """Full quality score including embedding band when available."""
+    return (await score_quality_detailed(prompt, output, bucket))[0]

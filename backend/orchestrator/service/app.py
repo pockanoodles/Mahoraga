@@ -1469,8 +1469,11 @@ async def run_api_task(
     agent_spawn_ms = max(0.0, wall_time_ms - routing_time_ms - (ollama_m.get("elapsed_s", 0) * 1000))
 
     bucket = _classify_bucket(req.prompt, hint=req.capability_hint)
-    from ..routing.quality import score_quality as _score_quality
-    quality_score = (await _score_quality(req.prompt, output, bucket)) if success else 0.0
+    from ..routing.quality import score_quality_detailed as _score_quality_detailed
+    if success:
+        quality_score, quality_components = await _score_quality_detailed(req.prompt, output, bucket)
+    else:
+        quality_score, quality_components = 0.0, None
 
     # Always update the bandit — even on failure — so the decision row gets a
     # reward and the selected agent is penalized for the failure.
@@ -1482,6 +1485,7 @@ async def run_api_task(
         agent_name=selected_agent,
         bucket=bucket,
         spawn_time_ms=agent_spawn_ms,
+        quality_components=quality_components,
     )
     try:
         router.observe(task, outcome)
@@ -1618,7 +1622,7 @@ async def run_batch(
     async def _run_single(task: Task, agent: str) -> dict:
         nonlocal sequential_s
         from ..store.metrics import _classify_bucket
-        from ..routing.quality import score_quality as _score_quality
+        from ..routing.quality import score_quality_detailed as _score_quality_detailed
 
         adapter = adapter_reg.get(agent)
         t_run = dataclasses.replace(task, preferred_worker_type=adapter.worker_id) if adapter else task
@@ -1668,7 +1672,10 @@ async def run_batch(
         success = status == "success"
 
         # Feed outcome back to bandit — same path as single-task endpoint
-        quality_score = (await _score_quality(task.goal, output, bucket)) if success else 0.0
+        if success:
+            quality_score, quality_components = await _score_quality_detailed(task.goal, output, bucket)
+        else:
+            quality_score, quality_components = 0.0, None
         outcome = TaskOutcome(
             success=success,
             latency_s=elapsed,
@@ -1677,6 +1684,7 @@ async def run_batch(
             agent_name=agent,
             bucket=bucket,
             spawn_time_ms=0.0,
+            quality_components=quality_components,
         )
         try:
             router.observe(task, outcome)

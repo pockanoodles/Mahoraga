@@ -40,6 +40,9 @@ app = typer.Typer(
     no_args_is_help=True,
 )
 
+from .bench_report import report_app  # noqa: E402
+app.add_typer(report_app, name="report")
+
 
 DEFAULT_AGENTS = [
     "ollama:qwen3-4b",

@@ -1221,7 +1221,9 @@ async def routing_decisions(
     since: str | None = None,
 ):
     """Query recent routing decisions from the decision log."""
-    limit = min(limit, 50)
+    # Bumped from 50 → 2000 so the dashboard can render trend windows
+    # (last 250 / 500 / 1000 / all) without paginating.
+    limit = min(limit, 2000)
     router = get_bandit_router()
     decisions = router.logger.get_recent(limit=limit, agent=agent, since=since)
     return {

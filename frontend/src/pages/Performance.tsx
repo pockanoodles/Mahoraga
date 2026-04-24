@@ -5,6 +5,7 @@ import Panel from "../components/shared/Panel";
 import SummaryCard from "../components/shared/SummaryCard";
 import StatusBadge from "../components/shared/StatusBadge";
 import AgentBar from "../components/shared/AgentBar";
+import TrendsPanel from "../components/performance/TrendsPanel";
 import { usePolling } from "../hooks/usePolling";
 import {
   getJson,
@@ -159,6 +160,10 @@ export default function PerformancePage() {
           subtitle={s ? `from ${s.total.toLocaleString()} tasks` : ""}
           icon={<Activity size={14} />}
         />
+      </div>
+
+      <div className="mb-5">
+        <TrendsPanel />
       </div>
 
       <div className="mb-5 grid gap-5 md:grid-cols-2">

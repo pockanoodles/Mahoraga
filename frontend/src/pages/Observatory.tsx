@@ -14,7 +14,7 @@ import {
 } from "../lib/api";
 
 const REFRESH_MS = 4000;
-const FEED_LIMIT = 30;
+const FEED_LIMIT = 50;
 
 export default function ObservatoryPage() {
   const decisionsFetcher = useCallback(
@@ -56,7 +56,7 @@ export default function ObservatoryPage() {
   }, [agents.data]);
 
   return (
-    <>
+    <div className="flex min-h-0 flex-1 flex-col">
       <PageHeader
         title="Observatory"
         subtitle="The bandit's decisions in real time — what it chose, what it considered, and whether it played it safe."
@@ -67,7 +67,7 @@ export default function ObservatoryPage() {
         }
       />
 
-      {/* Top row — quick context */}
+      {/* Quick-context row */}
       <div className="mb-5 grid grid-cols-[repeat(auto-fit,minmax(220px,1fr))] gap-4">
         <Panel>
           <div className="text-sm font-medium text-muted-foreground">Shown</div>
@@ -98,8 +98,19 @@ export default function ObservatoryPage() {
         </Panel>
       </div>
 
-      <div className="grid gap-5 md:grid-cols-[1fr_320px]">
-        <Panel title="Live routing decisions" padded={false}>
+      {/*
+        Bounded region. min-h-0 + overflow-hidden on the grid parent lets the
+        feed scroll internally instead of pushing the page. Side column gets
+        its own scroll if needed.
+      */}
+      <div className="grid min-h-0 flex-1 gap-5 overflow-hidden md:grid-cols-[1fr_320px]">
+        <div className="flex min-h-0 flex-col overflow-hidden rounded-lg bg-card shadow-[rgba(0,0,0,0.08)_0px_0px_0px_1px]">
+          <div className="flex items-center justify-between border-b border-border px-5 py-3.5">
+            <h2 className="text-sm font-semibold text-foreground">Live routing decisions</h2>
+            <span className="font-mono text-[11px] text-muted-foreground">
+              last {parsed.length} · refresh {REFRESH_MS / 1000}s
+            </span>
+          </div>
           {decisions.loading && parsed.length === 0 ? (
             <div className="px-5 py-10 text-center text-sm text-muted-foreground">
               Waiting for the first decision…
@@ -110,15 +121,17 @@ export default function ObservatoryPage() {
               description="Send a task from Chat and it'll show up here with agent scores and verdict."
             />
           ) : (
-            <div className="flex flex-col gap-3 p-4">
-              {parsed.map((p) => (
-                <DecisionCard key={p.raw.id} decision={p} />
-              ))}
+            <div className="min-h-0 flex-1 overflow-y-auto p-4">
+              <div className="flex flex-col gap-3">
+                {parsed.map((p) => (
+                  <DecisionCard key={p.raw.id} decision={p} />
+                ))}
+              </div>
             </div>
           )}
-        </Panel>
+        </div>
 
-        <div className="flex flex-col gap-5">
+        <div className="flex min-h-0 flex-col gap-5 overflow-y-auto pr-0.5">
           <Panel title="Distribution">
             {agentShares.length === 0 ? (
               <div className="text-sm text-muted-foreground">No agent data yet.</div>
@@ -155,6 +168,6 @@ export default function ObservatoryPage() {
           </Panel>
         </div>
       </div>
-    </>
+    </div>
   );
 }

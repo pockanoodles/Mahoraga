@@ -58,6 +58,20 @@
   --transition-base: 200ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 
+/* Font schemes — override --font-family / --font-heading by class on <html>. */
+html.font-inter {
+  --font-family: "Inter", -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  --font-heading: "Inter", -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+}
+html.font-geist {
+  --font-family: "Geist", -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  --font-heading: "Geist", -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+}
+html.font-manrope {
+  --font-family: "Manrope", -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  --font-heading: "Manrope", -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+}
+
 .dark {
   --background: 0 0% 9%;
   --foreground: 0 0% 93%;

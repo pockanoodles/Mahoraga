@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import type { ComponentType } from "react";
 import ThemeToggle from "./ThemeToggle";
+import FontPicker from "./FontPicker";
 import { cn } from "../../lib/cn";
 
 type IconType = ComponentType<{ size?: number | string; className?: string }>;
@@ -79,13 +80,14 @@ export default function Sidebar() {
         ))}
       </div>
 
-      <div className="border-t border-sidebar-border p-3">
+      <div className="flex flex-col gap-2 border-t border-sidebar-border p-3">
         <ThemeToggle />
+        <FontPicker />
         <a
           href="https://github.com/pockanoodles/Mahoraga"
           target="_blank"
           rel="noopener noreferrer"
-          className="mt-2 flex items-center gap-2 rounded-md px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+          className="flex items-center gap-2 rounded-md px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
         >
           <Github size={13} />
           <span>GitHub</span>

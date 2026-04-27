@@ -248,12 +248,22 @@ def run_benchmark(n_tasks: int = 200, seed: int = 42, linucb_alpha: float = 1.0,
     results = {}
     for name in strategies:
         s = stats[name]
+        total_cost = s["total_cost"]
+
+        free_agents = {"ollama", "gemini-cli"}
+        free_tasks = sum(s["agent_picks"][a] for a in free_agents if a in s["agent_picks"])
+
+        cloud_baseline_cost = 0.035 * 1.5 * n
+        cost_savings_usd = max(0.0, cloud_baseline_cost - total_cost)
+
         results[name] = {
             "success_rate": s["successes"] / n,
             "mean_reward": s["total_reward"] / n,
             "avg_latency": s["total_latency"] / n,
-            "avg_cost": s["total_cost"] / n,
-            "total_cost": s["total_cost"],
+            "avg_cost": total_cost / n,
+            "total_cost": total_cost,
+            "free_routing_pct": free_tasks / n,
+            "cost_savings_usd": cost_savings_usd,
             "agent_distribution": {a: s["agent_picks"][a] / n for a in AGENTS},
             "agent_success_rates": {
                 a: (s["agent_successes"][a] / s["agent_picks"][a]
@@ -266,10 +276,11 @@ def run_benchmark(n_tasks: int = 200, seed: int = 42, linucb_alpha: float = 1.0,
         }
 
     # Print results table
-    print("\n" + "=" * 60 + "\n  RESULTS\n" + "=" * 60 + "\n")
+    print("\n" + "=" * 75 + "\n  RESULTS\n" + "=" * 75 + "\n")
     col_w = 12
     header = (f"{'Strategy':<{col_w}} {'Success':>8} {'Reward':>8} "
-              f"{'Latency':>9} {'Cost':>10} {'Regret':>10} {'beta':>7} {'Sublin':>8}")
+              f"{'Latency':>9} {'Cost':>10} {'Free%':>7} {'Saved':>8} "
+              f"{'Regret':>10} {'beta':>7} {'Sublin':>8}")
     print(header)
     print("-" * len(header))
     for name in strategies:
@@ -280,6 +291,7 @@ def run_benchmark(n_tasks: int = 200, seed: int = 42, linucb_alpha: float = 1.0,
         print(
             f"  {name:<{col_w-2}} {r['success_rate']:>7.1%} {r['mean_reward']:>8.4f} "
             f"{r['avg_latency']:>8.1f}s ${r['avg_cost']:>8.4f} "
+            f"{r['free_routing_pct']:>6.1%} ${r['cost_savings_usd']:>6.3f} "
             f"{r['total_regret']:>10.2f} {beta_str:>7} {sub:>7}"
         )
 
@@ -323,8 +335,8 @@ def _save_strategy_results(results: dict, output_path: str) -> None:
 def _write_summary_table(results: dict, tracker: RegretTracker, output_path: str) -> None:
     lines = [
         "# Mahoraga Routing Benchmark Results\n",
-        "| Strategy | Success Rate | Mean Reward | Avg Latency | Avg Cost | Total Regret | beta | Sublinear? |",
-        "|----------|-------------|-------------|-------------|---------|-------------|------|------------|",
+        "| Strategy | Success Rate | Mean Reward | Avg Latency | Avg Cost | Free Routing | Cost Savings | Total Regret | beta | Sublinear? |",
+        "|----------|-------------|-------------|-------------|---------|-------------|-------------|-------------|------|------------|",
     ]
     best_reward = max(r["mean_reward"] for r in results.values())
     for name, r in results.items():
@@ -335,6 +347,7 @@ def _write_summary_table(results: dict, tracker: RegretTracker, output_path: str
         lines.append(
             f"| {name} | {r['success_rate']:.1%} | {reward_str} | "
             f"{r['avg_latency']:.1f}s | ${r['avg_cost']:.4f} | "
+            f"{r['free_routing_pct']:.1%} | ${r['cost_savings_usd']:.3f} | "
             f"{r['total_regret']:.2f} | {beta_str} | {sub} |"
         )
 
@@ -377,8 +390,7 @@ def _plot_agent_breakdown(results: dict, strategies: dict, output_path: str) -> 
         "codex-cli":  "#3b82f6",
         "aider":      "#f59e0b",
         "gemini-cli": "#8b5cf6",
-        "goose":      "#ef4444",
-        "opencode":   "#6b7280",
+        "claude":     "#c084fc",
     }
 
     fig, ax = plt.subplots(figsize=(13, 5.5))

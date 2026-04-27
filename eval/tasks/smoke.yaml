@@ -1,0 +1,18 @@
+suite: smoke
+seed: 42
+tasks:
+  - id: smoke_explain_1
+    text: "What is 2 + 2? Answer with just the number."
+    bucket: research
+    difficulty: simple
+    timeout_s: 30
+  - id: smoke_code_1
+    text: "Write a Python function called hello() that returns the string 'hello world'"
+    bucket: code
+    difficulty: simple
+    timeout_s: 60
+  - id: smoke_general_1
+    text: "What does the ls command do in Unix? One sentence answer."
+    bucket: research
+    difficulty: simple
+    timeout_s: 30

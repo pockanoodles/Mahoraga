@@ -1,0 +1,167 @@
+@import "./tokens.css";
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+*,
+*::before,
+*::after {
+  border-color: hsl(var(--border));
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: var(--font-family);
+  font-feature-settings: "rlig" 1, "calt" 1;
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-size: 15px;
+}
+
+/*
+ * Smooth light↔dark transitions on surface tokens. Scoped to the properties
+ * most affected by a theme flip so we don't fight component hover animations
+ * (those use transition-colors / transition-shadow at tighter durations).
+ */
+html {
+  transition: color-scheme 220ms ease;
+}
+*,
+*::before,
+*::after {
+  transition-property: background-color, border-color, color, fill, stroke;
+  transition-duration: 220ms;
+  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+}
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition: none !important;
+  }
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  font-family: var(--font-heading);
+  letter-spacing: -0.015em;
+}
+
+/* Streaming caret for assistant bubble */
+.cursor::after {
+  content: "▋";
+  display: inline-block;
+  margin-left: 2px;
+  animation: blink 1s steps(2, start) infinite;
+  color: hsl(var(--chart-1));
+}
+@keyframes blink {
+  to {
+    visibility: hidden;
+  }
+}
+
+/* Markdown surface — used in chat bubbles */
+.md {
+  line-height: 1.55;
+  word-wrap: break-word;
+}
+.md p {
+  margin: 0 0 0.6em 0;
+}
+.md p:last-child {
+  margin-bottom: 0;
+}
+.md code {
+  background: hsl(var(--muted));
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+}
+.md pre {
+  background: hsl(var(--muted));
+  border: 1px solid hsl(var(--border));
+  border-radius: calc(var(--radius) - 2px);
+  padding: 10px 12px;
+  overflow-x: auto;
+  margin: 0.6em 0;
+}
+.md pre code {
+  background: transparent;
+  padding: 0;
+  font-size: 0.88em;
+}
+.md strong {
+  color: hsl(var(--foreground));
+}
+
+.code-block-wrapper {
+  position: relative;
+}
+.copy-btn {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  background: hsl(var(--card));
+  color: hsl(var(--muted-foreground));
+  border: 1px solid hsl(var(--border));
+  border-radius: calc(var(--radius) - 3px);
+  padding: 2px 8px;
+  font-size: 11px;
+  cursor: pointer;
+  opacity: 0.7;
+  transition: opacity 120ms ease;
+}
+.code-block-wrapper:hover .copy-btn {
+  opacity: 1;
+}
+.copy-btn:hover {
+  color: hsl(var(--foreground));
+}
+
+/* Fade-in entrance — used on cards + panels */
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.fade-in {
+  animation: fadeInUp 260ms ease-out both;
+}
+
+/* Scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: hsl(var(--border));
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--muted-foreground) / 0.3);
+}

@@ -31,6 +31,11 @@ class _FakeStream:
             raise StopAsyncIteration
         return self._lines.pop(0)
 
+    async def readline(self) -> bytes:
+        if not self._lines:
+            return b""
+        return self._lines.pop(0)
+
 
 def _make_proc(lines: list[str], returncode: int = 0, stderr: bytes = b"") -> MagicMock:
     proc = MagicMock()
@@ -111,7 +116,10 @@ async def test_opencode_worker_nonzero_exit():
 
 async def test_opencode_worker_health_installed():
     from backend.orchestrator.workers.opencode import OpenCodeWorker
-    with patch("backend.orchestrator.workers.opencode.shutil.which", return_value="/usr/local/bin/opencode"):
+    fake_proc = MagicMock()
+    fake_proc.communicate = AsyncMock(return_value=(b"Usage: opencode [flags]\n  -p, --prompt  headless mode\n", b""))
+    with patch("backend.orchestrator.workers.opencode.shutil.which", return_value="/usr/local/bin/opencode"), \
+         patch("backend.orchestrator.workers.opencode.asyncio.create_subprocess_exec", new=AsyncMock(return_value=fake_proc)):
         w = OpenCodeWorker()
         h = await w.health()
     assert h.healthy is True

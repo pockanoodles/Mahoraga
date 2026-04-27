@@ -20,6 +20,13 @@ Return only valid JSON — no markdown, no explanation."""
 
 
 class Learner:
+    """Analyzes interactions and extracts adaptive patterns using Claude Haiku.
+
+    Status: Pattern extraction is implemented. Downstream consumption (applying learned
+    patterns to prompt construction) is not yet wired — tracked as a future enhancement.
+    Calling analyze_interaction() is safe but has no effect on routing decisions.
+    """
+
     def __init__(self) -> None:
         self._client = anthropic.Anthropic()
 

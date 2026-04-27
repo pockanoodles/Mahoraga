@@ -3,11 +3,12 @@ Brain Auto-Logger for Mahoraga
 ==============================
 
 Drop-in module for Mahoraga's backend. Import and call after
-task completion to automatically log sessions to ~/Brain/.
+task completion to automatically log sessions to brain/journal/
+in the Mahoraga repo.
 
 Usage in gateway.py:
     from .brain_logger import log_task_completion
-    
+
     # After a task completes successfully:
     log_task_completion(
         task_title=task.title,
@@ -19,21 +20,24 @@ Usage in gateway.py:
     )
 
 What it writes:
-    - Appends to ~/Brain/brain/journal/YYYY-MM-DD-mahoraga-session.md
+    - Appends to brain/journal/YYYY-MM-DD-mahoraga-session.md in the repo
     - One file per day, appends each task as a section
     - Includes: timestamp, agent used, cost, quality score, output preview
-    
+
+Override the default path with MAHORAGA_BRAIN_PATH env var.
 No MCP needed. No dependencies. Just filesystem writes.
 """
 
 from __future__ import annotations
 import os
-import re
 from pathlib import Path
 from datetime import datetime, date
 
-VAULT_PATH = Path(os.environ.get("BRAIN_VAULT_PATH", Path.home() / "Brain"))
-JOURNAL_DIR = VAULT_PATH / "brain" / "journal"
+# Default: brain/ directory in the Mahoraga project root
+# backend/orchestrator/brain_logger.py -> ../../.. -> project root
+_PROJECT_ROOT = Path(__file__).parent.parent.parent
+BRAIN_PATH = Path(os.environ.get("MAHORAGA_BRAIN_PATH", _PROJECT_ROOT / "brain"))
+JOURNAL_DIR = BRAIN_PATH / "journal"
 
 
 def log_task_completion(
@@ -47,55 +51,51 @@ def log_task_completion(
 ) -> str | None:
     """
     Log a completed task to the brain's daily session journal.
-    
+
     Creates or appends to: brain/journal/YYYY-MM-DD-mahoraga-session.md
-    
-    Returns the file path written to, or None if the vault doesn't exist.
+
+    Returns the file path written to, or None if brain/ doesn't exist.
     """
-    if not VAULT_PATH.exists():
+    if not BRAIN_PATH.exists():
         return None
-    
+
     JOURNAL_DIR.mkdir(parents=True, exist_ok=True)
-    
+
     today = date.today().isoformat()
     now = datetime.now().strftime("%H:%M")
     filepath = JOURNAL_DIR / f"{today}-mahoraga-session.md"
-    
-    # Create file with header if it doesn't exist
+
     if not filepath.exists():
         header = f"# Mahoraga session — {today}\n\nAuto-logged by Mahoraga.\n\n"
         filepath.write_text(header, encoding="utf-8")
-    
-    # Build the task entry
+
     entry_parts = [
-        f"\n---\n",
+        "\n---\n",
         f"\n### {now} — {task_title}\n",
         f"\n- **Agent:** {agent_used}",
         f"\n- **Cost:** ${cost:.4f}",
     ]
-    
+
     if quality_score is not None:
         entry_parts.append(f"\n- **Quality:** {quality_score}/10")
-    
+
     if duration_seconds is not None:
         entry_parts.append(f"\n- **Duration:** {duration_seconds:.1f}s")
-    
+
     if task_goal and task_goal != task_title:
         entry_parts.append(f"\n- **Goal:** {task_goal[:200]}")
-    
+
     if output_preview:
-        # Truncate and clean the preview
         preview = output_preview[:500].strip()
         if len(output_preview) > 500:
             preview += "..."
         entry_parts.append(f"\n\n**Output preview:**\n```\n{preview}\n```")
-    
+
     entry_parts.append("\n")
-    
-    # Append to today's session file
+
     with open(filepath, "a", encoding="utf-8") as f:
         f.write("".join(entry_parts))
-    
+
     return str(filepath)
 
 
@@ -109,31 +109,31 @@ def log_session_summary(
     Log a session summary. Call this when the user closes the app
     or after a period of inactivity.
     """
-    if not VAULT_PATH.exists():
+    if not BRAIN_PATH.exists():
         return None
-    
+
     JOURNAL_DIR.mkdir(parents=True, exist_ok=True)
-    
+
     today = date.today().isoformat()
     now = datetime.now().strftime("%H:%M")
     filepath = JOURNAL_DIR / f"{today}-mahoraga-session.md"
-    
+
     if not filepath.exists():
         filepath.write_text(f"# Mahoraga session — {today}\n\n", encoding="utf-8")
-    
+
     summary = f"\n---\n\n### {now} — Session summary\n\n"
     summary += f"- **Tasks completed:** {tasks_completed}\n"
     summary += f"- **Total cost:** ${total_cost:.4f}\n"
-    
+
     if agents_used:
         summary += f"- **Agents used:** {', '.join(set(agents_used))}\n"
-    
+
     if notes:
         summary += f"\n{notes}\n"
-    
+
     with open(filepath, "a", encoding="utf-8") as f:
         f.write(summary)
-    
+
     return str(filepath)
 
 
@@ -143,28 +143,30 @@ def log_decision(
     context: str = "mahoraga",
 ) -> str | None:
     """
-    Log a decision to the brain's decision log.
-    Call this when the orchestrator makes a significant routing
-    or architecture decision worth remembering.
+    Log a routing or architecture decision to brain/decisions/log.md.
+    Call this when the orchestrator makes a significant decision worth remembering.
     """
-    if not VAULT_PATH.exists():
+    if not BRAIN_PATH.exists():
         return None
-    
-    decisions_file = VAULT_PATH / "brain" / "_decisions.md"
-    if not decisions_file.exists():
-        return None
-    
+
+    decisions_dir = BRAIN_PATH / "decisions"
+    decisions_dir.mkdir(parents=True, exist_ok=True)
+    decisions_log = decisions_dir / "log.md"
+
     today = date.today().isoformat()
-    
+
+    if not decisions_log.exists():
+        decisions_log.write_text("# Decision Log\n\nAuto-appended by Mahoraga.\n", encoding="utf-8")
+
     entry = f"\n\n---\n\n## {today} — {decision}\n\n"
     if reasoning:
         entry += f"**Reasoning:** {reasoning}\n\n"
     entry += f"**Context:** {context}\n"
-    
-    with open(decisions_file, "a", encoding="utf-8") as f:
+
+    with open(decisions_log, "a", encoding="utf-8") as f:
         f.write(entry)
-    
-    return str(decisions_file)
+
+    return str(decisions_log)
 
 
 # Quick test
@@ -179,6 +181,7 @@ if __name__ == "__main__":
     )
     if result:
         print(f"Logged to: {result}")
-        print(open(result).read())
+        with open(result, encoding="utf-8") as f:
+            print(f.read())
     else:
-        print(f"Vault not found at {VAULT_PATH}")
+        print(f"Brain path not found at {BRAIN_PATH}")

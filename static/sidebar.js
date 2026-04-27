@@ -558,3 +558,78 @@
   renderAgentStatus();
   setInterval(renderAgentStatus, 30_000);
 })();
+
+// ── Rankings ──────────────────────────────────────────────────────────────
+
+async function fetchRankings(bucket, difficulty, refresh) {
+  const params = new URLSearchParams({ limit: 10 });
+  if (bucket) params.set('bucket', bucket);
+  if (difficulty) params.set('difficulty', difficulty);
+  if (refresh) params.set('refresh', 'true');
+  const res = await fetch('/api/rankings?' + params.toString());
+  if (!res.ok) throw new Error('rankings fetch failed');
+  return res.json();
+}
+
+function renderRankingsTable(rankings) {
+  if (!rankings || rankings.length === 0) {
+    return '<span class="sidebar-empty">No ranking data. Run <code>orch benchmark refresh</code> to populate.</span>';
+  }
+  const rows = rankings.map(r => {
+    const wr = r.win_rate != null ? (r.win_rate * 100).toFixed(0) + '%' : 'n/a';
+    const ci = (r.ci_low != null && r.ci_high != null)
+      ? `${(r.ci_low * 100).toFixed(0)}\u2013${(r.ci_high * 100).toFixed(0)}%`
+      : 'n/a';
+    const lat = r.avg_latency_ms != null ? (r.avg_latency_ms / 1000).toFixed(1) + 's' : 'n/a';
+    const rwd = r.avg_reward != null ? r.avg_reward.toFixed(2) : 'n/a';
+    return `<tr>
+      <td style="padding:2px 4px;color:#888;">${r.rank}</td>
+      <td style="padding:2px 4px;font-weight:500;">${r.agent}</td>
+      <td style="padding:2px 4px;">${wr}</td>
+      <td style="padding:2px 4px;color:#888;">${ci}</td>
+      <td style="padding:2px 4px;">${lat}</td>
+      <td style="padding:2px 4px;">${rwd}</td>
+      <td style="padding:2px 4px;color:#888;">${r.sample_count}</td>
+    </tr>`;
+  }).join('');
+  return `<table style="width:100%;border-collapse:collapse;font-size:10px;">
+    <thead><tr style="color:#888;text-align:left;">
+      <th style="padding:2px 4px;">#</th>
+      <th style="padding:2px 4px;">Agent</th>
+      <th style="padding:2px 4px;">Win%</th>
+      <th style="padding:2px 4px;">95% CI</th>
+      <th style="padding:2px 4px;">Latency</th>
+      <th style="padding:2px 4px;">Reward</th>
+      <th style="padding:2px 4px;">N</th>
+    </tr></thead>
+    <tbody>${rows}</tbody>
+  </table>`;
+}
+
+async function refreshRankingsUI(forceRefresh) {
+  const container = document.getElementById('rankings-table-container');
+  const updatedEl = document.getElementById('rankings-updated');
+  const bucket = document.getElementById('rankings-bucket-filter')?.value || '';
+  const difficulty = document.getElementById('rankings-difficulty-filter')?.value || '';
+  if (!container) return;
+  try {
+    const data = await fetchRankings(bucket, difficulty, forceRefresh);
+    container.innerHTML = renderRankingsTable(data.rankings);
+    const scope = [bucket, difficulty].filter(Boolean).join('/') || 'overall';
+    updatedEl.textContent = `${scope} · updated ${new Date().toLocaleTimeString()}`;
+  } catch (e) {
+    container.innerHTML = '<span class="sidebar-empty">Rankings unavailable</span>';
+  }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  const bucketFilter = document.getElementById('rankings-bucket-filter');
+  const diffFilter = document.getElementById('rankings-difficulty-filter');
+  const refreshBtn = document.getElementById('rankings-refresh-btn');
+
+  if (bucketFilter) bucketFilter.addEventListener('change', () => refreshRankingsUI(false));
+  if (diffFilter) diffFilter.addEventListener('change', () => refreshRankingsUI(false));
+  if (refreshBtn) refreshBtn.addEventListener('click', () => refreshRankingsUI(true));
+
+  refreshRankingsUI(false);
+});

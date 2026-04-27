@@ -158,8 +158,11 @@ def test_ollama_adapter_declares_capabilities():
     from backend.orchestrator.adapters.ollama_adapter import OllamaAdapter
     adapter = OllamaAdapter(model="qwen3:4b-q4_K_M")
     cap_names = {c.name for c in adapter.capabilities}
-    assert "code" in cap_names
+    # Ollama intentionally excludes "code" — it generates text but can't write files.
+    # File-writing tasks route to codex-cli/aider instead.
     assert "general" in cap_names
+    assert "plan" in cap_names
+    assert "code" not in cap_names
 
 
 # ── OpenCodeAdapter ───────────────────────────────────────────────────────────

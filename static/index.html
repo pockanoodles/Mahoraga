@@ -42,6 +42,40 @@
         </div>
       </div>
 
+      <!-- Rankings section -->
+      <div class="sidebar-section" id="rankings-section">
+        <div class="section-header">
+          <span class="section-title">Rankings</span>
+          <button class="section-chevron" data-section="rankings">▾</button>
+        </div>
+        <div class="section-body" id="rankings-section-body">
+          <div class="rankings-filters">
+            <select id="rankings-bucket-filter" style="font-size:11px;margin-right:4px;">
+              <option value="">All buckets</option>
+              <option value="code">code</option>
+              <option value="debug">debug</option>
+              <option value="refactor">refactor</option>
+              <option value="research">research</option>
+              <option value="plan">plan</option>
+              <option value="test">test</option>
+              <option value="review">review</option>
+              <option value="security">security</option>
+            </select>
+            <select id="rankings-difficulty-filter" style="font-size:11px;">
+              <option value="">All difficulties</option>
+              <option value="simple">simple</option>
+              <option value="medium">medium</option>
+              <option value="complex">complex</option>
+            </select>
+            <button id="rankings-refresh-btn" style="font-size:10px;margin-left:4px;">↺</button>
+          </div>
+          <div id="rankings-table-container" style="margin-top:6px;">
+            <span class="sidebar-empty">Loading rankings…</span>
+          </div>
+          <div id="rankings-updated" style="font-size:9px;color:#888;margin-top:4px;"></div>
+        </div>
+      </div>
+
       <!-- Recent activity -->
       <div class="sidebar-section" id="logs-section">
         <div class="section-header">

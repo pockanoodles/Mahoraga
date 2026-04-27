@@ -77,7 +77,36 @@ class GeminiWorker(WorkerAdapter):
             )
             return
 
+        # Fast-fail: if gemini dies within 5s without producing output, it's a startup
+        # error (auth failure, unknown flag, etc.) — bail immediately instead of
+        # waiting the full timeout.
+        first_line: bytes | None = None
+        if proc.stdout is not None:
+            try:
+                first_line = await asyncio.wait_for(
+                    proc.stdout.readline(), timeout=5.0
+                )
+            except asyncio.TimeoutError:
+                pass
+
+        if first_line is None and proc.returncode is not None and proc.returncode != 0:
+            stderr_text = ""
+            if proc.stderr:
+                stderr_bytes = await proc.stderr.read(4096)
+                stderr_text = stderr_bytes.decode(errors="replace")[:300]
+            yield WorkerEvent(
+                type="attempt.failed",
+                payload={
+                    "error_code": "fast_fail",
+                    "error": f"gemini exited immediately ({proc.returncode}): {stderr_text}",
+                },
+            )
+            return
+
         collected: list[str] = []
+        if first_line:
+            collected.append(first_line.decode("utf-8", errors="replace"))
+
         try:
             async with asyncio.timeout(self._timeout):
                 assert proc.stdout is not None
@@ -90,7 +119,10 @@ class GeminiWorker(WorkerAdapter):
             await proc.wait()
             yield WorkerEvent(
                 type="attempt.failed",
-                payload={"error_code": "timeout", "error": f"gemini timed out after {self._timeout}s"},
+                payload={
+                    "error_code": "timeout",
+                    "error": f"gemini timed out after {self._timeout}s",
+                },
             )
             return
         except Exception as exc:
@@ -121,7 +153,10 @@ class GeminiWorker(WorkerAdapter):
                 stderr_text = stderr_bytes.decode(errors="replace")[:300]
             yield WorkerEvent(
                 type="attempt.failed",
-                payload={"error_code": "empty_response", "error": f"gemini produced no output. stderr: {stderr_text}"},
+                payload={
+                    "error_code": "empty_response",
+                    "error": f"gemini produced no output. stderr: {stderr_text}",
+                },
             )
             return
 
@@ -138,4 +173,8 @@ class GeminiWorker(WorkerAdapter):
                 healthy=False,
                 detail="gemini not found in PATH. Install: npm install -g @google/gemini-cli",
             )
-        return WorkerHealth(worker_id=self._worker_id, healthy=True, detail=f"binary={binary}, model={self._model or 'auto'}")
+        return WorkerHealth(
+            worker_id=self._worker_id,
+            healthy=True,
+            detail=f"binary={binary}, model={self._model or 'auto'}",
+        )

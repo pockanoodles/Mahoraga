@@ -34,6 +34,7 @@ from ..workers.opencode import OpenCodeWorker
 from ..workers.gemini import GeminiWorker
 from ..workers.goose import GooseWorker
 from ..workers.registry import WorkerRegistry
+from ..adapters.base import AgentCapability
 from ..adapters.registry import AdapterRegistry
 from ..adapters.ollama_adapter import OllamaAdapter
 from ..adapters.claude_adapter import ClaudeAdapter
@@ -47,7 +48,12 @@ from .executor import run_task as _run_task, pop_task_metrics
 from .run_executor import run_run as _run_run
 from ..planning.planner import generate_tasks, PlannerError
 from ..routing import BanditRouter, STRATEGIES, TaskOutcome
+from ..brain_logger import log_session_summary
 from ..routing.implicit_quality import ImplicitQualityTracker
+from ..store.eval_store import EvalStore
+from ..store.rankings_store import RankingsStore
+from ..store.metrics import MetricsStore
+from ..domain.models import TaskAttempt
 
 # ── singletons (replaced via dependency_overrides in tests) ──────────────────
 
@@ -61,7 +67,9 @@ _config: MahoragaConfig | None = None
 _adapter_registry: AdapterRegistry | None = None
 _bandit_router: BanditRouter | None = None
 _implicit_tracker: ImplicitQualityTracker | None = None
+_eval_store: EvalStore | None = None
 _START_TIME: float = time.time()
+_bandit_seed: int | None = None
 
 
 def get_store() -> Store:
@@ -94,11 +102,34 @@ def get_bandit_router() -> BanditRouter:
     return _bandit_router
 
 
+def get_eval_store() -> EvalStore:
+    assert _eval_store is not None, "EvalStore not initialised"
+    return _eval_store
+
+
 StoreDep = Annotated[Store, Depends(get_store)]
 RegistryDep = Annotated[WorkerRegistry, Depends(get_registry)]
 VerifierDep = Annotated[Verifier, Depends(get_verifier)]
 GatewayDep = Annotated[Gateway, Depends(get_gateway)]
 AdapterRegistryDep = Annotated[AdapterRegistry, Depends(get_adapter_registry)]
+EvalStoreDep = Annotated[EvalStore, Depends(get_eval_store)]
+
+_rankings_store: RankingsStore | None = None
+_metrics_store: MetricsStore | None = None
+
+
+def get_rankings_store() -> RankingsStore:
+    assert _rankings_store is not None
+    return _rankings_store
+
+
+def get_metrics_store() -> MetricsStore:
+    assert _metrics_store is not None
+    return _metrics_store
+
+
+RankingsStoreDep = Annotated[RankingsStore, Depends(get_rankings_store)]
+MetricsStoreDep = Annotated[MetricsStore, Depends(get_metrics_store)]
 
 
 # ── lifespan ─────────────────────────────────────────────────────────────────
@@ -110,7 +141,22 @@ async def lifespan(app: FastAPI):
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
         force=True,
     )
-    global _store, _registry, _verifier, _gateway, _adaptive_store, _cost_ledger, _config, _adapter_registry, _bandit_router, _implicit_tracker
+    global _store, _registry, _verifier, _gateway, _adaptive_store, _cost_ledger, _config, _adapter_registry, _bandit_router, _implicit_tracker, _bandit_seed
+    _startup_logger = logging.getLogger(__name__)
+    _bandit_seed_env = os.getenv("MAHORAGA_BANDIT_SEED")
+    if _bandit_seed_env is not None:
+        try:
+            _seed = int(_bandit_seed_env)
+            import random as _random
+            import numpy as _np
+            _random.seed(_seed)
+            _np.random.seed(_seed)
+            _bandit_seed = _seed
+            _startup_logger.info("MAHORAGA_BANDIT_SEED=%d — seeded random + numpy", _seed)
+        except ValueError:
+            _startup_logger.warning("MAHORAGA_BANDIT_SEED=%r is not an integer; ignoring", _bandit_seed_env)
+    else:
+        _startup_logger.info("MAHORAGA_BANDIT_SEED not set — bandit randomness is unseeded")
     _store = await Store.connect()
     _registry = WorkerRegistry()
 
@@ -138,21 +184,74 @@ async def lifespan(app: FastAPI):
     else:
         _verifier = _PassthroughVerifier()
 
-    # Register Ollama workers — available regardless of active_backend
+    # ── Register Ollama workers + adapters ───────────────────────────────────
+    # Four models, four role-prompts each = 16 workers. Each adapter is one
+    # bandit arm; role resolves below the bandit in gateway._resolve_worker_id.
     _config = MahoragaConfig()
-    ollama_url = _config.get("ollama_base_url")
-    _MODEL = "qwen3:4b-q4_K_M"
-    _ollama_workers = [
-        OllamaWorker(model=_MODEL, worker_id="ollama:planner", base_url=ollama_url),
-        OllamaWorker(model=_MODEL, worker_id="ollama:fast",    base_url=ollama_url),
-        OllamaWorker(model=_MODEL, worker_id="ollama:coder",   base_url=ollama_url),
-        OllamaWorker(model=_MODEL, worker_id="ollama:general", base_url=ollama_url),
+    ollama_url = _config.get("ollama_base_url") or "http://localhost:11434"
+    _ROLES = ("planner", "fast", "coder", "general")
+
+    _OLLAMA_MODELS: list[dict] = [
+        {
+            "name": "ollama:qwen3-4b",
+            "model": "qwen3:4b-q4_K_M",
+            "max_ctx": 131072,
+            "options": None,
+            "extra_payload": {"think": False},
+            "warm": True,
+        },
+        {
+            "name": "ollama:gemma4-e4b",
+            "model": "gemma4:e4b",
+            "max_ctx": 131072,
+            "options": None,
+            "extra_payload": {"think": False},
+            "warm": False,
+        },
+        {
+            "name": "ollama:deepseek-r1",
+            "model": "deepseek-r1:8b",
+            "max_ctx": 131072,
+            "options": {"temperature": 0.6},
+            # R1 thinks unconditionally; don't try to suppress it.
+            "extra_payload": {},
+            "warm": False,
+        },
+        {
+            "name": "ollama:lfm2",
+            "model": "maternion/lfm2:8b-a1b",
+            "max_ctx": 32768,  # hard cap — LFM2 spec
+            "options": {"temperature": 0.3, "min_p": 0.15, "repeat_penalty": 1.05},
+            "extra_payload": {},
+            "warm": False,
+        },
     ]
-    for w in _ollama_workers:
-        _registry.register(w)
-    # Pre-warm qwen3:4b-q4_K_M — stays loaded for the full session
+
+    _first_workers: list[OllamaWorker] = []
+    for spec in _OLLAMA_MODELS:
+        for role in _ROLES:
+            w = OllamaWorker(
+                model=spec["model"],
+                worker_id=f"{spec['name']}:{role}",
+                base_url=ollama_url,
+                options=spec["options"],
+                extra_payload=spec["extra_payload"],
+                max_ctx=spec["max_ctx"],
+            )
+            _registry.register(w)
+        if spec["warm"]:
+            # Pre-warm the qwen3 baseline — stays loaded for the session.
+            _first_workers.append(OllamaWorker(
+                model=spec["model"],
+                worker_id=f"{spec['name']}:general",
+                base_url=ollama_url,
+                options=spec["options"],
+                extra_payload=spec["extra_payload"],
+                max_ctx=spec["max_ctx"],
+            ))
     import asyncio as _asyncio
-    _asyncio.ensure_future(_ollama_workers[0].warm())
+    for w in _first_workers:
+        _asyncio.ensure_future(w.warm())
 
     # ── CWD for file-writing workers ──────────────────────────────────────────
     _workdir = get_workdir()
@@ -162,7 +261,8 @@ async def lifespan(app: FastAPI):
     _registry.register(_codex_worker)
 
     # ── Register Aider worker ─────────────────────────────────────────────────
-    _aider_model = os.getenv("AIDER_MODEL", "ollama_chat/qwen3:4b-q4_K_M")
+    # aider CLI doesn't recognize Ollama quant suffixes (`-q4_K_M`); use base tag.
+    _aider_model = os.getenv("AIDER_MODEL", "ollama_chat/qwen3:4b")
     _aider_worker = AiderWorker(model=_aider_model, cwd=_workdir)
     _registry.register(_aider_worker)
 
@@ -180,9 +280,45 @@ async def lifespan(app: FastAPI):
 
     # ── Build AdapterRegistry ─────────────────────────────────────────────────
     _adapter_registry = AdapterRegistry()
-    _adapter_registry.register(OllamaAdapter(
-        model=_MODEL, ollama_base_url=ollama_url or "http://localhost:11434"
-    ))
+    # One adapter per Ollama model. Capability profile per §5.4 of the
+    # new-agents spec: narrow for LFM2 (speed specialist, Liquid AI explicitly
+    # recommends against code/security/review), broad for Gemma (quality
+    # generalist), reasoning-heavy for DeepSeek-R1.
+    _OLLAMA_ADAPTER_CAPS = {
+        "ollama:qwen3-4b": [
+            AgentCapability("general", 0.90),
+            AgentCapability("plan",    0.85),
+            AgentCapability("explain", 0.80),
+        ],
+        "ollama:gemma4-e4b": [
+            AgentCapability("general",  0.88),
+            AgentCapability("plan",     0.82),
+            AgentCapability("research", 0.82),
+            AgentCapability("review",   0.75),
+            AgentCapability("explain",  0.80),
+        ],
+        "ollama:deepseek-r1": [
+            AgentCapability("code",     0.78),
+            AgentCapability("research", 0.85),
+            AgentCapability("review",   0.88),
+            AgentCapability("refactor", 0.82),
+            AgentCapability("security", 0.88),
+            AgentCapability("test",     0.80),
+        ],
+        "ollama:lfm2": [
+            AgentCapability("plan",     0.72),
+            AgentCapability("general",  0.68),
+            AgentCapability("research", 0.65),
+        ],
+    }
+    for spec in _OLLAMA_MODELS:
+        _adapter_registry.register(OllamaAdapter(
+            model=spec["model"],
+            ollama_base_url=ollama_url,
+            name=spec["name"],
+            worker_id=f"{spec['name']}:general",
+            capabilities=_OLLAMA_ADAPTER_CAPS[spec["name"]],
+        ))
     if "claude" in ENABLED_BACKENDS and os.getenv("ANTHROPIC_API_KEY"):
         _adapter_registry.register(ClaudeAdapter(
             api_key=os.getenv("ANTHROPIC_API_KEY"),
@@ -218,6 +354,16 @@ async def lifespan(app: FastAPI):
     _cost_ledger = CostLedger(_store._conn)
     await _cost_ledger.migrate()
 
+    global _eval_store
+    _eval_store = EvalStore(_store._conn)
+    await _eval_store.migrate()
+
+    global _rankings_store, _metrics_store
+    _rankings_store = RankingsStore(_store._conn)
+    await _rankings_store.migrate()
+    _metrics_store = MetricsStore(_store._conn)
+    await _metrics_store.migrate()
+
     _gateway = Gateway(
         store=_store,
         registry=_registry,
@@ -230,6 +376,10 @@ async def lifespan(app: FastAPI):
     )
 
     yield
+    try:
+        log_session_summary(notes="Mahoraga backend shutdown")
+    except Exception:
+        pass
     await _store.close()
 
 
@@ -243,8 +393,47 @@ class _ChatRequest(BaseModel):
     user_id: str = "web-user"
 
 
+class _EvalStartRequest(BaseModel):
+    run_type: str
+    routing_enabled: bool
+    baseline_policy: str | None = None
+    suite_name: str
+    repeat_index: int = 0
+
+
+class _EvalTaskRequest(BaseModel):
+    text: str
+    bucket: str = "general"
+    difficulty: str = "medium"
+    routing_mode: str = "adaptive"  # "adaptive" | "fixed:agent_id"
+    run_id: int | None = None
+    task_id: str | None = None
+
+
+class _EvalTaskResult(BaseModel):
+    agent: str
+    latency_ms: float
+    ttft_ms: float | None
+    success: bool
+    reward: float | None
+    output_preview: str
+
+
+class _EvalFinishRequest(BaseModel):
+    run_id: int
+
+
+# Resolve the React SPA dist directory: repo_root/frontend/dist.
+# _STATIC_DIR already points at repo_root/static, so its parent is repo_root.
+_FRONTEND_DIST = _STATIC_DIR.parent / "frontend" / "dist"
+
+
 @app.get("/", response_class=HTMLResponse)
 async def serve_index() -> HTMLResponse:
+    # Prefer the built React SPA; fall back to the legacy static shell.
+    dist_index = _FRONTEND_DIST / "index.html"
+    if dist_index.exists():
+        return HTMLResponse(content=dist_index.read_text())
     index_path = _STATIC_DIR / "index.html"
     if not index_path.exists():
         return HTMLResponse(content="<html><body><h1>Mahoraga</h1></body></html>")
@@ -278,9 +467,14 @@ async def chat(request: _ChatRequest, gateway: GatewayDep) -> StreamingResponse:
     return StreamingResponse(event_stream(), media_type="text/event-stream")
 
 
-# Mount static files if the static directory exists
+# Mount static files if the static directory exists (legacy UI).
 if _STATIC_DIR.exists():
     app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
+
+# Mount the React SPA's hashed asset bundle when a production build is present.
+_DIST_ASSETS = _FRONTEND_DIST / "assets"
+if _DIST_ASSETS.exists():
+    app.mount("/assets", StaticFiles(directory=str(_DIST_ASSETS)), name="frontend-assets")
 
 
 # ── request / response models ─────────────────────────────────────────────────
@@ -313,6 +507,28 @@ class TaskRequest(BaseModel):
     prompt: str
     capability_hint: str | None = None
     agent_override: str | None = None
+    bench_run_id: int | None = None
+
+
+class BenchRunCreate(BaseModel):
+    started_at: str | None = None
+    mode: str | None = None
+    git_sha: str | None = None
+    git_dirty: int | None = None
+    ollama_version: str | None = None
+    hostname: str | None = None
+    on_charger: int | None = None
+    bandit_seed: int | None = None
+    prompt_seed: int | None = None
+    prompts_file: str | None = None
+    agents: str | None = None
+    repeats: int | None = None
+    task_count_planned: int | None = None
+    notes: str | None = None
+
+
+class BenchRunFinalize(BaseModel):
+    task_count_completed: int
 
 
 class BatchTaskItem(BaseModel):
@@ -823,6 +1039,222 @@ async def list_plans(store: StoreDep, mission_id: str | None = None):
              "version": p.version} for p in plans]
 
 
+# ── eval endpoints ───────────────────────────────────────────────────────────
+
+@app.post("/api/eval/start")
+async def eval_start(
+    req: _EvalStartRequest,
+    eval_store: EvalStoreDep,
+) -> dict:
+    run_id = await eval_store.create_run(
+        run_type=req.run_type,
+        routing_enabled=req.routing_enabled,
+        baseline_policy=req.baseline_policy,
+        suite_name=req.suite_name,
+        repeat_index=req.repeat_index,
+    )
+    return {"run_id": run_id}
+
+
+@app.post("/api/eval/task", response_model=_EvalTaskResult)
+async def eval_task(
+    req: _EvalTaskRequest,
+    registry: RegistryDep,
+    adapter_reg: AdapterRegistryDep,
+    bandit: Annotated[BanditRouter, Depends(get_bandit_router)],
+    eval_store: EvalStoreDep,
+) -> _EvalTaskResult:
+    import dataclasses as _dc
+    import time as _time
+    import uuid as _uuid
+
+    # Select agent — bandit returns adapter name (e.g. "claude"); we need worker_id
+    _bandit_adapter_name: str | None = None
+    if req.routing_mode.startswith("fixed:"):
+        agent_id = req.routing_mode.removeprefix("fixed:")
+    else:
+        @_dc.dataclass
+        class _EvalTask:
+            title: str
+            goal: str
+        _bandit_adapter_name = bandit.route(_EvalTask(title=req.text, goal=req.text))
+        adapter = adapter_reg.get(_bandit_adapter_name)
+        agent_id = adapter.worker_id if adapter else _bandit_adapter_name
+
+    # Build minimal task and attempt objects
+    task_id = req.task_id or str(_uuid.uuid4())
+
+    @_dc.dataclass
+    class _EvalTaskObj:
+        id: str
+        goal: str
+        title: str
+        scope: str = ""
+        context_refs: list = _dc.field(default_factory=list)
+        constraints: list = _dc.field(default_factory=list)
+        done_criteria: str = ""
+
+    task_obj = _EvalTaskObj(id=task_id, goal=req.text, title=req.text[:80])
+    attempt = TaskAttempt.new(task_id=task_id, worker_id=agent_id)
+
+    # Execute
+    worker = registry.get(agent_id)
+    start = _time.monotonic()
+    ttft_ms: float | None = None
+    output_parts: list[str] = []
+    success = False
+
+    try:
+        async for event in worker.execute(attempt, task_obj, None):
+            if ttft_ms is None:
+                ttft_ms = (_time.monotonic() - start) * 1000
+            if event.type == "attempt.completed":
+                success = True
+                output_parts.append(event.payload.get("summary", ""))
+            elif event.type == "attempt.failed":
+                success = False
+    except Exception:
+        success = False
+
+    latency_ms = (_time.monotonic() - start) * 1000
+    reward = 0.7 if success else 0.0
+
+    # Feed outcome back to bandit (same as production routing) — only for adaptive mode
+    if _bandit_adapter_name is not None:
+        from ..routing.reward import TaskOutcome as _TaskOutcome
+        bandit.observe(
+            type("_T", (), {"goal": req.text, "id": task_id})(),
+            _TaskOutcome(
+                success=success,
+                latency_s=latency_ms / 1000,
+                cost_usd=0.0,
+                quality_score=reward,
+                agent_name=_bandit_adapter_name,
+            ),
+        )
+
+    if req.run_id is not None:
+        await eval_store.insert_run_task(
+            run_id=req.run_id,
+            task_id=task_id,
+            task_text=req.text,
+            bucket=req.bucket,
+            difficulty=req.difficulty,
+            selected_agent=agent_id,
+            latency_ms=latency_ms,
+            success=success,
+            reward=reward,
+            ttft_ms=ttft_ms,
+        )
+
+    return _EvalTaskResult(
+        agent=agent_id,
+        latency_ms=latency_ms,
+        ttft_ms=ttft_ms,
+        success=success,
+        reward=reward,
+        output_preview="".join(output_parts)[:200],
+    )
+
+
+@app.post("/api/eval/finish")
+async def eval_finish(
+    req: _EvalFinishRequest,
+    eval_store: EvalStoreDep,
+) -> dict:
+    await eval_store.finish_run(req.run_id)
+    return {"ok": True}
+
+
+@app.get("/api/bench_run/seed")
+async def get_bench_run_seed() -> dict:
+    """Return the bandit_seed this server was started with (or null)."""
+    return {"bandit_seed": _bandit_seed}
+
+
+@app.post("/api/bench_run")
+async def create_bench_run(req: BenchRunCreate) -> dict:
+    """Create a bench_runs row at session start. Returns bench_run_id."""
+    router = get_bandit_router()
+    fields = {k: v for k, v in req.model_dump().items() if v is not None}
+    run_id = router.logger.create_bench_run(**fields)
+    return {"bench_run_id": run_id}
+
+
+@app.post("/api/bench_run/{run_id}/finalize")
+async def finalize_bench_run(run_id: int, req: BenchRunFinalize) -> dict:
+    """Set ended_at + task_count_completed on the bench_runs row."""
+    router = get_bandit_router()
+    router.logger.finalize_bench_run(run_id, req.task_count_completed)
+    return {"ok": True}
+
+
+@app.get("/api/rankings")
+async def get_rankings(
+    rankings_store: RankingsStoreDep,
+    metrics_store: MetricsStoreDep,
+    scope_type: str = "overall",
+    scope_value: str = "all",
+    bucket: str | None = None,
+    difficulty: str | None = None,
+    agent: str | None = None,
+    limit: int = 20,
+    refresh: bool = False,
+) -> dict:
+    from ..rankings.aggregator import rebuild_rankings
+    if refresh:
+        await rebuild_rankings(metrics_store, rankings_store)
+
+    if bucket:
+        scope_type, scope_value = "bucket", bucket
+    elif difficulty:
+        scope_type, scope_value = "difficulty", difficulty
+
+    rows = await rankings_store.get_rankings(
+        scope_type=scope_type, scope_value=scope_value, limit=limit
+    )
+    if agent:
+        rows = [r for r in rows if r["agent"] == agent]
+    return {"scope_type": scope_type, "scope_value": scope_value, "rankings": rows}
+
+
+class _BenchmarkRunRequest(BaseModel):
+    agent: str
+    bucket: str | None = None
+    difficulty: str | None = None
+    avg_latency_ms: float | None = None
+    median_latency_ms: float | None = None
+    p90_latency_ms: float | None = None
+    win_rate: float | None = None
+    reward_mean: float | None = None
+    sample_count: int = 0
+    source: str = "harness"
+
+
+@app.post("/api/rankings/benchmark")
+async def upsert_benchmark_run(
+    req: _BenchmarkRunRequest,
+    rankings_store: RankingsStoreDep,
+    metrics_store: MetricsStoreDep,
+) -> dict:
+    """Record a benchmark result and rebuild rankings."""
+    await rankings_store.upsert_benchmark_run(
+        agent=req.agent,
+        bucket=req.bucket,
+        difficulty=req.difficulty,
+        avg_latency_ms=req.avg_latency_ms,
+        median_latency_ms=req.median_latency_ms,
+        p90_latency_ms=req.p90_latency_ms,
+        win_rate=req.win_rate,
+        reward_mean=req.reward_mean,
+        sample_count=req.sample_count,
+        source=req.source,
+    )
+    from ..rankings.aggregator import rebuild_rankings
+    await rebuild_rankings(metrics_store, rankings_store)
+    return {"ok": True}
+
+
 # ── routing endpoints ─────────────────────────────────────────────────────────
 
 @app.get("/api/routing/stats")
@@ -867,6 +1299,29 @@ async def set_routing_strategy(body: dict):
         raise HTTPException(status_code=400, detail=f"Unknown strategy: {name}. Options: {list(STRATEGIES)}")
     router.set_strategy(name)
     return {"strategy": name, "message": f"Switched to {name}"}
+
+
+_VALID_ROUTING_MODES = {"local_first", "balanced", "quality_first"}
+
+
+@app.get("/api/routing/mode")
+async def get_routing_mode():
+    """Return the current routing_mode preference."""
+    mode = MahoragaConfig().get("routing_mode") or "balanced"
+    return {"routing_mode": mode}
+
+
+@app.post("/api/routing/mode")
+async def set_routing_mode(body: dict):
+    """Set the routing_mode preference. Takes effect on the next routing decision."""
+    mode = body.get("mode", "")
+    if mode not in _VALID_ROUTING_MODES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid mode {mode!r}. Options: {sorted(_VALID_ROUTING_MODES)}",
+        )
+    MahoragaConfig().set("routing_mode", mode)
+    return {"routing_mode": mode, "message": f"Switched to {mode}"}
 
 
 @app.post("/api/routing/dry-run")
@@ -918,7 +1373,9 @@ async def routing_decisions(
     since: str | None = None,
 ):
     """Query recent routing decisions from the decision log."""
-    limit = min(limit, 50)
+    # Bumped from 50 → 2000 so the dashboard can render trend windows
+    # (last 250 / 500 / 1000 / all) without paginating.
+    limit = min(limit, 2000)
     router = get_bandit_router()
     decisions = router.logger.get_recent(limit=limit, agent=agent, since=since)
     return {
@@ -985,6 +1442,16 @@ async def run_api_task(
             _asyncio.ensure_future(
                 _store.metrics.update_implicit_quality(task_id=_prev_id, implicit_quality=_score)
             )
+            # Also nudge the bandit with the implicit signal
+            _bandit_router = get_bandit_router()
+            _prev_decision = _bandit_router.logger.get_decision_by_task_id(_prev_id)
+            if _prev_decision:
+                _bandit_router.apply_implicit_reward(
+                    task_id=_prev_id,
+                    agent_name=_prev_decision["selected_agent"],
+                    task_goal=_prev_decision.get("task_goal", ""),
+                    implicit_signal=_score,
+                )
 
     # Minimal infrastructure: one mission → plan → run → task
     mission = Mission.new(title=f"MCP: {req.prompt[:40]}", goal=req.prompt)
@@ -995,14 +1462,24 @@ async def run_api_task(
     await store.missions.save_run(run)
 
     task = Task.new(run_id=run.id, title=req.prompt[:80], goal=req.prompt)
-    await store.tasks.save(task)
+    # IMPORTANT: don't save yet. We need to persist the task WITH the
+    # resolved preferred_worker_type so the executor's re-fetch sees it.
+    # Saving before the routing decision means assign_worker falls back
+    # to candidates[0] and every task lands on the first-registered worker,
+    # which was a silent bug that broke agent_override completely.
 
     # Check Ollama warm state before routing decision
     model_was_warm = await _is_ollama_warm() if not req.agent_override else False
 
-    # Route via bandit (logs the decision, populates _last_scores)
+    # Route via bandit (logs the decision, populates _last_scores).
+    # When agent_override is set, log a synthetic decision row with
+    # strategy="override" so bench analytics can still join via bench_run_id.
     t_route_start = _time.monotonic()
-    selected_agent = req.agent_override or router.route(task, model_warm_norm=1.0 if model_was_warm else 0.0)
+    if req.agent_override:
+        selected_agent = req.agent_override
+        router.log_override(task, selected_agent, bench_run_id=req.bench_run_id)
+    else:
+        selected_agent = router.route(task, bench_run_id=req.bench_run_id)
     routing_time_ms = (_time.monotonic() - t_route_start) * 1000
     scores = router.strategy.get_scores()  # populated by route() above
 
@@ -1017,25 +1494,38 @@ async def run_api_task(
     if adapter:
         task = dataclasses.replace(task, preferred_worker_type=adapter.worker_id)
 
+    # Now persist — after preferred_worker_type is set.
+    await store.tasks.save(task)
     # Transition task to ready so executor can pick it up
     await store.tasks.update_status(task.id, TaskStatus.ready)
 
     t0 = _time.monotonic()
-    await _run_task(task.id, store, registry, verifier)
+    _run_task_exc: Exception | None = None
+    try:
+        await _run_task(task.id, store, registry, verifier)
+    except Exception as exc:
+        _run_task_exc = exc
+        logging.getLogger(__name__).exception(
+            "/api/task: _run_task raised for %s", task.id
+        )
     wall_time_ms = (_time.monotonic() - t0) * 1000
     elapsed = round(wall_time_ms / 1000, 2)
 
-    # Collect result
+    # Collect result — even on failure, attempts/artifacts may have partial data
     task = await store.tasks.get(task.id)
     attempts = await store.tasks.list_attempts(task.id)
     artifacts = await store.artifacts.list_by_task(task.id)
 
-    output = next(
+    output = "" if _run_task_exc is not None else next(
         (a.location.get("content", "") for a in artifacts if a.type == "text_output"), ""
     )
     used_worker = attempts[-1].worker_id if attempts else selected_agent
-    status = "success" if task.status == TaskStatus.completed else "failed"
-    success = status == "success"
+    if _run_task_exc is not None:
+        status = "failed"
+        success = False
+    else:
+        status = "success" if task.status == TaskStatus.completed else "failed"
+        success = status == "success"
 
     # Pull Ollama token metrics captured by executor side-channel
     ollama_m = pop_task_metrics(task.id)
@@ -1045,11 +1535,15 @@ async def run_api_task(
     prompt_eval_rate = ollama_m.get("prompt_eval_rate", 0.0)
     agent_spawn_ms = max(0.0, wall_time_ms - routing_time_ms - (ollama_m.get("elapsed_s", 0) * 1000))
 
-    bucket = _classify_bucket(req.prompt)
-    from ..routing.quality import score_quality as _score_quality
-    quality_score = (await _score_quality(req.prompt, output, bucket)) if success else 0.0
+    bucket = _classify_bucket(req.prompt, hint=req.capability_hint)
+    from ..routing.quality import score_quality_detailed as _score_quality_detailed
+    if success:
+        quality_score, quality_components = await _score_quality_detailed(req.prompt, output, bucket)
+    else:
+        quality_score, quality_components = 0.0, None
 
-    # Update bandit with the outcome
+    # Always update the bandit — even on failure — so the decision row gets a
+    # reward and the selected agent is penalized for the failure.
     outcome = TaskOutcome(
         success=success,
         latency_s=elapsed,
@@ -1058,17 +1552,25 @@ async def run_api_task(
         agent_name=selected_agent,
         bucket=bucket,
         spawn_time_ms=agent_spawn_ms,
+        quality_components=quality_components,
     )
-    router.observe(task, outcome)
+    try:
+        router.observe(task, outcome)
+    except Exception:
+        logging.getLogger(__name__).exception(
+            "/api/task: bandit observe failed for %s", task.id
+        )
     reward = router.reward_calc.compute(outcome)
 
     # Write to task_metrics
     ucb_score = scores.get(selected_agent, {}).get("ucb", 0.0) if scores else 0.0
+    from hashlib import sha256 as _sha
+    _prompt_hash = _sha(req.prompt.encode()).hexdigest()[:16]
     await store.metrics.record(
         task_id=task.id,
-        prompt_text=req.prompt,
+        task_hash=_prompt_hash,
         agent_name=selected_agent,
-        capability_bucket=_classify_bucket(req.prompt),
+        capability_bucket=_classify_bucket(req.prompt, hint=req.capability_hint),
         wall_time_ms=round(wall_time_ms, 2),
         routing_time_ms=round(routing_time_ms, 2),
         agent_spawn_time_ms=round(agent_spawn_ms, 2),
@@ -1085,11 +1587,15 @@ async def run_api_task(
         cost_usd=0.0,
     )
 
-    # implicit quality tracking
-    if _implicit_tracker is not None:
+    # implicit quality tracking — only on actual completion, not failure
+    if _implicit_tracker is not None and success:
         from hashlib import sha256 as _sha256
         _th = _sha256((task.goal if hasattr(task, 'goal') else '').encode()).hexdigest()[:16]
         _implicit_tracker.on_task_complete(task_id=task.id, task_hash=_th)
+
+    # Re-raise now that observe + metrics have been recorded — FastAPI returns 500
+    if _run_task_exc is not None:
+        raise _run_task_exc
 
     # Build runner-up from scores
     runner_up = None
@@ -1173,31 +1679,88 @@ async def run_batch(
 
     # Pre-route all tasks through bandit
     assignments: dict[str, str] = {}
-    for task in created:
+    hints: dict[str, str | None] = {}
+    for task, item in zip(created, req.tasks):
         assignments[task.id] = router.route(task)
+        hints[task.id] = item.capability_hint
 
     sequential_s = 0.0
 
     async def _run_single(task: Task, agent: str) -> dict:
         nonlocal sequential_s
+        from ..store.metrics import _classify_bucket
+        from ..routing.quality import score_quality_detailed as _score_quality_detailed
+
         adapter = adapter_reg.get(agent)
         t_run = dataclasses.replace(task, preferred_worker_type=adapter.worker_id) if adapter else task
         await store.tasks.update_status(t_run.id, TaskStatus.ready)
 
+        bucket = _classify_bucket(task.goal, hint=hints.get(task.id))
+        task_index = next((i for i, t in enumerate(created) if t.id == task.id), -1)
         t0 = _time.time()
-        await _run_task(t_run.id, store, registry, verifier)
-        elapsed = round(_time.time() - t0, 2)
-        sequential_s += elapsed
+        _run_exc: Exception | None = None
+        try:
+            await _run_task(t_run.id, store, registry, verifier)
+        except Exception as exc:
+            _run_exc = exc
+        finally:
+            elapsed = round(_time.time() - t0, 2)
+            sequential_s += elapsed
+
+        if _run_exc is not None:
+            outcome = TaskOutcome(
+                success=False,
+                latency_s=elapsed,
+                cost_usd=0.0,
+                quality_score=0.0,
+                agent_name=agent,
+                bucket=bucket,
+                spawn_time_ms=0.0,
+            )
+            try:
+                router.observe(task, outcome)
+            except Exception:
+                pass  # never let bandit updates break responses
+            return {
+                "task_index": task_index,
+                "status": "failed",
+                "agent": agent,
+                "resource_group": get_resource_group(agent),
+                "elapsed_s": elapsed,
+                "output": "",
+            }
 
         t_result = await store.tasks.get(t_run.id)
         artifacts = await store.artifacts.list_by_task(t_run.id)
         output = next(
             (a.location.get("content", "") for a in artifacts if a.type == "text_output"), ""
         )
-        task_index = next((i for i, t in enumerate(created) if t.id == task.id), -1)
+        status = "success" if t_result.status == TaskStatus.completed else "failed"
+        success = status == "success"
+
+        # Feed outcome back to bandit — same path as single-task endpoint
+        if success:
+            quality_score, quality_components = await _score_quality_detailed(task.goal, output, bucket)
+        else:
+            quality_score, quality_components = 0.0, None
+        outcome = TaskOutcome(
+            success=success,
+            latency_s=elapsed,
+            cost_usd=0.0,
+            quality_score=quality_score,
+            agent_name=agent,
+            bucket=bucket,
+            spawn_time_ms=0.0,
+            quality_components=quality_components,
+        )
+        try:
+            router.observe(task, outcome)
+        except Exception:
+            pass  # never let bandit updates break responses
+
         return {
             "task_index": task_index,
-            "status": "success" if t_result.status == TaskStatus.completed else "failed",
+            "status": status,
             "agent": agent,
             "resource_group": get_resource_group(agent),
             "elapsed_s": elapsed,
@@ -1229,3 +1792,30 @@ async def run_batch(
         "waves_executed": waves_executed,
         "results": sorted(all_results, key=lambda r: r.get("task_index", 0)),
     }
+
+
+# ── SPA catch-all ──────────────────────────────────────────────────────────
+# Registered last so every other route wins first. Any path that isn't an
+# API endpoint, static asset, or streaming endpoint falls through here and
+# gets the React shell — so `/observatory`, `/chat`, etc. survive hard reload.
+# The SPA catch-all only runs for GETs that no earlier route matched. Since
+# `/chat` is POST-only, a GET `/chat` reaches this handler — and we want it
+# to serve the SPA so the React route loads on hard-reload. Only namespace
+# prefixes that are exclusively API / static belong in this exclude list.
+_SPA_EXCLUDE_PREFIXES = (
+    "api/", "assets/", "static/", "logs/", "missions/",
+    "runs/", "settings/", "approvals/", "batch/", "tasks/",
+)
+
+
+@app.get("/{full_path:path}", response_class=HTMLResponse)
+async def spa_catch_all(full_path: str) -> HTMLResponse:
+    if any(full_path.startswith(p) for p in _SPA_EXCLUDE_PREFIXES):
+        raise HTTPException(status_code=404, detail="not found")
+    dist_index = _FRONTEND_DIST / "index.html"
+    if dist_index.exists():
+        return HTMLResponse(content=dist_index.read_text())
+    index_path = _STATIC_DIR / "index.html"
+    if index_path.exists():
+        return HTMLResponse(content=index_path.read_text())
+    raise HTTPException(status_code=404, detail="SPA not built")

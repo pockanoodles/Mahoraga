@@ -7,7 +7,7 @@ from backend.orchestrator.config import MahoragaConfig
 
 def test_defaults_when_no_file(tmp_path):
     cfg = MahoragaConfig(path=tmp_path / "config.json")
-    assert cfg.get("active_backend") == "claude"
+    assert cfg.get("active_backend") == "ollama"
     assert cfg.get("ollama_base_url") == "http://localhost:11434"
 
 
@@ -36,7 +36,7 @@ def test_corrupt_file_falls_back_to_defaults(tmp_path):
     path = tmp_path / "config.json"
     path.write_text("not valid json {{{")
     cfg = MahoragaConfig(path=path)
-    assert cfg.get("active_backend") == "claude"
+    assert cfg.get("active_backend") == "ollama"
 
 
 def test_set_creates_nested_dirs(tmp_path):

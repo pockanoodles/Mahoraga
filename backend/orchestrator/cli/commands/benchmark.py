@@ -267,3 +267,29 @@ def pareto_sweep(
     """
     from backend.orchestrator.routing.benchmark.pareto_sweep import run_pareto_sweep
     run_pareto_sweep(n_tasks=tasks, seed=seed, output_dir=output, dpi=dpi)
+
+
+@app.command("refresh")
+def refresh(
+    json_output: bool = typer.Option(False, "--json"),
+) -> None:
+    """Re-run the local harness and refresh stored rankings."""
+    import httpx
+    _BASE_URL = "http://localhost:8001"
+    typer.echo("Refreshing rankings from live history + harness data...")
+    try:
+        r = httpx.get(f"{_BASE_URL}/api/rankings", params={"refresh": "true"}, timeout=120.0)
+        r.raise_for_status()
+        data = r.json()
+    except httpx.ConnectError:
+        typer.echo("Cannot connect to server. Is it running?", err=True)
+        raise typer.Exit(1)
+
+    if json_output:
+        import json
+        print(json.dumps(data, indent=2))
+    else:
+        rows = data.get("rankings", [])
+        typer.echo(f"Rankings refreshed. {len(rows)} agents ranked overall.")
+        if rows:
+            typer.echo(f"Top agent: {rows[0]['agent']}")

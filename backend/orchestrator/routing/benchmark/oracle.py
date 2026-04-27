@@ -66,8 +66,7 @@ AGENTS = [
     "codex-cli",    # OpenAI Codex CLI — great at file creation, costs money
     "aider",        # Aider — strong at refactoring with context, costs money
     "gemini-cli",   # Gemini CLI — good general-purpose, free tier
-    "goose",        # Goose — decent all-rounder, newer
-    "opencode",     # OpenCode — code-focused, moderate
+    "claude",       # Claude (Anthropic API) — escalation tier, best at reasoning
 ]
 
 
@@ -83,20 +82,19 @@ AGENTS = [
 #   codex-cli  — best at code gen + file ops, expensive, weak at chat
 #   aider      — best at refactoring + debugging (needs file context)
 #   gemini-cli — solid general-purpose, good at research, mediocre at code
-#   goose      — decent everywhere, doesn't excel anywhere
-#   opencode   — strong code gen, weak planning/reasoning
+#   claude     — escalation tier; best reasoning + planning, expensive, overkill for simple chat
 # ---------------------------------------------------------------------------
 
 COMPATIBILITY: dict[str, dict[str, tuple[float, float]]] = {
-    #                       ollama         codex-cli      aider          gemini-cli     goose          opencode
-    "simple_chat":       {"ollama": (0.92, 0.05), "codex-cli": (0.45, 0.15), "aider": (0.50, 0.12), "gemini-cli": (0.85, 0.07), "goose": (0.75, 0.08), "opencode": (0.40, 0.15)},
-    "code_generation":   {"ollama": (0.30, 0.15), "codex-cli": (0.90, 0.06), "aider": (0.78, 0.08), "gemini-cli": (0.65, 0.10), "goose": (0.60, 0.10), "opencode": (0.85, 0.07)},
-    "code_refactoring":  {"ollama": (0.20, 0.10), "codex-cli": (0.72, 0.10), "aider": (0.92, 0.05), "gemini-cli": (0.55, 0.12), "goose": (0.58, 0.11), "opencode": (0.70, 0.09)},
-    "debugging":         {"ollama": (0.25, 0.12), "codex-cli": (0.75, 0.09), "aider": (0.88, 0.06), "gemini-cli": (0.60, 0.10), "goose": (0.55, 0.12), "opencode": (0.68, 0.10)},
-    "file_operations":   {"ollama": (0.15, 0.08), "codex-cli": (0.93, 0.04), "aider": (0.80, 0.08), "gemini-cli": (0.50, 0.12), "goose": (0.65, 0.10), "opencode": (0.82, 0.07)},
-    "research":          {"ollama": (0.70, 0.10), "codex-cli": (0.35, 0.15), "aider": (0.40, 0.14), "gemini-cli": (0.88, 0.06), "goose": (0.72, 0.09), "opencode": (0.30, 0.15)},
-    "planning":          {"ollama": (0.55, 0.12), "codex-cli": (0.40, 0.14), "aider": (0.45, 0.13), "gemini-cli": (0.80, 0.08), "goose": (0.68, 0.10), "opencode": (0.35, 0.14)},
-    "complex_reasoning": {"ollama": (0.25, 0.12), "codex-cli": (0.60, 0.12), "aider": (0.55, 0.12), "gemini-cli": (0.82, 0.07), "goose": (0.62, 0.10), "opencode": (0.45, 0.13)},
+    #                       ollama         codex-cli      aider          gemini-cli     claude
+    "simple_chat":       {"ollama": (0.92, 0.05), "codex-cli": (0.45, 0.15), "aider": (0.50, 0.12), "gemini-cli": (0.85, 0.07), "claude": (0.88, 0.05)},
+    "code_generation":   {"ollama": (0.30, 0.15), "codex-cli": (0.90, 0.06), "aider": (0.78, 0.08), "gemini-cli": (0.65, 0.10), "claude": (0.92, 0.04)},
+    "code_refactoring":  {"ollama": (0.20, 0.10), "codex-cli": (0.72, 0.10), "aider": (0.92, 0.05), "gemini-cli": (0.55, 0.12), "claude": (0.90, 0.04)},
+    "debugging":         {"ollama": (0.25, 0.12), "codex-cli": (0.75, 0.09), "aider": (0.88, 0.06), "gemini-cli": (0.60, 0.10), "claude": (0.91, 0.04)},
+    "file_operations":   {"ollama": (0.15, 0.08), "codex-cli": (0.93, 0.04), "aider": (0.80, 0.08), "gemini-cli": (0.50, 0.12), "claude": (0.85, 0.06)},
+    "research":          {"ollama": (0.70, 0.10), "codex-cli": (0.35, 0.15), "aider": (0.40, 0.14), "gemini-cli": (0.88, 0.06), "claude": (0.90, 0.05)},
+    "planning":          {"ollama": (0.55, 0.12), "codex-cli": (0.40, 0.14), "aider": (0.45, 0.13), "gemini-cli": (0.80, 0.08), "claude": (0.92, 0.04)},
+    "complex_reasoning": {"ollama": (0.25, 0.12), "codex-cli": (0.60, 0.12), "aider": (0.55, 0.12), "gemini-cli": (0.82, 0.07), "claude": (0.95, 0.03)},
 }
 
 
@@ -109,8 +107,7 @@ AGENT_COST: dict[str, float] = {
     "codex-cli":  0.035,   # OpenAI API
     "aider":      0.028,   # API calls under the hood
     "gemini-cli": 0.005,   # Mostly free tier, occasional paid
-    "goose":      0.015,   # Moderate
-    "opencode":   0.020,   # Moderate
+    "claude":     0.085,   # Anthropic API — most expensive tier
 }
 
 # Base latency per agent (seconds, before task-complexity scaling)
@@ -119,8 +116,7 @@ AGENT_LATENCY: dict[str, tuple[float, float]] = {
     "codex-cli":  (4.0, 1.5),   # Network round-trip
     "aider":      (5.0, 2.0),   # Slower — reads context
     "gemini-cli": (3.0, 1.0),   # Fast API
-    "goose":      (3.5, 1.2),
-    "opencode":   (3.5, 1.0),
+    "claude":     (3.5, 1.0),   # Fast API, moderate latency
 }
 
 

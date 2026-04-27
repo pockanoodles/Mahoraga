@@ -169,50 +169,77 @@ class Gateway:
                 # Only execute ready tasks — pending means unmet dependencies
                 continue
 
+            _run_task_exc: Exception | None = None
             try:
                 await run_task(task.id, self._store, self._registry, self._verifier)
             except Exception as exc:
+                _run_task_exc = exc
                 logger.error("gateway: run_task error for %s: %s", task.id, exc)
                 chunk = f"[Task '{task.title}' failed: {exc}]"
                 response_chunks.append(chunk)
                 yield chunk
-                continue
 
-            # Collect the latest completed attempt output as a response chunk.
-            # Fall back to summary for legacy DB rows where output column is empty.
+            # Always fetch attempts so the bandit gets attribution even on
+            # failure paths (preserves learning signal for the selected agent).
             attempts = await self._store.tasks.list_attempts(task.id)
             completed = [a for a in attempts if a.status.value == "completed"]
-            logger.info("GATEWAY ATTEMPT OUTPUT: %s", [a.output[:100] for a in completed])
-            if completed:
-                attempt = completed[-1]
-                output = attempt.output or attempt.summary
-                if output:
-                    response_chunks.append(output)
-                    yield output
-                    try:
-                        log_task_completion(
-                            task_title=task.title or mission.title,
-                            task_goal=task.goal or "",
-                            agent_used=attempt.worker_id or "unknown",
-                            output_preview=output[:500] if output else "",
-                            cost=0.0,
-                        )
-                    except Exception:
-                        pass  # Never let logging break the main flow
 
-            if self._bandit_router is not None and completed:
-                attempt = completed[-1]
-                bandit_outcome = TaskOutcome(
-                    success=(attempt.status.value == "completed"),
-                    latency_s=0.0,
-                    cost_usd=0.0,
-                    quality_score=1.0 if attempt.status.value == "completed" else 0.0,
-                    agent_name=attempt.worker_id or "unknown",
-                )
+            if _run_task_exc is None:
+                logger.info("GATEWAY ATTEMPT OUTPUT: %s", [a.output[:100] for a in completed])
+                if completed:
+                    attempt = completed[-1]
+                    output = attempt.output or attempt.summary
+                    if output:
+                        response_chunks.append(output)
+                        yield output
+                        try:
+                            _duration = (
+                                attempt.ended_at - attempt.started_at
+                                if attempt.started_at is not None and attempt.ended_at is not None
+                                else None
+                            )
+                            _quality = 1.0 if attempt.status.value == "completed" else 0.0
+                            log_task_completion(
+                                task_title=task.title or mission.title,
+                                task_goal=task.goal or "",
+                                agent_used=attempt.worker_id or "unknown",
+                                output_preview=output[:500] if output else "",
+                                cost=0.0,
+                                quality_score=_quality,
+                                duration_seconds=_duration,
+                            )
+                        except Exception:
+                            pass  # Never let logging break the main flow
+
+            if self._bandit_router is not None:
+                if _run_task_exc is None and completed:
+                    attempt = completed[-1]
+                    bandit_outcome = TaskOutcome(
+                        success=(attempt.status.value == "completed"),
+                        latency_s=0.0,
+                        cost_usd=0.0,
+                        quality_score=1.0 if attempt.status.value == "completed" else 0.0,
+                        agent_name=attempt.worker_id or "unknown",
+                    )
+                else:
+                    # Exception raised, or no completed attempt (escalated /
+                    # blocked / retry-exhausted). Attribute to the latest
+                    # attempt's worker if any was made, else "unknown".
+                    fallback_agent = attempts[-1].worker_id if attempts else "unknown"
+                    bandit_outcome = TaskOutcome(
+                        success=False,
+                        latency_s=0.0,
+                        cost_usd=0.0,
+                        quality_score=0.0,
+                        agent_name=fallback_agent or "unknown",
+                    )
                 try:
                     self._bandit_router.observe(task, bandit_outcome)
                 except Exception:
                     pass  # never let bandit updates break responses
+
+            if _run_task_exc is not None:
+                continue
 
         # ── 7. Adaptive learning (fire-and-forget) ───────────────────────────
         full_response = "\n".join(response_chunks)
@@ -320,14 +347,17 @@ class Gateway:
         return None
 
     def _resolve_worker_id(self, adapter, capability: str) -> str:
-        """Map OllamaAdapter to the right sub-worker for the capability.
+        """Map an Ollama adapter to the right sub-worker for the capability.
 
-        OllamaAdapter has a single adapter entry but 4 sub-workers.
-        Route code → coder, plan → planner, everything else → general.
+        Each Ollama adapter (ollama:qwen3-4b, ollama:gemma4-e4b, etc.) has
+        four sub-workers — one per role-prompt (planner / coder / fast /
+        general). Adapter selection is the bandit arm; role selection is a
+        deterministic capability → role mapping below the bandit.
         """
-        if adapter.name == "ollama":
-            return {
-                "code": "ollama:coder",
-                "plan": "ollama:planner",
-            }.get(capability, "ollama:general")
+        role_for_capability = {"code": "coder", "plan": "planner"}
+        if adapter.name == "ollama":  # legacy single-model adapter
+            return f"ollama:{role_for_capability.get(capability, 'general')}"
+        if adapter.name.startswith("ollama:"):
+            role = role_for_capability.get(capability, "general")
+            return f"{adapter.name}:{role}"
         return adapter.worker_id

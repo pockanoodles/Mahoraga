@@ -406,3 +406,138 @@ Auto-appended by Mahoraga.
 **Reasoning:** strategy=LinUCBRouter
 
 **Context:** mahoraga-router
+
+
+---
+
+## 2026-04-27 — Routed to ollama
+
+**Reasoning:** strategy=LinUCBRouter
+
+**Context:** mahoraga-router
+
+
+---
+
+## 2026-04-27 — Routed to ollama
+
+**Reasoning:** strategy=UCB1Router
+
+**Context:** mahoraga-router
+
+
+---
+
+## 2026-04-27 — Routed to ollama
+
+**Reasoning:** strategy=UCB1Router
+
+**Context:** mahoraga-router
+
+
+---
+
+## 2026-04-27 — Routed to ollama
+
+**Reasoning:** strategy=LinUCBRouter
+
+**Context:** mahoraga-router
+
+
+---
+
+## 2026-04-27 — Routed to ollama
+
+**Reasoning:** strategy=StaticRouter
+
+**Context:** mahoraga-router
+
+
+---
+
+## 2026-04-27 — Routed to ollama
+
+**Reasoning:** strategy=UCB1Router
+
+**Context:** mahoraga-router
+
+
+---
+
+## 2026-04-27 — Routed to ollama
+
+**Reasoning:** strategy=ThompsonSamplingRouter
+
+**Context:** mahoraga-router
+
+
+---
+
+## 2026-04-27 — Routed to ollama
+
+**Reasoning:** strategy=LinUCBRouter
+
+**Context:** mahoraga-router
+
+
+---
+
+## 2026-04-27 — Routed to ollama
+
+**Reasoning:** strategy=LinUCBRouter
+
+**Context:** mahoraga-router
+
+
+---
+
+## 2026-04-27 — Routed to ollama
+
+**Reasoning:** strategy=LinUCBRouter
+
+**Context:** mahoraga-router
+
+
+---
+
+## 2026-04-27 — Routed to ollama
+
+**Reasoning:** strategy=LinUCBRouter
+
+**Context:** mahoraga-router
+
+
+---
+
+## 2026-04-27 — Routed to ollama
+
+**Reasoning:** strategy=LinUCBRouter
+
+**Context:** mahoraga-router
+
+
+---
+
+## 2026-04-27 — Routed to ollama
+
+**Reasoning:** strategy=LinUCBRouter
+
+**Context:** mahoraga-router
+
+
+---
+
+## 2026-04-27 — Routed to ollama
+
+**Reasoning:** strategy=LinUCBRouter
+
+**Context:** mahoraga-router
+
+
+---
+
+## 2026-04-27 — Routed to ollama
+
+**Reasoning:** strategy=LinUCBRouter
+
+**Context:** mahoraga-router

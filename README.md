@@ -1,8 +1,7 @@
 # Mahoraga
 
 An online bandit routing engine for heterogeneous AI agents. Local-first, research-capable, learns from every task.
-
-*Named after the adaptive deity from Buddhist mythology — Mahoraga analyzes, adapts, and overcomes.*
+*Mahoraga analyzes, adapts, and overcomes.*
 
 ![Python 3.12](https://img.shields.io/badge/python-3.12-blue)
 ![License: MIT](https://img.shields.io/badge/license-MIT-green)
@@ -12,7 +11,7 @@ An online bandit routing engine for heterogeneous AI agents. Local-first, resear
 
 ## What It Does
 
-Mahoraga is not an agent. It orchestrates agents. When you give it a task, it:
+Mahoraga is an agent orchestrator. When you give it a task, it:
 
 1. Classifies complexity via keyword gate into a capability bucket (code, debug, plan, research, general…)
 2. Routes to the best agent using a LinUCB contextual bandit that learns from every task

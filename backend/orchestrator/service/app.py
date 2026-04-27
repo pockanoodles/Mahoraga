@@ -165,6 +165,8 @@ async def lifespan(app: FastAPI):
             pass
         async def verify(self, task, output):
             from ..verifier.verifier import VerificationResult
+            if not output or not output.strip() or len(output.strip()) < 10:
+                return VerificationResult(score=0, passed=False, feedback="empty or trivial output", action="retry")
             return VerificationResult(score=10, passed=True, feedback="", action="pass")
 
     if "claude" in ENABLED_BACKENDS:

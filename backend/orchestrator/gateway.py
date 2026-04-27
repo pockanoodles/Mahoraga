@@ -12,7 +12,7 @@ from .adaptive.models import AdaptationCategory, UserAdaptation, UserProfile
 from .adaptive.profile import build_profile_prompt
 from .channels.base import ChannelMessage
 from .config import ENABLED_BACKENDS, MahoragaConfig
-from .domain.models import Mission, Plan, Run, RunMode, RunStatus, Task, TaskStatus
+from .domain.models import Mission, Plan, Run, RunMode, Task, TaskStatus
 from .planning.classifier import classify_tier
 from .planning.planner import PlannerError, generate_tasks
 from .service.executor import run_task
@@ -38,6 +38,12 @@ def _worker_id_to_caps(worker_id: str | None) -> list[str]:
     if worker_id in ("aider:default", "codex:cli"):
         return ["code"]
     if worker_id and worker_id.startswith("claude:"):
+        return ["general"]
+    if worker_id and worker_id.startswith("ollama:"):
+        if ":coder" in worker_id:
+            return ["code"]
+        if ":planner" in worker_id:
+            return ["plan"]
         return ["general"]
     return []
 

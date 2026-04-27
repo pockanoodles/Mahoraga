@@ -7,6 +7,7 @@ Can use Ollama for free local inference: model="ollama_chat/qwen3:4b"
 from __future__ import annotations
 import asyncio
 import logging
+import re
 import shutil
 from typing import AsyncGenerator
 
@@ -16,6 +17,25 @@ from ..domain.models import Task, TaskAttempt
 logger = logging.getLogger(__name__)
 
 _DEFAULT_TIMEOUT = 180
+
+_ANSI_RE = re.compile(r'\x1b\[[0-9;]*[a-zA-Z]')
+_BOX_DRAWING_RE = re.compile(r'[─-╿]+')
+_AIDER_NOISE_PREFIXES = (
+    'Warning:', 'Tokens:', 'Cost:', 'Model:', 'Git repo:',
+    'Repo-map:', 'Use /help', '───', '━━━', 'Aider v',
+)
+
+
+def _clean_aider_output(raw: str) -> str:
+    """Strip ANSI escapes, box-drawing chars, and Aider status lines."""
+    text = _ANSI_RE.sub('', raw)
+    text = _BOX_DRAWING_RE.sub('', text)
+    lines = text.split('\n')
+    cleaned = [
+        ln for ln in lines
+        if ln.strip() and not ln.strip().startswith(_AIDER_NOISE_PREFIXES)
+    ]
+    return '\n'.join(cleaned).strip()
 
 
 class AiderWorker(WorkerAdapter):
@@ -39,7 +59,7 @@ class AiderWorker(WorkerAdapter):
 
     @property
     def capabilities(self) -> list[str]:
-        return ["code", "refactor", "test", "explain"]
+        return ["code", "refactor", "test"]
 
     async def execute(
         self,
@@ -123,7 +143,7 @@ class AiderWorker(WorkerAdapter):
             )
             return
 
-        summary = "".join(collected).strip()
+        summary = _clean_aider_output("".join(collected))
         if not summary:
             stderr_text = ""
             if proc.stderr:
@@ -131,7 +151,7 @@ class AiderWorker(WorkerAdapter):
                 stderr_text = stderr_bytes.decode(errors="replace")[:300]
             yield WorkerEvent(
                 type="attempt.failed",
-                payload={"error_code": "empty_response", "error": f"aider produced no output. stderr: {stderr_text}"},
+                payload={"error_code": "empty_after_strip", "error": f"aider produced no content after stripping noise. stderr: {stderr_text}"},
             )
             return
 

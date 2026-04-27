@@ -13,9 +13,8 @@ logger = logging.getLogger(__name__)
 
 _CAPABILITIES = [
     AgentCapability("refactor", confidence=0.90),
-    AgentCapability("code",     confidence=0.85),
-    AgentCapability("test",     confidence=0.80),
-    AgentCapability("explain",  confidence=0.65),
+    AgentCapability("code",     confidence=0.70),
+    AgentCapability("test",     confidence=0.70),
 ]
 
 
@@ -62,4 +61,6 @@ class AiderAdapter(AgentAdapter):
                 name=self.name, available=False,
                 detail="aider not found. Install: pip install aider-install && aider-install",
             )
-        return AgentStatus(name=self.name, available=True, detail=f"binary={binary}, model={self._model}")
+        return AgentStatus(
+            name=self.name, available=True, detail=f"binary={binary}, model={self._model}"
+        )

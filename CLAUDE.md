@@ -1,11 +1,42 @@
 # Mahoraga — CLAUDE.md
 
 ## Project
-Self-hosted multi-channel AI assistant. Haiku plans, Sonnet executes, Opus escalates. Adaptive user model. Web chat + Telegram.
+Agent-agnostic LLM orchestration framework with online bandit routing. FastAPI backend, Python 3.12, vanilla HTML/CSS/JS frontend. GitHub: pockanoodles/Mahoraga
 
-**Stack:** Python 3.12, FastAPI, aiosqlite, anthropic SDK, aiogram, httpx  
+**Stack:** Python 3.12, FastAPI, aiosqlite, anthropic SDK, httpx  
 **Active branch:** `personal`  
 **Tests:** `pytest` from project root
+
+## Repo Layout
+- `backend/orchestrator/adapters/` — AgentAdapter shims (registration, capabilities, health checks)
+- `backend/orchestrator/workers/` — Worker implementations (actual task execution via subprocess/API)
+- `backend/orchestrator/routing/` — LinUCB bandit, quality scoring, reward calc, episodic memory, decision log
+- `backend/orchestrator/service/` — FastAPI app and endpoints
+- `backend/orchestrator/verifier/` — Output verification / retry gating
+- `backend/orchestrator/planning/` — Task classifier and planner
+- `backend/orchestrator/domain/` — Data models (Task, TaskAttempt, Mission, Run)
+- `frontend/` — Vanilla JS/HTML frontend
+- `tests/` — pytest suite
+
+## Key Architecture
+- Two-stage routing: keyword classifier → capability bucket → LinUCB bandit picks agent within bucket
+- 9-dimensional context vector (`routing/context.py`); feature 9 (`queue_depth_norm`) is always 0.0 (reserved)
+- dLinUCB (γ=0.98): discounted updates in `routing/strategies/linucb.py` `update()`
+- Composite reward: success/quality/speed/cost (per-bucket weights, learnable via OLS)
+- Spawn penalty fires when `agent_spawn_time_ms > 500`
+- State: `~/.mahoraga/bandit_state.json` (bandit), `~/.mahoraga/routing_decisions.db` (SQLite log)
+
+## Running
+- `orch serve` — backend at localhost:8000
+- `pytest` — run tests
+- `orch benchmark simulate` — strategy comparison (200 synthetic tasks)
+- `orch benchmark lab` — forced round-robin with quality scoring (8 agents × 24 prompts)
+
+## Agents
+ollama:qwen3-4b (local), ollama:gemma4-e4b, ollama:lfm2, ollama:deepseek-r1, codex-cli, aider, gemini-cli, goose, opencode, claude (escalation only)
+
+## Hardware
+MacBook Pro (Nov 2024), M-series, 16 GB unified memory. Qwen3 4B Q4_K_M at 33.8 t/s, LFM2 at 77.1 t/s.
 
 ## Brain / Journal
 

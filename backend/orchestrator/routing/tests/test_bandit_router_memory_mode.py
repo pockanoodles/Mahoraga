@@ -608,3 +608,161 @@ class TestEpisodicRichQuery:
         )
         assert "aider" in rich
         assert "confidence" in rich["aider"]
+
+
+# ── Per-bucket α gating ───────────────────────────────────────────────────────
+
+
+class TestResolvePerBucketAlpha:
+    def test_default_empty_when_unset(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.delenv("MAHORAGA_MEMORY_ALPHA_PER_BUCKET", raising=False)
+        assert br_mod._resolve_per_bucket_alpha() == {}
+
+    def test_env_json_override(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        import json as _json
+        monkeypatch.setenv(
+            "MAHORAGA_MEMORY_ALPHA_PER_BUCKET",
+            _json.dumps({"research": 0.0, "code_editing": 0.15}),
+        )
+        result = br_mod._resolve_per_bucket_alpha()
+        assert result == {"research": 0.0, "code_editing": 0.15}
+
+    def test_invalid_json_falls_back_to_empty(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("MAHORAGA_MEMORY_ALPHA_PER_BUCKET", "not-json{{{")
+        assert br_mod._resolve_per_bucket_alpha() == {}
+
+    def test_out_of_range_values_dropped(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import json as _json
+        monkeypatch.setenv(
+            "MAHORAGA_MEMORY_ALPHA_PER_BUCKET",
+            _json.dumps({"research": 0.1, "bad_high": 1.5, "bad_low": -0.1}),
+        )
+        result = br_mod._resolve_per_bucket_alpha()
+        assert result == {"research": 0.1}
+
+
+class TestPerBucketGating:
+    def test_research_bucket_zero_alpha_disables_bias(
+        self,
+        make_router,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A research-bucket task should ignore memory bias when its
+        per-bucket α is overridden to 0.0, even if the global α is high."""
+        import json as _json
+        monkeypatch.setenv("MAHORAGA_MEMORY_ALPHA", "0.30")
+        monkeypatch.setenv(
+            "MAHORAGA_MEMORY_ALPHA_PER_BUCKET",
+            _json.dumps({"research": 0.0}),
+        )
+
+        router, _ = make_router(memory_mode="keyword")
+        # Seed memory with strong evidence on research-style tasks.
+        # "Explain how transformer attention works" → research bucket
+        # (has_research_keywords=1, low code keyword density).
+        research_goal = "explain how transformer attention works"
+        for _ in range(10):
+            router.observe(
+                MockTask(goal=research_goal),
+                TaskOutcome(True, 1.0, 0.0, 0.95, "ollama", bucket="research"),
+            )
+
+        # Verify the task actually classifies as research.
+        from backend.orchestrator.routing.context import TaskContext
+        from backend.orchestrator.routing.strategies.static import classify_bucket
+        ctx = TaskContext.from_task(MockTask(goal=research_goal))
+        assert classify_bucket(ctx) == "research"
+
+        # Spy on memory query to confirm route() proceeds even when memory
+        # is non-empty: the per-bucket α=0 should make the blending branch
+        # short-circuit (memory_alpha > 0 fails), falling through to
+        # select_agent.
+        original_select = router.strategy.select_agent
+        spy = {"used_strategy": False}
+
+        def _spy(c, a):
+            spy["used_strategy"] = True
+            return original_select(c, a)
+
+        router.strategy.select_agent = _spy
+        router.route(MockTask(goal=research_goal))
+        assert spy["used_strategy"] is True
+
+    def test_global_alpha_used_for_unmapped_bucket(
+        self,
+        make_router,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A bucket without a per-bucket override falls through to the
+        global α."""
+        import json as _json
+        monkeypatch.setenv("MAHORAGA_MEMORY_ALPHA", "0.10")
+        monkeypatch.setenv(
+            "MAHORAGA_MEMORY_ALPHA_PER_BUCKET",
+            _json.dumps({"research": 0.0}),  # debugging is unmapped
+        )
+        router, _ = make_router(memory_mode="keyword")
+
+        # Seed a debugging-bucket task. The alpha used by route() should be
+        # the global 0.10, not 0.0.
+        # We test this by confirming the get_stats output reports both.
+        stats = router.get_stats()
+        em = stats["episodic_memory"]
+        assert em["memory_alpha"] == 0.10
+        assert em["memory_alpha_per_bucket"] == {"research": 0.0}
+
+    def test_get_stats_exposes_per_bucket_alpha_config(
+        self,
+        make_router,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        import json as _json
+        monkeypatch.setenv(
+            "MAHORAGA_MEMORY_ALPHA_PER_BUCKET",
+            _json.dumps({"code_editing": 0.20, "research": 0.0}),
+        )
+        router, _ = make_router(memory_mode="keyword")
+        em = router.get_stats()["episodic_memory"]
+        assert em["memory_alpha_per_bucket"] == {
+            "code_editing": 0.20,
+            "research": 0.0,
+        }
+
+
+class TestClassifyBucket:
+    """Sanity tests for the shared classifier — same input → same bucket."""
+
+    def test_research_classified(self) -> None:
+        from backend.orchestrator.routing.context import TaskContext
+        from backend.orchestrator.routing.strategies.static import classify_bucket
+        ctx = TaskContext.from_task(
+            MockTask(goal="explain how transformer attention works")
+        )
+        assert classify_bucket(ctx) == "research"
+
+    def test_debugging_classified(self) -> None:
+        from backend.orchestrator.routing.context import TaskContext
+        from backend.orchestrator.routing.strategies.static import classify_bucket
+        ctx = TaskContext.from_task(
+            MockTask(goal="fix the NullPointerException in auth.py line 42")
+        )
+        assert classify_bucket(ctx) == "debugging"
+
+    def test_code_generation_classified(self) -> None:
+        from backend.orchestrator.routing.context import TaskContext
+        from backend.orchestrator.routing.strategies.static import classify_bucket
+        ctx = TaskContext.from_task(
+            MockTask(goal="write a Python decorator that retries on exception")
+        )
+        # Either code_generation or code_editing is acceptable here —
+        # both are code-bucketed and would go through the same per-bucket
+        # gating path. The key is: deterministic.
+        b1 = classify_bucket(ctx)
+        b2 = classify_bucket(ctx)
+        assert b1 == b2

@@ -960,16 +960,58 @@ Aggregate reward is a wash, but per-bucket accuracy reveals real structure for `
 
 Memory helps on buckets with *deterministic* task→agent fit (refactoring → aider, file_ops → codex-cli) and hurts on *exploratory* buckets (research → multiple agents are competitive). The aggregate is the average of these signed deltas.
 
-### 15.5 Implications for shipping
+### 15.5 Per-bucket gating (validated, weak signal)
 
-- **Phase 1-3 infrastructure is correct, tested, and ready**: 198 routing tests + 32 embedding tests + 31 router/CLI tests all green.
-- **Phase 4 harness is correct, tested, and reproducible** with multi-seed t-distribution CIs.
+The §15.4 per-bucket data was tagged with the *oracle labels* from `benchmarks/adversarial_prompts.json`, but the bandit's per-task α decision uses the *production classifier* (`classify_bucket()` in `routing/strategies/static.py`). Investigating that mismatch surfaced a real labeling discrepancy. The classifier sees:
+
+| Classifier bucket | # of adversarial prompts |
+|---|---:|
+| research | 11 |
+| default | 9 |
+| debugging | 5 |
+| code_generation | 2 |
+| code_editing | 2 |
+| complex | 1 |
+
+Compare to the oracle's 8 categories (simple_chat, code_generation, code_refactoring, debugging, file_operations, research, planning, complex_reasoning). Notably, all 5 "complex_reasoning" prompts collapse to the classifier's "research" bucket; 2 of 5 "code_refactoring" prompts collapse to "default"; 1 file_operations prompt classifies as "research". Oracle and classifier disagree on **15 of 30 prompts**.
+
+When we re-bucket the §15.3 sweep results by *classifier* label (the bandit's actual basis for gating decisions), the per-bucket deltas are much weaker than the oracle-labeled view suggested:
+
+| Classifier bucket | off acc | sem@α=0.10 acc | Δ |
+|---|---:|---:|---:|
+| complex (1 prompt × 10 seeds) | 0.125 | 0.175 | +5.0pp |
+| code_generation | 0.106 | 0.131 | +2.5pp |
+| default | 0.194 | 0.210 | +1.5pp |
+| debugging | 0.158 | 0.165 | +0.8pp |
+| code_editing | 0.400 | 0.388 | −1.3pp |
+| research | 0.250 | 0.237 | −1.3pp |
+
+The "research loses 5.2pp" finding from §15.4 was driven by oracle-research prompts that *don't classify as research*. The actual per-classifier-bucket signal is small.
+
+A direct test of per-bucket gating with `{"research": 0.0}` on N=10 seeds:
+
+| Condition | Reward (gated) | Reward (ungated) | Δ |
+|---|---:|---:|---:|
+| `off@α=0.00` | 128.33 | 128.33 | 0 (sanity) |
+| `semantic@α=0.10` | 127.80 | 128.68 | **−0.88** |
+| `keyword@α=0.20` | 127.89 | 126.67 | +1.22 |
+| `keyword@α=0.10` | 127.01 | 125.14 | +1.87 |
+| `semantic@α=0.20` | 125.68 | 125.73 | −0.05 |
+
+Mixed signal: gating helped keyword conditions, hurt the previous best (semantic@α=0.10) by 0.88. Aggregating both gated buckets (`{"research": 0.0, "code_editing": 0.0}`) hurt further: semantic@α=0.10 fell to 127.02. All deltas are within one std deviation (~2.3) of zero — no statistically significant gating win on this benchmark.
+
+**Why doesn't per-bucket gating cleanly recover the off-baseline on its target bucket?** Even with α=0 on research-bucket *retrieval*, research-bucket *outcomes* still update LinUCB's global θ (one matrix shared across all buckets). And research episodes still get stored in memory, where they may surface as nearest neighbours for non-research queries depending on retrieval geometry. Per-bucket gating at the *retrieval-blending* layer alone is bidirectionally coupled to other buckets through the shared LinUCB state and the shared episodic store. To get clean per-bucket isolation would require per-bucket bandits (one θ matrix per bucket) — a larger architectural change deferred to future work.
+
+### 15.6 Implications for shipping
+
+- **Phase 1-4 infrastructure is correct, tested, and ready**: 215+ routing tests, 32 embedding tests, 31 router/CLI tests, 13 eval-harness tests all green; 680+ tests pass across the full orchestrator suite.
+- **Phase 4 harness is correct, tested, and reproducible** with multi-seed t-distribution CIs and per-bucket gating support.
 - **Production default should be `MAHORAGA_MEMORY_MODE=off`** until a paraphrase-based transfer benchmark validates a clear semantic win. The current adversarial set tests *keyword-failure recognition* but not *semantic-transfer benefit* — the latter requires train/test paraphrase pairs.
 - **If memory is enabled, recommended default is `α=0.10`** — empirically the peak of the unimodal α-curve on this benchmark.
 - **`MAHORAGA_MEMORY_CONFIDENCE_WEIGHTED=true` is not recommended** — fails to produce signal on this benchmark and slightly hurts. Revisit if `BIAS_CONFIDENCE_SATURATION` is raised or if benchmarks include a longer warm-up phase.
-- **Per-bucket gating** (apply memory bias only on deterministic buckets, disable on research/planning) is a follow-up worth investigating — the per-bucket data suggests this could capture the +5pp wins without the −5pp loss.
+- **`MAHORAGA_MEMORY_ALPHA_PER_BUCKET` is implemented and tested but not recommended** for default use on this benchmark. The gating signal in classifier-bucket space is weak (±1-3pp) and the simple "gate research → 0" config underperforms the no-gating baseline by 0.88 reward (within noise). The mechanism is available for future configs once a richer benchmark surfaces clearer per-bucket signal — e.g., per-bucket bandits, paraphrase eval, or workload-specific tuning.
 
-The `MAHORAGA_MEMORY_MODE` + `MAHORAGA_MEMORY_ALPHA` + `MAHORAGA_MEMORY_CONFIDENCE_WEIGHTED` flags allow A/B testing in real deployments without flipping defaults. Two-tower design ensures no regression risk — `off` is the v1 baseline.
+The `MAHORAGA_MEMORY_MODE` + `MAHORAGA_MEMORY_ALPHA` + `MAHORAGA_MEMORY_CONFIDENCE_WEIGHTED` + `MAHORAGA_MEMORY_ALPHA_PER_BUCKET` flags allow A/B testing in real deployments without flipping defaults. Two-tower design ensures no regression risk — `off` is the v1 baseline.
 
 ---
 

@@ -304,6 +304,14 @@ def memory_mode(
         help="'off' (default), 'on', or 'both' to compare confidence-weighted "
         "blending against the unweighted blend.",
     ),
+    alpha_per_bucket: Optional[str] = typer.Option(
+        None,
+        "--alpha-per-bucket",
+        help="JSON dict mapping bucket name to α override "
+        "(e.g. '{\"research\": 0.0, \"code_editing\": 0.15}'). "
+        "Applied to every non-off condition; missing buckets fall through "
+        "to the per-condition global α.",
+    ),
     output: Optional[str] = typer.Option(
         None,
         "--output",
@@ -359,6 +367,23 @@ def memory_mode(
         output = f"benchmarks/results/memory_mode_{prompts}_{ts}"
     out_dir = _Path(output).expanduser()
 
+    pba_dict: Optional[dict] = None
+    if alpha_per_bucket:
+        try:
+            import json as _json
+            parsed = _json.loads(alpha_per_bucket)
+            if not isinstance(parsed, dict):
+                raise ValueError("not a JSON object")
+            pba_dict = {
+                str(k): float(v) for k, v in parsed.items()
+                if isinstance(v, (int, float))
+            }
+        except (ValueError, _json.JSONDecodeError) as exc:
+            typer.echo(
+                f"--alpha-per-bucket is not valid JSON dict: {exc}", err=True
+            )
+            raise typer.Exit(1) from exc
+
     n_conditions = sum(
         len(alpha_list) * len(cw_list) if m != "off" else 1
         for m in mode_list
@@ -369,6 +394,8 @@ def memory_mode(
     typer.echo(f"Modes      : {', '.join(mode_list)}")
     typer.echo(f"α values   : {alpha_list}")
     typer.echo(f"Conf weight: {cw_list}")
+    if pba_dict:
+        typer.echo(f"Per-bucket α: {pba_dict}")
     typer.echo(f"Conditions : {n_conditions} × {seeds} seeds = {n_conditions * seeds} runs")
     typer.echo(f"Output     : {out_dir}")
     typer.echo("")
@@ -378,6 +405,7 @@ def memory_mode(
         prompts=prompt_set, modes=mode_list, seeds=seed_list,
         result_dir=out_dir, repeats=repeats,
         alphas=alpha_list, confidence_weighting=cw_list,
+        alpha_per_bucket=pba_dict,
     )
 
     typer.echo("")

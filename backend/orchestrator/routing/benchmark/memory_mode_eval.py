@@ -206,6 +206,7 @@ def run_condition(
     repeats: int = 5,
     alpha: float = 0.20,
     confidence_weighted: bool = False,
+    alpha_per_bucket: Optional[dict[str, float]] = None,
 ) -> ConditionResult:
     """Run one (mode, seed) condition. Returns aggregated results.
 
@@ -217,8 +218,12 @@ def run_condition(
 
     α and confidence-weighted are routing-time hyperparameters: they
     control how aggressively the memory bias is blended into the LinUCB
-    exploit score. See bandit_router._resolve_memory_alpha and
-    _resolve_confidence_weighting.
+    UCB score. See bandit_router._resolve_memory_alpha,
+    _resolve_confidence_weighting, and _resolve_per_bucket_alpha.
+
+    `alpha_per_bucket` overrides the global α for specific classified
+    buckets (canonical names from `routing.strategies.static.BUCKETS`).
+    Missing buckets fall through to the global α.
     """
     # Set env first — BanditRouter resolves mode at every call.
     os.environ["MAHORAGA_MEMORY_MODE"] = mode
@@ -226,6 +231,12 @@ def run_condition(
     os.environ["MAHORAGA_MEMORY_CONFIDENCE_WEIGHTED"] = (
         "true" if confidence_weighted else "false"
     )
+    if alpha_per_bucket:
+        os.environ["MAHORAGA_MEMORY_ALPHA_PER_BUCKET"] = json.dumps(
+            alpha_per_bucket
+        )
+    else:
+        os.environ.pop("MAHORAGA_MEMORY_ALPHA_PER_BUCKET", None)
     os.environ["MAHORAGA_BANDIT_SEED"] = str(seed)
     os.environ["MAHORAGA_PROMPT_SEED"] = str(seed)
 
@@ -444,6 +455,7 @@ def run_eval(
     repeats: int = 5,
     alphas: Optional[list[float]] = None,
     confidence_weighting: Optional[list[bool]] = None,
+    alpha_per_bucket: Optional[dict[str, float]] = None,
 ) -> dict[str, Any]:
     """Run the full grid of (mode × α × conf-weight × seed) conditions and
     write artifacts.
@@ -452,6 +464,11 @@ def run_eval(
     sweep α, pass a list like [0.0, 0.05, 0.10, 0.20, 0.30]. The off-mode
     condition is run only once (memory disabled, α has no effect) regardless
     of how many α values are passed.
+
+    `alpha_per_bucket` is applied to every non-off condition uniformly. Per-
+    bucket overrides take precedence over the global α for any task whose
+    classified bucket appears in the dict; missing buckets fall through to
+    the per-condition global α. Pass None or {} for no per-bucket override.
     """
     if agents is None:
         agents = ["ollama", "codex-cli", "aider", "gemini-cli", "claude"]
@@ -473,6 +490,8 @@ def run_eval(
         # the redundant grid points and run it once at the canonical α=0.0.
         mode_alphas = [0.0] if mode == "off" else alphas
         mode_confs = [False] if mode == "off" else confidence_weighting
+        # Per-bucket overrides only apply when memory is engaged.
+        mode_pba = None if mode == "off" else alpha_per_bucket
 
         for alpha in mode_alphas:
             for cw in mode_confs:
@@ -491,6 +510,7 @@ def run_eval(
                         state_dir=run_state_dir, cache_path=cache_path,
                         agents=agents, repeats=repeats,
                         alpha=alpha, confidence_weighted=cw,
+                        alpha_per_bucket=mode_pba,
                     )
                     all_results.append(res)
                     raw_traces.append({
@@ -527,6 +547,7 @@ def run_eval(
     summary["modes"] = modes
     summary["alphas"] = alphas
     summary["confidence_weighting"] = confidence_weighting
+    summary["alpha_per_bucket"] = alpha_per_bucket or {}
     summary["agents"] = agents
 
     (result_dir / "raw_results.json").write_text(

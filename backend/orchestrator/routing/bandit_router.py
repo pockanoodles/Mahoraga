@@ -29,6 +29,7 @@ from .reward_learner import RewardWeightLearner
 from .episodic_memory import EpisodicMemory, MEMORY_ALPHA
 from .decision_log import DecisionLogger
 from .strategies import StaticRouter, UCB1Router, ThompsonSamplingRouter, LinUCBRouter
+from .strategies.static import classify_bucket
 from .warm_start import load_compatibility_matrix, warm_start_from_matrix
 from ..config import MahoragaConfig
 from ..brain_logger import log_decision as brain_log_decision
@@ -113,6 +114,53 @@ def _resolve_confidence_weighting() -> bool:
     if isinstance(cfg, bool):
         return cfg
     return False
+
+
+def _resolve_per_bucket_alpha() -> dict[str, float]:
+    """Per-bucket α overrides. Returns a {bucket: α} map (possibly empty).
+
+    Sources, in priority order:
+      1. MAHORAGA_MEMORY_ALPHA_PER_BUCKET — JSON-encoded mapping
+         (e.g. '{"research": 0.0, "code_editing": 0.15}')
+      2. config key "memory_alpha_per_bucket" (a dict)
+
+    Buckets not in the map fall through to the global α
+    (`MAHORAGA_MEMORY_ALPHA` / `_resolve_memory_alpha()`).
+
+    Use case: empirical per-bucket data (see spec §15.4) shows memory
+    helps on deterministic-pattern buckets (refactoring, file_ops) but
+    hurts on exploratory buckets (research). Per-bucket α lets us turn
+    memory off for buckets where it hurts without disabling globally.
+    """
+    raw = os.environ.get("MAHORAGA_MEMORY_ALPHA_PER_BUCKET", "").strip()
+    if raw:
+        try:
+            mapping = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            _log.warning(
+                "MAHORAGA_MEMORY_ALPHA_PER_BUCKET is not valid JSON (%s); "
+                "ignoring",
+                exc,
+            )
+            mapping = None
+        if isinstance(mapping, dict):
+            return {
+                str(k): float(v)
+                for k, v in mapping.items()
+                if isinstance(v, (int, float)) and 0.0 <= float(v) <= 1.0
+            }
+
+    try:
+        cfg = MahoragaConfig().get("memory_alpha_per_bucket")
+    except (KeyError, FileNotFoundError):
+        cfg = None
+    if isinstance(cfg, dict):
+        return {
+            str(k): float(v)
+            for k, v in cfg.items()
+            if isinstance(v, (int, float)) and 0.0 <= float(v) <= 1.0
+        }
+    return {}
 
 
 def _extract_goal(task: Any) -> str:
@@ -251,8 +299,17 @@ class BanditRouter:
         # Mode, α, and confidence-weighting are resolved per-call so env/config
         # changes take effect live (important for benchmarks and dry runs).
         memory_mode = _resolve_memory_mode()
-        memory_alpha = _resolve_memory_alpha()
+        global_alpha = _resolve_memory_alpha()
+        per_bucket_alpha = _resolve_per_bucket_alpha()
         confidence_weighted = _resolve_confidence_weighting()
+
+        # Per-bucket gating: when the task's classified bucket has an α
+        # override (e.g. {"research": 0.0}), use it; otherwise fall through
+        # to the global α. The bucket comes from the same classifier the
+        # static router uses, so the names are consistent across
+        # production code paths.
+        bucket = classify_bucket(context)
+        memory_alpha = per_bucket_alpha.get(bucket, global_alpha)
 
         memory_biases = self._retrieve_memory_biases_rich(
             task=task, context=context, available=available, mode=memory_mode,
@@ -435,6 +492,9 @@ class BanditRouter:
                 "size": self._memory.size,
                 "semantic_size": self._memory.semantic_size,
                 "memory_mode": _resolve_memory_mode(),
+                "memory_alpha": _resolve_memory_alpha(),
+                "memory_alpha_per_bucket": _resolve_per_bucket_alpha(),
+                "confidence_weighted": _resolve_confidence_weighting(),
             },
         }
 

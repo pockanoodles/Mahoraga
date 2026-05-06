@@ -71,7 +71,7 @@ class RewardWeightLearner:
     """Learns per-bucket reward weights from observed task outcomes via OLS.
 
     Usage:
-        learner = RewardWeightLearner(state_path=Path("~/.mahoraga/bandit_state.json"))
+        learner = RewardWeightLearner(state_path=Path("~/.mahoraga-v2/bandit_state.json"))
 
         # After each successful task:
         learner.observe(bucket="code", latency_s=2.1, cost_usd=0.0, quality=0.85, reward=0.74)

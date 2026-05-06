@@ -10,8 +10,8 @@ from pathlib import Path
 import json
 import numpy as np
 
-COMPATIBILITY_MATRIX_PATH = Path.home() / ".mahoraga" / "compatibility_matrix.json"
-TUNED_HYPERPARAMS_PATH    = Path.home() / ".mahoraga" / "tuned_hyperparams.json"
+COMPATIBILITY_MATRIX_PATH = Path.home() / ".mahoraga-v2" / "compatibility_matrix.json"
+TUNED_HYPERPARAMS_PATH    = Path.home() / ".mahoraga-v2" / "tuned_hyperparams.json"
 
 
 # Dims: word_count_norm, code_kw_density, is_question, complexity_tier,
@@ -64,7 +64,7 @@ def warm_start_from_matrix(
 
 
 def load_compatibility_matrix() -> dict | None:
-    """Load the compatibility matrix from ~/.mahoraga/compatibility_matrix.json."""
+    """Load the compatibility matrix from ~/.mahoraga-v2/compatibility_matrix.json."""
     if not COMPATIBILITY_MATRIX_PATH.exists():
         return None
     try:
@@ -75,7 +75,7 @@ def load_compatibility_matrix() -> dict | None:
 
 
 def save_compatibility_matrix(matrix: dict) -> None:
-    """Persist the compatibility matrix to ~/.mahoraga/compatibility_matrix.json."""
+    """Persist the compatibility matrix to ~/.mahoraga-v2/compatibility_matrix.json."""
     COMPATIBILITY_MATRIX_PATH.parent.mkdir(parents=True, exist_ok=True)
     with open(COMPATIBILITY_MATRIX_PATH, "w") as f:
         json.dump(matrix, f, indent=2)

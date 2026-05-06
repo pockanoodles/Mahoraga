@@ -9,7 +9,7 @@ from .events import EventStore
 from .chat_log import ChatLogStore
 from .metrics import MetricsStore
 
-DEFAULT_DB_PATH = Path.home() / ".mahoraga" / "mahoraga.db"
+DEFAULT_DB_PATH = Path.home() / ".mahoraga-v2" / "mahoraga.db"
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS missions (

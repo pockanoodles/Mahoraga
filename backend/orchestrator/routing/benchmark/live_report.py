@@ -22,7 +22,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-DEFAULT_DB = Path.home() / ".mahoraga" / "routing_decisions.db"
+DEFAULT_DB = Path.home() / ".mahoraga-v2" / "routing_decisions.db"
 LIVE_REPORT_DIR = Path(__file__).parent / "results" / "live_report"
 
 

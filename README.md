@@ -1,5 +1,7 @@
 # Mahoraga
 
+> **You are looking at the `v2` branch.** Active development of semantic-augmented routing. See [`docs/semantic-routing.md`](docs/semantic-routing.md) for the design spec. The stable v1 release is on the [`main` branch](https://github.com/pockanoodles/Mahoraga/tree/main).
+
 An online bandit routing engine for heterogeneous AI agents. Local-first, research-capable, learns from every task.
 *Mahoraga analyzes, adapts, and overcomes.*
 
@@ -86,7 +88,7 @@ Outcomes: pass → stream response; retry → same worker with feedback context;
 
 ### Warm Start
 
-On first startup, if `~/.mahoraga/compatibility_matrix.json` exists (from `orch benchmark simulate --save-matrix`), the bandit injects pseudo-observations instead of cold-starting from zero. Based on PILOT (Panda et al., EMNLP 2025) — reduces early exploration waste. New agents added at runtime are average-initialised from existing arm matrices, ensuring moderate exploration without a regret spike.
+On first startup, if `~/.mahoraga-v2/compatibility_matrix.json` exists (from `orch benchmark simulate --save-matrix`), the bandit injects pseudo-observations instead of cold-starting from zero. Based on PILOT (Panda et al., EMNLP 2025) — reduces early exploration waste. New agents added at runtime are average-initialised from existing arm matrices, ensuring moderate exploration without a regret spike.
 
 ---
 

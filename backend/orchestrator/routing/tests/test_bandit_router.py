@@ -26,7 +26,7 @@ def state_file(tmp_path):
 
 @pytest.fixture
 def noop_logger(tmp_path):
-    """A DecisionLogger writing to a temp DB so tests don't pollute ~/.mahoraga."""
+    """A DecisionLogger writing to a temp DB so tests don't pollute ~/.mahoraga-v2."""
     return DecisionLogger(db_path=tmp_path / "test_decisions.db")
 
 

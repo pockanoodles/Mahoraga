@@ -11,7 +11,7 @@ HARNESS_WEIGHT = 0.3
 
 _BUCKETS = ["code", "test", "refactor", "debug", "research", "plan", "review", "security"]
 _DIFFICULTIES = ["simple", "medium", "complex"]
-_DECISION_LOG_PATH = Path.home() / ".mahoraga" / "routing_decisions.db"
+_DECISION_LOG_PATH = Path.home() / ".mahoraga-v2" / "routing_decisions.db"
 
 
 def _load_decision_log(limit: int = 5000) -> list[dict]:

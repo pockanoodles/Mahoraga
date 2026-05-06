@@ -14,7 +14,7 @@ from typing import Optional
 from .reward import TaskOutcome
 
 
-_DEFAULT_DB_PATH = Path.home() / ".mahoraga" / "routing_decisions.db"
+_DEFAULT_DB_PATH = Path.home() / ".mahoraga-v2" / "routing_decisions.db"
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS decisions (

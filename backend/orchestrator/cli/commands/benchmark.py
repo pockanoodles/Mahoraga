@@ -79,8 +79,8 @@ def simulate(
     tasks: int = typer.Option(50, "--tasks", "-n", help="Number of synthetic tasks to simulate"),
     strategies: Optional[str] = typer.Option(None, "--strategies", "-s", help="Comma-separated strategies (linucb,ucb1,thompson,static). Default: all"),
     seed: int = typer.Option(42, "--seed", help="Random seed for reproducibility"),
-    warm_start: bool = typer.Option(False, "--warm-start", help="Warm-start LinUCB from ~/.mahoraga/compatibility_matrix.json"),
-    save_matrix: bool = typer.Option(False, "--save-matrix", help="Write oracle rewards to ~/.mahoraga/compatibility_matrix.json after sim"),
+    warm_start: bool = typer.Option(False, "--warm-start", help="Warm-start LinUCB from ~/.mahoraga-v2/compatibility_matrix.json"),
+    save_matrix: bool = typer.Option(False, "--save-matrix", help="Write oracle rewards to ~/.mahoraga-v2/compatibility_matrix.json after sim"),
 ):
     """Run an offline simulation of routing strategies on synthetic tasks."""
     from backend.orchestrator.routing.strategies.linucb import LinUCBRouter
@@ -185,7 +185,7 @@ def simulate(
             _, bucket, oracle_agent, _, oracle_qual = t
             oracle_matrix.setdefault(oracle_agent, {})[bucket] = round(oracle_qual, 3)
         save_compatibility_matrix(oracle_matrix)
-        typer.echo("\n[saved] compatibility_matrix.json → ~/.mahoraga/")
+        typer.echo("\n[saved] compatibility_matrix.json → ~/.mahoraga-v2/")
 
 
 @app.command("report")
@@ -262,7 +262,7 @@ def pareto_sweep(
 ):
     """Sweep (alpha, gamma, beta_swap) grid and find the Pareto knee-point config.
 
-    Runs 100 configs × N tasks. Writes tuned_hyperparams.json to ~/.mahoraga/
+    Runs 100 configs × N tasks. Writes tuned_hyperparams.json to ~/.mahoraga-v2/
     for automatic loading by BanditRouter on next startup.
     """
     from backend.orchestrator.routing.benchmark.pareto_sweep import run_pareto_sweep

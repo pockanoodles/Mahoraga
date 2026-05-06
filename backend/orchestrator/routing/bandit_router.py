@@ -4,9 +4,9 @@ BanditRouter — self-learning router for Mahoraga.
 Wraps a RoutingStrategy and integrates it with the adapter registry,
 decision logging, and the existing gateway pipeline.
 
-State persists to ~/.mahoraga/bandit_state.json across restarts.
-Reward weight learning persists to ~/.mahoraga/bandit_state.learner.json.
-Episodic memory persists to ~/.mahoraga/episodic_memory.{bin,meta.json}.
+State persists to ~/.mahoraga-v2/bandit_state.json across restarts.
+Reward weight learning persists to ~/.mahoraga-v2/bandit_state.learner.json.
+Episodic memory persists to ~/.mahoraga-v2/episodic_memory.{bin,meta.json}.
 """
 from __future__ import annotations
 import dataclasses
@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING, Any
 
 _log = logging.getLogger(__name__)
 
-TUNED_HYPERPARAMS_PATH = Path.home() / ".mahoraga" / "tuned_hyperparams.json"
+TUNED_HYPERPARAMS_PATH = Path.home() / ".mahoraga-v2" / "tuned_hyperparams.json"
 
 from .context import TaskContext
 from .reward import RewardCalculator, TaskOutcome
@@ -32,7 +32,7 @@ from ..brain_logger import log_decision as brain_log_decision
 if TYPE_CHECKING:
     from ..adapters.registry import AdapterRegistry
 
-BANDIT_STATE_PATH = Path.home() / ".mahoraga" / "bandit_state.json"
+BANDIT_STATE_PATH = Path.home() / ".mahoraga-v2" / "bandit_state.json"
 
 STRATEGIES: dict[str, Any] = {
     "static":   StaticRouter,

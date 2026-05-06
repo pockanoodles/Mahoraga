@@ -7,7 +7,7 @@ mock _run_task so no actual AI agent is invoked, and then assert that
 `router.observe()` was called and that the decision log captured a reward.
 
 The decision logger uses an in-memory SQLite DB (DecisionLogger(db_path=":memory:"))
-so these tests do not touch ~/.mahoraga/routing_decisions.db.
+so these tests do not touch ~/.mahoraga-v2/routing_decisions.db.
 
 The store is an in-memory aiosqlite DB, same as all other orchestrator tests.
 
@@ -113,7 +113,7 @@ def _make_pass_verifier() -> Verifier:
 def _make_router_with_memory_db() -> BanditRouter:
     """Return a BanditRouter wired to an in-memory decision log.
 
-    Uses a temp Path for state so save_state() does not write ~/.mahoraga/.
+    Uses a temp Path for state so save_state() does not write ~/.mahoraga-v2/.
     """
     logger = DecisionLogger(db_path=Path(":memory:"))
     adapter_reg = AdapterRegistry()

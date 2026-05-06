@@ -61,7 +61,7 @@ class EpisodicMemory:
     """HNSW-backed episodic memory for similarity-weighted reward shaping.
 
     Usage:
-        mem = EpisodicMemory(state_dir=Path("~/.mahoraga"))
+        mem = EpisodicMemory(state_dir=Path("~/.mahoraga-v2"))
 
         # After each task:
         mem.add(context.to_vector(), agent="aider", reward=0.82)

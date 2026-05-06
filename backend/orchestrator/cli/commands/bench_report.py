@@ -17,8 +17,8 @@ from typing import Optional
 
 import typer
 
-DEFAULT_METRICS_DB = Path.home() / ".mahoraga" / "mahoraga.db"
-DEFAULT_DECISIONS_DB = Path.home() / ".mahoraga" / "routing_decisions.db"
+DEFAULT_METRICS_DB = Path.home() / ".mahoraga-v2" / "mahoraga.db"
+DEFAULT_DECISIONS_DB = Path.home() / ".mahoraga-v2" / "routing_decisions.db"
 
 VALID_METRICS = ("quality", "reward", "pass_rate", "latency_s", "tokens", "tps")
 

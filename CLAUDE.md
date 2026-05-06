@@ -4,7 +4,7 @@
 Agent-agnostic LLM orchestration framework with online bandit routing. FastAPI backend, Python 3.12, vanilla HTML/CSS/JS frontend. GitHub: pockanoodles/Mahoraga
 
 **Stack:** Python 3.12, FastAPI, aiosqlite, anthropic SDK, httpx  
-**Active branch:** `personal`  
+**Active branch:** `v2` (semantic-augmented routing — see `docs/semantic-routing.md`). v1 is frozen on `main`.  
 **Tests:** `pytest` from project root
 
 ## Repo Layout
@@ -24,7 +24,7 @@ Agent-agnostic LLM orchestration framework with online bandit routing. FastAPI b
 - dLinUCB (γ=0.98): discounted updates in `routing/strategies/linucb.py` `update()`
 - Composite reward: success/quality/speed/cost (per-bucket weights, learnable via OLS)
 - Spawn penalty fires when `agent_spawn_time_ms > 500`
-- State: `~/.mahoraga/bandit_state.json` (bandit), `~/.mahoraga/routing_decisions.db` (SQLite log)
+- State: `~/.mahoraga-v2/bandit_state.json` (bandit), `~/.mahoraga-v2/routing_decisions.db` (SQLite log)
 
 ## Running
 - `orch serve` — backend at localhost:8000

@@ -269,6 +269,93 @@ def pareto_sweep(
     run_pareto_sweep(n_tasks=tasks, seed=seed, output_dir=output, dpi=dpi)
 
 
+@app.command("memory-mode")
+def memory_mode(
+    prompts: str = typer.Option(
+        "adversarial",
+        "--prompts",
+        help="Prompt set: 'adversarial' (the 30 keyword-collision clusters) "
+        "or 'synthetic' (the 28 well-separated baseline tasks).",
+    ),
+    seeds: int = typer.Option(
+        10, "--seeds", help="Number of seeds (locked design decision #7: N=10)."
+    ),
+    repeats: int = typer.Option(
+        5,
+        "--repeats",
+        help="Times each prompt is replayed within a seed run. Lower = "
+        "memory accumulates less; higher = more chances for retrieval to "
+        "engage. Default 5.",
+    ),
+    modes: str = typer.Option(
+        "semantic,keyword,off",
+        "--modes",
+        help="Comma-separated memory modes to evaluate.",
+    ),
+    output: Optional[str] = typer.Option(
+        None,
+        "--output",
+        help="Result directory (default: benchmarks/results/memory_mode_<set>_<ts>).",
+    ),
+    adversarial_path: str = typer.Option(
+        "benchmarks/adversarial_prompts.json",
+        "--adversarial-path",
+        help="Path to the adversarial prompt JSON.",
+    ),
+) -> None:
+    """Phase-4 evaluation: compare memory modes (semantic vs keyword vs off)
+    on a held-out prompt set with N seeds and statistical aggregation."""
+    from datetime import datetime, timezone
+    from pathlib import Path as _Path
+    from backend.orchestrator.routing.benchmark.memory_mode_eval import (
+        load_adversarial, load_synthetic, run_eval,
+    )
+
+    if prompts == "adversarial":
+        prompt_set = load_adversarial(_Path(adversarial_path).expanduser())
+    elif prompts == "synthetic":
+        prompt_set = load_synthetic()
+    else:
+        typer.echo(f"Unknown prompt set {prompts!r}. Use 'adversarial' or 'synthetic'.",
+                   err=True)
+        raise typer.Exit(1)
+
+    mode_list = [m.strip() for m in modes.split(",") if m.strip()]
+    seed_list = list(range(seeds))
+
+    if output is None:
+        ts = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+        output = f"benchmarks/results/memory_mode_{prompts}_{ts}"
+    out_dir = _Path(output).expanduser()
+
+    typer.echo(f"Prompts    : {prompts} ({len(prompt_set)} × {repeats} repeats)")
+    typer.echo(f"Seeds      : {seeds}")
+    typer.echo(f"Modes      : {', '.join(mode_list)}")
+    typer.echo(f"Output     : {out_dir}")
+    typer.echo("")
+    typer.echo("Running…")
+
+    summary = run_eval(
+        prompts=prompt_set, modes=mode_list, seeds=seed_list,
+        result_dir=out_dir, repeats=repeats,
+    )
+
+    typer.echo("")
+    typer.echo(f"Wrote {out_dir}/summary.md")
+    typer.echo(f"Wrote {out_dir}/summary.json")
+    typer.echo(f"Wrote {out_dir}/raw_results.json")
+    typer.echo("")
+    # Print compact summary inline
+    typer.echo("─── Headline ──────────────────────────────────")
+    for mode, m in summary["by_mode"].items():
+        cr = m["cumulative_reward"]
+        ac = m["accuracy"]
+        typer.echo(
+            f"  {mode:10s}  reward={cr['mean']:.2f}±{cr['std']:.2f}  "
+            f"acc={ac['mean']:.2%}  CI95=[{cr['ci95'][0]:.2f}, {cr['ci95'][1]:.2f}]"
+        )
+
+
 @app.command("refresh")
 def refresh(
     json_output: bool = typer.Option(False, "--json"),

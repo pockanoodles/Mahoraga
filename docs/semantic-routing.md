@@ -818,17 +818,25 @@ Files explicitly **not** modified: `routing/context.py`, `routing/reward_learner
 
 ### Phase 4: Benchmark + Adversarial Evaluation
 
-**Scope:** `benchmarks/adversarial_prompts.json`, benchmark runner modifications.
+**Scope:** `benchmarks/adversarial_prompts.json`, `routing/benchmark/memory_mode_eval.py`, `orch benchmark memory-mode` CLI.
+
+**Status (2026-05-06):** Harness shipped and green; first empirical sweep recorded under §15 (Empirical findings) below.
 
 **Deliverables:**
-- Adversarial prompt set (30 prompts, 6 clusters per §9.3).
-- Benchmark runner support for `--memory-mode={semantic,keyword,none}`.
-- Comparison report: cumulative reward, regret, per-bucket quality, convergence speed, retrieval precision@10.
-- Written analysis of results.
+- Adversarial prompt set (30 prompts, 6 clusters per §9.3) at `benchmarks/adversarial_prompts.json`. Each entry carries an `oracle_agent` and `oracle_reward` derived from the existing `oracle.py` compatibility matrix.
+- `orch benchmark memory-mode` — replays a prompt set through a fresh BanditRouter under each memory mode for N seeds and writes:
+  - `summary.md` (headline table, per-bucket accuracy, pairwise deltas)
+  - `summary.json` (full aggregated stats with mean ± std + 95 % CI under t-distribution)
+  - `raw_results.json` (per-task trace for every condition)
+- Multi-seed aggregation with t-distribution 95 % CI (locked decision #7: N=10).
+- `--prompts` selects between `adversarial` and `synthetic` (the existing 28-prompt pool).
 
 **Acceptance criteria:**
-- Benchmark runs to completion under all three conditions with deterministic seeds.
-- Results are reproducible across runs (same seeds → same routing decisions → same metrics, modulo floating-point non-determinism).
+- Benchmark runs to completion under all three conditions with deterministic seeds. ✓
+- Results are reproducible across runs (same seeds → same routing decisions). ✓
+- Tests cover: synthetic loader, adversarial loader, reward simulation, single-condition runner determinism, aggregation shape, end-to-end artifact writing.
+
+### Phase 5 (Deferred): PCA Fusion into LinUCB
 
 ### Phase 5 (Deferred): PCA Fusion into LinUCB
 
@@ -885,6 +893,26 @@ This section is forward-looking. None of these should be built as part of A1. Bu
 **A4 — Brain/journal integration.** If the brain/journal stores past project decisions and their outcomes, those entries can be embedded into the same 384-dim space. The episodic memory then becomes a unified retrieval system: "given this task, what similar tasks have I routed before AND what project-level decisions are relevant?" The brain entries bias routing toward agents that historically performed well on tasks in similar project contexts.
 
 **Unified embedding model.** The quality evaluator currently uses nomic-embed-text via Ollama for prompt-output similarity. After A1, both the routing system and the quality evaluator could use MiniLM, removing the Ollama embedding dependency. One model, one cache, one less thing to run.
+
+---
+
+## 15. Empirical findings (Phase 4, 2026-05-06)
+
+First sweep on the 30-prompt adversarial set, N=5 seeds, repeats=8 (240 routing decisions per condition):
+
+| Mode | Cumulative reward (mean ± std) | Accuracy |
+|------|--------------------------------|----------|
+| semantic | 113.5 ± 0.95 | 7.7 % |
+| keyword  | 113.5 ± 0.95 | 7.7 % |
+| off      | 129.0 ± 4.35 | 22.1 % |
+
+Two findings worth recording.
+
+**(1) Semantic and keyword produce *identical* routing decisions on this benchmark setup.** Inspection of the raw trace confirms 0/240 selections differ between the two modes for the same seed. The cause is structural: with 30 unique prompts × 8 repeats and k=10 retrieval, the retrieved neighbours are dominated by *exact-prompt copies* (distance 0 in both 9-dim and 384-dim spaces). The cluster-mate vs same-prompt slot count for k=10 retrieval is ~8:2 in favour of self-copies, so any difference between the two retrieval geometries is washed out in the per-agent average. To stress the *transfer* hypothesis (semantic retrieves paraphrases that keyword cannot), the benchmark needs paraphrase pairs — a train/test split where the test prompts share *meaning* with training prompts but not surface form. The current adversarial set has the *opposite* property (shared surface, different meaning), which tests *keyword failure modes* rather than *semantic transfer wins*.
+
+**(2) Memory-on (both modes) underperforms memory-off in this setup.** With α=0.20 and a bandit that has not converged on most prompts within 8 repeats, the memory bias appears to amplify early arm selections (LinUCB's first-pick bias) before the bandit's own exploration corrects them. This is a known failure mode of memory-augmented bandits when the memory bias rate is high relative to the bandit's intrinsic exploration. Mitigations on the roadmap: (a) sweep α ∈ {0.05, 0.10, 0.15, 0.20} (per §14.2 unresolved Q); (b) confidence-weight the bias by neighbour count; (c) use doubly-robust off-policy correction.
+
+**Implication for shipping.** A1's Phase 1-3 infrastructure is correct, tested, and ready. The Phase 4 harness is correct, tested, and reproducible. The empirical *win* is not yet established — the benchmark setup needs a paraphrase-based eval and an α-sweep before the semantic mode can be defaulted in production. Until then, the feature flag (`MAHORAGA_MEMORY_MODE`) lets us A/B-test in real deployments without changing defaults. The two-tower design ensures no regression risk — memory off is the v1 baseline.
 
 ---
 

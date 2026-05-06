@@ -9,6 +9,7 @@ from .commands.bench import app as bench_app
 from .commands.eval import app as eval_app
 from .commands.rankings import app as rankings_app
 from .commands.agent_cmd import app as agent_app
+from .commands.memory import app as memory_app
 from .commands import ops
 
 app = typer.Typer(
@@ -26,6 +27,7 @@ app.add_typer(bench_app, name="bench")
 app.add_typer(eval_app, name="eval")
 app.add_typer(rankings_app, name="rankings")
 app.add_typer(agent_app, name="agent")
+app.add_typer(memory_app, name="memory")
 
 # Flat commands
 app.command("status")(ops.status)

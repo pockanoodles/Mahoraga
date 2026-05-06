@@ -54,21 +54,45 @@ class _Encoder(Protocol):
     ) -> np.ndarray: ...
 
 
+# Process-wide singleton for the default model. The model is ~90 MB and
+# loading it is ~1 s, so we load once and share the instance across every
+# EmbeddingService that uses the default loader. Tests that pass an
+# explicit `model=` to the constructor bypass this entirely.
+_default_model: Optional[_Encoder] = None
+_default_model_attempted: bool = False
+_default_model_lock = threading.Lock()
+
+
 def _try_load_default_model() -> Optional[_Encoder]:
-    """Best-effort load of the default MiniLM model. Returns None on failure."""
-    try:
-        from sentence_transformers import SentenceTransformer
-    except ImportError:
-        logger.warning(
-            "sentence-transformers not installed; embedding service unavailable. "
-            "Install with `pip install -r requirements-semantic.txt`."
-        )
-        return None
-    try:
-        return SentenceTransformer(MODEL_ID)
-    except Exception as e:  # noqa: BLE001 — torch/HF can raise many things
-        logger.warning("Failed to load embedding model %s: %s", MODEL_ID, e)
-        return None
+    """Best-effort load of the default MiniLM model, cached at module level.
+
+    Returns None on failure (sentence-transformers missing, model download
+    failed, etc.). Subsequent calls return the cached result without
+    re-attempting the load.
+    """
+    global _default_model, _default_model_attempted  # noqa: PLW0603
+    if _default_model_attempted:
+        return _default_model
+
+    with _default_model_lock:
+        if _default_model_attempted:
+            return _default_model
+        _default_model_attempted = True
+
+        try:
+            from sentence_transformers import SentenceTransformer
+        except ImportError:
+            logger.warning(
+                "sentence-transformers not installed; embedding service unavailable. "
+                "Install with `pip install -r requirements-semantic.txt`."
+            )
+            return None
+        try:
+            _default_model = SentenceTransformer(MODEL_ID)
+        except Exception as e:  # noqa: BLE001 — torch/HF can raise many things
+            logger.warning("Failed to load embedding model %s: %s", MODEL_ID, e)
+            _default_model = None
+        return _default_model
 
 
 class EmbeddingService:

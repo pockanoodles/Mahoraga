@@ -10,10 +10,14 @@ Episodic memory persists to ~/.mahoraga-v2/episodic_memory.{bin,meta.json}.
 """
 from __future__ import annotations
 import dataclasses
+import hashlib
 import json
 import logging
+import os
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Optional
+
+import numpy as np
 
 _log = logging.getLogger(__name__)
 
@@ -33,6 +37,55 @@ if TYPE_CHECKING:
     from ..adapters.registry import AdapterRegistry
 
 BANDIT_STATE_PATH = Path.home() / ".mahoraga-v2" / "bandit_state.json"
+
+# Memory-mode feature flag (locked design decision #8). Resolved per-call so
+# that env / config changes take effect without restart. Values:
+#   semantic — semantic retrieval with handcraft fallback (default)
+#   keyword  — handcraft-only retrieval (v1 behaviour)
+#   off      — no memory bias on read; episodes still stored
+MEMORY_MODE_SEMANTIC = "semantic"
+MEMORY_MODE_KEYWORD = "keyword"
+MEMORY_MODE_OFF = "off"
+_VALID_MEMORY_MODES = {MEMORY_MODE_SEMANTIC, MEMORY_MODE_KEYWORD, MEMORY_MODE_OFF}
+DEFAULT_MEMORY_MODE = MEMORY_MODE_SEMANTIC
+
+
+def _resolve_memory_mode() -> str:
+    """Resolve memory mode: env var > config > default."""
+    env = os.environ.get("MAHORAGA_MEMORY_MODE")
+    if env:
+        normalised = env.strip().lower()
+        if normalised in _VALID_MEMORY_MODES:
+            return normalised
+        _log.warning(
+            "MAHORAGA_MEMORY_MODE=%r is invalid; falling back to %s",
+            env, DEFAULT_MEMORY_MODE,
+        )
+    try:
+        cfg = MahoragaConfig().get("memory_mode")
+    except (KeyError, FileNotFoundError):
+        cfg = None
+    if cfg in _VALID_MEMORY_MODES:
+        return cfg
+    return DEFAULT_MEMORY_MODE
+
+
+def _extract_goal(task: Any) -> str:
+    """Best-effort extraction of the human-readable task description."""
+    if task is None:
+        return ""
+    if hasattr(task, "goal"):
+        return str(getattr(task, "goal") or "")
+    if isinstance(task, dict):
+        return str(task.get("goal", ""))
+    return str(task)
+
+
+def _hash_goal(text: str) -> Optional[str]:
+    """Stable cache/dedup key — must match EmbeddingService normalisation."""
+    if not text or not text.strip():
+        return None
+    return hashlib.sha256(text.strip().lower().encode("utf-8")).hexdigest()
 
 STRATEGIES: dict[str, Any] = {
     "static":   StaticRouter,
@@ -73,6 +126,12 @@ class BanditRouter:
 
         # Layer 3: episodic memory — stored in the same dir as bandit_state.json
         self._memory = EpisodicMemory(state_dir=self.state_path.parent)
+
+        # Lazy-init embedding service. Loaded on first access; if
+        # sentence-transformers isn't installed it returns an unavailable
+        # service and we fall back to handcraft retrieval transparently.
+        self._embedding_service: Any = None
+        self._embedding_init_attempted: bool = False
 
         # Load persisted bandit state if it exists
         if self.state_path.exists():
@@ -143,9 +202,12 @@ class BanditRouter:
         elif _mode == "quality_first":
             pass  # bandit selects freely — cost weight in reward function handles this naturally
 
-        # Query episodic memory for similarity-weighted reward biases
-        vec = context.to_vector()
-        memory_biases = self._memory.query_biases(vec, available_agents=available)
+        # Query episodic memory for similarity-weighted reward biases.
+        # Mode is resolved per-call so env/config changes take effect live.
+        memory_mode = _resolve_memory_mode()
+        memory_biases = self._retrieve_memory_biases(
+            task=task, context=context, available=available, mode=memory_mode,
+        )
 
         if memory_biases:
             # Re-rank available agents using memory-blended scores
@@ -226,8 +288,14 @@ class BanditRouter:
                 reward=reward,
             )
 
-        # Layer 3: episodic memory (all outcomes — failures inform the bandit too)
-        self._memory.add(context.to_vector(), agent=outcome.agent_name, reward=reward)
+        # Layer 3: episodic memory (all outcomes — failures inform the bandit too).
+        # Even in mode=off we store the handcraft history so a future mode swap
+        # has data to retrieve. Only the *retrieval* side respects the mode.
+        memory_mode = _resolve_memory_mode()
+        self._store_episode(
+            task=task, context=context, agent=outcome.agent_name,
+            reward=reward, mode=memory_mode,
+        )
 
         # Persist bandit state after every update
         self.state_path.parent.mkdir(parents=True, exist_ok=True)
@@ -256,7 +324,15 @@ class BanditRouter:
         context = TaskContext.from_task(_MinimalTask(title=task_goal, goal=task_goal))
 
         self.strategy.update(context, agent_name, implicit_signal)
-        self._memory.add(context.to_vector(), agent=agent_name, reward=implicit_signal)
+        # Implicit-reward path: route() already handled mode-resolved storage
+        # for the explicit task; this is a separate signal so we mirror the
+        # same mode-aware storage logic.
+        memory_mode = _resolve_memory_mode()
+        self._store_episode(
+            task=_MinimalTask(title=task_goal, goal=task_goal),
+            context=context, agent=agent_name, reward=implicit_signal,
+            mode=memory_mode,
+        )
 
         self.state_path.parent.mkdir(parents=True, exist_ok=True)
         self.strategy.save_state(str(self.state_path))
@@ -284,7 +360,11 @@ class BanditRouter:
             "t": getattr(self.strategy, "t", 0),
             "scores": self.strategy.get_scores(),
             "weight_learning": self._learner.convergence_status(),
-            "episodic_memory": {"size": self._memory.size},
+            "episodic_memory": {
+                "size": self._memory.size,
+                "semantic_size": self._memory.semantic_size,
+                "memory_mode": _resolve_memory_mode(),
+            },
         }
 
     def score_all(
@@ -312,3 +392,78 @@ class BanditRouter:
         if self.registry is not None:
             return [a.name for a in self.registry.all()]
         return ["ollama"]  # fallback when no registry
+
+    # ── Memory-mode helpers (Phase 3) ──────────────────────────────────────────
+
+    def _get_embedding_service(self) -> Any:
+        """Lazy-load the embedding service. Returns None if unavailable."""
+        if self._embedding_init_attempted:
+            return self._embedding_service
+        self._embedding_init_attempted = True
+        try:
+            from .embeddings import EmbeddingService
+            self._embedding_service = EmbeddingService()
+        except Exception as exc:  # noqa: BLE001
+            _log.warning(
+                "bandit_router: failed to init EmbeddingService (%s); "
+                "semantic memory disabled",
+                exc,
+            )
+            self._embedding_service = None
+        return self._embedding_service
+
+    def _encode_query(self, text: str) -> Optional[np.ndarray]:
+        """Best-effort embed. Returns None if text is empty or service is offline."""
+        if not text or not text.strip():
+            return None
+        svc = self._get_embedding_service()
+        if svc is None or not svc.available:
+            return None
+        return svc.encode(text)
+
+    def _retrieve_memory_biases(
+        self,
+        task: Any,
+        context: TaskContext,
+        available: list[str],
+        mode: str,
+    ) -> dict[str, float]:
+        """Mode-aware retrieval. Returns {} when mode=off or memory is empty."""
+        if mode == MEMORY_MODE_OFF:
+            return {}
+        if mode == MEMORY_MODE_SEMANTIC:
+            embedding = self._encode_query(_extract_goal(task))
+            if embedding is not None:
+                semantic_biases = self._memory.query_semantic(
+                    embedding, available_agents=available,
+                )
+                if semantic_biases:
+                    return semantic_biases
+            # Fall through to handcraft on cold start, embedding-service
+            # outage, or insufficient embedded neighbours.
+        return self._memory.query_biases(context.to_vector(), available_agents=available)
+
+    def _store_episode(
+        self,
+        task: Any,
+        context: TaskContext,
+        agent: str,
+        reward: float,
+        mode: str,
+    ) -> None:
+        """Mode-aware ingest. Always stores handcraft. Adds embedding when
+        mode=semantic and the embedding service is available."""
+        embedding: Optional[np.ndarray] = None
+        task_hash: Optional[str] = None
+        if mode == MEMORY_MODE_SEMANTIC:
+            goal_text = _extract_goal(task)
+            embedding = self._encode_query(goal_text)
+            if embedding is not None:
+                task_hash = _hash_goal(goal_text)
+        self._memory.add_episode(
+            handcraft_vector=context.to_vector(),
+            agent=agent,
+            reward=reward,
+            embedding=embedding,
+            task_hash=task_hash,
+        )

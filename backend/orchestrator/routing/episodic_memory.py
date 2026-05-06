@@ -63,8 +63,9 @@ DIM_HANDCRAFT = 9                  # TaskContext feature vector dimensionality
 DIM_SEMANTIC = 384                 # MiniLM-L6-v2 embedding dimensionality
 SEMANTIC_MODEL_ID = "all-MiniLM-L6-v2"
 MAX_EPISODES = 10_000              # FIFO cap (per spec §5.7)
-MEMORY_ALPHA: float = 0.20         # Blend weight for memory bias (0 = disabled)
+MEMORY_ALPHA: float = 0.20         # Default blend weight for memory bias
 MIN_EPISODES_FOR_BIAS = 3          # Minimum retrieved neighbours per agent
+BIAS_CONFIDENCE_SATURATION = 5     # Neighbour count at which confidence = 1.0
 INDEX_VERSION = 2                  # Bumped when persistence schema changes
 _EF_CONSTRUCTION = 200             # HNSW build-time connectivity
 _M = 16                            # HNSW max connections per node
@@ -253,6 +254,32 @@ class EpisodicMemory:
             labels[0], distances[0], available_agents
         )
 
+    def query_biases_with_confidence(
+        self,
+        vector: np.ndarray,
+        available_agents: list[str],
+        k: int = 10,
+    ) -> dict[str, dict[str, float]]:
+        """Like query_biases but returns per-agent {bias, confidence, count}.
+
+        Confidence is `min(count / BIAS_CONFIDENCE_SATURATION, 1.0)` —
+        a count-based saturation that lets callers weight the bias
+        contribution by how much evidence supports it. Same return shape
+        as query_semantic_with_confidence so callers can swap paths.
+        """
+        if not _HNSWLIB_AVAILABLE or len(self._handcraft_vectors) < MIN_EPISODES_FOR_BIAS:
+            return {}
+        self._maybe_rebuild_handcraft()
+        if self._index_handcraft is None:
+            return {}
+        k_actual = min(k, len(self._handcraft_vectors))
+        labels, distances = self._index_handcraft.knn_query(
+            np.asarray(vector, dtype=np.float32).reshape(1, -1), k=k_actual
+        )
+        return self._biases_with_confidence_from_labels(
+            labels[0], distances[0], available_agents
+        )
+
     def query_semantic(
         self,
         embedding: np.ndarray,
@@ -297,6 +324,35 @@ class EpisodicMemory:
             episode_indices, distances[0], available_agents
         )
 
+    def query_semantic_with_confidence(
+        self,
+        embedding: np.ndarray,
+        available_agents: list[str],
+        k: int = 10,
+    ) -> dict[str, dict[str, float]]:
+        """Semantic version of query_biases_with_confidence."""
+        if not _HNSWLIB_AVAILABLE or embedding is None:
+            return {}
+        emb = np.asarray(embedding, dtype=np.float32)
+        if emb.shape != (DIM_SEMANTIC,) or not np.isfinite(emb).all():
+            return {}
+        if self.semantic_size < MIN_EPISODES_FOR_BIAS:
+            return {}
+        self._maybe_rebuild_semantic()
+        if self._index_semantic is None:
+            return {}
+        k_actual = min(k, len(self._semantic_label_to_idx))
+        labels, distances = self._index_semantic.knn_query(
+            emb.reshape(1, -1), k=k_actual
+        )
+        episode_indices = np.asarray(
+            [self._semantic_label_to_idx[int(lbl)] for lbl in labels[0]],
+            dtype=np.int64,
+        )
+        return self._biases_with_confidence_from_labels(
+            episode_indices, distances[0], available_agents
+        )
+
     # ── Internals: shared retrieval math ──────────────────────────────────────
 
     def _biases_from_labels(
@@ -307,6 +363,19 @@ class EpisodicMemory:
     ) -> dict[str, float]:
         """Compute per-agent weighted-mean reward from an episode-index list
         and matching distance array. Used by both retrieval paths."""
+        rich = self._biases_with_confidence_from_labels(
+            episode_indices, distances, available_agents
+        )
+        return {a: data["bias"] for a, data in rich.items()}
+
+    def _biases_with_confidence_from_labels(
+        self,
+        episode_indices: Any,
+        distances: np.ndarray,
+        available_agents: list[str],
+    ) -> dict[str, dict[str, float]]:
+        """Same accumulation as `_biases_from_labels` but returns
+        bias + confidence + count per agent."""
         sims = np.exp(-distances)
 
         weighted_sum: dict[str, float] = {}
@@ -321,11 +390,19 @@ class EpisodicMemory:
                 weight_total[a] = weight_total.get(a, 0.0) + sim
                 counts[a] = counts.get(a, 0) + 1
 
-        biases: dict[str, float] = {}
+        out: dict[str, dict[str, float]] = {}
         for a in available_agents:
-            if counts.get(a, 0) >= MIN_EPISODES_FOR_BIAS and weight_total.get(a, 0) > 0:
-                biases[a] = round(weighted_sum[a] / weight_total[a], 4)
-        return biases
+            n = counts.get(a, 0)
+            wt = weight_total.get(a, 0.0)
+            if n >= MIN_EPISODES_FOR_BIAS and wt > 0:
+                mean = weighted_sum[a] / wt
+                confidence = min(n / BIAS_CONFIDENCE_SATURATION, 1.0)
+                out[a] = {
+                    "bias": round(mean, 4),
+                    "confidence": round(confidence, 4),
+                    "count": float(n),
+                }
+        return out
 
     # ── Internals: HNSW management ─────────────────────────────────────────────
 

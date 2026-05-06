@@ -142,6 +142,8 @@ class TaskResult:
 class ConditionResult:
     mode: str
     seed: int
+    alpha: float
+    confidence_weighted: bool
     cumulative_reward: float
     cumulative_regret: float
     correct_picks: int
@@ -152,6 +154,12 @@ class ConditionResult:
     @property
     def accuracy(self) -> float:
         return self.correct_picks / self.total_picks if self.total_picks else 0.0
+
+    @property
+    def condition_id(self) -> str:
+        """Stable identifier combining mode + α + confidence-weighting flag."""
+        suffix = "+conf" if self.confidence_weighted else ""
+        return f"{self.mode}@α={self.alpha:.2f}{suffix}"
 
 
 class _MockRegistry:
@@ -196,6 +204,8 @@ def run_condition(
     cache_path: Path,
     agents: list[str],
     repeats: int = 5,
+    alpha: float = 0.20,
+    confidence_weighted: bool = False,
 ) -> ConditionResult:
     """Run one (mode, seed) condition. Returns aggregated results.
 
@@ -204,9 +214,18 @@ def run_condition(
     repeats=1 the memory paths are effectively cold the entire run — the
     benchmark cannot distinguish modes (semantic falls through to keyword
     on every empty retrieval).
+
+    α and confidence-weighted are routing-time hyperparameters: they
+    control how aggressively the memory bias is blended into the LinUCB
+    exploit score. See bandit_router._resolve_memory_alpha and
+    _resolve_confidence_weighting.
     """
     # Set env first — BanditRouter resolves mode at every call.
     os.environ["MAHORAGA_MEMORY_MODE"] = mode
+    os.environ["MAHORAGA_MEMORY_ALPHA"] = f"{alpha:.4f}"
+    os.environ["MAHORAGA_MEMORY_CONFIDENCE_WEIGHTED"] = (
+        "true" if confidence_weighted else "false"
+    )
     os.environ["MAHORAGA_BANDIT_SEED"] = str(seed)
     os.environ["MAHORAGA_PROMPT_SEED"] = str(seed)
 
@@ -292,6 +311,8 @@ def run_condition(
     return ConditionResult(
         mode=mode,
         seed=seed,
+        alpha=alpha,
+        confidence_weighted=confidence_weighted,
         cumulative_reward=cum_reward,
         cumulative_regret=cum_regret,
         correct_picks=correct,
@@ -322,18 +343,23 @@ def _ci95(values: list[float]) -> tuple[float, float]:
 
 
 def aggregate(results: list[ConditionResult]) -> dict[str, Any]:
-    """Aggregate per-mode statistics across seeds."""
-    by_mode: dict[str, list[ConditionResult]] = {}
-    for r in results:
-        by_mode.setdefault(r.mode, []).append(r)
+    """Aggregate per-condition statistics across seeds.
 
-    summary: dict[str, Any] = {"by_mode": {}}
-    for mode, runs in by_mode.items():
+    Conditions are identified by `condition_id = mode@α=X.XX[+conf]`.
+    The "by_mode" key in the output is kept for backward compatibility:
+    it groups by condition_id (not just `mode`), so callers that iterate
+    `summary["by_mode"]` see one entry per (mode, α, conf) tuple.
+    """
+    by_cond: dict[str, list[ConditionResult]] = {}
+    for r in results:
+        by_cond.setdefault(r.condition_id, []).append(r)
+
+    summary: dict[str, Any] = {"by_mode": {}, "by_condition": {}}
+    for cond, runs in by_cond.items():
         rewards = [r.cumulative_reward for r in runs]
         regrets = [r.cumulative_regret for r in runs]
         accuracies = [r.accuracy for r in runs]
 
-        # Per-bucket: average across seeds
         bucket_accuracies: dict[str, list[float]] = {}
         bucket_rewards: dict[str, list[float]] = {}
         for run in runs:
@@ -349,8 +375,11 @@ def aggregate(results: list[ConditionResult]) -> dict[str, Any]:
                 "n_seeds": len(bucket_accuracies[bucket]),
             }
 
-        summary["by_mode"][mode] = {
+        block = {
             "n_seeds": len(runs),
+            "mode": runs[0].mode,
+            "alpha": runs[0].alpha,
+            "confidence_weighted": runs[0].confidence_weighted,
             "cumulative_reward": {
                 "mean": statistics.mean(rewards),
                 "std": statistics.stdev(rewards) if len(rewards) > 1 else 0.0,
@@ -371,22 +400,31 @@ def aggregate(results: list[ConditionResult]) -> dict[str, Any]:
             },
             "per_bucket": bucket_summary,
         }
+        summary["by_condition"][cond] = block
+        # Back-compat: legacy callers/tests still iterate `by_mode`.
+        summary["by_mode"][cond] = block
 
-    # Pairwise comparisons (semantic vs keyword vs off)
-    pairs = [("semantic", "keyword"), ("semantic", "off"), ("keyword", "off")]
+    # Pairwise reward deltas vs the off-mode baseline (if present).
     summary["pairwise"] = {}
-    for a, b in pairs:
-        if a in summary["by_mode"] and b in summary["by_mode"]:
-            ma = summary["by_mode"][a]["cumulative_reward"]["mean"]
-            mb = summary["by_mode"][b]["cumulative_reward"]["mean"]
-            sda = summary["by_mode"][a]["cumulative_reward"]["std"]
-            sdb = summary["by_mode"][b]["cumulative_reward"]["std"]
-            n = summary["by_mode"][a]["n_seeds"]
-            # Welch's-style approximate two-sample test (informational, not formal)
-            pooled_se = math.sqrt(sda**2 / n + sdb**2 / n) if n > 0 else 0.0
-            t_stat = (ma - mb) / pooled_se if pooled_se > 0 else 0.0
-            summary["pairwise"][f"{a}_vs_{b}"] = {
-                "delta_mean_reward": ma - mb,
+    off_baseline = None
+    for cond, block in summary["by_condition"].items():
+        if block["mode"] == "off":
+            off_baseline = (cond, block)
+            break
+    if off_baseline:
+        off_cond, off_block = off_baseline
+        off_mean = off_block["cumulative_reward"]["mean"]
+        off_std = off_block["cumulative_reward"]["std"]
+        for cond, block in summary["by_condition"].items():
+            if cond == off_cond:
+                continue
+            ma = block["cumulative_reward"]["mean"]
+            sda = block["cumulative_reward"]["std"]
+            n = block["n_seeds"]
+            pooled_se = math.sqrt(sda**2 / n + off_std**2 / n) if n > 0 else 0.0
+            t_stat = (ma - off_mean) / pooled_se if pooled_se > 0 else 0.0
+            summary["pairwise"][f"{cond}_vs_{off_cond}"] = {
+                "delta_mean_reward": ma - off_mean,
                 "approx_t_statistic": t_stat,
                 "rough_significant_p05": abs(t_stat) > 2.1,
             }
@@ -404,10 +442,24 @@ def run_eval(
     result_dir: Path,
     agents: Optional[list[str]] = None,
     repeats: int = 5,
+    alphas: Optional[list[float]] = None,
+    confidence_weighting: Optional[list[bool]] = None,
 ) -> dict[str, Any]:
-    """Run the full grid of (mode, seed) conditions and write artifacts."""
+    """Run the full grid of (mode × α × conf-weight × seed) conditions and
+    write artifacts.
+
+    The default α list is [MEMORY_ALPHA] (the production default 0.20). To
+    sweep α, pass a list like [0.0, 0.05, 0.10, 0.20, 0.30]. The off-mode
+    condition is run only once (memory disabled, α has no effect) regardless
+    of how many α values are passed.
+    """
     if agents is None:
         agents = ["ollama", "codex-cli", "aider", "gemini-cli", "claude"]
+    if alphas is None:
+        from backend.orchestrator.routing.episodic_memory import MEMORY_ALPHA
+        alphas = [MEMORY_ALPHA]
+    if confidence_weighting is None:
+        confidence_weighting = [False]
 
     result_dir = Path(result_dir)
     result_dir.mkdir(parents=True, exist_ok=True)
@@ -417,37 +469,55 @@ def run_eval(
     raw_traces: list[dict[str, Any]] = []
 
     for mode in modes:
-        for seed in seeds:
-            run_state_dir = result_dir / "_runs" / f"{mode}_seed{seed}"
-            cache_path = result_dir / "_runs" / "shared_emb_cache.sqlite"
-            res = run_condition(
-                prompts=prompts, mode=mode, seed=seed,
-                state_dir=run_state_dir, cache_path=cache_path,
-                agents=agents, repeats=repeats,
-            )
-            all_results.append(res)
-            raw_traces.append({
-                "mode": res.mode,
-                "seed": res.seed,
-                "cumulative_reward": res.cumulative_reward,
-                "cumulative_regret": res.cumulative_regret,
-                "accuracy": res.accuracy,
-                "tasks": [
-                    {
-                        "task_index": t.task_index,
-                        "prompt": t.prompt,
-                        "bucket": t.bucket,
-                        "cluster_id": t.cluster_id,
-                        "oracle_agent": t.oracle_agent,
-                        "selected_agent": t.selected_agent,
-                        "is_correct": t.is_correct,
-                        "actual_reward": t.actual_reward,
-                        "cumulative_reward": t.cumulative_reward,
-                        "cumulative_regret": t.cumulative_regret,
-                    }
-                    for t in res.tasks
-                ],
-            })
+        # For mode=off, α and confidence-weighting have no effect — skip
+        # the redundant grid points and run it once at the canonical α=0.0.
+        mode_alphas = [0.0] if mode == "off" else alphas
+        mode_confs = [False] if mode == "off" else confidence_weighting
+
+        for alpha in mode_alphas:
+            for cw in mode_confs:
+                cond_label = (
+                    f"{mode}_a{alpha:.2f}" + ("_cw" if cw else "")
+                )
+                for seed in seeds:
+                    run_state_dir = (
+                        result_dir / "_runs" / f"{cond_label}_seed{seed}"
+                    )
+                    cache_path = (
+                        result_dir / "_runs" / "shared_emb_cache.sqlite"
+                    )
+                    res = run_condition(
+                        prompts=prompts, mode=mode, seed=seed,
+                        state_dir=run_state_dir, cache_path=cache_path,
+                        agents=agents, repeats=repeats,
+                        alpha=alpha, confidence_weighted=cw,
+                    )
+                    all_results.append(res)
+                    raw_traces.append({
+                        "condition_id": res.condition_id,
+                        "mode": res.mode,
+                        "alpha": res.alpha,
+                        "confidence_weighted": res.confidence_weighted,
+                        "seed": res.seed,
+                        "cumulative_reward": res.cumulative_reward,
+                        "cumulative_regret": res.cumulative_regret,
+                        "accuracy": res.accuracy,
+                        "tasks": [
+                            {
+                                "task_index": t.task_index,
+                                "prompt": t.prompt,
+                                "bucket": t.bucket,
+                                "cluster_id": t.cluster_id,
+                                "oracle_agent": t.oracle_agent,
+                                "selected_agent": t.selected_agent,
+                                "is_correct": t.is_correct,
+                                "actual_reward": t.actual_reward,
+                                "cumulative_reward": t.cumulative_reward,
+                                "cumulative_regret": t.cumulative_regret,
+                            }
+                            for t in res.tasks
+                        ],
+                    })
 
     summary = aggregate(all_results)
     summary["elapsed_seconds"] = time.time() - started
@@ -455,6 +525,8 @@ def run_eval(
     summary["n_seeds"] = len(seeds)
     summary["repeats"] = repeats
     summary["modes"] = modes
+    summary["alphas"] = alphas
+    summary["confidence_weighting"] = confidence_weighting
     summary["agents"] = agents
 
     (result_dir / "raw_results.json").write_text(
@@ -470,55 +542,76 @@ def _markdown_summary(summary: dict[str, Any]) -> str:
     lines: list[str] = []
     lines.append("# Memory-Mode Evaluation Summary")
     lines.append("")
+    alpha_str = ", ".join(f"{a:.2f}" for a in summary.get("alphas", [0.20]))
+    cw_str = (
+        "on+off" if any(summary.get("confidence_weighting", [False]))
+        and not all(summary.get("confidence_weighting", [False]))
+        else ("on" if any(summary.get("confidence_weighting", [False])) else "off")
+    )
     lines.append(
         f"**Prompts**: {summary['n_prompts']} × {summary.get('repeats', 1)} repeats · "
         f"**Seeds**: {summary['n_seeds']} · "
         f"**Modes**: {', '.join(summary['modes'])} · "
+        f"**α**: {alpha_str} · "
+        f"**Conf-weighted**: {cw_str} · "
         f"**Elapsed**: {summary['elapsed_seconds']:.1f}s"
     )
     lines.append("")
-    lines.append("## Headline metrics")
+    lines.append("## Headline metrics (sorted by mean reward)")
     lines.append("")
-    lines.append("| Mode | Cumulative reward (mean ± std) | 95% CI | Accuracy (mean ± std) | Regret |")
-    lines.append("|------|-------------------------------|--------|-----------------------|--------|")
-    for mode, m in summary["by_mode"].items():
+    lines.append("| Condition | Mode | α | Conf | Cum reward (mean ± std) | 95% CI | Accuracy | Regret |")
+    lines.append("|-----------|------|---|------|-------------------------|--------|----------|--------|")
+    sorted_conds = sorted(
+        summary["by_condition"].items(),
+        key=lambda kv: -kv[1]["cumulative_reward"]["mean"],
+    )
+    for cond, m in sorted_conds:
         cr = m["cumulative_reward"]
         ac = m["accuracy"]
         rg = m["cumulative_regret"]
+        cw = "yes" if m["confidence_weighted"] else "no"
         lines.append(
-            f"| {mode} | {cr['mean']:.3f} ± {cr['std']:.3f} | "
-            f"[{cr['ci95'][0]:.3f}, {cr['ci95'][1]:.3f}] | "
-            f"{ac['mean']:.3f} ± {ac['std']:.3f} | "
-            f"{rg['mean']:.3f} ± {rg['std']:.3f} |"
+            f"| `{cond}` | {m['mode']} | {m['alpha']:.2f} | {cw} | "
+            f"{cr['mean']:.2f} ± {cr['std']:.2f} | "
+            f"[{cr['ci95'][0]:.2f}, {cr['ci95'][1]:.2f}] | "
+            f"{ac['mean']:.2%} | "
+            f"{rg['mean']:.2f} |"
         )
 
-    lines.append("")
-    lines.append("## Pairwise deltas")
-    lines.append("")
-    lines.append("| Comparison | Δ mean reward | t (approx) | Rough p<0.05? |")
-    lines.append("|------------|---------------|------------|---------------|")
-    for pair_name, pair in summary["pairwise"].items():
-        sig = "yes" if pair["rough_significant_p05"] else "no"
-        lines.append(
-            f"| {pair_name.replace('_vs_', ' vs ')} | "
-            f"{pair['delta_mean_reward']:+.3f} | "
-            f"{pair['approx_t_statistic']:+.2f} | {sig} |"
+    if summary["pairwise"]:
+        lines.append("")
+        lines.append("## Deltas vs off-mode baseline")
+        lines.append("")
+        lines.append("| Condition | Δ mean reward | t (approx) | Rough p<0.05? |")
+        lines.append("|-----------|---------------|------------|---------------|")
+        sorted_pairs = sorted(
+            summary["pairwise"].items(),
+            key=lambda kv: -kv[1]["delta_mean_reward"],
         )
+        for pair_name, pair in sorted_pairs:
+            sig = "yes" if pair["rough_significant_p05"] else "no"
+            lines.append(
+                f"| `{pair_name.split('_vs_')[0]}` | "
+                f"{pair['delta_mean_reward']:+.3f} | "
+                f"{pair['approx_t_statistic']:+.2f} | {sig} |"
+            )
 
     lines.append("")
     lines.append("## Per-bucket accuracy (mean across seeds)")
     lines.append("")
     buckets = sorted({
-        b for m in summary["by_mode"].values() for b in m["per_bucket"]
+        b for m in summary["by_condition"].values() for b in m["per_bucket"]
     })
-    header = "| Bucket | " + " | ".join(summary["by_mode"].keys()) + " |"
-    sep = "|" + "---|" * (1 + len(summary["by_mode"]))
+    header = "| Bucket | " + " | ".join(
+        f"`{c}`" for c in summary["by_condition"].keys()
+    ) + " |"
+    sep = "|" + "---|" * (1 + len(summary["by_condition"]))
     lines.append(header)
     lines.append(sep)
     for bucket in buckets:
         row = [bucket]
-        for mode in summary["by_mode"]:
-            stats = summary["by_mode"][mode]["per_bucket"].get(bucket)
+        for cond in summary["by_condition"]:
+            stats = summary["by_condition"][cond]["per_bucket"].get(bucket)
             if stats is None:
                 row.append("—")
             else:

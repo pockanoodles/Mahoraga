@@ -292,6 +292,18 @@ def memory_mode(
         "--modes",
         help="Comma-separated memory modes to evaluate.",
     ),
+    alphas: str = typer.Option(
+        "0.20",
+        "--alphas",
+        help="Comma-separated α values to sweep (memory bias weight). "
+        "Example: '0.0,0.05,0.10,0.20,0.30'. Off-mode runs once at α=0.0.",
+    ),
+    confidence_weighting: str = typer.Option(
+        "off",
+        "--confidence-weighting",
+        help="'off' (default), 'on', or 'both' to compare confidence-weighted "
+        "blending against the unweighted blend.",
+    ),
     output: Optional[str] = typer.Option(
         None,
         "--output",
@@ -322,15 +334,42 @@ def memory_mode(
 
     mode_list = [m.strip() for m in modes.split(",") if m.strip()]
     seed_list = list(range(seeds))
+    try:
+        alpha_list = [float(a.strip()) for a in alphas.split(",") if a.strip()]
+    except ValueError as exc:
+        typer.echo(f"Failed to parse --alphas={alphas!r}: {exc}", err=True)
+        raise typer.Exit(1) from exc
+    cw_lower = confidence_weighting.strip().lower()
+    if cw_lower in ("off", "false", "no", "0"):
+        cw_list = [False]
+    elif cw_lower in ("on", "true", "yes", "1"):
+        cw_list = [True]
+    elif cw_lower == "both":
+        cw_list = [False, True]
+    else:
+        typer.echo(
+            f"--confidence-weighting must be 'off', 'on', or 'both' "
+            f"(got {confidence_weighting!r})",
+            err=True,
+        )
+        raise typer.Exit(1)
 
     if output is None:
         ts = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
         output = f"benchmarks/results/memory_mode_{prompts}_{ts}"
     out_dir = _Path(output).expanduser()
 
+    n_conditions = sum(
+        len(alpha_list) * len(cw_list) if m != "off" else 1
+        for m in mode_list
+    )
+
     typer.echo(f"Prompts    : {prompts} ({len(prompt_set)} × {repeats} repeats)")
     typer.echo(f"Seeds      : {seeds}")
     typer.echo(f"Modes      : {', '.join(mode_list)}")
+    typer.echo(f"α values   : {alpha_list}")
+    typer.echo(f"Conf weight: {cw_list}")
+    typer.echo(f"Conditions : {n_conditions} × {seeds} seeds = {n_conditions * seeds} runs")
     typer.echo(f"Output     : {out_dir}")
     typer.echo("")
     typer.echo("Running…")
@@ -338,6 +377,7 @@ def memory_mode(
     summary = run_eval(
         prompts=prompt_set, modes=mode_list, seeds=seed_list,
         result_dir=out_dir, repeats=repeats,
+        alphas=alpha_list, confidence_weighting=cw_list,
     )
 
     typer.echo("")
@@ -345,14 +385,17 @@ def memory_mode(
     typer.echo(f"Wrote {out_dir}/summary.json")
     typer.echo(f"Wrote {out_dir}/raw_results.json")
     typer.echo("")
-    # Print compact summary inline
-    typer.echo("─── Headline ──────────────────────────────────")
-    for mode, m in summary["by_mode"].items():
+    typer.echo("─── Headline (sorted by mean reward) ──────────")
+    sorted_conds = sorted(
+        summary["by_condition"].items(),
+        key=lambda kv: -kv[1]["cumulative_reward"]["mean"],
+    )
+    for cond, m in sorted_conds:
         cr = m["cumulative_reward"]
         ac = m["accuracy"]
         typer.echo(
-            f"  {mode:10s}  reward={cr['mean']:.2f}±{cr['std']:.2f}  "
-            f"acc={ac['mean']:.2%}  CI95=[{cr['ci95'][0]:.2f}, {cr['ci95'][1]:.2f}]"
+            f"  {cond:30s}  reward={cr['mean']:6.2f}±{cr['std']:5.2f}  "
+            f"acc={ac['mean']:6.2%}"
         )
 
 

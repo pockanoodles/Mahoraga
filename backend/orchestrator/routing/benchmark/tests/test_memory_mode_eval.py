@@ -240,15 +240,17 @@ class TestAggregate:
                     agents=agents, repeats=2,
                 ))
         summary = aggregate(results)
-        assert "off" in summary["by_mode"]
-        assert "keyword" in summary["by_mode"]
-        for mode in ("off", "keyword"):
-            cr = summary["by_mode"][mode]["cumulative_reward"]
+        # Conditions are keyed by `condition_id = mode@α=X.XX[+conf]`.
+        cond_ids = list(summary["by_condition"])
+        assert any(c.startswith("off@") for c in cond_ids)
+        assert any(c.startswith("keyword@") for c in cond_ids)
+        for cond, block in summary["by_condition"].items():
+            cr = block["cumulative_reward"]
             assert cr["mean"] > 0
             assert cr["std"] >= 0
             assert len(cr["values"]) == 3
 
-    def test_pairwise_section_includes_modes_in_results(
+    def test_pairwise_section_includes_off_baseline(
         self,
         tmp_path: Path,
         tiny_prompts: list[EvalPrompt],
@@ -264,9 +266,15 @@ class TestAggregate:
             for seed in range(2) for mode in ("keyword", "off")
         ]
         summary = aggregate(results)
-        assert "keyword_vs_off" in summary["pairwise"]
-        # When both modes present, semantic_vs_keyword should NOT appear.
-        assert "semantic_vs_keyword" not in summary["pairwise"]
+        # Pairwise compares each non-off condition against the off baseline.
+        # Keys look like "keyword@α=0.20_vs_off@α=0.00".
+        assert any(
+            "keyword@" in k and "_vs_off@" in k
+            for k in summary["pairwise"]
+        )
+        # Off should not be compared against itself.
+        assert all("off@" + "" not in k.split("_vs_")[0]
+                   for k in summary["pairwise"])
 
 
 # ── Top-level orchestrator ───────────────────────────────────────────────────

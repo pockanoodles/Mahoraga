@@ -70,6 +70,51 @@ def _resolve_memory_mode() -> str:
     return DEFAULT_MEMORY_MODE
 
 
+def _resolve_memory_alpha() -> float:
+    """Resolve memory bias weight: env var > config > MEMORY_ALPHA constant.
+    Clamped to [0.0, 1.0]."""
+    env = os.environ.get("MAHORAGA_MEMORY_ALPHA")
+    if env:
+        try:
+            v = float(env)
+            if 0.0 <= v <= 1.0:
+                return v
+            _log.warning(
+                "MAHORAGA_MEMORY_ALPHA=%r out of [0,1]; falling back to %.2f",
+                env, MEMORY_ALPHA,
+            )
+        except ValueError:
+            _log.warning(
+                "MAHORAGA_MEMORY_ALPHA=%r is not a number; falling back to %.2f",
+                env, MEMORY_ALPHA,
+            )
+    try:
+        cfg = MahoragaConfig().get("memory_alpha")
+    except (KeyError, FileNotFoundError):
+        cfg = None
+    if isinstance(cfg, (int, float)) and 0.0 <= float(cfg) <= 1.0:
+        return float(cfg)
+    return MEMORY_ALPHA
+
+
+def _resolve_confidence_weighting() -> bool:
+    """When True, the per-agent memory bias is scaled by the agent's
+    neighbour-count confidence. With sparse evidence the bias contribution
+    fades smoothly to zero rather than being applied at full strength."""
+    env = os.environ.get("MAHORAGA_MEMORY_CONFIDENCE_WEIGHTED", "")
+    if env.strip().lower() in ("1", "true", "yes", "on"):
+        return True
+    if env.strip().lower() in ("0", "false", "no", "off"):
+        return False
+    try:
+        cfg = MahoragaConfig().get("memory_confidence_weighted")
+    except (KeyError, FileNotFoundError):
+        cfg = None
+    if isinstance(cfg, bool):
+        return cfg
+    return False
+
+
 def _extract_goal(task: Any) -> str:
     """Best-effort extraction of the human-readable task description."""
     if task is None:
@@ -203,20 +248,46 @@ class BanditRouter:
             pass  # bandit selects freely — cost weight in reward function handles this naturally
 
         # Query episodic memory for similarity-weighted reward biases.
-        # Mode is resolved per-call so env/config changes take effect live.
+        # Mode, α, and confidence-weighting are resolved per-call so env/config
+        # changes take effect live (important for benchmarks and dry runs).
         memory_mode = _resolve_memory_mode()
-        memory_biases = self._retrieve_memory_biases(
+        memory_alpha = _resolve_memory_alpha()
+        confidence_weighted = _resolve_confidence_weighting()
+
+        memory_biases = self._retrieve_memory_biases_rich(
             task=task, context=context, available=available, mode=memory_mode,
         )
 
-        if memory_biases:
-            # Re-rank available agents using memory-blended scores
+        # Only enter the blending branch when memory will *actually*
+        # contribute. With memory_alpha == 0 the blending term collapses
+        # to (1-0)*exploit + 0*bias = exploit, which loses LinUCB's
+        # exploration term — making α=0 behave worse than off-mode. Bail
+        # out to the strategy's own selector (UCB-aware) in that case.
+        if memory_biases and memory_alpha > 0:
+            # Re-rank available agents using memory-blended scores.
+            # We blend against the strategy's full UCB score (exploit +
+            # exploration) — NOT just exploit. Using only exploit collapses
+            # LinUCB to greedy max-θ·x, which loses exploration entirely
+            # and biases the ranking toward early-converged arms regardless
+            # of the memory bias magnitude. With ucb, α=0 is equivalent to
+            # off-mode, and small α values produce smooth interpolation.
+            #
+            # Effective α per agent is α * confidence(a) when confidence
+            # weighting is on; otherwise α * 1.0 = α (legacy behaviour).
             bandit_scores = self.strategy.compute_scores(context, available)
             blended: dict[str, float] = {}
             for a in available:
-                exploit = bandit_scores.get(a, {}).get("exploit", 0.0)
-                bias = memory_biases.get(a, exploit)  # fall back to exploit if no bias
-                blended[a] = (1.0 - MEMORY_ALPHA) * exploit + MEMORY_ALPHA * bias
+                arm = bandit_scores.get(a, {})
+                # Prefer the full UCB; fall back to exploit if a strategy
+                # (e.g. UCB1, Thompson) doesn't expose UCB explicitly.
+                ucb = arm.get("ucb", arm.get("exploit", 0.0))
+                entry = memory_biases.get(a)
+                if entry is None:
+                    blended[a] = ucb
+                    continue
+                conf = entry["confidence"] if confidence_weighted else 1.0
+                eff_alpha = memory_alpha * conf
+                blended[a] = (1.0 - eff_alpha) * ucb + eff_alpha * entry["bias"]
             agent = max(available, key=lambda a: blended[a])
             # Still let the strategy tick forward via select_agent for its internal state
             self.strategy.select_agent(context, available)
@@ -428,20 +499,37 @@ class BanditRouter:
         available: list[str],
         mode: str,
     ) -> dict[str, float]:
-        """Mode-aware retrieval. Returns {} when mode=off or memory is empty."""
+        """Mode-aware retrieval — backward-compat wrapper that returns the
+        flat {agent: bias} shape. New callers should use the _rich variant."""
+        rich = self._retrieve_memory_biases_rich(
+            task=task, context=context, available=available, mode=mode,
+        )
+        return {a: data["bias"] for a, data in rich.items()}
+
+    def _retrieve_memory_biases_rich(
+        self,
+        task: Any,
+        context: TaskContext,
+        available: list[str],
+        mode: str,
+    ) -> dict[str, dict[str, float]]:
+        """Mode-aware retrieval that includes per-agent confidence and count.
+        Returns {} when mode=off or memory is empty."""
         if mode == MEMORY_MODE_OFF:
             return {}
         if mode == MEMORY_MODE_SEMANTIC:
             embedding = self._encode_query(_extract_goal(task))
             if embedding is not None:
-                semantic_biases = self._memory.query_semantic(
+                semantic_biases = self._memory.query_semantic_with_confidence(
                     embedding, available_agents=available,
                 )
                 if semantic_biases:
                     return semantic_biases
             # Fall through to handcraft on cold start, embedding-service
             # outage, or insufficient embedded neighbours.
-        return self._memory.query_biases(context.to_vector(), available_agents=available)
+        return self._memory.query_biases_with_confidence(
+            context.to_vector(), available_agents=available,
+        )
 
     def _store_episode(
         self,

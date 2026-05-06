@@ -896,9 +896,11 @@ This section is forward-looking. None of these should be built as part of A1. Bu
 
 ---
 
-## 15. Empirical findings (Phase 4, 2026-05-06)
+## 15. Empirical findings (Phase 4 + α-sweep, 2026-05-06)
 
-First sweep on the 30-prompt adversarial set, N=5 seeds, repeats=8 (240 routing decisions per condition):
+### 15.1 First sweep (default α=0.20)
+
+Initial sweep on the 30-prompt adversarial set, N=5 seeds, repeats=8 (240 routing decisions per condition) at the default `MEMORY_ALPHA = 0.20`:
 
 | Mode | Cumulative reward (mean ± std) | Accuracy |
 |------|--------------------------------|----------|
@@ -906,13 +908,68 @@ First sweep on the 30-prompt adversarial set, N=5 seeds, repeats=8 (240 routing 
 | keyword  | 113.5 ± 0.95 | 7.7 % |
 | off      | 129.0 ± 4.35 | 22.1 % |
 
-Two findings worth recording.
+This led to two structural findings: semantic and keyword produced *bit-identical* selections (0/240 differ), and *both* underperformed off-mode by ~12% reward.
 
-**(1) Semantic and keyword produce *identical* routing decisions on this benchmark setup.** Inspection of the raw trace confirms 0/240 selections differ between the two modes for the same seed. The cause is structural: with 30 unique prompts × 8 repeats and k=10 retrieval, the retrieved neighbours are dominated by *exact-prompt copies* (distance 0 in both 9-dim and 384-dim spaces). The cluster-mate vs same-prompt slot count for k=10 retrieval is ~8:2 in favour of self-copies, so any difference between the two retrieval geometries is washed out in the per-agent average. To stress the *transfer* hypothesis (semantic retrieves paraphrases that keyword cannot), the benchmark needs paraphrase pairs — a train/test split where the test prompts share *meaning* with training prompts but not surface form. The current adversarial set has the *opposite* property (shared surface, different meaning), which tests *keyword failure modes* rather than *semantic transfer wins*.
+### 15.2 Root cause: blending against `exploit`, not UCB
 
-**(2) Memory-on (both modes) underperforms memory-off in this setup.** With α=0.20 and a bandit that has not converged on most prompts within 8 repeats, the memory bias appears to amplify early arm selections (LinUCB's first-pick bias) before the bandit's own exploration corrects them. This is a known failure mode of memory-augmented bandits when the memory bias rate is high relative to the bandit's intrinsic exploration. Mitigations on the roadmap: (a) sweep α ∈ {0.05, 0.10, 0.15, 0.20} (per §14.2 unresolved Q); (b) confidence-weight the bias by neighbour count; (c) use doubly-robust off-policy correction.
+Investigation surfaced a real bug in the v1 blending logic. When memory had data, the router would:
 
-**Implication for shipping.** A1's Phase 1-3 infrastructure is correct, tested, and ready. The Phase 4 harness is correct, tested, and reproducible. The empirical *win* is not yet established — the benchmark setup needs a paraphrase-based eval and an α-sweep before the semantic mode can be defaulted in production. Until then, the feature flag (`MAHORAGA_MEMORY_MODE`) lets us A/B-test in real deployments without changing defaults. The two-tower design ensures no regression risk — memory off is the v1 baseline.
+1. Call `compute_scores` and use the `exploit` field per arm (raw θ·x).
+2. Blend that with the memory bias: `(1-α)*exploit + α*bias`.
+3. Pick `argmax(blended)` and tick `select_agent` only for state.
+
+This collapsed LinUCB to *greedy θ-max* whenever memory had data, throwing away the UCB exploration term. The α=0 case was therefore *worse* than off-mode: blended ≡ exploit (no exploration), while off-mode used the full UCB pick. Even tiny α values produced the cliff seen in §15.1.
+
+Fix: blend against the strategy's full `ucb` score (`exploit + α_strategy*sqrt(x'A⁻¹x)` for LinUCB), with `exploit` as a fallback for strategies that don't expose UCB explicitly. With this change, α=0 is exactly equivalent to off-mode, and small α values produce smooth interpolation rather than a discontinuity.
+
+### 15.3 α-sweep results (N=10, with UCB blend)
+
+Re-running the sweep at N=10 seeds across α ∈ {0.0, 0.05, 0.10, 0.15, 0.20, 0.30} × {confidence-weighted on/off}:
+
+**Top of leaderboard (cumulative reward, 30 prompts × 8 repeats × 10 seeds):**
+
+| Condition | Reward (mean ± std) | Accuracy | Δ vs off |
+|-----------|---------------------|----------|----------|
+| `semantic@α=0.10` | **128.68 ± 4.45** | 21.79 % | **+0.35** |
+| `off@α=0.00` (= all α=0 conditions) | 128.33 ± 4.28 | 21.42 % | 0 |
+| `semantic@α=0.15` | 127.34 ± 3.31 | 20.58 % | −0.99 |
+| `keyword@α=0.20` | 126.67 ± 1.74 | 19.96 % | −1.66 |
+| `semantic@α=0.30` | 125.87 ± 1.50 | 19.25 % | −2.46 |
+
+Findings:
+
+- **All α=0 conditions match off-mode exactly** (128.33 ± 4.28). Confirms the UCB-blend fix.
+- **`semantic@α=0.10` is the marginal winner** (+0.35 reward, +0.37 pp accuracy over off). Improvement is well within one std deviation (4.45) so not statistically significant on N=10. Standard error is ~1.4, so the +0.35 delta sits at ~0.25σ — strictly directional.
+- **α-curve is unimodal with peak near 0.10.** Larger α values monotonically hurt (semantic@0.30 is −2.5 vs off). Smaller α values (0.05) also slightly hurt (~−0.66 to −2.66 depending on mode). This is the curve we'd expect if the bandit's intrinsic UCB is mostly correct and memory adds a small amount of useful bias only when not over-applied.
+- **Confidence-weighting hurts on this benchmark** (`semantic@α=0.10+conf` is 126.95 vs 128.68 unweighted). Likely because confidence saturates fast at this scale (8 repeats × forced converging picks) — once `count ≥ BIAS_CONFIDENCE_SATURATION = 5`, weighting collapses to 1.0 and adds no signal during transient phases that matter most.
+
+### 15.4 Per-bucket signal — memory helps where tasks are deterministic
+
+Aggregate reward is a wash, but per-bucket accuracy reveals real structure for `semantic@α=0.10` vs off:
+
+| Bucket | off accuracy | sem@α=0.10 accuracy | Δ |
+|--------|-------------:|--------------------:|---:|
+| code_refactoring  | 0.108 | 0.163 | **+5.4 pp** |
+| file_operations   | 0.206 | 0.237 | **+3.1 pp** |
+| simple_chat       | 0.175 | 0.200 | +2.5 pp |
+| debugging         | 0.120 | 0.143 | +2.3 pp |
+| code_generation   | 0.165 | 0.175 | +1.0 pp |
+| complex_reasoning | 0.215 | 0.225 | +1.0 pp |
+| planning          | 0.144 | 0.150 | +0.6 pp |
+| research          | 0.389 | 0.338 | **−5.2 pp** |
+
+Memory helps on buckets with *deterministic* task→agent fit (refactoring → aider, file_ops → codex-cli) and hurts on *exploratory* buckets (research → multiple agents are competitive). The aggregate is the average of these signed deltas.
+
+### 15.5 Implications for shipping
+
+- **Phase 1-3 infrastructure is correct, tested, and ready**: 198 routing tests + 32 embedding tests + 31 router/CLI tests all green.
+- **Phase 4 harness is correct, tested, and reproducible** with multi-seed t-distribution CIs.
+- **Production default should be `MAHORAGA_MEMORY_MODE=off`** until a paraphrase-based transfer benchmark validates a clear semantic win. The current adversarial set tests *keyword-failure recognition* but not *semantic-transfer benefit* — the latter requires train/test paraphrase pairs.
+- **If memory is enabled, recommended default is `α=0.10`** — empirically the peak of the unimodal α-curve on this benchmark.
+- **`MAHORAGA_MEMORY_CONFIDENCE_WEIGHTED=true` is not recommended** — fails to produce signal on this benchmark and slightly hurts. Revisit if `BIAS_CONFIDENCE_SATURATION` is raised or if benchmarks include a longer warm-up phase.
+- **Per-bucket gating** (apply memory bias only on deterministic buckets, disable on research/planning) is a follow-up worth investigating — the per-bucket data suggests this could capture the +5pp wins without the −5pp loss.
+
+The `MAHORAGA_MEMORY_MODE` + `MAHORAGA_MEMORY_ALPHA` + `MAHORAGA_MEMORY_CONFIDENCE_WEIGHTED` flags allow A/B testing in real deployments without flipping defaults. Two-tower design ensures no regression risk — `off` is the v1 baseline.
 
 ---
 

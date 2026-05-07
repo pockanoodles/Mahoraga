@@ -32,6 +32,7 @@ from . import uncertainty as _uncertainty
 from . import brain_retrieval as _brain_retrieval
 from . import composer as _composer
 from . import quality_predictor as _quality_predictor
+from . import policy_correction as _policy_correction
 from .strategies import (
     StaticRouter, UCB1Router, ThompsonSamplingRouter, LinUCBRouter,
     LinUCBPerBucketRouter,
@@ -187,6 +188,28 @@ def _hash_goal(text: str) -> Optional[str]:
         return None
     return hashlib.sha256(text.strip().lower().encode("utf-8")).hexdigest()
 
+
+def _route_meta_key(task: Any) -> Optional[str]:
+    """Stable key for the in-process route→observe meta dict.
+
+    Prefers task.id (matches the decisions-DB join column) and falls back
+    to a hash of the goal text. Returns None for genuinely identifier-less
+    inputs; callers can still observe(), they just won't get the weight
+    threaded through (defaults to 1.0).
+    """
+    if task is None:
+        return None
+    if hasattr(task, "id"):
+        tid = getattr(task, "id")
+        if tid is not None:
+            return f"id:{tid}"
+    if isinstance(task, dict):
+        if task.get("id") is not None:
+            return f"id:{task.get('id')}"
+    goal = _extract_goal(task)
+    h = _hash_goal(goal)
+    return f"goal:{h}" if h else None
+
 STRATEGIES: dict[str, Any] = {
     "static":             StaticRouter,
     "ucb1":               UCB1Router,
@@ -245,6 +268,14 @@ class BanditRouter:
 
         # Cross-axis composer: most-recent ComposedDecision (telemetry).
         self._last_composed: Optional[_composer.ComposedDecision] = None
+
+        # A1 off-policy correction: route() captures meta about each
+        # decision (bandit_pick, ucb_scores, bandit_probs, override info,
+        # importance_weight) keyed by a stable task identifier. observe()
+        # pulls the entry and threads weight into strategy.update().
+        # Bounded FIFO so a long-running service doesn't grow unbounded.
+        self._pending_route_meta: dict[str, dict[str, Any]] = {}
+        self._pending_route_meta_max = 1024
 
         # Load persisted bandit state if it exists
         if self.state_path.exists():
@@ -377,6 +408,10 @@ class BanditRouter:
         else:
             agent = self.strategy.select_agent(context, available)
 
+        # Snapshot the bandit-with-memory pick BEFORE the composer can override
+        # it. Used by A1 off-policy correction to compute importance weights.
+        bandit_pick = agent
+
         # A2: compute confidence-aware escalation hint. Pure read-only
         # signal — caller decides whether to act on `should_escalate`.
         # Uses precomputed scores so we don't double-tick the bandit.
@@ -437,6 +472,72 @@ class BanditRouter:
             _log.warning("composer failed: %s", exc)
             self._last_composed = None
 
+        # A1 off-policy correction: compute importance weight and stash
+        # route meta keyed by task identifier. observe() will read it.
+        try:
+            bandit_probs = _policy_correction.bandit_probs_from_scores(
+                precomputed_scores
+            )
+            iw = _policy_correction.importance_weight(
+                bandit_pick=bandit_pick,
+                final_agent=agent,
+                scores=precomputed_scores,
+            )
+            override_reason: Optional[str] = None
+            if self._last_composed and self._last_composed.adjustments:
+                override_kinds = [
+                    a["kind"] for a in self._last_composed.adjustments
+                    if a.get("kind", "").endswith("_override")
+                ]
+                if override_kinds:
+                    override_reason = override_kinds[0]
+            meta_key = _route_meta_key(task)
+            if meta_key is not None:
+                self._stash_route_meta(meta_key, {
+                    "bandit_pick": bandit_pick,
+                    "final_pick": agent,
+                    "ucb_scores": {
+                        a: float(s.get("ucb", s.get("exploit", 0.0)))
+                        for a, s in precomputed_scores.items()
+                    },
+                    "bandit_probs": bandit_probs,
+                    "override_reason": override_reason,
+                    "importance_weight": iw,
+                })
+        except Exception as exc:  # noqa: BLE001
+            _log.warning("off-policy meta capture failed: %s", exc)
+
+        # Pull the just-stashed off-policy meta back out so the same fields
+        # land in the decisions DB as the bandit will use on observe().
+        meta_for_log = self._pending_route_meta.get(_route_meta_key(task) or "", {})
+
+        # A5 shadow telemetry: capture the composer's would-be decision
+        # (always populated, even when disabled — see ComposedDecision
+        # docstring) plus the input signals that drove it.
+        composer = self._last_composed
+        composer_would_pick = (
+            composer.would_be_agent if composer else None
+        )
+        composer_would_escalate = (
+            composer.would_be_escalate if composer else None
+        )
+        a3_predictions_log: Optional[dict] = None
+        try:
+            qmodel_log = _quality_predictor.get_model()
+            if qmodel_log is not None:
+                hc_log = context.to_vector()
+                a3_predictions_log = {
+                    a: round(float(qmodel_log.predict_proba(hc_log, a)), 4)
+                    for a in available
+                }
+        except Exception:  # noqa: BLE001
+            a3_predictions_log = None
+        brain_hit_count_log = len(self._last_brain_hits) if self._last_brain_hits else 0
+        brain_top_sim_log = (
+            max((h.similarity for h in self._last_brain_hits), default=None)
+            if self._last_brain_hits else None
+        )
+
         self.logger.log_decision(
             task=task,
             context=context,
@@ -445,6 +546,19 @@ class BanditRouter:
             strategy=self.strategy.name,
             scores=self.strategy.get_scores(),
             bench_run_id=bench_run_id,
+            bandit_pick=meta_for_log.get("bandit_pick", bandit_pick),
+            ucb_scores=meta_for_log.get("ucb_scores"),
+            bandit_probs=meta_for_log.get("bandit_probs"),
+            override_reason=meta_for_log.get("override_reason"),
+            importance_weight=meta_for_log.get("importance_weight", 1.0),
+            composer_would_pick=composer_would_pick,
+            composer_would_escalate=composer_would_escalate,
+            a3_predictions=a3_predictions_log,
+            brain_hit_count=brain_hit_count_log,
+            brain_top_sim=brain_top_sim_log,
+            escalation_strategy=(
+                composer.escalation_strategy if composer else None
+            ),
         )
         try:
             brain_log_decision(
@@ -489,8 +603,21 @@ class BanditRouter:
         context = TaskContext.from_task(task)
         reward = self.reward_calc.compute(outcome)
 
-        # Layer 1: bandit update
-        self.strategy.update(context, outcome.agent_name, reward)
+        # A1 off-policy correction: pull the importance weight stashed by
+        # route(). Falls back to 1.0 (standard update) when route() wasn't
+        # called for this task — e.g. orch-batch overrides or implicit-only
+        # paths.
+        route_meta = self._pop_route_meta(task)
+        weight = float(route_meta["importance_weight"]) if route_meta else 1.0
+
+        # Layer 1: bandit update — weighted when the composer overrode.
+        try:
+            self.strategy.update(context, outcome.agent_name, reward, weight=weight)
+        except TypeError:
+            # Strategies that haven't adopted the weight kwarg fall back to
+            # the standard update. Acceptable for UCB1/Thompson — they
+            # don't materially benefit from importance weighting.
+            self.strategy.update(context, outcome.agent_name, reward)
 
         # Layer 2: OLS weight learner (successful tasks only)
         if outcome.success:
@@ -654,6 +781,23 @@ class BanditRouter:
             self._brain_index = None
         return self._brain_index
 
+    def _stash_route_meta(self, key: str, meta: dict[str, Any]) -> None:
+        """Bounded FIFO store. Drops oldest entries past the cap."""
+        self._pending_route_meta[key] = meta
+        if len(self._pending_route_meta) > self._pending_route_meta_max:
+            # Drop the oldest ~10% in one go; cheap amortised cost.
+            drop_n = max(1, self._pending_route_meta_max // 10)
+            for k in list(self._pending_route_meta.keys())[:drop_n]:
+                del self._pending_route_meta[k]
+
+    def _pop_route_meta(self, task: Any) -> Optional[dict[str, Any]]:
+        """Look up + remove the route meta entry for this task. Returns
+        None if route() wasn't called (e.g. apply_implicit_reward path)."""
+        key = _route_meta_key(task)
+        if key is None:
+            return None
+        return self._pending_route_meta.pop(key, None)
+
     def reset_brain_index(self) -> None:
         """Force rebuild of the brain index on next route() call."""
         self._brain_index = None
@@ -732,6 +876,23 @@ class BanditRouter:
         )
         return {a: data["bias"] for a, data in rich.items()}
 
+    def _brain_summary_for(self, task_text: str) -> str:
+        """A4: derive a keyword summary of the top brain hits for this task.
+
+        Returns the cached `_last_brain_hits` summary when a brain query
+        already ran in route(); otherwise returns "" (cold path / brain
+        disabled). Pure read of state populated earlier in the call.
+        """
+        if not self._last_brain_hits:
+            return ""
+        try:
+            return _brain_retrieval.summarise_brain_hits(
+                self._last_brain_hits,
+            )
+        except Exception as exc:  # noqa: BLE001
+            _log.warning("summarise_brain_hits failed: %s", exc)
+            return ""
+
     def _retrieve_memory_biases_rich(
         self,
         task: Any,
@@ -740,11 +901,22 @@ class BanditRouter:
         mode: str,
     ) -> dict[str, dict[str, float]]:
         """Mode-aware retrieval that includes per-agent confidence and count.
-        Returns {} when mode=off or memory is empty."""
+        Returns {} when mode=off or memory is empty.
+
+        A4: when brain hits are present, the task text is augmented with
+        their keyword summary BEFORE embedding. The query embedding then
+        captures project-specific context — "race condition in connection
+        pool [PostgreSQL, pgBouncer]" retrieves different episodes than
+        bare "race condition in connection pool".
+        """
         if mode == MEMORY_MODE_OFF:
             return {}
         if mode == MEMORY_MODE_SEMANTIC:
-            embedding = self._encode_query(_extract_goal(task))
+            goal = _extract_goal(task)
+            augmented = _brain_retrieval.augment_for_embedding(
+                goal, self._brain_summary_for(goal),
+            )
+            embedding = self._encode_query(augmented)
             if embedding is not None:
                 semantic_biases = self._memory.query_semantic_with_confidence(
                     embedding, available_agents=available,
@@ -766,12 +938,21 @@ class BanditRouter:
         mode: str,
     ) -> None:
         """Mode-aware ingest. Always stores handcraft. Adds embedding when
-        mode=semantic and the embedding service is available."""
+        mode=semantic and the embedding service is available.
+
+        A4: storage uses the SAME augmented embedding the retrieval side
+        uses, so retrieval-time queries land in the same project-context
+        cluster the storage built. task_hash is computed from the
+        unaugmented goal so dedup behaviour is unchanged.
+        """
         embedding: Optional[np.ndarray] = None
         task_hash: Optional[str] = None
         if mode == MEMORY_MODE_SEMANTIC:
             goal_text = _extract_goal(task)
-            embedding = self._encode_query(goal_text)
+            augmented = _brain_retrieval.augment_for_embedding(
+                goal_text, self._brain_summary_for(goal_text),
+            )
+            embedding = self._encode_query(augmented)
             if embedding is not None:
                 task_hash = _hash_goal(goal_text)
         self._memory.add_episode(

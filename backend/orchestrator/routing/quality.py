@@ -58,8 +58,14 @@ _PLAN_LIKE_BUCKETS: frozenset[str] = frozenset({"plan"})
 # discussion) rather than code, so AST parsing always failed and every
 # agent's score plateaued at 0.65 (0.5 base + 0.05 parse-fail + 0.10
 # length bonus). The dedicated `_score_security` path below is structural
-# but prose-aware.
-_CODE_BUCKETS: frozenset[str] = frozenset({"code", "test", "refactor", "debug"})
+# but prose-aware. "debug" was *also* affected — the audit caught it
+# next: prose diagnostic answers ("the issue is X, fix Y") all plateaued
+# at 0.55 through the same code-fallback path. The new `_DEBUG_BUCKETS`
+# routes through `_score_debug` which tries code first and falls back
+# to prose scoring when no code is present.
+_CODE_BUCKETS: frozenset[str] = frozenset({"code", "test", "refactor"})
+
+_DEBUG_BUCKETS: frozenset[str] = frozenset({"debug"})
 
 _SECURITY_BUCKETS: frozenset[str] = frozenset({"security"})
 
@@ -215,6 +221,51 @@ def _score_security(output: str) -> float:
     return round(min(score, 1.0), 4)
 
 
+def _score_debug(prompt: str, output: str) -> float:
+    """Hybrid scorer for the debug bucket.
+
+    Real debug answers vary: some are pure code patches, some are pure
+    diagnostic prose ("the issue is X — add a null check"), most are
+    a mix. The pre-fix code-only path penalised diagnostic-prose answers
+    by routing them through `_score_code`, where they all hit 0.55
+    (0.50 base + 0.05 parse-fail + 0 for everything else).
+
+    The hybrid path:
+      1. Compute the code score. If it's ≥ 0.7 we trust it (real code
+         present), short-circuit and return.
+      2. Otherwise compute a prose score that combines structural
+         signals with a small bonus for diagnostic vocabulary
+         ("issue", "cause", "fix", "because", "error", "exception",
+         "bug", "stack trace") — markers that distinguish a debugging
+         answer from generic prose.
+      3. Return max(code, prose). Pure code answers still score high;
+         prose-only answers get fair structural credit; mixed answers
+         take whichever path scored them better.
+    """
+    if not output.strip():
+        return 0.0
+
+    code_score = _score_code(output)
+    if code_score >= 0.7:
+        return code_score
+
+    prose = _score_prose_structural(output)
+    novelty = _novelty_ratio(prompt, output) if prompt else 0.0
+
+    diag_keywords = (
+        "issue", "cause", "root cause", "because", "bug",
+        "fix", "fixed", "patch", "error", "exception",
+        "traceback", "stack trace", "null", "race", "deadlock",
+        "leak", "off-by-one", "regression",
+    )
+    lower = output.lower()
+    diag_hits = sum(1 for kw in diag_keywords if kw in lower)
+    diag_bonus = min(0.15, 0.04 * diag_hits)
+
+    prose_combined = min(1.0, 0.55 * prose + 0.25 * novelty + diag_bonus)
+    return round(max(code_score, prose_combined), 4)
+
+
 def _score_prose_structural(output: str) -> float:
     """Structural score for prose/text outputs: length, sentences, vocab,
     light structure bonus. Deliberately *doesn't* apply the plan-detection
@@ -363,6 +414,8 @@ def score_heuristic(prompt: str, output: str, bucket: str = "general") -> float:
     """Synchronous heuristic score (no embedding call). Usable offline."""
     if bucket in _CODE_BUCKETS:
         return _score_code(output)
+    if bucket in _DEBUG_BUCKETS:
+        return _score_debug(prompt, output)
     if bucket in _SECURITY_BUCKETS:
         return _score_security(output)
 
@@ -391,6 +444,8 @@ async def score_quality_detailed(
     """
     if bucket in _CODE_BUCKETS:
         return round(_score_code(output), 4), None
+    if bucket in _DEBUG_BUCKETS:
+        return round(_score_debug(prompt, output), 4), None
     if bucket in _SECURITY_BUCKETS:
         return round(_score_security(output), 4), None
 

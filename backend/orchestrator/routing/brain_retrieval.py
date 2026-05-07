@@ -51,6 +51,26 @@ SEMANTIC_DIM = 384
 
 _DATE_PREFIX_RE = re.compile(r"^(\d{4}-\d{2}-\d{2})")
 
+# A4 keyword extraction: stripped before scoring "interesting" tokens.
+_BRAIN_STOPWORDS: frozenset[str] = frozenset({
+    "the", "a", "an", "and", "or", "but", "of", "to", "in", "on", "at", "for",
+    "with", "by", "from", "as", "is", "are", "was", "were", "be", "been",
+    "being", "have", "has", "had", "do", "does", "did", "will", "would",
+    "should", "could", "can", "may", "might", "must", "shall", "this", "that",
+    "these", "those", "it", "its", "they", "them", "their", "theirs", "we",
+    "us", "our", "ours", "you", "your", "yours", "i", "me", "my", "mine",
+    "he", "him", "his", "she", "her", "hers", "what", "which", "who", "whom",
+    "whose", "when", "where", "why", "how", "if", "then", "else", "so",
+    "than", "not", "no", "yes", "into", "over", "out", "off", "up", "down",
+    "use", "using", "used", "via", "such", "any", "all", "some", "each",
+    "every", "more", "most", "less", "least", "few", "much", "many", "now",
+    "later", "before", "after", "between", "during", "while", "still",
+    "also", "just", "only", "very", "really", "actually",
+})
+
+_BRAIN_TOKEN_RE = re.compile(r"[A-Za-z][A-Za-z0-9_-]{2,}")
+DEFAULT_SUMMARY_TOKENS = 50
+
 
 def _read_bool_env(name: str, default: bool = False) -> bool:
     raw = os.environ.get(name, "").strip().lower()
@@ -81,6 +101,65 @@ def resolve_top_k() -> int:
     except ValueError:
         pass
     return DEFAULT_TOP_K
+
+
+def summarise_brain_hits(
+    hits: list["BrainHit"],
+    *,
+    max_tokens: int = DEFAULT_SUMMARY_TOKENS,
+    top_k: int = 3,
+) -> str:
+    """Pure-function keyword extraction over the top-k brain hits.
+
+    Spec: docs/v2-remaining-work.md §A4. The output is meant to be
+    concatenated into a task description before semantic encoding, so
+    it should be short, dense, and free of generic prose. Heuristics:
+
+      - Take only the top-k hits by similarity (default 3).
+      - Tokenise the title + body with a CamelCase / snake_case-aware
+        regex (`_BRAIN_TOKEN_RE`).
+      - Drop stopwords (`_BRAIN_STOPWORDS`) and tokens shorter than 3
+        chars (the regex enforces this).
+      - Preserve original casing — proper nouns (PostgreSQL, MiniLM)
+        carry useful semantic signal that lower-casing erases.
+      - Deduplicate case-insensitively, preferring the first-seen
+        capitalisation.
+      - Truncate to `max_tokens` (50 by default — short enough to fit
+        comfortably in MiniLM's 256-token context alongside the task).
+
+    No NLP model is involved; the embedding model does the semantic
+    heavy lifting. We just need a clean keyword bag.
+    """
+    if not hits:
+        return ""
+    top = sorted(hits, key=lambda h: h.similarity, reverse=True)[:top_k]
+    seen: dict[str, str] = {}  # lower → original
+    for hit in top:
+        text = f"{hit.entry.title} {hit.entry.body}"
+        for tok in _BRAIN_TOKEN_RE.findall(text):
+            lower = tok.lower()
+            if lower in _BRAIN_STOPWORDS:
+                continue
+            if lower in seen:
+                continue
+            seen[lower] = tok
+            if len(seen) >= max_tokens:
+                break
+        if len(seen) >= max_tokens:
+            break
+    return ", ".join(seen.values())
+
+
+def augment_for_embedding(text: str, brain_summary: str) -> str:
+    """Return `text` decorated with the brain summary in a stable format.
+
+    Stable format means callers can roundtrip predictably for tests and
+    benchmarks. Empty summary → return the original text unchanged so
+    cold-start (no brain index) behaves exactly like pre-A4.
+    """
+    if not brain_summary or not brain_summary.strip():
+        return text
+    return f"{text} [{brain_summary}]"
 
 
 @dataclass

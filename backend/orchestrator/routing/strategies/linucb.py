@@ -108,15 +108,28 @@ class LinUCBRouter(RoutingStrategy):
         self._last_scores = scores
         return best_agent
 
-    def update(self, context, agent: str, reward: float) -> None:
+    def update(
+        self,
+        context,
+        agent: str,
+        reward: float,
+        weight: float = 1.0,
+    ) -> None:
+        """Update A, b for the agent that actually ran.
+
+        `weight` is the off-policy importance weight: 1.0 in the standard
+        case, or P_bandit(final_agent) when the composer overrode the
+        bandit's pick. See `routing/policy_correction.py`.
+        """
         self._init_agent(agent)
         x = context.to_vector().reshape(-1, 1)
+        w = float(weight)
         if self.decay < 1.0:
-            self.A[agent] = self.decay * self.A[agent] + x @ x.T
-            self.b[agent] = self.decay * self.b[agent] + reward * x
+            self.A[agent] = self.decay * self.A[agent] + w * (x @ x.T)
+            self.b[agent] = self.decay * self.b[agent] + w * reward * x
         else:
-            self.A[agent] = self.A[agent] + x @ x.T
-            self.b[agent] = self.b[agent] + reward * x
+            self.A[agent] = self.A[agent] + w * (x @ x.T)
+            self.b[agent] = self.b[agent] + w * reward * x
 
     def get_scores(self) -> dict:
         return getattr(self, '_last_scores', {})

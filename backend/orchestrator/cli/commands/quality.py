@@ -33,12 +33,18 @@ from backend.orchestrator.routing.quality_predictor import (
     DEFAULT_ITERS,
     DEFAULT_L2,
     DEFAULT_LR,
+    QUALITY_PREDICTOR_META_PATH,
     QUALITY_PREDICTOR_PATH,
     QualityModel,
+    _read_meta,
     evaluate,
     fit,
     load_training_rows,
+    maybe_retrain,
     reset_loaded_model,
+    retrain_and_swap,
+    staleness_check,
+    write_meta,
 )
 
 
@@ -74,6 +80,9 @@ def train(
         accept_threshold=accept_threshold,
     )
     model.save(out)
+    # A3: persist the metadata file alongside the model so staleness
+    # checks have something to compare against on next startup.
+    write_meta(model, episode_count=len(rows))
     reset_loaded_model()
     typer.echo(
         f"trained on {model.n_train} rows ({len(model.agents)} agents), "
@@ -145,3 +154,48 @@ def predict(
             indent=2,
         )
     )
+
+
+@app.command()
+def inspect(
+    meta_path: Path = typer.Option(QUALITY_PREDICTOR_META_PATH),
+    db: Path = typer.Option(DECISION_DB_PATH),
+) -> None:
+    """Print the trained-model metadata + current staleness state."""
+    meta = _read_meta(meta_path)
+    report = staleness_check(db_path=db, meta_path=meta_path)
+    out = {
+        "meta": meta,
+        "staleness": report.to_dict(),
+    }
+    typer.echo(json.dumps(out, indent=2, default=str))
+
+
+@app.command()
+def retrain(
+    db: Path = typer.Option(DECISION_DB_PATH),
+    model_path: Path = typer.Option(QUALITY_PREDICTOR_PATH),
+    meta_path: Path = typer.Option(QUALITY_PREDICTOR_META_PATH),
+    force: bool = typer.Option(
+        False, "--force",
+        help="Skip staleness check and retrain unconditionally.",
+    ),
+) -> None:
+    """Run the staleness check and retrain if needed (or force).
+
+    Refuses to swap the model in if test AUC < the safeguard threshold —
+    a degenerate retrain (corrupt DB, drift) leaves the prior model
+    untouched and reports `accepted: false` in the output.
+    """
+    if force:
+        result = retrain_and_swap(
+            db_path=db, model_path=model_path, meta_path=meta_path,
+        )
+        typer.echo(json.dumps(
+            {"forced": True, "outcome": result}, indent=2, default=str,
+        ))
+        return
+    result = maybe_retrain(
+        db_path=db, model_path=model_path, meta_path=meta_path,
+    )
+    typer.echo(json.dumps(result, indent=2, default=str))

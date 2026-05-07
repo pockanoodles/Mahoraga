@@ -41,6 +41,7 @@ from typing import Optional
 
 from .uncertainty import UncertaintyHint
 from .brain_retrieval import BrainHit
+from .escalation_strategies import EscalationStrategy, select_strategy
 
 _log = logging.getLogger(__name__)
 
@@ -96,6 +97,13 @@ class ComposedDecision:
     starts as `uncertainty.should_escalate` and is then suppressed by
     A3/A4 evidence under the rules above.
 
+    Shadow telemetry: `would_be_agent` and `would_be_escalate` are
+    *always* computed (even when `enabled=False`), so we can log what
+    the composer WOULD have decided if it had been enabled. After ~200
+    shadow episodes you can compute counterfactual cumulative reward
+    and compare against the bandit's actual cumulative reward — that's
+    the calibration signal that tells you whether to flip enabled=True.
+
     `contributors` lists the signal IDs that materially affected the
     output (e.g. ["a2_high_variance", "a4_suppress"]). `adjustments`
     is a list of named transformations applied; each has a `kind` and
@@ -110,6 +118,13 @@ class ComposedDecision:
     a3_picked_p: Optional[float] = None
     brain_top_sim: Optional[float] = None
     enabled: bool = False
+    # Shadow-mode fields: composer's hypothetical decision if enabled.
+    would_be_agent: Optional[str] = None
+    would_be_escalate: Optional[bool] = None
+    # A2: which escalation strategy the gateway should run when
+    # `escalate=True`. NONE if no escalation. Selected from the
+    # bandit_pick / would_be_agent pair + budget/key state.
+    escalation_strategy: str = EscalationStrategy.NONE.value
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -171,29 +186,18 @@ def compose_decision(
         if brain_top_sim is not None and brain_top_sim >= cfg.brain_suppress_sim:
             contributors.append("a4_strong_match")
 
-    final_agent = bandit_pick
-    final_escalate = base_escalate
-
-    if not cfg.enabled:
-        return ComposedDecision(
-            agent=final_agent,
-            escalate=final_escalate,
-            contributors=contributors,
-            adjustments=adjustments,
-            bandit_pick=bandit_pick,
-            a3_pick=a3_pick,
-            a3_picked_p=a3_picked_p,
-            brain_top_sim=brain_top_sim,
-            enabled=False,
-        )
+    # Compute the rules' output unconditionally — that gives us the
+    # "what the composer would do" decision used for shadow telemetry.
+    would_be_agent = bandit_pick
+    would_be_escalate = base_escalate
 
     # Rule 1: A4 strong match suppresses escalation.
     if (
-        final_escalate
+        would_be_escalate
         and brain_top_sim is not None
         and brain_top_sim >= cfg.brain_suppress_sim
     ):
-        final_escalate = False
+        would_be_escalate = False
         adjustments.append({
             "kind": "a4_suppress",
             "reason": f"brain_top_sim={brain_top_sim:.3f}≥{cfg.brain_suppress_sim:.3f}",
@@ -201,11 +205,11 @@ def compose_decision(
 
     # Rule 2: A3 high P(success) for picked agent suppresses escalation.
     if (
-        final_escalate
+        would_be_escalate
         and a3_picked_p is not None
         and a3_picked_p >= cfg.a3_suppress_p
     ):
-        final_escalate = False
+        would_be_escalate = False
         adjustments.append({
             "kind": "a3_suppress",
             "reason": f"p(picked)={a3_picked_p:.3f}≥{cfg.a3_suppress_p:.3f}",
@@ -227,16 +231,35 @@ def compose_decision(
                 f"+ {cfg.a3_override_margin:.2f}"
             ),
         })
-        final_agent = a3_pick
+        would_be_agent = a3_pick
+
+    # Apply only when enabled. In shadow mode we report the bandit pick
+    # as the live decision but still surface the would_be_* fields so
+    # offline analysis can compare counterfactual reward.
+    final_agent = would_be_agent if cfg.enabled else bandit_pick
+    final_escalate = would_be_escalate if cfg.enabled else base_escalate
+
+    # A2: pick the escalation mechanism for this decision. The gateway
+    # consumes this in service/app.py when escalate=True. Computed on
+    # would_be_agent (not final_agent) so the strategy reflects the
+    # composer's hypothesis, even in shadow mode.
+    strategy = select_strategy(
+        should_escalate=bool(would_be_escalate),
+        bandit_pick=bandit_pick,
+        final_pick=would_be_agent,
+    )
 
     return ComposedDecision(
         agent=final_agent,
         escalate=final_escalate,
         contributors=contributors,
-        adjustments=adjustments,
+        adjustments=adjustments if cfg.enabled else [],
         bandit_pick=bandit_pick,
         a3_pick=a3_pick,
         a3_picked_p=a3_picked_p,
         brain_top_sim=brain_top_sim,
-        enabled=True,
+        enabled=cfg.enabled,
+        would_be_agent=would_be_agent,
+        would_be_escalate=would_be_escalate,
+        escalation_strategy=strategy.value,
     )

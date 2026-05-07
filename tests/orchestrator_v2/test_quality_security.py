@@ -143,3 +143,47 @@ def test_score_capped_at_one():
         + " threat attack adversary exploit vulnerability risk impact " * 5
     )
     assert _score_security(text) <= 1.0
+
+
+# ── debug bucket: hybrid scorer ───────────────────────────────────────────────
+
+
+def test_debug_diagnostic_prose_no_longer_plateaus():
+    """A1 audit follow-up: prose-only debug answers used to plateau at
+    0.55 because they routed through `_score_code` and AST always failed.
+    The hybrid path should now reward diagnostic vocabulary + structure."""
+    prompt = "Fix the null pointer in auth.py"
+    diagnostic = (
+        "The root cause is that user.profile is accessed without a null check "
+        "on line 42. The bug is reproducible when authenticate() returns None. "
+        "Fix: add `if user and user.profile:` guard. This is a regression from "
+        "the auth refactor."
+    )
+    useless = "Try restarting the server."
+    s_diag = score_heuristic(prompt, diagnostic, bucket="debug")
+    s_useless = score_heuristic(prompt, useless, bucket="debug")
+    assert s_diag > 0.65
+    assert s_diag - s_useless > 0.15
+
+
+def test_debug_pure_code_answer_still_scores_high():
+    """The hybrid scorer must not penalise pure-code debug answers."""
+    prompt = "Fix the off-by-one in this loop"
+    code = (
+        "```python\n"
+        "def consume(items):\n"
+        "    for i in range(len(items) - 1):\n"
+        "        process(items[i])\n"
+        "    process(items[-1])\n"
+        "```"
+    )
+    s = score_heuristic(prompt, code, bucket="debug")
+    assert s >= 0.75
+
+
+def test_debug_useless_answer_floors():
+    """A useless answer hits the code-fallback floor (0.55). The point of
+    the hybrid is that diagnostic prose now scores ABOVE this floor;
+    useless content stays at it."""
+    s = score_heuristic("fix the bug", "no idea", bucket="debug")
+    assert s <= 0.55

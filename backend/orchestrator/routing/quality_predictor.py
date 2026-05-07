@@ -43,6 +43,9 @@ import numpy as np
 _log = logging.getLogger(__name__)
 
 QUALITY_PREDICTOR_PATH = Path.home() / ".mahoraga-v2" / "quality_predictor.json"
+QUALITY_PREDICTOR_META_PATH = (
+    Path.home() / ".mahoraga-v2" / "quality_predictor_meta.json"
+)
 DECISION_DB_PATH = Path.home() / ".mahoraga-v2" / "routing_decisions.db"
 
 DEFAULT_ACCEPT_THRESHOLD = 0.7
@@ -50,6 +53,15 @@ DEFAULT_L2 = 0.5
 DEFAULT_LR = 0.1
 DEFAULT_ITERS = 400
 HANDCRAFT_DIM = 9
+
+# A3 staleness thresholds (spec: docs/v2-remaining-work.md §A3).
+# Retrain triggers when EITHER condition holds:
+STALENESS_RATIO = 1.5      # current_count > trained_count × ratio
+STALENESS_ABSOLUTE = 500   # current_count − trained_count > absolute
+# Safeguard: a fresh retrain is rejected if its test AUC falls below
+# this threshold. Prevents a degenerate retrain (corrupt DB, drift) from
+# replacing a working model with a near-random one.
+MIN_AUC_FOR_SAVE = 0.55
 
 
 # ── Data extraction ───────────────────────────────────────────────────────────
@@ -441,3 +453,221 @@ def predict_proba(handcraft: np.ndarray, agent: str) -> Optional[float]:
     if model is None:
         return None
     return model.predict_proba(handcraft, agent)
+
+
+# ── A3 retrain (staleness + safe hot-swap) ────────────────────────────────────
+
+
+@dataclass
+class StalenessReport:
+    """Output of `staleness_check` — drives the retrain decision."""
+    trained_at_episode_count: Optional[int]
+    current_episode_count: int
+    is_stale: bool
+    reason: str          # "no_meta", "ratio", "absolute", "fresh"
+    meta_path: str
+
+    def to_dict(self) -> dict:
+        return asdict(self)
+
+
+def _count_labelled_episodes(db_path: Path) -> int:
+    """Count rows in the decisions DB that A3 would treat as labelled."""
+    if not Path(db_path).exists():
+        return 0
+    try:
+        conn = sqlite3.connect(str(db_path))
+    except sqlite3.OperationalError:
+        return 0
+    try:
+        row = conn.execute(
+            "SELECT COUNT(*) FROM decisions "
+            "WHERE context_vector IS NOT NULL AND selected_agent IS NOT NULL "
+            "AND (success IS NOT NULL OR quality_score IS NOT NULL)"
+        ).fetchone()
+        return int(row[0]) if row and row[0] is not None else 0
+    finally:
+        conn.close()
+
+
+def _read_meta(meta_path: Path = QUALITY_PREDICTOR_META_PATH) -> Optional[dict]:
+    if not Path(meta_path).exists():
+        return None
+    try:
+        return json.loads(Path(meta_path).read_text())
+    except (json.JSONDecodeError, OSError) as exc:
+        _log.warning("quality_predictor: failed to read meta %s (%s)", meta_path, exc)
+        return None
+
+
+def staleness_check(
+    db_path: Path = DECISION_DB_PATH,
+    meta_path: Path = QUALITY_PREDICTOR_META_PATH,
+    *,
+    ratio: float = STALENESS_RATIO,
+    absolute: int = STALENESS_ABSOLUTE,
+) -> StalenessReport:
+    """Decide whether the persisted model is too old vs. the current DB.
+
+    Stale if either:
+      - current_count > trained_count × ratio  (50% growth by default)
+      - current_count − trained_count > absolute  (500-row absolute by default)
+
+    A missing meta file → automatically stale (so a first-time train
+    triggers on whatever data is already in the DB).
+    """
+    meta = _read_meta(meta_path)
+    current = _count_labelled_episodes(db_path)
+    if meta is None:
+        return StalenessReport(
+            trained_at_episode_count=None,
+            current_episode_count=current,
+            is_stale=current > 0,
+            reason="no_meta",
+            meta_path=str(meta_path),
+        )
+    trained = int(meta.get("trained_at_episode_count", 0))
+    if trained <= 0:
+        return StalenessReport(
+            trained_at_episode_count=trained,
+            current_episode_count=current,
+            is_stale=current > 0,
+            reason="no_meta",
+            meta_path=str(meta_path),
+        )
+    by_ratio = current > trained * ratio
+    by_absolute = (current - trained) > absolute
+    if by_ratio:
+        reason = "ratio"
+    elif by_absolute:
+        reason = "absolute"
+    else:
+        reason = "fresh"
+    return StalenessReport(
+        trained_at_episode_count=trained,
+        current_episode_count=current,
+        is_stale=by_ratio or by_absolute,
+        reason=reason,
+        meta_path=str(meta_path),
+    )
+
+
+def write_meta(
+    model: QualityModel,
+    *,
+    test_auc: Optional[float] = None,
+    spearman: Optional[float] = None,
+    episode_count: int,
+    meta_path: Path = QUALITY_PREDICTOR_META_PATH,
+) -> dict:
+    """Write the retrain metadata file alongside the model.
+
+    Schema (per spec): trained_at, trained_at_episode_count, train_auc,
+    test_auc, spearman, feature_importances. feature_importances is
+    derived from the absolute weight magnitudes — a coarse proxy that
+    matches what `orch quality inspect` displays.
+    """
+    from datetime import datetime, timezone
+
+    importances = {}
+    for name, weight in zip(model.feature_names, model.weights):
+        importances[name] = round(abs(float(weight)), 4)
+
+    meta = {
+        "trained_at": datetime.now(timezone.utc).isoformat(),
+        "trained_at_episode_count": int(episode_count),
+        "train_auc": round(float(model.train_auc), 4),
+        "test_auc": (round(float(test_auc), 4) if test_auc is not None else None),
+        "spearman": (round(float(spearman), 4) if spearman is not None else None),
+        "n_features": int(model.n_features),
+        "agents": list(model.agents),
+        "feature_importances": importances,
+        "min_auc_for_save": MIN_AUC_FOR_SAVE,
+    }
+    Path(meta_path).parent.mkdir(parents=True, exist_ok=True)
+    Path(meta_path).write_text(json.dumps(meta, indent=2))
+    return meta
+
+
+def retrain_and_swap(
+    db_path: Path = DECISION_DB_PATH,
+    model_path: Path = QUALITY_PREDICTOR_PATH,
+    meta_path: Path = QUALITY_PREDICTOR_META_PATH,
+    *,
+    test_frac: float = 0.25,
+    seed: int = 42,
+    accept_threshold: float = DEFAULT_ACCEPT_THRESHOLD,
+    min_auc: float = MIN_AUC_FOR_SAVE,
+) -> dict:
+    """Train + evaluate + (maybe) swap the persisted model.
+
+    Returns a dict summarising what happened. Behaviour:
+      - If the DB has fewer than 4 labelled rows → return without
+        training (no signal yet).
+      - Otherwise run `evaluate` → produces (model, report).
+      - If report.test_auc < min_auc → REJECT the retrain. Old model
+        on disk stays untouched, old meta stays untouched. Caller
+        sees `accepted=False` + the test_auc that failed.
+      - If accepted → save model.json AND meta.json. The mtime-based
+        cache invalidation in `get_model` means in-process callers
+        pick up the new model on the next call.
+    """
+    rows = load_training_rows(db_path=db_path, accept_threshold=accept_threshold)
+    if len(rows) < 4:
+        return {
+            "accepted": False,
+            "reason": "insufficient_rows",
+            "n_rows": len(rows),
+        }
+    model, report = evaluate(
+        rows, test_frac=test_frac, seed=seed, accept_threshold=accept_threshold,
+    )
+    if report.test_auc < min_auc:
+        return {
+            "accepted": False,
+            "reason": f"test_auc<{min_auc}",
+            "test_auc": report.test_auc,
+            "n_rows": len(rows),
+        }
+    model.save(model_path)
+    meta = write_meta(
+        model,
+        test_auc=report.test_auc,
+        spearman=report.spearman_vs_quality,
+        episode_count=len(rows),
+        meta_path=meta_path,
+    )
+    reset_loaded_model()
+    return {
+        "accepted": True,
+        "test_auc": report.test_auc,
+        "train_auc": report.train_auc,
+        "spearman": report.spearman_vs_quality,
+        "n_rows": len(rows),
+        "meta": meta,
+    }
+
+
+def maybe_retrain(
+    db_path: Path = DECISION_DB_PATH,
+    model_path: Path = QUALITY_PREDICTOR_PATH,
+    meta_path: Path = QUALITY_PREDICTOR_META_PATH,
+) -> dict:
+    """Top-level entry point for the lifespan / periodic-retrain hook.
+
+    Calls `staleness_check` first; only retrains if stale. Returns a
+    dict that combines the staleness report with the retrain outcome
+    (or `{"retrained": False, "reason": "fresh"}` when no retrain was
+    needed).
+    """
+    report = staleness_check(db_path=db_path, meta_path=meta_path)
+    if not report.is_stale:
+        return {"retrained": False, "staleness": report.to_dict()}
+    outcome = retrain_and_swap(
+        db_path=db_path, model_path=model_path, meta_path=meta_path,
+    )
+    return {
+        "retrained": bool(outcome.get("accepted")),
+        "staleness": report.to_dict(),
+        "outcome": outcome,
+    }

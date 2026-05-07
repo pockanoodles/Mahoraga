@@ -191,20 +191,35 @@ class LinUCBPerBucketRouter(RoutingStrategy):
         self._last_scores = scores
         return best_agent
 
-    def update(self, context, agent: str, reward: float) -> None:
+    def update(
+        self,
+        context,
+        agent: str,
+        reward: float,
+        weight: float = 1.0,
+    ) -> None:
+        """Update bucket-specific A, b for the agent that actually ran.
+
+        `weight` is the off-policy importance weight: 1.0 in the standard
+        case (composer didn't override the bandit), or P_bandit(final_agent)
+        when the composer flipped to a different agent. Effectively scales
+        how much the matrices learn from this observation. See
+        `routing/policy_correction.py`.
+        """
         bucket = classify_bucket(context)
         self._init_agent(bucket, agent)
         x = context.to_vector().reshape(-1, 1)
+        w = float(weight)
         if self.decay < 1.0:
             self.A[bucket][agent] = (
-                self.decay * self.A[bucket][agent] + x @ x.T
+                self.decay * self.A[bucket][agent] + w * (x @ x.T)
             )
             self.b[bucket][agent] = (
-                self.decay * self.b[bucket][agent] + reward * x
+                self.decay * self.b[bucket][agent] + w * reward * x
             )
         else:
-            self.A[bucket][agent] = self.A[bucket][agent] + x @ x.T
-            self.b[bucket][agent] = self.b[bucket][agent] + reward * x
+            self.A[bucket][agent] = self.A[bucket][agent] + w * (x @ x.T)
+            self.b[bucket][agent] = self.b[bucket][agent] + w * reward * x
 
     def get_scores(self) -> dict:
         return getattr(self, "_last_scores", {})

@@ -1002,7 +1002,72 @@ Mixed signal: gating helped keyword conditions, hurt the previous best (semantic
 
 **Why doesn't per-bucket gating cleanly recover the off-baseline on its target bucket?** Even with α=0 on research-bucket *retrieval*, research-bucket *outcomes* still update LinUCB's global θ (one matrix shared across all buckets). And research episodes still get stored in memory, where they may surface as nearest neighbours for non-research queries depending on retrieval geometry. Per-bucket gating at the *retrieval-blending* layer alone is bidirectionally coupled to other buckets through the shared LinUCB state and the shared episodic store. To get clean per-bucket isolation would require per-bucket bandits (one θ matrix per bucket) — a larger architectural change deferred to future work.
 
-### 15.6 Implications for shipping
+### 15.6 Paraphrase-transfer benchmark (the actual A1 hypothesis test)
+
+The §15.3 / §15.5 benchmarks repeat each prompt many times in shuffled order — they test *exploitation of recurring tasks*, not *transfer to unseen paraphrases*. A1's deeper claim was that semantic retrieval generalises across surface forms: training on "Implement a binary search in Python" should help routing of "Write a function that does bisection on a sorted list" via embedding similarity, even when keyword retrieval cannot match.
+
+`benchmarks/paraphrase_pairs.json` captures 12 pairs × 2 paraphrases each (24 held-out test prompts). Each pair carries one `training_prompt` and 2 `test_paraphrases` that share *meaning* and `oracle_agent` but differ in surface form. The harness (`paraphrase_eval.py`, `orch benchmark paraphrase`) runs two phases per condition:
+
+1. **Train phase:** `training_prompt`s replayed `train_repeats` times in shuffled order. `route()` + `observe()` accumulates bandit + memory state.
+2. **Test phase:** each `test_paraphrase` presented exactly once. `route()` runs but `observe()` does NOT. Measure routing accuracy against the oracle agent.
+
+#### Headline results (N=10)
+
+| `train_repeats` | off baseline | best memory-on |  Δ |
+|---:|---:|---:|---:|
+| 6  | 19.2 % ± 9.0 % | keyword@α=0.30 → 24.2 % | +5.0 pp |
+| 15 | 12.5 % ± 4.4 % | keyword@α=0.20 → 17.5 % | +5.0 pp |
+
+Two findings before per-pair analysis:
+
+- **More training hurts the off baseline.** With more training the bandit converges harder on its early picks. If LinUCB picked the wrong agent for a given prompt during exploration (because the 9-dim handcraft features don't reliably predict the right agent), more reps cement the wrong choice. Test-paraphrase accuracy then drops because paraphrases produce similar handcraft vectors and inherit the wrong θ.
+- **Memory consistently adds ~5 pp of test accuracy** across both training regimes. The lift is the same magnitude as on the §15.3 benchmark and within ~1.7 SE of zero — directional, not statistically significant on N=10.
+
+#### Surprising: keyword beats semantic on transfer
+
+Across both training regimes the *keyword* mode outperforms the *semantic* mode:
+
+| Condition (train_repeats=15) | Test accuracy |
+|---|---:|
+| `keyword@α=0.20` | 17.50 % ± 6.75 % |
+| `keyword@α=0.30` | 16.67 % ± 9.62 % |
+| `keyword@α=0.10` | 15.83 % ± 4.30 % |
+| `semantic@α=0.30` | 15.42 % ± 6.53 % |
+| `semantic@α=0.10` | 13.75 % ± 3.43 % |
+| `semantic@α=0.20` | 12.50 % ± 2.78 % |
+| `off@α=0.00` | 12.50 % ± 4.39 % |
+
+This is the *opposite* of what A1 strongly predicted. Per-pair analysis (15 train repeats, off vs keyword@α=0.20 vs semantic@α=0.20) explains why:
+
+| Pair | Theme | off | keyword | semantic |
+|---:|---|---:|---:|---:|
+| 1  | binary search code → codex-cli | 0 % | **25 %** | 0 % |
+| 6  | retry decorator → codex-cli | 10 % | **45 %** | 10 % |
+| 11 | payment tests → aider | 10 % | 0 % | **30 %** |
+| 5  | k8s plan → claude | 10 % | 20 % | 5 % |
+| 9  | wasm survey → gemini-cli | 0 % | 10 % | 0 % |
+| 12 | README typo → ollama | 100 % | 100 % | 100 % |
+
+Memory clearly helps on pairs 1, 6, 11 — but keyword wins 1 + 6 while semantic wins 11. This is the key finding:
+
+**When the bandit's training-phase picks for a given prompt are *wrong*, semantic retrieval at test time faithfully reproduces those wrong-agent episodes** (because semantic memory finds the closest-in-meaning training neighbours, which are the same exact prompt-class the bandit already mis-learned). Keyword retrieval is geometrically *noisier* — it can pull in episodes from adjacent handcraft regions where the bandit made a different (sometimes better) pick — which dilutes the wrong signal and produces effectively random correction. Keyword "wins" not by being smarter, but by being less faithful to the training trajectory.
+
+Pair 11 (`payment tests → aider`) is the only case where semantic clearly wins. Likely because the bandit *did* converge correctly on aider for that pair during training, and semantic memory then reliably retrieves aider-good episodes for the test paraphrases. This is what we wanted A1 to do, but it's only happening on 1 of 12 pairs.
+
+#### Why the bandit's training-time picks matter so much
+
+Both benchmarks (§15.3, §15.6) reveal the same root issue: **LinUCB θ is global across all buckets, and 9-dim handcraft features do not reliably distinguish agents within a context**. When the bandit makes a wrong early pick, the global θ shifts in ways that reinforce it, and memory faithfully records the wrong-agent episodes. Semantic memory's "high-fidelity" retrieval can amplify this rather than fix it.
+
+This points to **per-bucket bandits** (one LinUCB θ per classified bucket) as the real architectural fix:
+
+- Per-bucket θ matrices specialize to the bucket's data distribution
+- Wrong picks in one bucket don't poison routing in other buckets
+- Per-bucket warm-start (from compatibility matrix) becomes more meaningful
+- Memory bias becomes additive signal *on top of* a per-bucket-specialized exploit, rather than a corrective for global θ drift
+
+Future work — see §16 (deferred).
+
+### 15.7 Implications for shipping
 
 - **Phase 1-4 infrastructure is correct, tested, and ready**: 215+ routing tests, 32 embedding tests, 31 router/CLI tests, 13 eval-harness tests all green; 680+ tests pass across the full orchestrator suite.
 - **Phase 4 harness is correct, tested, and reproducible** with multi-seed t-distribution CIs and per-bucket gating support.

@@ -1,0 +1,151 @@
+{
+  "version": 1,
+  "spec_section": "docs/semantic-routing.md §15.6",
+  "description": "Paraphrase-transfer benchmark for A1. Each pair contains a 'training_prompt' (used to fill memory + bandit state during the train phase) and 2 'test_paraphrases' that share *meaning* with the training prompt but use different *surface forms*. Both training and paraphrases share the same oracle_agent — the agent that should win on this semantic class.\n\nHypothesis: semantic episodic retrieval (dim=384) should generalise from training prompts to their test paraphrases, because the embeddings cluster by meaning. Keyword episodic retrieval (dim=9 handcrafted) should fail to generalise, because the surface keywords differ.\n\nA win for A1 requires: semantic mode picks the oracle_agent on test paraphrases more often than keyword or off mode does, with a margin that exceeds the run-to-run variance. The gap is what justifies shipping semantic-augmented routing.",
+  "pairs": [
+    {
+      "id": 1,
+      "theme": "Algorithmic code generation",
+      "training_prompt": "Implement a binary search in Python",
+      "test_paraphrases": [
+        "Write a function that does bisection on a sorted list",
+        "Code up an algorithm to find an element in a sorted array via halving"
+      ],
+      "oracle_agent": "codex-cli",
+      "oracle_reward": 0.90,
+      "rationale": "Well-defined code generation — codex-cli's strongest area"
+    },
+    {
+      "id": 2,
+      "theme": "Refactoring with file context",
+      "training_prompt": "Refactor the user model to use dataclasses",
+      "test_paraphrases": [
+        "Convert the User class to a dataclass-based implementation",
+        "Migrate the existing user object to the dataclasses module"
+      ],
+      "oracle_agent": "aider",
+      "oracle_reward": 0.91,
+      "rationale": "Refactoring needs file context — aider"
+    },
+    {
+      "id": 3,
+      "theme": "Concurrency debugging",
+      "training_prompt": "Fix the memory leak in the WebSocket handler",
+      "test_paraphrases": [
+        "Debug the resource exhaustion in our socket connection code",
+        "Find and patch the leaked references in the WS connection management"
+      ],
+      "oracle_agent": "aider",
+      "oracle_reward": 0.88,
+      "rationale": "Performance debugging needing file context — aider"
+    },
+    {
+      "id": 4,
+      "theme": "ML / DL exposition",
+      "training_prompt": "Explain how transformer attention works",
+      "test_paraphrases": [
+        "Walk through the math behind multi-head self-attention in transformers",
+        "Describe the mechanism by which transformer models attend to inputs"
+      ],
+      "oracle_agent": "gemini-cli",
+      "oracle_reward": 0.85,
+      "rationale": "Broad-research explanation — gemini-cli"
+    },
+    {
+      "id": 5,
+      "theme": "Architectural planning",
+      "training_prompt": "Create a project plan for migrating to Kubernetes",
+      "test_paraphrases": [
+        "Outline the steps required to move our infrastructure onto K8s",
+        "Draft a phased rollout plan for adopting container orchestration"
+      ],
+      "oracle_agent": "claude",
+      "oracle_reward": 0.92,
+      "rationale": "High-stakes planning — claude best at complex planning"
+    },
+    {
+      "id": 6,
+      "theme": "Decorator / wrapper code",
+      "training_prompt": "Write a Python decorator that retries on exception",
+      "test_paraphrases": [
+        "Implement a wrapper function in Python that retries failed calls",
+        "Build a decorator that handles retries for unstable functions"
+      ],
+      "oracle_agent": "codex-cli",
+      "oracle_reward": 0.88,
+      "rationale": "Code generation — codex-cli"
+    },
+    {
+      "id": 7,
+      "theme": "DevOps config",
+      "training_prompt": "Fix the CI pipeline to cache node_modules between runs",
+      "test_paraphrases": [
+        "Update the CI config to persist npm dependencies across builds",
+        "Modify the build pipeline so node_modules survives between runs"
+      ],
+      "oracle_agent": "codex-cli",
+      "oracle_reward": 0.90,
+      "rationale": "DevOps config edit — codex-cli good at config files"
+    },
+    {
+      "id": 8,
+      "theme": "Cross-file refactor",
+      "training_prompt": "Update auth.py and middleware.py to use the new token format",
+      "test_paraphrases": [
+        "Modify the authentication and middleware modules to support the new tokens",
+        "Migrate auth.py and middleware.py to the updated token schema"
+      ],
+      "oracle_agent": "aider",
+      "oracle_reward": 0.91,
+      "rationale": "Cross-file refactoring — aider's home turf"
+    },
+    {
+      "id": 9,
+      "theme": "Ecosystem survey",
+      "training_prompt": "Survey the state of WebAssembly support in Python",
+      "test_paraphrases": [
+        "What is the current landscape for WebAssembly tooling in Python ecosystems",
+        "Investigate Python integration options for WebAssembly today"
+      ],
+      "oracle_agent": "gemini-cli",
+      "oracle_reward": 0.87,
+      "rationale": "Broad ecosystem research — gemini-cli"
+    },
+    {
+      "id": 10,
+      "theme": "Complex CS analysis",
+      "training_prompt": "Compare the time complexity of merge sort vs timsort on nearly-sorted data",
+      "test_paraphrases": [
+        "Analyze how merge sort and timsort differ in performance on partially-sorted input",
+        "Discuss the algorithmic tradeoffs between merge and tim sorts when data is mostly sorted"
+      ],
+      "oracle_agent": "claude",
+      "oracle_reward": 0.94,
+      "rationale": "CS algorithmic analysis — claude best for theory"
+    },
+    {
+      "id": 11,
+      "theme": "Test generation",
+      "training_prompt": "Create unit tests for the payment processing module",
+      "test_paraphrases": [
+        "Write a test suite covering payment processing functionality",
+        "Build comprehensive tests for the payment module"
+      ],
+      "oracle_agent": "aider",
+      "oracle_reward": 0.84,
+      "rationale": "Tests against existing code — aider"
+    },
+    {
+      "id": 12,
+      "theme": "Trivial edit",
+      "training_prompt": "Fix the typo in the README header",
+      "test_paraphrases": [
+        "Correct the spelling mistake in the README title",
+        "Edit the README header to fix the typo"
+      ],
+      "oracle_agent": "ollama",
+      "oracle_reward": 0.88,
+      "rationale": "Trivial edit; any agent works, ollama is cheapest"
+    }
+  ]
+}

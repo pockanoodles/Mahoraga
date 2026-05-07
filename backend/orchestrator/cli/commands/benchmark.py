@@ -427,6 +427,123 @@ def memory_mode(
         )
 
 
+@app.command("paraphrase")
+def paraphrase(
+    pairs_path: str = typer.Option(
+        "benchmarks/paraphrase_pairs.json",
+        "--pairs-path",
+        help="Path to paraphrase-pairs JSON (training_prompt + test_paraphrases per pair).",
+    ),
+    seeds: int = typer.Option(
+        10, "--seeds", help="Number of seeds (locked design decision #7: N=10)."
+    ),
+    train_repeats: int = typer.Option(
+        6,
+        "--train-repeats",
+        help="Times each training prompt is replayed during the train phase. "
+        "Lower = less memory accumulation; higher = bandit converges harder.",
+    ),
+    modes: str = typer.Option(
+        "semantic,keyword,off",
+        "--modes",
+        help="Comma-separated memory modes to evaluate.",
+    ),
+    alphas: str = typer.Option(
+        "0.10",
+        "--alphas",
+        help="Comma-separated α values to sweep. Off-mode runs once at α=0.0.",
+    ),
+    confidence_weighting: str = typer.Option(
+        "off",
+        "--confidence-weighting",
+        help="'off' (default), 'on', or 'both'.",
+    ),
+    output: Optional[str] = typer.Option(
+        None,
+        "--output",
+        help="Result directory (default: benchmarks/results/paraphrase_<ts>).",
+    ),
+) -> None:
+    """Phase-4 paraphrase-transfer benchmark — the actual A1 hypothesis test.
+
+    Train phase: replay each training_prompt N times, accumulating bandit +
+    memory state. Test phase: present each test_paraphrase ONCE (no
+    observe(), no learning) and measure routing accuracy.
+
+    Hypothesis: semantic-mode achieves higher test-phase accuracy than
+    keyword/off, because semantic retrieval generalises across surface-form
+    paraphrases via embedding similarity. Keyword retrieval should fail
+    when the test paraphrase shares meaning but not keywords with training.
+    """
+    from datetime import datetime, timezone
+    from pathlib import Path as _Path
+    from backend.orchestrator.routing.benchmark.paraphrase_eval import (
+        load_pairs, run_eval,
+    )
+
+    pairs = load_pairs(_Path(pairs_path).expanduser())
+    mode_list = [m.strip() for m in modes.split(",") if m.strip()]
+    seed_list = list(range(seeds))
+    try:
+        alpha_list = [float(a.strip()) for a in alphas.split(",") if a.strip()]
+    except ValueError as exc:
+        typer.echo(f"Failed to parse --alphas={alphas!r}: {exc}", err=True)
+        raise typer.Exit(1) from exc
+    cw_lower = confidence_weighting.strip().lower()
+    if cw_lower in ("off", "false", "no", "0"):
+        cw_list = [False]
+    elif cw_lower in ("on", "true", "yes", "1"):
+        cw_list = [True]
+    elif cw_lower == "both":
+        cw_list = [False, True]
+    else:
+        typer.echo(
+            "--confidence-weighting must be 'off', 'on', or 'both'", err=True,
+        )
+        raise typer.Exit(1)
+
+    if output is None:
+        ts = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+        output = f"benchmarks/results/paraphrase_{ts}"
+    out_dir = _Path(output).expanduser()
+
+    typer.echo(
+        f"Pairs        : {len(pairs)} "
+        f"({sum(len(p.test_paraphrases) for p in pairs)} test paraphrases)"
+    )
+    typer.echo(f"Seeds        : {seeds}")
+    typer.echo(f"Train repeats: {train_repeats}")
+    typer.echo(f"Modes        : {', '.join(mode_list)}")
+    typer.echo(f"α values     : {alpha_list}")
+    typer.echo(f"Conf weight  : {cw_list}")
+    typer.echo(f"Output       : {out_dir}")
+    typer.echo("")
+    typer.echo("Running…")
+
+    summary = run_eval(
+        pairs=pairs, modes=mode_list, seeds=seed_list,
+        result_dir=out_dir, train_repeats=train_repeats,
+        alphas=alpha_list, confidence_weighting=cw_list,
+    )
+
+    typer.echo("")
+    typer.echo(f"Wrote {out_dir}/summary.md")
+    typer.echo(f"Wrote {out_dir}/summary.json")
+    typer.echo(f"Wrote {out_dir}/raw_results.json")
+    typer.echo("")
+    typer.echo("─── Test-phase accuracy (sorted) ──────────────")
+    sorted_conds = sorted(
+        summary["by_condition"].items(),
+        key=lambda kv: -kv[1]["test_accuracy"]["mean"],
+    )
+    for cond, m in sorted_conds:
+        ac = m["test_accuracy"]
+        typer.echo(
+            f"  {cond:30s}  acc={ac['mean']:6.2%}±{ac['std']:5.2%}  "
+            f"CI95=[{ac['ci95'][0]:6.2%}, {ac['ci95'][1]:6.2%}]"
+        )
+
+
 @app.command("refresh")
 def refresh(
     json_output: bool = typer.Option(False, "--json"),

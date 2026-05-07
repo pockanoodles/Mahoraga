@@ -714,6 +714,20 @@ async def api_health(adapter_reg: AdapterRegistryDep):
     }
 
 
+@app.get("/api/health/routing")
+async def api_health_routing():
+    """R1.4 — full routing health snapshot.
+
+    Pulls from `routing_decisions.db` directly, so it works regardless
+    of in-process router state (and a separate `orch metrics live`
+    process sees the same data). Cheap (<100ms even at 10K rows).
+    """
+    from ..routing.observability import compute_health_snapshot
+    router = get_bandit_router()
+    snap = compute_health_snapshot(db_path=router.logger.db_path)
+    return snap.to_dict()
+
+
 @app.get("/api/agents/status")
 async def agents_status(registry: AdapterRegistryDep):
     """Return health status for all registered AgentAdapters."""

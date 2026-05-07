@@ -12,6 +12,7 @@ from .commands.agent_cmd import app as agent_app
 from .commands.memory import app as memory_app
 from .commands.quality import app as quality_app
 from .commands.brain import app as brain_app
+from .commands.metrics import app as metrics_app
 from .commands import ops
 
 app = typer.Typer(
@@ -32,6 +33,7 @@ app.add_typer(agent_app, name="agent")
 app.add_typer(memory_app, name="memory")
 app.add_typer(quality_app, name="quality")
 app.add_typer(brain_app, name="brain")
+app.add_typer(metrics_app, name="metrics")
 
 # Flat commands
 app.command("status")(ops.status)

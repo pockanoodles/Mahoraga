@@ -93,12 +93,14 @@ class LinUCBRouter(RoutingStrategy):
             theta = np.linalg.solve(self.A[a], self.b[a])
             exploit = float((x.T @ theta).item())
             explore_sq = float((x.T @ np.linalg.solve(self.A[a], x)).item())
-            explore = self.alpha * float(np.sqrt(max(0.0, explore_sq)))
+            explore_sq = max(0.0, explore_sq)
+            explore = self.alpha * float(np.sqrt(explore_sq))
             ucb = exploit + explore
             scores[a] = {
                 "ucb": round(ucb, 4),
                 "exploit": round(exploit, 4),
                 "explore": round(explore, 4),
+                "variance": round(explore_sq, 6),
             }
             if ucb > best_ucb:
                 best_ucb = ucb
@@ -130,11 +132,13 @@ class LinUCBRouter(RoutingStrategy):
             theta = np.linalg.solve(self.A[a], self.b[a])
             exploit = float((x.T @ theta).item())
             explore_sq = float((x.T @ np.linalg.solve(self.A[a], x)).item())
-            explore = self.alpha * float(np.sqrt(max(0.0, explore_sq)))
+            explore_sq = max(0.0, explore_sq)
+            explore = self.alpha * float(np.sqrt(explore_sq))
             scores[a] = {
                 "ucb": round(exploit + explore, 4),
                 "exploit": round(exploit, 4),
                 "explore": round(explore, 4),
+                "variance": round(explore_sq, 6),
             }
         return scores
 

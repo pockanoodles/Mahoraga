@@ -28,6 +28,8 @@ from .reward import RewardCalculator, TaskOutcome
 from .reward_learner import RewardWeightLearner
 from .episodic_memory import EpisodicMemory, MEMORY_ALPHA
 from .decision_log import DecisionLogger
+from . import uncertainty as _uncertainty
+from . import brain_retrieval as _brain_retrieval
 from .strategies import (
     StaticRouter, UCB1Router, ThompsonSamplingRouter, LinUCBRouter,
     LinUCBPerBucketRouter,
@@ -230,6 +232,15 @@ class BanditRouter:
         self._embedding_service: Any = None
         self._embedding_init_attempted: bool = False
 
+        # A2: most-recent uncertainty hint (telemetry / API surface).
+        self._last_uncertainty: Optional[_uncertainty.UncertaintyHint] = None
+
+        # A4: lazy-built brain index + most-recent retrieved entries.
+        # Built on first route() when MAHORAGA_BRAIN_INTEGRATION_ENABLED is on.
+        self._brain_index: Optional[_brain_retrieval.BrainIndex] = None
+        self._brain_init_attempted: bool = False
+        self._last_brain_hits: list[_brain_retrieval.BrainHit] = []
+
         # Load persisted bandit state if it exists
         if self.state_path.exists():
             try:
@@ -324,6 +335,12 @@ class BanditRouter:
         # to (1-0)*exploit + 0*bias = exploit, which loses LinUCB's
         # exploration term — making α=0 behave worse than off-mode. Bail
         # out to the strategy's own selector (UCB-aware) in that case.
+        # We compute scores up-front so the same dict drives both the
+        # memory-blend ranking AND the A2 uncertainty hint. compute_scores()
+        # is idempotent (no t tick), so it's safe to call before
+        # select_agent().
+        precomputed_scores = self.strategy.compute_scores(context, available)
+
         if memory_biases and memory_alpha > 0:
             # Re-rank available agents using memory-blended scores.
             # We blend against the strategy's full UCB score (exploit +
@@ -335,7 +352,7 @@ class BanditRouter:
             #
             # Effective α per agent is α * confidence(a) when confidence
             # weighting is on; otherwise α * 1.0 = α (legacy behaviour).
-            bandit_scores = self.strategy.compute_scores(context, available)
+            bandit_scores = precomputed_scores
             blended: dict[str, float] = {}
             for a in available:
                 arm = bandit_scores.get(a, {})
@@ -354,6 +371,34 @@ class BanditRouter:
             self.strategy.select_agent(context, available)
         else:
             agent = self.strategy.select_agent(context, available)
+
+        # A2: compute confidence-aware escalation hint. Pure read-only
+        # signal — caller decides whether to act on `should_escalate`.
+        # Uses precomputed scores so we don't double-tick the bandit.
+        try:
+            self._last_uncertainty = _uncertainty.compute_hint(
+                selected_agent=agent,
+                scores=precomputed_scores,
+            )
+        except Exception as exc:  # noqa: BLE001
+            _log.warning("uncertainty hint failed: %s", exc)
+            self._last_uncertainty = None
+
+        # A4: brain retrieval. Read-only context signal — does NOT alter
+        # the agent pick yet. Surfaces top-k similar brain entries on
+        # `_last_brain_hits` for telemetry / dashboards. Gated by env so
+        # we don't pay the embed cost on every route() unless enabled.
+        self._last_brain_hits = []
+        if _brain_retrieval.resolve_enabled():
+            try:
+                idx = self._get_brain_index()
+                if idx is not None and idx.available:
+                    self._last_brain_hits = idx.query(
+                        _extract_goal(task),
+                        k=_brain_retrieval.resolve_top_k(),
+                    )
+            except Exception as exc:  # noqa: BLE001
+                _log.warning("brain retrieval failed: %s", exc)
 
         self.logger.log_decision(
             task=task,
@@ -487,6 +532,7 @@ class BanditRouter:
 
     def get_stats(self) -> dict[str, Any]:
         """Return current router state for the API/dashboard."""
+        last_unc = self._last_uncertainty
         return {
             "strategy": self.strategy.name,
             "t": getattr(self.strategy, "t", 0),
@@ -500,7 +546,66 @@ class BanditRouter:
                 "memory_alpha_per_bucket": _resolve_per_bucket_alpha(),
                 "confidence_weighted": _resolve_confidence_weighting(),
             },
+            "uncertainty": {
+                "enabled": _uncertainty.resolve_enabled(),
+                "policy": _uncertainty.resolve_policy(),
+                "variance_threshold": _uncertainty.resolve_variance_threshold(),
+                "gap_threshold": _uncertainty.resolve_gap_threshold(),
+                "last": last_unc.to_dict() if last_unc else None,
+            },
+            "brain": {
+                "enabled": _brain_retrieval.resolve_enabled(),
+                "top_k": _brain_retrieval.resolve_top_k(),
+                "indexed": (
+                    self._brain_index.size if self._brain_index else 0
+                ),
+                "available": (
+                    bool(self._brain_index and self._brain_index.available)
+                ),
+                "last_hits": [h.to_dict() for h in self._last_brain_hits],
+            },
         }
+
+    def get_last_uncertainty(self) -> Optional[_uncertainty.UncertaintyHint]:
+        """Return the most-recent A2 uncertainty hint, or None if route()
+        has not been called yet."""
+        return self._last_uncertainty
+
+    def _get_brain_index(self) -> Optional["_brain_retrieval.BrainIndex"]:
+        """Lazy-build the brain index. Returns None if disabled or unavailable.
+
+        Index reuses the existing embedding service so we don't load MiniLM
+        twice. Built once per process; rebuild via `reset_brain_index()`.
+        """
+        if self._brain_init_attempted:
+            return self._brain_index
+        self._brain_init_attempted = True
+        svc = self._get_embedding_service()
+        if svc is None or not getattr(svc, "available", False):
+            self._brain_index = None
+            return None
+        try:
+            idx = _brain_retrieval.BrainIndex(embedding_service=svc)
+            n = idx.build()
+            _log.info("bandit_router: brain index built with %d entries", n)
+            self._brain_index = idx
+        except Exception as exc:  # noqa: BLE001
+            _log.warning(
+                "bandit_router: brain index build failed (%s); A4 disabled",
+                exc,
+            )
+            self._brain_index = None
+        return self._brain_index
+
+    def reset_brain_index(self) -> None:
+        """Force rebuild of the brain index on next route() call."""
+        self._brain_index = None
+        self._brain_init_attempted = False
+        self._last_brain_hits = []
+
+    def get_last_brain_hits(self) -> list:
+        """Return most-recent A4 brain retrieval hits as plain dicts."""
+        return [h.to_dict() for h in self._last_brain_hits]
 
     def score_all(
         self,

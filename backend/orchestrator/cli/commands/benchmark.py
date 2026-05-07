@@ -312,6 +312,13 @@ def memory_mode(
         "Applied to every non-off condition; missing buckets fall through "
         "to the per-condition global α.",
     ),
+    strategy: str = typer.Option(
+        "linucb",
+        "--strategy",
+        help="Bandit strategy. Options: linucb (global θ, default), "
+        "linucb_per_bucket (per-classifier-bucket θ), ucb1, thompson, "
+        "static.",
+    ),
     output: Optional[str] = typer.Option(
         None,
         "--output",
@@ -405,7 +412,7 @@ def memory_mode(
         prompts=prompt_set, modes=mode_list, seeds=seed_list,
         result_dir=out_dir, repeats=repeats,
         alphas=alpha_list, confidence_weighting=cw_list,
-        alpha_per_bucket=pba_dict,
+        alpha_per_bucket=pba_dict, strategy=strategy,
     )
 
     typer.echo("")
@@ -457,6 +464,11 @@ def paraphrase(
         "off",
         "--confidence-weighting",
         help="'off' (default), 'on', or 'both'.",
+    ),
+    strategy: str = typer.Option(
+        "linucb",
+        "--strategy",
+        help="Bandit strategy. Options: linucb (default), linucb_per_bucket.",
     ),
     output: Optional[str] = typer.Option(
         None,
@@ -524,6 +536,7 @@ def paraphrase(
         pairs=pairs, modes=mode_list, seeds=seed_list,
         result_dir=out_dir, train_repeats=train_repeats,
         alphas=alpha_list, confidence_weighting=cw_list,
+        strategy=strategy,
     )
 
     typer.echo("")

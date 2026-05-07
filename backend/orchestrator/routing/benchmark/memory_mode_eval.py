@@ -207,6 +207,7 @@ def run_condition(
     alpha: float = 0.20,
     confidence_weighted: bool = False,
     alpha_per_bucket: Optional[dict[str, float]] = None,
+    strategy: str = "linucb",
 ) -> ConditionResult:
     """Run one (mode, seed) condition. Returns aggregated results.
 
@@ -249,7 +250,7 @@ def run_condition(
 
     logger = DecisionLogger(db_path=state_dir / "decisions.db")
     router = BanditRouter(
-        strategy="linucb",
+        strategy=strategy,
         registry=_MockRegistry(agents),
         logger=logger,
         state_path=state_dir / "bandit_state.json",
@@ -456,6 +457,7 @@ def run_eval(
     alphas: Optional[list[float]] = None,
     confidence_weighting: Optional[list[bool]] = None,
     alpha_per_bucket: Optional[dict[str, float]] = None,
+    strategy: str = "linucb",
 ) -> dict[str, Any]:
     """Run the full grid of (mode × α × conf-weight × seed) conditions and
     write artifacts.
@@ -511,6 +513,7 @@ def run_eval(
                         agents=agents, repeats=repeats,
                         alpha=alpha, confidence_weighted=cw,
                         alpha_per_bucket=mode_pba,
+                        strategy=strategy,
                     )
                     all_results.append(res)
                     raw_traces.append({
@@ -548,6 +551,7 @@ def run_eval(
     summary["alphas"] = alphas
     summary["confidence_weighting"] = confidence_weighting
     summary["alpha_per_bucket"] = alpha_per_bucket or {}
+    summary["strategy"] = strategy
     summary["agents"] = agents
 
     (result_dir / "raw_results.json").write_text(

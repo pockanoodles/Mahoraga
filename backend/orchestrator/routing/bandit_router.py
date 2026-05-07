@@ -28,7 +28,10 @@ from .reward import RewardCalculator, TaskOutcome
 from .reward_learner import RewardWeightLearner
 from .episodic_memory import EpisodicMemory, MEMORY_ALPHA
 from .decision_log import DecisionLogger
-from .strategies import StaticRouter, UCB1Router, ThompsonSamplingRouter, LinUCBRouter
+from .strategies import (
+    StaticRouter, UCB1Router, ThompsonSamplingRouter, LinUCBRouter,
+    LinUCBPerBucketRouter,
+)
 from .strategies.static import classify_bucket
 from .warm_start import load_compatibility_matrix, warm_start_from_matrix
 from ..config import MahoragaConfig
@@ -181,10 +184,11 @@ def _hash_goal(text: str) -> Optional[str]:
     return hashlib.sha256(text.strip().lower().encode("utf-8")).hexdigest()
 
 STRATEGIES: dict[str, Any] = {
-    "static":   StaticRouter,
-    "ucb1":     UCB1Router,
-    "thompson": ThompsonSamplingRouter,
-    "linucb":   LinUCBRouter,
+    "static":             StaticRouter,
+    "ucb1":               UCB1Router,
+    "thompson":           ThompsonSamplingRouter,
+    "linucb":             LinUCBRouter,
+    "linucb_per_bucket":  LinUCBPerBucketRouter,
 }
 
 

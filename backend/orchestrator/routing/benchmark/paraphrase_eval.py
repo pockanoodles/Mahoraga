@@ -167,6 +167,7 @@ def run_condition(
     train_repeats: int = 6,
     alpha: float = 0.20,
     confidence_weighted: bool = False,
+    strategy: str = "linucb",
 ) -> ConditionResult:
     """Run one (mode, seed) condition through the full train→test pipeline."""
     os.environ["MAHORAGA_MEMORY_MODE"] = mode
@@ -186,7 +187,7 @@ def run_condition(
 
     logger = DecisionLogger(db_path=state_dir / "decisions.db")
     router = BanditRouter(
-        strategy="linucb",
+        strategy=strategy,
         registry=_MockRegistry(agents),
         logger=logger,
         state_path=state_dir / "bandit_state.json",
@@ -357,6 +358,7 @@ def run_eval(
     train_repeats: int = 6,
     alphas: Optional[list[float]] = None,
     confidence_weighting: Optional[list[bool]] = None,
+    strategy: str = "linucb",
 ) -> dict[str, Any]:
     if agents is None:
         agents = ["ollama", "codex-cli", "aider", "gemini-cli", "claude"]
@@ -393,6 +395,7 @@ def run_eval(
                         state_dir=state_dir, cache_path=cache_path,
                         agents=agents, train_repeats=train_repeats,
                         alpha=alpha, confidence_weighted=cw,
+                        strategy=strategy,
                     )
                     all_results.append(res)
                     raw.append({
@@ -426,6 +429,7 @@ def run_eval(
     summary["modes"] = modes
     summary["alphas"] = alphas
     summary["confidence_weighting"] = confidence_weighting
+    summary["strategy"] = strategy
     summary["agents"] = agents
 
     (result_dir / "raw_results.json").write_text(json.dumps(raw, indent=2))

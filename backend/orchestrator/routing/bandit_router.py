@@ -34,7 +34,13 @@ from . import composer as _composer
 from . import quality_predictor as _quality_predictor
 from . import policy_correction as _policy_correction
 from .budget_pacer import BUDGET_PACER_STATE_PATH, BudgetPacer
+from .drift_detector import DriftDetector, resolve_enabled as _drift_enabled
 from .execution_pool import get_default_pool
+from .quarantine import (
+    QUARANTINE_STATE_PATH,
+    QuarantineManager,
+    resolve_enabled as _quarantine_enabled,
+)
 from .strategies import (
     StaticRouter, UCB1Router, ThompsonSamplingRouter, LinUCBRouter,
     LinUCBPerBucketRouter,
@@ -251,6 +257,15 @@ class BanditRouter:
         # so the calc gets the populated pacer reference at construction.
         self._budget_pacer = BudgetPacer.load()
 
+        # F5 drift detector + quarantine manager. Drift is in-memory only
+        # (rebuilds in a few episodes after a restart); quarantine state
+        # persists so a broken agent stays excluded across reloads.
+        self._drift = DriftDetector()
+        self._quarantine = QuarantineManager.load()
+        # Marks the next observation as a recovery probe. Set in route()
+        # when probe scheduler picks the agent; consumed in observe().
+        self._pending_probe: Optional[dict[str, str]] = None
+
         # Layer 2: OLS reward weight learner
         self._learner = RewardWeightLearner(state_path=self.state_path)
         self.reward_calc = RewardCalculator(
@@ -377,6 +392,38 @@ class BanditRouter:
             cost_estimates = self._estimate_agent_costs(task, available)
             available = self._budget_pacer.filter_agents(available, cost_estimates)
 
+        # F5 quarantine filter. Cells with active drift quarantines are
+        # excluded from selection until probe-driven recovery clears
+        # them. Per-bucket: an agent quarantined in "code" can still be
+        # picked for "research". If the filter would empty the candidate
+        # set, fall back to the least-bad quarantined agent (smallest
+        # deviation_sigmas) so the bandit always has something to pick.
+        # Bucket is computed once here and reused below for memory α
+        # resolution; the F5 filter runs BEFORE memory blending so
+        # quarantined cells never influence retrieval-driven picks.
+        bucket = classify_bucket(context)
+        probe_target: Optional[str] = None
+        if _quarantine_enabled() and self._quarantine is not None:
+            quarantined_in_bucket = set(
+                self._quarantine.quarantined_in_bucket(bucket)
+            )
+            filtered = [a for a in available if a not in quarantined_in_bucket]
+            if not filtered and available:
+                lb = self._quarantine.least_bad_in_bucket(bucket)
+                if lb in available:
+                    _log.warning(
+                        "quarantine: every agent in %s quarantined; "
+                        "falling back to least-bad %s",
+                        bucket, lb,
+                    )
+                    filtered = [lb]
+            available = filtered or available
+            # Probe scheduler — short-circuits the bandit on tick boundary
+            # to send this task to a quarantined agent as a recovery probe.
+            probe_target = self._quarantine.maybe_probe(
+                bucket, self._available_agents() if self.registry else available,
+            )
+
         # Query episodic memory for similarity-weighted reward biases.
         # Mode, α, and confidence-weighting are resolved per-call so env/config
         # changes take effect live (important for benchmarks and dry runs).
@@ -387,10 +434,9 @@ class BanditRouter:
 
         # Per-bucket gating: when the task's classified bucket has an α
         # override (e.g. {"research": 0.0}), use it; otherwise fall through
-        # to the global α. The bucket comes from the same classifier the
-        # static router uses, so the names are consistent across
-        # production code paths.
-        bucket = classify_bucket(context)
+        # to the global α. `bucket` was computed earlier for the F5
+        # quarantine filter; reuse the same value here so both layers
+        # see the identical classification.
         memory_alpha = per_bucket_alpha.get(bucket, global_alpha)
 
         memory_biases = self._retrieve_memory_biases_rich(
@@ -442,6 +488,18 @@ class BanditRouter:
         # Snapshot the bandit-with-memory pick BEFORE the composer can override
         # it. Used by A1 off-policy correction to compute importance weights.
         bandit_pick = agent
+
+        # F5 recovery probe — overrides the bandit pick on tick boundaries
+        # to send this task to a quarantined agent. If the probe succeeds
+        # (reward >= probe_quality_floor), the cell moves toward release;
+        # after auto_release consecutive successes it leaves quarantine.
+        # observe() reads `_pending_probe` to record the outcome.
+        if probe_target is not None:
+            agent = probe_target
+            self._pending_probe = {"bucket": bucket, "agent": probe_target}
+            _log.info("quarantine probe: routing %s task to %s", bucket, probe_target)
+        else:
+            self._pending_probe = None
 
         # A2: compute confidence-aware escalation hint. Pure read-only
         # signal — caller decides whether to act on `should_escalate`.
@@ -676,6 +734,40 @@ class BanditRouter:
             self._budget_pacer.save()
         except Exception as exc:  # noqa: BLE001
             _log.warning("budget_pacer update/save failed: %s", exc)
+
+        # F5 drift detection + probe accounting.
+        try:
+            if _drift_enabled() and self._drift is not None:
+                alert = self._drift.check(
+                    bucket=outcome.bucket,
+                    agent=outcome.agent_name,
+                    reward=reward,
+                )
+                if alert is not None and self._quarantine is not None:
+                    self._quarantine.quarantine(alert, kind="drift_auto")
+                    self.logger.log_drift_event(alert)
+            # Probe accounting: if route() routed this task as a probe,
+            # record the outcome and possibly auto-release.
+            if self._pending_probe is not None and self._quarantine is not None:
+                pp = self._pending_probe
+                if pp["agent"] == outcome.agent_name:
+                    probe_status = self._quarantine.record_probe(
+                        bucket=pp["bucket"],
+                        agent=pp["agent"],
+                        reward=reward,
+                    )
+                    if probe_status == "released":
+                        # Close out the corresponding drift_events row(s).
+                        self.logger.mark_drift_resolved(
+                            bucket=pp["bucket"],
+                            agent=pp["agent"],
+                            resolution="auto_released",
+                        )
+                self._pending_probe = None
+            if self._quarantine is not None:
+                self._quarantine.save()
+        except Exception as exc:  # noqa: BLE001
+            _log.warning("drift/quarantine update failed: %s", exc)
 
         # Persist bandit state after every update
         self.state_path.parent.mkdir(parents=True, exist_ok=True)

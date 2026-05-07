@@ -124,6 +124,18 @@ class ImportanceWeightStats:
 
 
 @dataclass
+class QuarantineSnapshot:
+    """F5 quarantine state. Lists currently-quarantined cells with
+    drift signal context + probe progress. Plus a separate count of
+    historical drift events from the DB so trends are visible even
+    after cells are released."""
+    n_active: int
+    n_drift_events_total: int
+    n_drift_events_unresolved: int
+    entries: list[dict]
+
+
+@dataclass
 class ExecutionPoolSnapshot:
     """F2 ExecutionPool live state. Reads from the in-process singleton
     if present; reports zeros for an idle / never-used pool. Mainly a
@@ -174,6 +186,7 @@ class HealthSnapshot:
     importance_weight: ImportanceWeightStats
     budget_pacer: BudgetPacerSnapshot
     execution_pool: ExecutionPoolSnapshot
+    quarantine: QuarantineSnapshot
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -392,6 +405,49 @@ def _a3_stats(conn: sqlite3.Connection) -> A3Stats:
     )
 
 
+def _quarantine_snapshot(conn: sqlite3.Connection) -> QuarantineSnapshot:
+    """Read F5 quarantine state from disk + drift_events from the DB.
+
+    Live `entries` come from the persisted quarantine.json so the
+    snapshot reflects the same state the bandit router enforces. The
+    drift_events counts come from SQL — they capture the *historical*
+    pattern (how often does drift fire, are events resolving cleanly)
+    even after the active cells have cleared.
+    """
+    try:
+        from .quarantine import QUARANTINE_STATE_PATH, QuarantineManager
+    except Exception:  # noqa: BLE001
+        return QuarantineSnapshot(
+            n_active=0, n_drift_events_total=0,
+            n_drift_events_unresolved=0, entries=[],
+        )
+    if QUARANTINE_STATE_PATH.exists():
+        try:
+            mgr = QuarantineManager.load(QUARANTINE_STATE_PATH)
+            entries = [e.to_dict() for e in mgr.all_entries()]
+        except Exception:  # noqa: BLE001
+            entries = []
+    else:
+        entries = []
+    try:
+        total_row = conn.execute("SELECT COUNT(*) FROM drift_events").fetchone()
+        unresolved_row = conn.execute(
+            "SELECT COUNT(*) FROM drift_events WHERE resolution IS NULL"
+        ).fetchone()
+        n_total = int(total_row[0]) if total_row else 0
+        n_unresolved = int(unresolved_row[0]) if unresolved_row else 0
+    except sqlite3.OperationalError:
+        # drift_events table may not exist on a pre-F5 DB until migrate runs.
+        n_total = 0
+        n_unresolved = 0
+    return QuarantineSnapshot(
+        n_active=len(entries),
+        n_drift_events_total=n_total,
+        n_drift_events_unresolved=n_unresolved,
+        entries=entries,
+    )
+
+
 def _execution_pool_snapshot() -> ExecutionPoolSnapshot:
     """Read live state from the F2 ExecutionPool singleton.
 
@@ -520,6 +576,7 @@ def compute_health_snapshot(
             importance_weight=_importance_weight_stats(conn),
             budget_pacer=_budget_pacer_snapshot(),
             execution_pool=_execution_pool_snapshot(),
+            quarantine=_quarantine_snapshot(conn),
         )
         return snap
     finally:
@@ -560,4 +617,8 @@ def _empty_snapshot(db_path: str) -> HealthSnapshot:
         ),
         budget_pacer=_budget_pacer_snapshot(),
         execution_pool=_execution_pool_snapshot(),
+        quarantine=QuarantineSnapshot(
+            n_active=0, n_drift_events_total=0,
+            n_drift_events_unresolved=0, entries=[],
+        ),
     )

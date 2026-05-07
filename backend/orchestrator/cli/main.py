@@ -14,6 +14,7 @@ from .commands.quality import app as quality_app
 from .commands.brain import app as brain_app
 from .commands.metrics import app as metrics_app
 from .commands.budget import app as budget_app
+from .commands.quarantine import app as quarantine_app
 from .commands import ops
 
 app = typer.Typer(
@@ -36,6 +37,7 @@ app.add_typer(quality_app, name="quality")
 app.add_typer(brain_app, name="brain")
 app.add_typer(metrics_app, name="metrics")
 app.add_typer(budget_app, name="budget")
+app.add_typer(quarantine_app, name="quarantine")
 
 # Flat commands
 app.command("status")(ops.status)

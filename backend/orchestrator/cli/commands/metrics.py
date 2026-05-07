@@ -131,6 +131,23 @@ def _render_text(snap: HealthSnapshot) -> str:
         f"mean={_fmt(iw.mean, 3)}, range=[{_fmt(iw.min, 3)}, {_fmt(iw.max, 3)}]"
     )
 
+    # ── F5 Quarantine ────────────────────────────────────────────────────────
+    qs = snap.quarantine
+    if qs.n_active > 0:
+        cells = ", ".join(
+            f"{e['bucket']}/{e['agent']} (σ={e['deviation_sigmas']:.2f}, "
+            f"probes={e['probe_successes']}/{e['probe_attempts']})"
+            for e in qs.entries
+        )
+        lines.append(f"quarantine: {qs.n_active} active — {cells}")
+    else:
+        lines.append("quarantine: none active")
+    if qs.n_drift_events_total > 0:
+        lines.append(
+            f"drift events: {qs.n_drift_events_total} total, "
+            f"{qs.n_drift_events_unresolved} unresolved"
+        )
+
     # ── F2 Execution Pool ────────────────────────────────────────────────────
     ep = snap.execution_pool
     sat = " (saturated)" if ep.depth_norm >= 1.0 else ""

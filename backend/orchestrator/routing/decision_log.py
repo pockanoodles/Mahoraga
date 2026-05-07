@@ -62,6 +62,20 @@ CREATE TABLE IF NOT EXISTS bench_runs (
     notes TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_bench_runs_started ON bench_runs(started_at);
+CREATE TABLE IF NOT EXISTS drift_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp TEXT NOT NULL,
+    bucket TEXT NOT NULL,
+    agent TEXT NOT NULL,
+    window_mean REAL,
+    historical_mean REAL,
+    historical_std REAL,
+    deviation_sigmas REAL,
+    window_size INTEGER,
+    resolution TEXT          -- 'auto_released' | 'manual_released' | NULL while active
+);
+CREATE INDEX IF NOT EXISTS idx_drift_ts ON drift_events(timestamp);
+CREATE INDEX IF NOT EXISTS idx_drift_cell ON drift_events(bucket, agent);
 """
 
 _QUALITY_COMPONENT_COLUMNS = [
@@ -286,6 +300,55 @@ class DecisionLogger:
                 (ended_at, task_count_completed, run_id),
             )
             self._conn.commit()
+
+    def log_drift_event(self, alert) -> int:
+        """F5: append a drift_events row when DriftDetector fires.
+
+        `alert` is a `routing.drift_detector.DriftAlert` (kept un-typed
+        here to avoid a circular import). Returns the row id.
+
+        The `resolution` column starts NULL; future operator tooling
+        can update it to "auto_released" / "manual_released" when the
+        cell exits quarantine, giving us per-event resolution time.
+        """
+        with self._lock:
+            ts = datetime.now(timezone.utc).isoformat()
+            cur = self._conn.execute(
+                """
+                INSERT INTO drift_events (
+                    timestamp, bucket, agent,
+                    window_mean, historical_mean, historical_std,
+                    deviation_sigmas, window_size, resolution
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL)
+                """,
+                (
+                    ts,
+                    str(alert.bucket),
+                    str(alert.agent),
+                    float(alert.window_mean),
+                    float(alert.historical_mean),
+                    float(alert.historical_std),
+                    float(alert.deviation_sigmas),
+                    int(alert.window_size),
+                ),
+            )
+            self._conn.commit()
+            return cur.lastrowid
+
+    def mark_drift_resolved(
+        self, bucket: str, agent: str, resolution: str = "auto_released",
+    ) -> int:
+        """Mark every active drift event for (bucket, agent) as resolved.
+
+        Returns count of rows updated. Active = `resolution IS NULL`."""
+        with self._lock:
+            cur = self._conn.execute(
+                "UPDATE drift_events SET resolution = ? "
+                "WHERE bucket = ? AND agent = ? AND resolution IS NULL",
+                (resolution, bucket, agent),
+            )
+            self._conn.commit()
+            return cur.rowcount or 0
 
     def log_implicit_outcome(
         self,

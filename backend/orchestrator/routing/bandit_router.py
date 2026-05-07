@@ -34,6 +34,7 @@ from . import composer as _composer
 from . import quality_predictor as _quality_predictor
 from . import policy_correction as _policy_correction
 from .budget_pacer import BUDGET_PACER_STATE_PATH, BudgetPacer
+from .execution_pool import get_default_pool
 from .strategies import (
     StaticRouter, UCB1Router, ThompsonSamplingRouter, LinUCBRouter,
     LinUCBPerBucketRouter,
@@ -334,10 +335,22 @@ class BanditRouter:
         queue_depth_norm: fraction of resource group capacity in use at selection time.
         """
         context = TaskContext.from_task(task)
-        if queue_depth_norm > 0.0:
+        # F2: when caller doesn't supply an explicit queue_depth_norm,
+        # read the live value from the process-wide ExecutionPool. This
+        # turns context feature 9 into a real contention signal — the
+        # bandit can finally learn "if the queue is full, prefer fast
+        # agents." Explicit non-zero overrides still win (used by tests
+        # and historical sequential paths).
+        effective_qdn = queue_depth_norm
+        if effective_qdn <= 0.0:
+            try:
+                effective_qdn = get_default_pool().queue_depth_norm
+            except Exception:  # noqa: BLE001
+                effective_qdn = 0.0
+        if effective_qdn > 0.0:
             context = dataclasses.replace(
                 context,
-                queue_depth_norm=queue_depth_norm,
+                queue_depth_norm=effective_qdn,
             )
         available = available_agents if available_agents is not None else self._available_agents()
 

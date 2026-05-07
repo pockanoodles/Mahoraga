@@ -131,6 +131,14 @@ def _render_text(snap: HealthSnapshot) -> str:
         f"mean={_fmt(iw.mean, 3)}, range=[{_fmt(iw.min, 3)}, {_fmt(iw.max, 3)}]"
     )
 
+    # ── F2 Execution Pool ────────────────────────────────────────────────────
+    ep = snap.execution_pool
+    sat = " (saturated)" if ep.depth_norm >= 1.0 else ""
+    lines.append(
+        f"execution_pool: depth={ep.depth}/{ep.max_concurrent}  "
+        f"queue_depth_norm={_fmt(ep.depth_norm, 3)}{sat}"
+    )
+
     # ── F1 Budget Pacer ──────────────────────────────────────────────────────
     bp = snap.budget_pacer
     if bp.n_observed is not None:

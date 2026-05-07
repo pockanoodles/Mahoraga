@@ -124,6 +124,17 @@ class ImportanceWeightStats:
 
 
 @dataclass
+class ExecutionPoolSnapshot:
+    """F2 ExecutionPool live state. Reads from the in-process singleton
+    if present; reports zeros for an idle / never-used pool. Mainly a
+    glanceable signal — `depth > 0` means agents are mid-flight right
+    now, `depth_norm == 1.0` means the queue is saturated."""
+    max_concurrent: int
+    depth: int
+    depth_norm: float
+
+
+@dataclass
 class BudgetPacerSnapshot:
     """F1 budget pacer status, read from the persisted state file.
 
@@ -162,6 +173,7 @@ class HealthSnapshot:
     a3: A3Stats
     importance_weight: ImportanceWeightStats
     budget_pacer: BudgetPacerSnapshot
+    execution_pool: ExecutionPoolSnapshot
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -380,6 +392,34 @@ def _a3_stats(conn: sqlite3.Connection) -> A3Stats:
     )
 
 
+def _execution_pool_snapshot() -> ExecutionPoolSnapshot:
+    """Read live state from the F2 ExecutionPool singleton.
+
+    Defensive: if the pool hasn't been instantiated yet (fresh process,
+    no route() calls) we report zero state at the env-resolved cap.
+    """
+    try:
+        from .execution_pool import (
+            _DEFAULT_POOL,
+            resolve_max_concurrent,
+        )
+    except Exception:  # noqa: BLE001
+        return ExecutionPoolSnapshot(
+            max_concurrent=0, depth=0, depth_norm=0.0,
+        )
+    if _DEFAULT_POOL is None:
+        return ExecutionPoolSnapshot(
+            max_concurrent=resolve_max_concurrent(),
+            depth=0,
+            depth_norm=0.0,
+        )
+    return ExecutionPoolSnapshot(
+        max_concurrent=_DEFAULT_POOL.max_concurrent,
+        depth=_DEFAULT_POOL.depth,
+        depth_norm=round(_DEFAULT_POOL.queue_depth_norm, 4),
+    )
+
+
 def _budget_pacer_snapshot() -> BudgetPacerSnapshot:
     """Read the persisted F1 budget pacer state. Decoupled from the
     decisions DB because pacer state lives in its own JSON file —
@@ -479,6 +519,7 @@ def compute_health_snapshot(
             a3=_a3_stats(conn),
             importance_weight=_importance_weight_stats(conn),
             budget_pacer=_budget_pacer_snapshot(),
+            execution_pool=_execution_pool_snapshot(),
         )
         return snap
     finally:
@@ -518,4 +559,5 @@ def _empty_snapshot(db_path: str) -> HealthSnapshot:
             n=0, n_overrides=0, mean=None, min=None, max=None,
         ),
         budget_pacer=_budget_pacer_snapshot(),
+        execution_pool=_execution_pool_snapshot(),
     )

@@ -1622,8 +1622,28 @@ async def run_api_task(
 
     t0 = _time.monotonic()
     _run_task_exc: Exception | None = None
+    # F2: route execution through the global ExecutionPool so concurrent
+    # /api/run/.../execute calls share the same concurrency cap as
+    # batch tasks. The pool also feeds queue_depth_norm into the next
+    # routing decision's context vector. asyncio.wait_for caps any
+    # individual task at MAHORAGA_TASK_TIMEOUT.
+    from ..routing.execution_pool import (
+        get_default_pool as _get_default_pool,
+        resolve_task_timeout as _resolve_task_timeout,
+    )
+    _pool = _get_default_pool()
     try:
-        await _run_task(task.id, store, registry, verifier)
+        async with _pool.acquire(selected_agent):
+            await asyncio.wait_for(
+                _run_task(task.id, store, registry, verifier),
+                timeout=_resolve_task_timeout(),
+            )
+    except asyncio.TimeoutError as exc:
+        _run_task_exc = exc
+        logging.getLogger(__name__).warning(
+            "/api/task: _run_task timed out (>%ds) for %s",
+            int(_resolve_task_timeout()), task.id,
+        )
     except Exception as exc:
         _run_task_exc = exc
         logging.getLogger(__name__).exception(
@@ -1837,8 +1857,23 @@ async def run_batch(
         task_index = next((i for i, t in enumerate(created) if t.id == task.id), -1)
         t0 = _time.time()
         _run_exc: Exception | None = None
+        # F2: same pool integration as /api/run/.../execute. WaveExecutor
+        # already enforces dependency + file-overlap constraints; the
+        # ExecutionPool adds the global concurrency cap that's shared
+        # across all execution sites and feeds queue_depth_norm.
+        from ..routing.execution_pool import (
+            get_default_pool as _get_default_pool,
+            resolve_task_timeout as _resolve_task_timeout,
+        )
+        _pool = _get_default_pool()
         try:
-            await _run_task(t_run.id, store, registry, verifier)
+            async with _pool.acquire(agent):
+                await asyncio.wait_for(
+                    _run_task(t_run.id, store, registry, verifier),
+                    timeout=_resolve_task_timeout(),
+                )
+        except asyncio.TimeoutError as exc:
+            _run_exc = exc
         except Exception as exc:
             _run_exc = exc
         finally:

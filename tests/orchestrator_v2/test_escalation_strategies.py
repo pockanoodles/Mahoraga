@@ -7,7 +7,11 @@ from __future__ import annotations
 import pytest
 
 from backend.orchestrator.routing.escalation_strategies import (
+    CLAUDE_ADAPTER_NAME,
+    STRICT_VERIFY_QUALITY_THRESHOLD,
+    EscalationAction,
     EscalationStrategy,
+    apply_strategy,
     has_anthropic_key,
     resolve_allow_paid_escalation,
     select_strategy,
@@ -145,3 +149,255 @@ def test_composer_escalation_strategy_none_when_no_escalation():
         config=ComposerConfig(enabled=True),
     )
     assert out.escalation_strategy == EscalationStrategy.NONE.value
+
+
+# ── apply_strategy (gateway dispatcher) ───────────────────────────────────────
+
+
+class _FakeRegistry:
+    """Minimal stand-in for AdapterRegistry.all() — yields adapters with .name."""
+
+    def __init__(self, names):
+        class _Adapter:
+            def __init__(self, n):
+                self.name = n
+        self._adapters = [_Adapter(n) for n in names]
+
+    def all(self):
+        return list(self._adapters)
+
+
+def test_apply_none_passthrough():
+    action = apply_strategy(
+        strategy=EscalationStrategy.NONE.value,
+        selected_agent="ollama",
+        bandit_pick="ollama",
+        would_be_agent="ollama",
+        adapter_registry=_FakeRegistry(["ollama", "claude"]),
+    )
+    assert action.final_agent == "ollama"
+    assert action.flags == {}
+    assert action.strategy == EscalationStrategy.NONE.value
+
+
+def test_apply_claude_swaps_when_registered():
+    action = apply_strategy(
+        strategy=EscalationStrategy.CLAUDE.value,
+        selected_agent="ollama",
+        bandit_pick="ollama",
+        would_be_agent="ollama",
+        adapter_registry=_FakeRegistry(["ollama", "claude"]),
+    )
+    assert action.final_agent == CLAUDE_ADAPTER_NAME
+    assert action.flags == {"swapped_from": "ollama"}
+    assert action.strategy == EscalationStrategy.CLAUDE.value
+
+
+def test_apply_claude_falls_through_when_unregistered_with_alt():
+    """Claude requested but not registered + alternative exists → DOUBLE_RUN."""
+    action = apply_strategy(
+        strategy=EscalationStrategy.CLAUDE.value,
+        selected_agent="ollama",
+        bandit_pick="ollama",
+        would_be_agent="aider",
+        adapter_registry=_FakeRegistry(["ollama", "aider"]),  # no claude
+    )
+    assert action.strategy == EscalationStrategy.DOUBLE_RUN.value
+    assert action.flags.get("double_run_alt") == "aider"
+    assert action.final_agent == "ollama"
+
+
+def test_apply_claude_falls_through_to_verify_when_no_alt():
+    """Claude unavailable AND no composer alternative → AGGRESSIVE_VERIFY."""
+    action = apply_strategy(
+        strategy=EscalationStrategy.CLAUDE.value,
+        selected_agent="ollama",
+        bandit_pick="ollama",
+        would_be_agent="ollama",
+        adapter_registry=_FakeRegistry(["ollama"]),
+    )
+    assert action.strategy == EscalationStrategy.AGGRESSIVE_VERIFY.value
+    assert action.flags.get("strict_verify") is True
+
+
+def test_apply_double_run_records_alt():
+    action = apply_strategy(
+        strategy=EscalationStrategy.DOUBLE_RUN.value,
+        selected_agent="ollama",
+        bandit_pick="ollama",
+        would_be_agent="aider",
+        adapter_registry=_FakeRegistry(["ollama", "aider"]),
+    )
+    assert action.final_agent == "ollama"
+    assert action.flags["double_run_alt"] == "aider"
+
+
+def test_apply_double_run_no_alt_degrades_to_verify():
+    """If would_be_agent == selected_agent there's nothing to double-run."""
+    action = apply_strategy(
+        strategy=EscalationStrategy.DOUBLE_RUN.value,
+        selected_agent="ollama",
+        bandit_pick="ollama",
+        would_be_agent="ollama",
+        adapter_registry=_FakeRegistry(["ollama"]),
+    )
+    assert action.strategy == EscalationStrategy.AGGRESSIVE_VERIFY.value
+    assert action.flags.get("strict_verify") is True
+
+
+def test_apply_aggressive_verify_sets_flag():
+    action = apply_strategy(
+        strategy=EscalationStrategy.AGGRESSIVE_VERIFY.value,
+        selected_agent="ollama",
+        bandit_pick="ollama",
+        would_be_agent="ollama",
+        adapter_registry=_FakeRegistry(["ollama"]),
+    )
+    assert action.flags["strict_verify"] is True
+    assert action.final_agent == "ollama"
+
+
+def test_apply_handles_none_registry():
+    """Defensive: no registry passed → claude can't be swapped, fall through."""
+    action = apply_strategy(
+        strategy=EscalationStrategy.CLAUDE.value,
+        selected_agent="ollama",
+        bandit_pick="ollama",
+        would_be_agent="aider",
+        adapter_registry=None,
+    )
+    # No registry → claude unavailable → degrades to double_run.
+    assert action.strategy == EscalationStrategy.DOUBLE_RUN.value
+
+
+def test_apply_handles_unknown_strategy_string():
+    """Unknown strategy → defaults to AGGRESSIVE_VERIFY (safer than no-op)."""
+    action = apply_strategy(
+        strategy="some_future_strategy",
+        selected_agent="ollama",
+        bandit_pick="ollama",
+        would_be_agent="ollama",
+        adapter_registry=_FakeRegistry(["ollama"]),
+    )
+    assert action.strategy == EscalationStrategy.AGGRESSIVE_VERIFY.value
+
+
+def test_apply_action_to_dict_serialises():
+    action = apply_strategy(
+        strategy=EscalationStrategy.AGGRESSIVE_VERIFY.value,
+        selected_agent="ollama",
+        bandit_pick="ollama",
+        would_be_agent="ollama",
+    )
+    d = action.to_dict()
+    assert d["final_agent"] == "ollama"
+    assert d["strategy"] == EscalationStrategy.AGGRESSIVE_VERIFY.value
+    assert isinstance(d["flags"], dict)
+
+
+def test_strict_verify_threshold_is_70_percent():
+    """Spec §A2: aggressive_verify uses quality ≥ 0.70."""
+    assert STRICT_VERIFY_QUALITY_THRESHOLD == 0.70
+
+
+# ── service/app.py _gateway_escalation integration ───────────────────────────
+
+
+def test_gateway_escalation_passthrough_when_composer_none(monkeypatch, tmp_path):
+    """No composer ran → final agent unchanged, no flags."""
+    from backend.orchestrator.routing.bandit_router import BanditRouter
+    from backend.orchestrator.routing.decision_log import DecisionLogger
+    from backend.orchestrator.service.app import _gateway_escalation
+
+    r = BanditRouter(
+        strategy="linucb_per_bucket",
+        registry=None,
+        logger=DecisionLogger(db_path=tmp_path / "d.db"),
+        state_path=tmp_path / "state.json",
+    )
+    # No route() called → _last_composed is None.
+    final, flags = _gateway_escalation(r, "ollama", _FakeRegistry(["ollama"]))
+    assert final == "ollama"
+    assert flags == {}
+
+
+def test_gateway_escalation_swaps_to_claude_when_strategy_set(monkeypatch, tmp_path):
+    """Force CLAUDE strategy on a real ComposedDecision → swap fires."""
+    from backend.orchestrator.routing.bandit_router import BanditRouter
+    from backend.orchestrator.routing.composer import ComposedDecision
+    from backend.orchestrator.routing.decision_log import DecisionLogger
+    from backend.orchestrator.service.app import _gateway_escalation
+
+    r = BanditRouter(
+        strategy="linucb_per_bucket",
+        registry=None,
+        logger=DecisionLogger(db_path=tmp_path / "d.db"),
+        state_path=tmp_path / "state.json",
+    )
+    # Inject a ComposedDecision as if route() had finished.
+    r._last_composed = ComposedDecision(
+        agent="ollama",
+        escalate=True,
+        bandit_pick="ollama",
+        would_be_agent="ollama",
+        enabled=False,
+        escalation_strategy=EscalationStrategy.CLAUDE.value,
+    )
+    final, flags = _gateway_escalation(
+        r, "ollama", _FakeRegistry(["ollama", "claude"]),
+    )
+    assert final == "claude"
+    assert flags["swapped_from"] == "ollama"
+
+
+def test_gateway_escalation_aggressive_verify_flag(tmp_path):
+    """AGGRESSIVE_VERIFY → strict_verify flag returned to executor."""
+    from backend.orchestrator.routing.bandit_router import BanditRouter
+    from backend.orchestrator.routing.composer import ComposedDecision
+    from backend.orchestrator.routing.decision_log import DecisionLogger
+    from backend.orchestrator.service.app import _gateway_escalation
+
+    r = BanditRouter(
+        strategy="linucb_per_bucket",
+        registry=None,
+        logger=DecisionLogger(db_path=tmp_path / "d.db"),
+        state_path=tmp_path / "state.json",
+    )
+    r._last_composed = ComposedDecision(
+        agent="ollama",
+        escalate=True,
+        bandit_pick="ollama",
+        would_be_agent="ollama",
+        enabled=False,
+        escalation_strategy=EscalationStrategy.AGGRESSIVE_VERIFY.value,
+    )
+    final, flags = _gateway_escalation(r, "ollama", _FakeRegistry(["ollama"]))
+    assert final == "ollama"
+    assert flags["strict_verify"] is True
+
+
+def test_gateway_escalation_double_run_records_alt(tmp_path):
+    from backend.orchestrator.routing.bandit_router import BanditRouter
+    from backend.orchestrator.routing.composer import ComposedDecision
+    from backend.orchestrator.routing.decision_log import DecisionLogger
+    from backend.orchestrator.service.app import _gateway_escalation
+
+    r = BanditRouter(
+        strategy="linucb_per_bucket",
+        registry=None,
+        logger=DecisionLogger(db_path=tmp_path / "d.db"),
+        state_path=tmp_path / "state.json",
+    )
+    r._last_composed = ComposedDecision(
+        agent="ollama",
+        escalate=True,
+        bandit_pick="ollama",
+        would_be_agent="aider",
+        enabled=False,
+        escalation_strategy=EscalationStrategy.DOUBLE_RUN.value,
+    )
+    final, flags = _gateway_escalation(
+        r, "ollama", _FakeRegistry(["ollama", "aider"]),
+    )
+    assert final == "ollama"
+    assert flags.get("double_run_alt") == "aider"

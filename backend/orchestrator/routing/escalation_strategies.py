@@ -38,11 +38,15 @@ etc.) lives in `service/app.py` and consumes the strategy enum.
 """
 from __future__ import annotations
 
+import logging
 import os
+from dataclasses import dataclass, asdict
 from enum import Enum
-from typing import Optional
+from typing import Iterable, Optional
 
 from ..config import MahoragaConfig
+
+_log = logging.getLogger(__name__)
 
 
 class EscalationStrategy(str, Enum):
@@ -112,3 +116,139 @@ def select_strategy(
     if final_pick != bandit_pick:
         return EscalationStrategy.DOUBLE_RUN
     return EscalationStrategy.AGGRESSIVE_VERIFY
+
+
+CLAUDE_ADAPTER_NAME = "claude"
+
+
+@dataclass
+class EscalationAction:
+    """The result of applying an EscalationStrategy at the gateway.
+
+    `final_agent` is what the executor should actually run. May differ
+    from the input `selected_agent` when the strategy swapped it (the
+    only mutator today is CLAUDE_ESCALATION → "claude").
+
+    `flags` carries metadata the verifier / executor consume:
+      - "strict_verify": True for AGGRESSIVE_VERIFY → bumps the quality
+        pass threshold from default to 0.70 (per spec §A2).
+      - "double_run_alt": when DOUBLE_RUN fires, the alternative agent
+        the gateway WOULD execute alongside `final_agent` once parallel
+        execution lands. For now it's logged to telemetry only.
+
+    `reason` is a one-line human-readable explanation suitable for
+    log lines and dashboards.
+    """
+    final_agent: str
+    strategy: str
+    flags: dict
+    reason: str
+
+    def to_dict(self) -> dict:
+        return asdict(self)
+
+
+def _available_names(adapter_registry) -> set[str]:
+    """Best-effort introspection of the adapter registry to avoid swapping
+    to an agent that isn't actually loaded. Tolerates None / minimal
+    registry shapes used by tests."""
+    if adapter_registry is None:
+        return set()
+    if hasattr(adapter_registry, "all"):
+        try:
+            return {a.name for a in adapter_registry.all()}
+        except Exception:  # noqa: BLE001
+            return set()
+    if isinstance(adapter_registry, Iterable):
+        return {str(x) for x in adapter_registry}
+    return set()
+
+
+def apply_strategy(
+    *,
+    strategy: str,
+    selected_agent: str,
+    bandit_pick: Optional[str],
+    would_be_agent: Optional[str],
+    adapter_registry=None,
+) -> EscalationAction:
+    """Pure dispatcher consumed by service/app.py after route().
+
+    NONE → passthrough (no log, no flag).
+    CLAUDE → swap to "claude" if registered; else fall through to
+             DOUBLE_RUN (or AGGRESSIVE_VERIFY if no alternative).
+    DOUBLE_RUN → keep selected_agent, record `double_run_alt` flag for
+                 telemetry. Actual parallel execution is a future
+                 hook — the flag tells observability what would have
+                 run alongside.
+    AGGRESSIVE_VERIFY → keep selected_agent, set `strict_verify` flag
+                       so the verifier applies the 0.70 threshold.
+    """
+    s = (strategy or EscalationStrategy.NONE.value).strip()
+
+    if s == EscalationStrategy.NONE.value or s == "":
+        return EscalationAction(
+            final_agent=selected_agent,
+            strategy=EscalationStrategy.NONE.value,
+            flags={},
+            reason="no_escalation",
+        )
+
+    if s == EscalationStrategy.CLAUDE.value:
+        names = _available_names(adapter_registry)
+        if CLAUDE_ADAPTER_NAME in names:
+            return EscalationAction(
+                final_agent=CLAUDE_ADAPTER_NAME,
+                strategy=EscalationStrategy.CLAUDE.value,
+                flags={"swapped_from": selected_agent},
+                reason=f"claude_escalation: {selected_agent} → {CLAUDE_ADAPTER_NAME}",
+            )
+        # Claude not registered — fall through. Pick the next-best
+        # strategy: double_run if we have a composer alternative, else
+        # aggressive_verify. This keeps the gateway from breaking when
+        # ANTHROPIC_API_KEY is set in env but the adapter wasn't loaded.
+        _log.info(
+            "escalation: claude requested but adapter not registered; "
+            "falling through to %s",
+            "double_run" if (
+                would_be_agent and would_be_agent != selected_agent
+            ) else "aggressive_verify",
+        )
+        if would_be_agent and would_be_agent != selected_agent:
+            s = EscalationStrategy.DOUBLE_RUN.value
+        else:
+            s = EscalationStrategy.AGGRESSIVE_VERIFY.value
+
+    if s == EscalationStrategy.DOUBLE_RUN.value:
+        alt = would_be_agent if (
+            would_be_agent and would_be_agent != selected_agent
+        ) else None
+        flags = {"double_run_alt": alt} if alt else {}
+        # Without an alternative, double_run is degenerate — degrade.
+        if alt is None:
+            return EscalationAction(
+                final_agent=selected_agent,
+                strategy=EscalationStrategy.AGGRESSIVE_VERIFY.value,
+                flags={"strict_verify": True},
+                reason="double_run requested but no alternative; "
+                       "fell through to aggressive_verify",
+            )
+        return EscalationAction(
+            final_agent=selected_agent,
+            strategy=EscalationStrategy.DOUBLE_RUN.value,
+            flags=flags,
+            reason=f"double_run telemetry: would also run {alt}",
+        )
+
+    # AGGRESSIVE_VERIFY (the default fallback)
+    return EscalationAction(
+        final_agent=selected_agent,
+        strategy=EscalationStrategy.AGGRESSIVE_VERIFY.value,
+        flags={"strict_verify": True},
+        reason="aggressive_verify: strict quality threshold",
+    )
+
+
+# Quality threshold the verifier uses when strict_verify is set.
+# Spec §A2: "stricter threshold (e.g., quality ≥ 0.70)".
+STRICT_VERIFY_QUALITY_THRESHOLD = 0.70

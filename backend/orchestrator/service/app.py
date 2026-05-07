@@ -1,4 +1,5 @@
 from __future__ import annotations
+import asyncio
 import datetime
 import logging
 import time
@@ -48,6 +49,10 @@ from .executor import run_task as _run_task, pop_task_metrics
 from .run_executor import run_run as _run_run
 from ..planning.planner import generate_tasks, PlannerError
 from ..routing import BanditRouter, STRATEGIES, TaskOutcome
+from ..routing.escalation_strategies import (
+    EscalationStrategy,
+    apply_strategy as _apply_escalation_strategy,
+)
 from ..brain_logger import log_session_summary
 from ..routing.implicit_quality import ImplicitQualityTracker
 from ..store.eval_store import EvalStore
@@ -377,7 +382,60 @@ async def lifespan(app: FastAPI):
         bandit_router=_bandit_router,
     )
 
+    # A3 retrain lifespan hook. Gated by MAHORAGA_AUTO_RETRAIN so a fresh
+    # install doesn't spend startup time on retraining without explicit
+    # opt-in. Two triggers:
+    #   1. Startup staleness check (one-shot, in a background thread so
+    #      the FastAPI app boots without waiting for the trainer).
+    #   2. Periodic check every MAHORAGA_AUTO_RETRAIN_INTERVAL_S seconds
+    #      (default 1800 = 30 min) for the duration of the session.
+    # The mtime-based hot-swap in quality_predictor.get_model() means
+    # any new weights propagate to in-process callers automatically.
+    _retrain_task: asyncio.Task | None = None
+    if os.getenv("MAHORAGA_AUTO_RETRAIN", "").strip().lower() in ("1", "true", "yes", "on"):
+        from ..routing.quality_predictor import maybe_retrain as _maybe_retrain
+        _interval_s = int(
+            os.getenv("MAHORAGA_AUTO_RETRAIN_INTERVAL_S", "1800") or "1800"
+        )
+
+        def _retrain_once() -> None:
+            try:
+                result = _maybe_retrain()
+                _startup_logger.info(
+                    "auto_retrain: %s",
+                    {k: v for k, v in result.items() if k != "outcome"},
+                )
+            except Exception as exc:  # noqa: BLE001
+                _startup_logger.warning("auto_retrain failed: %s", exc)
+
+        async def _retrain_loop() -> None:
+            # First check at startup (in a thread so we don't block).
+            await asyncio.get_event_loop().run_in_executor(None, _retrain_once)
+            while True:
+                try:
+                    await asyncio.sleep(_interval_s)
+                except asyncio.CancelledError:
+                    return
+                await asyncio.get_event_loop().run_in_executor(None, _retrain_once)
+
+        _retrain_task = asyncio.create_task(_retrain_loop())
+        _startup_logger.info(
+            "auto_retrain: enabled (interval=%ds)", _interval_s,
+        )
+    else:
+        _startup_logger.info(
+            "auto_retrain: disabled (set MAHORAGA_AUTO_RETRAIN=1 to enable)"
+        )
+
     yield
+    # Cancel the retrain loop cleanly on shutdown so pytest event loops
+    # don't see a dangling task.
+    if _retrain_task is not None:
+        _retrain_task.cancel()
+        try:
+            await _retrain_task
+        except (asyncio.CancelledError, Exception):  # noqa: BLE001
+            pass
     try:
         log_session_summary(notes="Mahoraga backend shutdown")
     except Exception:
@@ -768,6 +826,47 @@ async def cost_summary(store: StoreDep, user_id: str = "web-user"):
 
 # ── In-memory session metrics (legacy — kept for chat SSE stream path) ────────
 _session_metrics = {"total_elapsed_s": 0.0, "total_tokens": 0, "task_count": 0}
+
+
+def _gateway_escalation(
+    router: "BanditRouter",
+    selected_agent: str,
+    adapter_registry: "AdapterRegistry",
+) -> tuple[str, dict]:
+    """A2 gateway hook: consume the composer's escalation_strategy and
+    return the (possibly-swapped) final agent + flags the executor /
+    verifier need.
+
+    Pure pass-through when:
+      - The composer didn't run (ComposedDecision is None).
+      - escalation_strategy is "none" (no escalate signal fired).
+      - The strategy's prerequisites aren't met (e.g. claude requested
+        but adapter isn't registered → falls through inside apply_strategy).
+
+    Returns (final_agent, flags_dict). flags can carry:
+      - "strict_verify": True when AGGRESSIVE_VERIFY fires.
+      - "double_run_alt": agent name for telemetry-only double-run hint.
+      - "swapped_from": original agent when CLAUDE swap happened.
+    """
+    composed = getattr(router, "_last_composed", None)
+    if composed is None:
+        return selected_agent, {}
+    strategy = getattr(composed, "escalation_strategy", EscalationStrategy.NONE.value)
+    if strategy == EscalationStrategy.NONE.value:
+        return selected_agent, {}
+    action = _apply_escalation_strategy(
+        strategy=strategy,
+        selected_agent=selected_agent,
+        bandit_pick=getattr(composed, "bandit_pick", None),
+        would_be_agent=getattr(composed, "would_be_agent", None),
+        adapter_registry=adapter_registry,
+    )
+    if action.final_agent != selected_agent or action.flags:
+        logging.getLogger(__name__).info(
+            "escalation gateway: %s (strategy=%s, flags=%s)",
+            action.reason, action.strategy, action.flags,
+        )
+    return action.final_agent, action.flags
 
 
 def _record_metrics(elapsed_s: float, tokens: int) -> None:
@@ -1477,11 +1576,17 @@ async def run_api_task(
     # When agent_override is set, log a synthetic decision row with
     # strategy="override" so bench analytics can still join via bench_run_id.
     t_route_start = _time.monotonic()
+    escalation_flags: dict = {}
     if req.agent_override:
         selected_agent = req.agent_override
         router.log_override(task, selected_agent, bench_run_id=req.bench_run_id)
     else:
         selected_agent = router.route(task, bench_run_id=req.bench_run_id)
+        # A2 gateway hook: consume composer's escalation_strategy.
+        # No-op when escalation_strategy=="none" or composer didn't run.
+        selected_agent, escalation_flags = _gateway_escalation(
+            router, selected_agent, adapter_reg,
+        )
     routing_time_ms = (_time.monotonic() - t_route_start) * 1000
     scores = router.strategy.get_scores()  # populated by route() above
 
@@ -1539,8 +1644,21 @@ async def run_api_task(
 
     bucket = _classify_bucket(req.prompt, hint=req.capability_hint)
     from ..routing.quality import score_quality_detailed as _score_quality_detailed
+    from ..routing.escalation_strategies import STRICT_VERIFY_QUALITY_THRESHOLD
     if success:
         quality_score, quality_components = await _score_quality_detailed(req.prompt, output, bucket)
+        # A2 aggressive_verify: when the gateway flagged strict verification,
+        # treat sub-threshold quality as a failure so the bandit's update
+        # reflects the stricter bar. Retry-with-alternative is future work;
+        # this gives the learning signal the spec's intent calls for.
+        if escalation_flags.get("strict_verify") and quality_score < STRICT_VERIFY_QUALITY_THRESHOLD:
+            logging.getLogger(__name__).info(
+                "aggressive_verify: quality=%.3f < %.2f threshold; "
+                "marking outcome as failed for bandit update",
+                quality_score, STRICT_VERIFY_QUALITY_THRESHOLD,
+            )
+            success = False
+            status = "failed"
     else:
         quality_score, quality_components = 0.0, None
 
@@ -1681,9 +1799,13 @@ async def run_batch(
 
     # Pre-route all tasks through bandit
     assignments: dict[str, str] = {}
+    escalation_meta: dict[str, dict] = {}
     hints: dict[str, str | None] = {}
     for task, item in zip(created, req.tasks):
-        assignments[task.id] = router.route(task)
+        agent = router.route(task)
+        agent, flags = _gateway_escalation(router, agent, adapter_reg)
+        assignments[task.id] = agent
+        escalation_meta[task.id] = flags
         hints[task.id] = item.capability_hint
 
     sequential_s = 0.0
@@ -1743,6 +1865,17 @@ async def run_batch(
         # Feed outcome back to bandit — same path as single-task endpoint
         if success:
             quality_score, quality_components = await _score_quality_detailed(task.goal, output, bucket)
+            # A2 aggressive_verify: stricter quality threshold flips
+            # success=False when below 0.70 (per spec). This gives the
+            # bandit a stronger negative signal on borderline outputs.
+            from ..routing.escalation_strategies import (
+                STRICT_VERIFY_QUALITY_THRESHOLD,
+            )
+            if escalation_meta.get(task.id, {}).get("strict_verify") and (
+                quality_score < STRICT_VERIFY_QUALITY_THRESHOLD
+            ):
+                success = False
+                status = "failed"
         else:
             quality_score, quality_components = 0.0, None
         outcome = TaskOutcome(

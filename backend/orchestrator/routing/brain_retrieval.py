@@ -34,6 +34,7 @@ from __future__ import annotations
 import logging
 import os
 import re
+import threading
 from dataclasses import dataclass, asdict
 from pathlib import Path
 from typing import Iterable, Optional
@@ -313,18 +314,27 @@ class BrainIndex:
 
 
 _SINGLETON: Optional[BrainIndex] = None
+_SINGLETON_LOCK = threading.Lock()
 
 
 def get_default_index(force_rebuild: bool = False) -> BrainIndex:
-    """Lazy-built process-wide BrainIndex. Rebuilt on demand."""
+    """Lazy-built process-wide BrainIndex. Rebuilt on demand.
+
+    Thread-safe under concurrent route() calls — without the lock two
+    requests landing on a fresh process would each trigger a full
+    rebuild (MiniLM model load + brain corpus walk + HNSW build).
+    """
     global _SINGLETON
-    if _SINGLETON is None or force_rebuild:
-        idx = BrainIndex()
-        idx.build()
-        _SINGLETON = idx
-    return _SINGLETON
+    with _SINGLETON_LOCK:
+        if _SINGLETON is None or force_rebuild:
+            idx = BrainIndex()
+            idx.build()
+            _SINGLETON = idx
+        return _SINGLETON
 
 
 def reset_default_index() -> None:
+    """Drop the cached index. Next get_default_index() will rebuild."""
     global _SINGLETON
-    _SINGLETON = None
+    with _SINGLETON_LOCK:
+        _SINGLETON = None

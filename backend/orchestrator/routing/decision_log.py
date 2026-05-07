@@ -195,6 +195,58 @@ class DecisionLogger:
             )
             self._conn.commit()
 
+    def log_implicit_outcome(
+        self,
+        task_id: Optional[str],
+        task_goal: str,
+        agent_name: str,
+        implicit_signal: float,
+    ) -> bool:
+        """Backfill outcome columns from an implicit retry/accept signal.
+
+        Implicit signals (5-min retry → 0.0, accept-without-change → 0.6)
+        carry less information than a full TaskOutcome, but they still
+        give A3 supervision data for free. We update only rows whose
+        success column is NULL — i.e. that haven't already been labelled
+        by an explicit log_outcome call. This is "first writer wins":
+        explicit observations always beat implicit ones.
+
+        Returns True if a row was updated, False if no matching unlabelled
+        decision was found.
+        """
+        with self._lock:
+            row = None
+            if task_id:
+                row = self._conn.execute(
+                    "SELECT id, selected_agent FROM decisions "
+                    "WHERE task_id = ? AND success IS NULL "
+                    "ORDER BY id DESC LIMIT 1",
+                    (task_id,),
+                ).fetchone()
+            if row is None:
+                row = self._conn.execute(
+                    "SELECT id, selected_agent FROM decisions "
+                    "WHERE task_goal = ? AND success IS NULL "
+                    "ORDER BY id DESC LIMIT 1",
+                    (task_goal,),
+                ).fetchone()
+            if row is None:
+                return False
+            # If the recorded agent doesn't match, don't bind the signal —
+            # the route() call may have picked a different agent than the
+            # one the implicit tracker is reporting on.
+            if row[1] and agent_name and row[1] != agent_name:
+                return False
+            success = 1 if implicit_signal >= 0.5 else 0
+            self._conn.execute(
+                "UPDATE decisions "
+                "SET success = ?, quality_score = ?, reward = ? "
+                "WHERE id = ?",
+                (success, float(implicit_signal), float(implicit_signal), row[0]),
+            )
+            self._conn.commit()
+            return True
+
     def log_outcome(self, task, outcome: TaskOutcome, reward: float) -> None:
         """Back-fill outcome columns on the most-recent decision for this task."""
         with self._lock:

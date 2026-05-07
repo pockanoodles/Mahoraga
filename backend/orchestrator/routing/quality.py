@@ -53,7 +53,15 @@ _EMBED_MODEL = "nomic-embed-text"
 _PLAN_LIKE_BUCKETS: frozenset[str] = frozenset({"plan"})
 
 # Buckets that expect code; structural check uses syntax/blocks instead of prose.
-_CODE_BUCKETS: frozenset[str] = frozenset({"code", "test", "refactor", "debug", "security"})
+# NOTE: "security" was previously in this set, but security answers are
+# almost always prose (CWE references, mitigation steps, threat-model
+# discussion) rather than code, so AST parsing always failed and every
+# agent's score plateaued at 0.65 (0.5 base + 0.05 parse-fail + 0.10
+# length bonus). The dedicated `_score_security` path below is structural
+# but prose-aware.
+_CODE_BUCKETS: frozenset[str] = frozenset({"code", "test", "refactor", "debug"})
+
+_SECURITY_BUCKETS: frozenset[str] = frozenset({"security"})
 
 # Expected response-to-prompt word ratio by bucket. Tunable; these are
 # conservative starting points that shouldn't hurt reasonable answers.
@@ -135,6 +143,76 @@ def _score_code(output: str) -> float:
     if "```" in output or re.search(r"^\s{4}", output, re.MULTILINE):
         score += 0.1
     return min(score, 1.0)
+
+
+# Security-specific structural signals. Empirically chosen to reward the
+# kinds of artefacts a thorough security answer contains: identifier
+# references (CWE/CVE), mitigation language, and explicit threat-model
+# structure. None of these alone is sufficient — they're additive so a
+# good answer collects multiple. Tuned to keep a plain prose answer
+# scoring near 0.5 (so non-security agents don't get penalised hard).
+
+_CWE_RE = re.compile(r"\bCWE[-\s]?\d{1,4}\b", re.IGNORECASE)
+_CVE_RE = re.compile(r"\bCVE[-\s]?\d{4}[-\s]?\d{1,7}\b", re.IGNORECASE)
+_MITIGATION_KEYWORDS = (
+    "sanitize", "sanitise", "validate", "escape", "parameteris", "parameteriz",
+    "least privilege", "principle of least", "defense in depth", "defence in depth",
+    "rate limit", "rate-limit", "encrypt", "tls", "ssl", "hash", "salt",
+    "csrf", "xss", "sql injection", "input validation", "output encoding",
+    "auth", "rbac", "acl", "permission", "audit log", "secrets management",
+    "key rotation", "patch", "fix", "remediat", "mitigat", "harden",
+)
+_THREAT_KEYWORDS = (
+    "threat model", "attack surface", "attacker", "adversar", "exploit",
+    "vulnerab", "risk", "impact", "exposure", "breach", "compromise",
+    "malicious", "untrusted", "boundary",
+)
+_SECURITY_HEADER_RE = re.compile(
+    r"^\s*#{1,4}\s*(threat|risk|mitigation|remediation|attack|vulnerab|exploit|countermeasure|recommendation)",
+    re.IGNORECASE | re.MULTILINE,
+)
+
+
+def _score_security(output: str) -> float:
+    """Structural quality for *prose* security answers.
+
+    Layers (each contributes a bounded amount; total clipped to 1.0):
+      - Base (0.40): non-empty + minimum-length prose.
+      - Identifier references (CWE/CVE), capped at +0.20.
+      - Mitigation/remediation language, capped at +0.20.
+      - Threat-model vocabulary, capped at +0.10.
+      - Explicit section structure (## Threat / ## Mitigation), +0.10.
+    """
+    text = output.strip()
+    if not text:
+        return 0.0
+    word_count = len(text.split())
+    if word_count < _MIN_WORDS:
+        return 0.10
+
+    score = 0.40
+    # Length is a soft prerequisite — short answers can't realistically
+    # cover threat-model + mitigation, so trim base for very short replies.
+    if word_count < 30:
+        score = 0.30
+
+    # CWE / CVE references — distinct identifiers count more than repeats.
+    cwes = {m.group(0).upper() for m in _CWE_RE.finditer(text)}
+    cves = {m.group(0).upper() for m in _CVE_RE.finditer(text)}
+    score += min(0.10, 0.05 * len(cwes))
+    score += min(0.10, 0.05 * len(cves))
+
+    lower = text.lower()
+    mitigation_hits = sum(1 for kw in _MITIGATION_KEYWORDS if kw in lower)
+    score += min(0.20, 0.04 * mitigation_hits)
+
+    threat_hits = sum(1 for kw in _THREAT_KEYWORDS if kw in lower)
+    score += min(0.10, 0.025 * threat_hits)
+
+    if _SECURITY_HEADER_RE.search(text):
+        score += 0.10
+
+    return round(min(score, 1.0), 4)
 
 
 def _score_prose_structural(output: str) -> float:
@@ -285,6 +363,8 @@ def score_heuristic(prompt: str, output: str, bucket: str = "general") -> float:
     """Synchronous heuristic score (no embedding call). Usable offline."""
     if bucket in _CODE_BUCKETS:
         return _score_code(output)
+    if bucket in _SECURITY_BUCKETS:
+        return _score_security(output)
 
     if not output.strip():
         return 0.0
@@ -311,6 +391,8 @@ async def score_quality_detailed(
     """
     if bucket in _CODE_BUCKETS:
         return round(_score_code(output), 4), None
+    if bucket in _SECURITY_BUCKETS:
+        return round(_score_security(output), 4), None
 
     if not output.strip():
         return 0.0, {"structural": 0.0, "novelty": 0.0, "not_plan": 0.0, "length": 0.0, "embed": None}

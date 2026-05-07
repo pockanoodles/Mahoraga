@@ -557,6 +557,102 @@ def paraphrase(
         )
 
 
+@app.command("bootstrap")
+def bootstrap(
+    tasks: int = typer.Option(200, "--tasks", "-n", help="Number of synthetic tasks to write"),
+    seed: int = typer.Option(42, "--seed", help="Random seed for reproducibility"),
+    strategy: str = typer.Option(
+        "linucb_per_bucket", "--strategy",
+        help="Bandit strategy to use (linucb, linucb_per_bucket, ucb1, thompson)",
+    ),
+    state_path: Optional[str] = typer.Option(
+        None, "--state-path",
+        help="Bandit state path (default: temp file — does not pollute ~/.mahoraga-v2/)",
+    ),
+    db_path: Optional[str] = typer.Option(
+        None, "--db",
+        help="Decisions DB path (default: ~/.mahoraga-v2/routing_decisions.db)",
+    ),
+    reset: bool = typer.Option(
+        False, "--reset",
+        help="Drop existing decisions DB before writing (use with caution).",
+    ),
+):
+    """Bootstrap routing_decisions.db with synthetic labelled rows.
+
+    Pipes the synthetic task pool through the *real* BanditRouter so that
+    log_decision + log_outcome populate the DB. Generates training data for
+    A3 (`orch quality train|eval`) without waiting for organic traffic.
+
+    Each task gets a TaskOutcome with success=True and quality_score derived
+    from the same oracle reward simulator `simulate` uses.
+    """
+    import random as _random
+    import tempfile
+    from pathlib import Path as _Path
+    import sqlite3 as _sqlite3
+
+    from backend.orchestrator.routing.bandit_router import BanditRouter
+    from backend.orchestrator.routing.decision_log import DecisionLogger
+    from backend.orchestrator.routing.reward import TaskOutcome
+    from backend.orchestrator.routing.strategies.static import classify_bucket
+    from backend.orchestrator.routing.context import TaskContext
+
+    _random.seed(seed)
+    db = _Path(db_path).expanduser() if db_path else _Path.home() / ".mahoraga-v2" / "routing_decisions.db"
+
+    if reset and db.exists():
+        # Clear *only* the decisions table; keep bench_runs intact.
+        with _sqlite3.connect(str(db)) as conn:
+            conn.execute("DELETE FROM decisions")
+        typer.echo(f"  [reset] cleared decisions in {db}")
+
+    sp = _Path(state_path) if state_path else _Path(tempfile.mkstemp(prefix="mahoraga_bootstrap_", suffix=".json")[1])
+
+    logger = DecisionLogger(db_path=db)
+    router = BanditRouter(
+        strategy=strategy,
+        registry=None,
+        logger=logger,
+        state_path=sp,
+    )
+
+    all_agents = ["ollama", "aider", "codex-cli", "gemini-cli"]
+
+    written = 0
+    correct = 0
+    bucket_counts: dict[str, int] = {}
+
+    for i in range(tasks):
+        spec = _SYNTHETIC_TASKS[i % len(_SYNTHETIC_TASKS)]
+        goal, _bucket_label, oracle_agent, latency_s, oracle_qual = spec
+        task_obj = _make_task(goal)
+        ctx = TaskContext.from_task(task_obj)
+        bucket = classify_bucket(ctx)
+        bucket_counts[bucket] = bucket_counts.get(bucket, 0) + 1
+
+        selected = router.route(task_obj, available_agents=all_agents)
+        reward = _simulated_reward(selected, oracle_agent, oracle_qual)
+        if selected == oracle_agent:
+            correct += 1
+
+        outcome = TaskOutcome(
+            success=True,
+            latency_s=latency_s,
+            cost_usd=0.001,
+            quality_score=reward,
+            agent_name=selected,
+        )
+        # observe() runs strategy.update + memory + logger.log_outcome.
+        router.observe(task_obj, outcome)
+        written += 1
+
+    win_rate = correct / max(1, tasks)
+    typer.echo(f"  wrote {written} rows  win_rate={win_rate:.1%}  strategy={strategy}")
+    typer.echo(f"  bucket distribution: {bucket_counts}")
+    typer.echo(f"  db: {db}")
+
+
 @app.command("refresh")
 def refresh(
     json_output: bool = typer.Option(False, "--json"),

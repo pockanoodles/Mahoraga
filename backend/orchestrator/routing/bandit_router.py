@@ -30,6 +30,8 @@ from .episodic_memory import EpisodicMemory, MEMORY_ALPHA
 from .decision_log import DecisionLogger
 from . import uncertainty as _uncertainty
 from . import brain_retrieval as _brain_retrieval
+from . import composer as _composer
+from . import quality_predictor as _quality_predictor
 from .strategies import (
     StaticRouter, UCB1Router, ThompsonSamplingRouter, LinUCBRouter,
     LinUCBPerBucketRouter,
@@ -241,6 +243,9 @@ class BanditRouter:
         self._brain_init_attempted: bool = False
         self._last_brain_hits: list[_brain_retrieval.BrainHit] = []
 
+        # Cross-axis composer: most-recent ComposedDecision (telemetry).
+        self._last_composed: Optional[_composer.ComposedDecision] = None
+
         # Load persisted bandit state if it exists
         if self.state_path.exists():
             try:
@@ -400,6 +405,38 @@ class BanditRouter:
             except Exception as exc:  # noqa: BLE001
                 _log.warning("brain retrieval failed: %s", exc)
 
+        # Cross-axis composer: combine A2/A3/A4 signals into one structured
+        # decision. Pass-through unless MAHORAGA_COMPOSER_ENABLED is set —
+        # but contributors / signals are recorded either way for shadow
+        # telemetry. A3 predictions are looked up only if a trained model
+        # exists on disk (lazy via quality_predictor.get_model()).
+        try:
+            a3_predictions: Optional[dict[str, float]] = None
+            qmodel = _quality_predictor.get_model()
+            if qmodel is not None:
+                hc = context.to_vector()
+                a3_predictions = {
+                    a: qmodel.predict_proba(hc, a) for a in available
+                }
+            self._last_composed = _composer.compose_decision(
+                bandit_pick=agent,
+                available=available,
+                uncertainty=self._last_uncertainty,
+                a3_predictions=a3_predictions,
+                brain_hits=self._last_brain_hits or None,
+            )
+            # If the composer is enabled AND it overrode the pick, honour it.
+            if self._last_composed.enabled and self._last_composed.agent != agent:
+                _log.info(
+                    "composer overrode bandit pick: %s → %s (%s)",
+                    agent, self._last_composed.agent,
+                    [a["kind"] for a in self._last_composed.adjustments],
+                )
+                agent = self._last_composed.agent
+        except Exception as exc:  # noqa: BLE001
+            _log.warning("composer failed: %s", exc)
+            self._last_composed = None
+
         self.logger.log_decision(
             task=task,
             context=context,
@@ -514,11 +551,28 @@ class BanditRouter:
         self.state_path.parent.mkdir(parents=True, exist_ok=True)
         self.strategy.save_state(str(self.state_path))
 
+        # Backfill the corresponding decision row's outcome columns IF it
+        # hasn't already been labelled explicitly. This is what unblocks
+        # A3 (`orch quality train`) on real organic traffic — without it
+        # the only labels in the decisions DB came from explicit observe()
+        # calls, which only fire on full task completion.
+        try:
+            updated = self.logger.log_implicit_outcome(
+                task_id=task_id,
+                task_goal=task_goal,
+                agent_name=agent_name,
+                implicit_signal=implicit_signal,
+            )
+        except Exception as exc:  # noqa: BLE001
+            _log.warning("log_implicit_outcome failed: %s", exc)
+            updated = False
+
         _log.debug(
-            "implicit reward applied: agent=%s signal=%.2f task_id=%s",
+            "implicit reward applied: agent=%s signal=%.2f task_id=%s db_updated=%s",
             agent_name,
             implicit_signal,
             task_id,
+            updated,
         )
 
     def set_strategy(self, name: str) -> None:
@@ -564,6 +618,9 @@ class BanditRouter:
                 ),
                 "last_hits": [h.to_dict() for h in self._last_brain_hits],
             },
+            "composer": (
+                self._last_composed.to_dict() if self._last_composed else None
+            ),
         }
 
     def get_last_uncertainty(self) -> Optional[_uncertainty.UncertaintyHint]:

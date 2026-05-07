@@ -394,27 +394,46 @@ def evaluate(
 
 
 _loaded_model: Optional[QualityModel] = None
+_loaded_model_mtime: Optional[float] = None
 
 
 def get_model(path: Path = QUALITY_PREDICTOR_PATH) -> Optional[QualityModel]:
-    """Lazy-load the persisted predictor. Returns None if absent."""
-    global _loaded_model
-    if _loaded_model is not None:
-        return _loaded_model
-    if not Path(path).exists():
+    """Lazy-load the persisted predictor.
+
+    The cache invalidates automatically when the file's mtime changes,
+    so an out-of-band `orch quality train` from another process doesn't
+    leave a long-running service stuck on stale weights.
+
+    Returns None if the file is absent or corrupt.
+    """
+    global _loaded_model, _loaded_model_mtime
+    p = Path(path)
+    if not p.exists():
+        _loaded_model = None
+        _loaded_model_mtime = None
         return None
     try:
-        _loaded_model = QualityModel.load(path)
+        mtime = p.stat().st_mtime
+    except OSError as exc:
+        _log.warning("quality_predictor: stat failed on %s (%s)", path, exc)
+        return _loaded_model
+    if _loaded_model is not None and _loaded_model_mtime == mtime:
+        return _loaded_model
+    try:
+        _loaded_model = QualityModel.load(p)
+        _loaded_model_mtime = mtime
     except (json.JSONDecodeError, KeyError, ValueError) as exc:
         _log.warning("quality_predictor: failed to load %s (%s)", path, exc)
         _loaded_model = None
+        _loaded_model_mtime = None
     return _loaded_model
 
 
 def reset_loaded_model() -> None:
     """Clear the in-process cache (used after a fresh `orch quality train`)."""
-    global _loaded_model
+    global _loaded_model, _loaded_model_mtime
     _loaded_model = None
+    _loaded_model_mtime = None
 
 
 def predict_proba(handcraft: np.ndarray, agent: str) -> Optional[float]:

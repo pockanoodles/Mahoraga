@@ -130,6 +130,18 @@ def _render_text(snap: HealthSnapshot) -> str:
         f"importance_weight: n={iw.n}, overrides={iw.n_overrides}, "
         f"mean={_fmt(iw.mean, 3)}, range=[{_fmt(iw.min, 3)}, {_fmt(iw.max, 3)}]"
     )
+
+    # ── F1 Budget Pacer ──────────────────────────────────────────────────────
+    bp = snap.budget_pacer
+    if bp.n_observed is not None:
+        warn = "  ⚠ over ceiling" if bp.over_ceiling else ""
+        lines.append(
+            f"budget: avg=${_fmt(bp.avg_cost, 4)}/task  ceiling=${_fmt(bp.ceiling, 4)}  "
+            f"hard_limit=${_fmt(bp.hard_limit, 4)}  λ={_fmt(bp.lambda_, 4)}  "
+            f"n={bp.n_observed}{warn}"
+        )
+    else:
+        lines.append("budget: pacer not yet observed any tasks")
     return "\n".join(lines)
 
 

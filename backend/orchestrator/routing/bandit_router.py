@@ -33,6 +33,7 @@ from . import brain_retrieval as _brain_retrieval
 from . import composer as _composer
 from . import quality_predictor as _quality_predictor
 from . import policy_correction as _policy_correction
+from .budget_pacer import BUDGET_PACER_STATE_PATH, BudgetPacer
 from .strategies import (
     StaticRouter, UCB1Router, ThompsonSamplingRouter, LinUCBRouter,
     LinUCBPerBucketRouter,
@@ -244,9 +245,17 @@ class BanditRouter:
         self.logger = logger or DecisionLogger()
         self.state_path = Path(state_path)
 
+        # F1 budget pacer: persists across restarts so rolling-average
+        # state survives FastAPI reloads. Loaded BEFORE the reward calc
+        # so the calc gets the populated pacer reference at construction.
+        self._budget_pacer = BudgetPacer.load()
+
         # Layer 2: OLS reward weight learner
         self._learner = RewardWeightLearner(state_path=self.state_path)
-        self.reward_calc = RewardCalculator(learner=self._learner)
+        self.reward_calc = RewardCalculator(
+            learner=self._learner,
+            pacer=self._budget_pacer,
+        )
 
         # Layer 3: episodic memory — stored in the same dir as bandit_state.json
         self._memory = EpisodicMemory(state_dir=self.state_path.parent)
@@ -345,6 +354,15 @@ class BanditRouter:
                 available = free_available
         elif _mode == "quality_first":
             pass  # bandit selects freely — cost weight in reward function handles this naturally
+
+        # F1 budget pacer hard-limit filter. Estimates per-task cost from
+        # adapter capabilities (or 0 for unknowns) and removes any agent
+        # whose estimate exceeds the hard limit. Falls back to the
+        # cheapest agent if everything would be filtered — guard rail
+        # never starves the bandit of a choice.
+        if self._budget_pacer is not None and self.registry is not None:
+            cost_estimates = self._estimate_agent_costs(task, available)
+            available = self._budget_pacer.filter_agents(available, cost_estimates)
 
         # Query episodic memory for similarity-weighted reward biases.
         # Mode, α, and confidence-weighting are resolved per-call so env/config
@@ -638,6 +656,14 @@ class BanditRouter:
             reward=reward, mode=memory_mode,
         )
 
+        # F1 budget pacer: feed observed cost into the rolling window
+        # and run one dual-ascent step. Persists alongside bandit state.
+        try:
+            self._budget_pacer.update(outcome.cost_usd)
+            self._budget_pacer.save()
+        except Exception as exc:  # noqa: BLE001
+            _log.warning("budget_pacer update/save failed: %s", exc)
+
         # Persist bandit state after every update
         self.state_path.parent.mkdir(parents=True, exist_ok=True)
         self.strategy.save_state(str(self.state_path))
@@ -748,6 +774,10 @@ class BanditRouter:
             "composer": (
                 self._last_composed.to_dict() if self._last_composed else None
             ),
+            "budget_pacer": (
+                self._budget_pacer.to_status_dict()
+                if self._budget_pacer is not None else None
+            ),
         }
 
     def get_last_uncertainty(self) -> Optional[_uncertainty.UncertaintyHint]:
@@ -780,6 +810,32 @@ class BanditRouter:
             )
             self._brain_index = None
         return self._brain_index
+
+    def _estimate_agent_costs(
+        self, task: Any, agent_names: list[str],
+    ) -> dict[str, float]:
+        """Per-agent USD cost estimates for the F1 hard-limit filter.
+
+        Asks each adapter for its `estimate_cost(task)`. Adapters that
+        can't be reached or that lack a Task-shaped object return 0.0.
+        Defensive: never raises into route()."""
+        out: dict[str, float] = {}
+        if self.registry is None:
+            return out
+        for name in agent_names:
+            try:
+                adapter = self.registry.get(name)
+            except Exception:  # noqa: BLE001
+                adapter = None
+            if adapter is None:
+                out[name] = 0.0
+                continue
+            try:
+                est = adapter.estimate_cost(task)
+                out[name] = float(getattr(est, "estimated_cost_usd", 0.0))
+            except Exception:  # noqa: BLE001
+                out[name] = 0.0
+        return out
 
     def _stash_route_meta(self, key: str, meta: dict[str, Any]) -> None:
         """Bounded FIFO store. Drops oldest entries past the cap."""

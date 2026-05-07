@@ -20,6 +20,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from .budget_pacer import BudgetPacer
     from .reward_learner import RewardWeightLearner
 
 
@@ -73,11 +74,23 @@ class RewardCalculator:
     over time as task observations accumulate (OLS fit after 100 samples/bucket).
     """
 
-    def __init__(self, learner: RewardWeightLearner | None = None) -> None:
+    def __init__(
+        self,
+        learner: RewardWeightLearner | None = None,
+        pacer: "BudgetPacer | None" = None,
+    ) -> None:
         self._learner = learner
+        self._pacer = pacer
 
     def compute(self, outcome: TaskOutcome) -> float:
-        """Return reward in [0.0, 1.0].  Returns 0.0 on failure."""
+        """Return reward in [0.0, 1.0].  Returns 0.0 on failure.
+
+        F1 budget pacer: when attached, λ inflates the cost weight via
+        `pacer.cost_weight_adjustment`. Effect: as rolling-average cost
+        approaches the ceiling, the cost penalty grows, pushing the
+        bandit toward cheaper agents without ever fully blocking
+        quality optimisation.
+        """
         if not outcome.success:
             return 0.0
 
@@ -85,6 +98,9 @@ class RewardCalculator:
             w_s, w_q, w_sp, w_c = self._learner.get_weights(outcome.bucket)
         else:
             w_s, w_q, w_sp, w_c = BUCKET_WEIGHTS.get(outcome.bucket, BUCKET_WEIGHTS["general"])
+
+        if self._pacer is not None:
+            w_c = w_c + self._pacer.cost_weight_adjustment
 
         phi_speed = math.exp(-_SPEED_LAMBDA * outcome.latency_s / _SPEED_T_REF)
         phi_cost  = 1.0 - math.tanh(outcome.cost_usd / _COST_REF)
@@ -102,3 +118,7 @@ class RewardCalculator:
     def attach_learner(self, learner: RewardWeightLearner) -> None:
         """Attach or replace the weight learner at runtime."""
         self._learner = learner
+
+    def attach_pacer(self, pacer: "BudgetPacer") -> None:
+        """Attach or replace the budget pacer at runtime."""
+        self._pacer = pacer

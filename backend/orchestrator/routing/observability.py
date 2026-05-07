@@ -124,11 +124,28 @@ class ImportanceWeightStats:
 
 
 @dataclass
+class BudgetPacerSnapshot:
+    """F1 budget pacer status, read from the persisted state file.
+
+    None when the pacer state file doesn't exist (fresh install or
+    pacer not yet observed any tasks)."""
+    ceiling: Optional[float]
+    hard_limit: Optional[float]
+    window: Optional[int]
+    lambda_: Optional[float]
+    avg_cost: Optional[float]
+    n_observed: Optional[int]
+    headroom: Optional[float]
+    over_ceiling: Optional[bool]
+
+
+@dataclass
 class HealthSnapshot:
     """Full read-only view of Mahoraga's current routing health.
 
-    Everything derived from `routing_decisions.db`. Consumers should
-    treat this as immutable; re-call to get an updated snapshot.
+    Everything derived from `routing_decisions.db` + side-state files
+    (currently the budget pacer JSON). Consumers should treat this as
+    immutable; re-call to get an updated snapshot.
     """
     timestamp: str
     db_path: str
@@ -144,6 +161,7 @@ class HealthSnapshot:
     brain: BrainStats
     a3: A3Stats
     importance_weight: ImportanceWeightStats
+    budget_pacer: BudgetPacerSnapshot
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -362,6 +380,39 @@ def _a3_stats(conn: sqlite3.Connection) -> A3Stats:
     )
 
 
+def _budget_pacer_snapshot() -> BudgetPacerSnapshot:
+    """Read the persisted F1 budget pacer state. Decoupled from the
+    decisions DB because pacer state lives in its own JSON file —
+    this lets `orch metrics live` show the same numbers the live
+    server uses without going through the in-process router."""
+    from .budget_pacer import BUDGET_PACER_STATE_PATH, BudgetPacer
+    if not BUDGET_PACER_STATE_PATH.exists():
+        return BudgetPacerSnapshot(
+            ceiling=None, hard_limit=None, window=None,
+            lambda_=None, avg_cost=None, n_observed=None,
+            headroom=None, over_ceiling=None,
+        )
+    try:
+        pacer = BudgetPacer.load(BUDGET_PACER_STATE_PATH)
+    except Exception:  # noqa: BLE001
+        return BudgetPacerSnapshot(
+            ceiling=None, hard_limit=None, window=None,
+            lambda_=None, avg_cost=None, n_observed=None,
+            headroom=None, over_ceiling=None,
+        )
+    s = pacer.to_status_dict()
+    return BudgetPacerSnapshot(
+        ceiling=s["ceiling"],
+        hard_limit=s["hard_limit"],
+        window=s["window"],
+        lambda_=s["lambda"],
+        avg_cost=s["avg_cost"],
+        n_observed=s["n_observed"],
+        headroom=s["headroom"],
+        over_ceiling=s["over_ceiling"],
+    )
+
+
 def _importance_weight_stats(conn: sqlite3.Connection) -> ImportanceWeightStats:
     """Distribution of importance weights — most should be 1.0 (no
     override). The fraction < 1.0 tells you how often the composer
@@ -427,6 +478,7 @@ def compute_health_snapshot(
             brain=_brain_stats(conn),
             a3=_a3_stats(conn),
             importance_weight=_importance_weight_stats(conn),
+            budget_pacer=_budget_pacer_snapshot(),
         )
         return snap
     finally:
@@ -465,4 +517,5 @@ def _empty_snapshot(db_path: str) -> HealthSnapshot:
         importance_weight=ImportanceWeightStats(
             n=0, n_overrides=0, mean=None, min=None, max=None,
         ),
+        budget_pacer=_budget_pacer_snapshot(),
     )

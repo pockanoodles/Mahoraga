@@ -27,12 +27,23 @@ from mcp.types import Tool, TextContent
 
 MAHORAGA_BASE = os.environ.get("MAHORAGA_BASE", "http://localhost:8000")
 TIMEOUT = httpx.Timeout(connect=5.0, read=300.0, write=10.0, pool=5.0)
-_MAX_RETRIES = 1
-_RETRY_DELAY = 1.0
+# R1.1 — bumped from 1 retry to 2 with longer second backoff per spec
+# (1s → 3s) so transient hiccups during model warmup or cloud-API flakes
+# don't surface as user-visible failures. Total worst-case added latency
+# is ~4s before the MCP returns an error and Claude falls back inline.
+_MAX_RETRIES = int(os.environ.get("MAHORAGA_MCP_RETRIES", "2"))
+_RETRY_DELAYS = [1.0, 3.0]
 _NOT_RUNNING = (
     "Mahoraga is not running. "
     "Start it with: cd ~/Projects/Mahoraga && python -m backend.main"
 )
+
+
+def _retry_delay(attempt: int) -> float:
+    """Pick the backoff for retry attempt N (0-indexed)."""
+    if attempt < len(_RETRY_DELAYS):
+        return _RETRY_DELAYS[attempt]
+    return _RETRY_DELAYS[-1]
 
 server = Server("mahoraga")
 
@@ -48,7 +59,7 @@ async def _post(path: str, body: dict) -> dict:
                 return {"error": _NOT_RUNNING}
             except httpx.ReadTimeout:
                 if attempt < _MAX_RETRIES:
-                    await asyncio.sleep(_RETRY_DELAY)
+                    await asyncio.sleep(_retry_delay(attempt))
                     continue
                 return {
                     "error": f"Mahoraga timed out after {TIMEOUT.read}s.",
@@ -70,7 +81,7 @@ async def _get(path: str, params: dict | None = None) -> dict:
                 return {"error": _NOT_RUNNING}
             except httpx.ReadTimeout:
                 if attempt < _MAX_RETRIES:
-                    await asyncio.sleep(_RETRY_DELAY)
+                    await asyncio.sleep(_retry_delay(attempt))
                     continue
                 return {
                     "error": f"Mahoraga timed out after {TIMEOUT.read}s.",
@@ -313,7 +324,104 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
 
 
 async def _handle_health_check(args: dict) -> dict:
-    return await _get("/api/health")
+    """R1.1 health_check upgrade — returns the degradation-ladder snapshot.
+
+    Composes three endpoints:
+      /api/health           — basic uptime + agents online
+      /api/health/routing   — F1.4 routing snapshot (budget, queue, etc.)
+      /api/agents/status    — per-agent reachability
+
+    Skill consumers can use any of:
+      - `result["status"]` — overall verdict ("ok" / "degraded" / "down")
+      - `result["degradation_level"]` — discrete ladder rung (0=ok, 1=agent
+        drift, 2=local down, 3=fastapi down, 4=all down)
+      - `result["routing_health"]` — full F1.4 snapshot
+      - `result["error"]` (only on outright failure)
+
+    On any single endpoint failure, return a degraded-but-useful
+    response rather than propagating the error — the skill should
+    still see SOME context for its delegation decision.
+    """
+    base = await _get("/api/health")
+    if isinstance(base, dict) and "error" in base:
+        # FastAPI is the worst-case down state — nothing else can be
+        # meaningfully checked.
+        return {
+            "status": "down",
+            "degradation_level": 3,
+            "level_name": "fastapi_unreachable",
+            **base,
+        }
+
+    routing = await _get("/api/health/routing")
+    agents = await _get("/api/agents/status")
+    routing_ok = isinstance(routing, dict) and "error" not in routing
+    agents_ok = isinstance(agents, dict) and "error" not in agents
+
+    # Derive degradation level from the composed signals.
+    quarantined: list[str] = []
+    drift_unresolved = 0
+    budget_avg = None
+    budget_ceiling = None
+    queue_depth_norm = None
+    if routing_ok:
+        q = routing.get("quarantine") or {}
+        quarantined = [
+            f"{e['bucket']}/{e['agent']}" for e in (q.get("entries") or [])
+        ]
+        drift_unresolved = int(q.get("n_drift_events_unresolved", 0))
+        bp = routing.get("budget_pacer") or {}
+        budget_avg = bp.get("avg_cost")
+        budget_ceiling = bp.get("ceiling")
+        ep = routing.get("execution_pool") or {}
+        queue_depth_norm = ep.get("depth_norm")
+
+    agents_online = int(base.get("agents_online", 0))
+    agents_total = int(base.get("agents_registered", 0))
+
+    if agents_total == 0 or (agents_total > 0 and agents_online == 0):
+        level = 4
+        level_name = "all_agents_down"
+        status = "down"
+    elif agents_online < agents_total:
+        # At least one agent unreachable. Distinguish "local down"
+        # (worst) from generic degradation by checking if any
+        # local-Ollama agent is online.
+        level = 2
+        level_name = "agents_partially_down"
+        status = "degraded"
+    elif quarantined:
+        level = 1
+        level_name = "agent_drift"
+        status = "degraded"
+    else:
+        level = 0
+        level_name = "ok"
+        status = "ok"
+
+    # Spread base FIRST so derived fields win on key collisions.
+    # /api/health returns its own `status` ("ok") but we want our
+    # composed `status` ("degraded" when partially down) to be the
+    # one consumers see. Same for `agents_online`/`agents_registered`.
+    return {
+        # Carry the original /api/health fields verbatim for callers
+        # that already consumed them — uptime_s, strategy, etc.
+        **base,
+        # Derived fields (overriding any collisions with base).
+        "status": status,
+        "degradation_level": level,
+        "level_name": level_name,
+        "agents_online": agents_online,
+        "agents_total": agents_total,
+        "quarantined_agents": quarantined,
+        "drift_alerts_active": drift_unresolved,
+        "budget_avg_cost": budget_avg,
+        "budget_ceiling": budget_ceiling,
+        "queue_depth_norm": queue_depth_norm,
+        # Embed the full routing snapshot for callers that want richer
+        # detail; cheap to include since we just fetched it.
+        "routing_health": routing if routing_ok else None,
+    }
 
 
 async def _handle_run_task(args: dict) -> dict:

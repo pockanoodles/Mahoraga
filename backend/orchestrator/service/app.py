@@ -1620,8 +1620,28 @@ async def run_api_task(
     # Transition task to ready so executor can pick it up
     await store.tasks.update_status(task.id, TaskStatus.ready)
 
+    # F2.2: double-run — create alt task before the clock starts so both
+    # tasks can be saved and ready before asyncio.gather fires.
+    alt_agent: str | None = (
+        escalation_flags.get("double_run_alt") if not req.agent_override else None
+    )
+    alt_task = None
+    if alt_agent:
+        _alt_adapter = adapter_reg.get(alt_agent)
+        if _alt_adapter:
+            alt_task = Task.new(run_id=run.id, title=task.title, goal=task.goal)
+            alt_task = dataclasses.replace(
+                alt_task, preferred_worker_type=_alt_adapter.worker_id
+            )
+            await store.tasks.save(alt_task)
+            await store.tasks.update_status(alt_task.id, TaskStatus.ready)
+            router.log_override(alt_task, alt_agent)
+        else:
+            alt_agent = None
+
     t0 = _time.monotonic()
     _run_task_exc: Exception | None = None
+    _alt_exc: Exception | None = None
     # F2: route execution through the global ExecutionPool so concurrent
     # /api/run/.../execute calls share the same concurrency cap as
     # batch tasks. The pool also feeds queue_depth_norm into the next
@@ -1632,23 +1652,47 @@ async def run_api_task(
         resolve_task_timeout as _resolve_task_timeout,
     )
     _pool = _get_default_pool()
-    try:
-        async with _pool.acquire(selected_agent):
+    _timeout = _resolve_task_timeout()
+
+    async def _exec_agent(task_id: str, agent: str) -> None:
+        async with _pool.acquire(agent):
             await asyncio.wait_for(
-                _run_task(task.id, store, registry, verifier),
-                timeout=_resolve_task_timeout(),
+                _run_task(task_id, store, registry, verifier), timeout=_timeout
             )
-    except asyncio.TimeoutError as exc:
-        _run_task_exc = exc
-        logging.getLogger(__name__).warning(
-            "/api/task: _run_task timed out (>%ds) for %s",
-            int(_resolve_task_timeout()), task.id,
+
+    if alt_task is not None:
+        # Run primary + alt concurrently; collect exceptions without raising.
+        _dr = await asyncio.gather(
+            _exec_agent(task.id, selected_agent),
+            _exec_agent(alt_task.id, alt_agent),
+            return_exceptions=True,
         )
-    except Exception as exc:
-        _run_task_exc = exc
-        logging.getLogger(__name__).exception(
-            "/api/task: _run_task raised for %s", task.id
-        )
+        if isinstance(_dr[0], Exception):
+            _run_task_exc = _dr[0]
+            logging.getLogger(__name__).warning(
+                "/api/task: primary run failed in double_run for %s: %s",
+                task.id, _dr[0],
+            )
+        if isinstance(_dr[1], Exception):
+            _alt_exc = _dr[1]
+            logging.getLogger(__name__).warning(
+                "/api/task: alt run failed in double_run for %s: %s",
+                alt_task.id, _dr[1],
+            )
+    else:
+        try:
+            await _exec_agent(task.id, selected_agent)
+        except asyncio.TimeoutError as exc:
+            _run_task_exc = exc
+            logging.getLogger(__name__).warning(
+                "/api/task: _run_task timed out (>%ds) for %s",
+                int(_timeout), task.id,
+            )
+        except Exception as exc:
+            _run_task_exc = exc
+            logging.getLogger(__name__).exception(
+                "/api/task: _run_task raised for %s", task.id
+            )
     wall_time_ms = (_time.monotonic() - t0) * 1000
     elapsed = round(wall_time_ms / 1000, 2)
 
@@ -1695,6 +1739,55 @@ async def run_api_task(
             status = "failed"
     else:
         quality_score, quality_components = 0.0, None
+
+    # F2.2: score alt output and pick the winner when double-run fired.
+    # Both outcomes are fed to the bandit so we learn from two agents per task.
+    _double_run_winner: str | None = None
+    if alt_task is not None and _alt_exc is None:
+        _alt_task_result = await store.tasks.get(alt_task.id)
+        _alt_artifacts = await store.artifacts.list_by_task(alt_task.id)
+        _alt_output = next(
+            (a.location.get("content", "") for a in _alt_artifacts if a.type == "text_output"),
+            "",
+        )
+        _alt_success = (
+            _alt_task_result is not None
+            and _alt_task_result.status == TaskStatus.completed
+        )
+        if _alt_success:
+            _alt_quality, _alt_components = await _score_quality_detailed(
+                req.prompt, _alt_output, bucket
+            )
+        else:
+            _alt_quality, _alt_components = 0.0, None
+        _alt_outcome = TaskOutcome(
+            success=_alt_success,
+            latency_s=elapsed,
+            cost_usd=0.0,
+            quality_score=_alt_quality,
+            agent_name=alt_agent,
+            bucket=bucket,
+            spawn_time_ms=0.0,
+        )
+        try:
+            router.observe(alt_task, _alt_outcome)
+        except Exception:
+            logging.getLogger(__name__).exception(
+                "double_run: alt observe failed for %s", alt_task.id
+            )
+        if _alt_success and _alt_quality > quality_score:
+            logging.getLogger(__name__).info(
+                "double_run winner: %s (%.3f) beat %s (%.3f)",
+                alt_agent, _alt_quality, selected_agent, quality_score,
+            )
+            output = _alt_output
+            quality_score = _alt_quality
+            quality_components = _alt_components
+            success = True
+            status = "success"
+            _double_run_winner = alt_agent
+        else:
+            _double_run_winner = selected_agent
 
     # Always update the bandit — even on failure — so the decision row gets a
     # reward and the selected agent is penalized for the failure.
@@ -1778,6 +1871,8 @@ async def run_api_task(
             "ucb_score": ucb_score,
             "exploration": exploration_flag,
             "runner_up": runner_up,
+            "double_run_alt": alt_agent,
+            "double_run_winner": _double_run_winner,
         },
     }
 

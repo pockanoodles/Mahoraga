@@ -25,6 +25,22 @@ app = typer.Typer(
     no_args_is_help=True,
 )
 
+
+@app.command("serve")
+def serve(
+    host: str = typer.Option("127.0.0.1", "--host", help="Bind host"),
+    port: int = typer.Option(8000, "--port", "-p", help="Bind port"),
+    reload: bool = typer.Option(False, "--reload", help="Enable auto-reload (dev mode)"),
+) -> None:
+    """Start the Mahoraga FastAPI server."""
+    import uvicorn
+    uvicorn.run(
+        "backend.orchestrator.service.app:app",
+        host=host,
+        port=port,
+        reload=reload,
+    )
+
 app.add_typer(mission_app, name="mission")
 app.add_typer(plan_app, name="plan")
 app.add_typer(run_app, name="run")

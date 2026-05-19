@@ -2,7 +2,7 @@
 
 > **You are looking at the `v2` branch.** Active development of semantic-augmented routing. See [`docs/semantic-routing.md`](docs/semantic-routing.md) for the design spec. The stable v1 release is on the [`main` branch](https://github.com/pockanoodles/Mahoraga/tree/main).
 
-An online bandit routing engine for heterogeneous AI agents. Local-first, research-capable, learns from every task.
+An online bandit routing engine for heterogeneous AI agents. Local-first — local models are the default tier, not the fallback. Learns from every task.
 *Mahoraga analyzes, adapts, and overcomes.*
 
 ![Python 3.12](https://img.shields.io/badge/python-3.12-blue)
@@ -58,7 +58,7 @@ Within each bucket, a **LinUCB contextual bandit** selects the agent.
 | 6 | `has_error_keywords` | Error/exception/traceback presence — debug-capable agents get an edge |
 | 7 | `has_creation_keywords` | Create/build/scaffold language — generative agents favoured |
 | 8 | `has_research_keywords` | Explain/compare/summarise language — Gemini and Goose favoured |
-| 9 | `queue_depth_norm` | Reserved — always 0.0 in current implementation; placeholder for queue-depth routing |
+| 9 | `queue_depth_norm` | Live pool depth from ExecutionPool, normalized by `max_concurrent` — congested pools bias toward fast local agents |
 
 Per agent, the bandit maintains **A** (9×9 covariance) and **b** (9×1 reward accumulator). At selection time:
 
@@ -66,11 +66,12 @@ Per agent, the bandit maintains **A** (9×9 covariance) and **b** (9×1 reward a
 UCB_a = x'θ_a + α√(x' A_a⁻¹ x)    where θ_a = A_a⁻¹ b_a
 ```
 
-Three learning layers run in parallel:
+Four learning layers run in parallel:
 
 - **dLinUCB (γ=0.98)** — discounted updates handle non-stationarity as agents improve or degrade over time
 - **Reward Learner** — OLS fits per-bucket reward weights after 100 observations; well-calibrated priors before convergence; simplex projection prevents weight collapse
 - **Episodic Memory** — HNSW index (hnswlib) over past context vectors; k=10 nearest-neighbour rewards bias selection at α=0.20; FIFO cap at 10k episodes
+- **Double-Run** — when enabled, two candidate agents execute in parallel; the winner is selected by quality score and both outcomes feed the bandit as separate episodes, halving the exploration cost per task
 
 The composite reward: `r = w₁·success + w₂·quality + w₃·speed + w₄·cost` where weights are per-bucket and learnable. A spawn penalty deducts from reward when `agent_spawn_time_ms > 500` — the bandit learns to favour already-warm agents on low-memory hardware.
 
@@ -89,6 +90,14 @@ Outcomes: pass → stream response; retry → same worker with feedback context;
 ### Warm Start
 
 On first startup, if `~/.mahoraga-v2/compatibility_matrix.json` exists (from `orch benchmark simulate --save-matrix`), the bandit injects pseudo-observations instead of cold-starting from zero. Based on PILOT (Panda et al., EMNLP 2025) — reduces early exploration waste. New agents added at runtime are average-initialised from existing arm matrices, ensuring moderate exploration without a regret spike.
+
+### Execution Control
+
+An `ExecutionPool` semaphore caps concurrent tasks at `max_concurrent` (default: 8). Each task slot decrement is reflected immediately in `queue_depth_norm` so the bandit sees live congestion before selecting an agent. Tasks that exceed their timeout (per-agent, per-bucket) are cancelled and the attempt is counted as a failure.
+
+A **budget pacer** enforces a soft cost ceiling per task using a Lagrange multiplier λ. If `avg_cost > ceiling`, λ rises and high-cost agents (codex-cli, claude escalation) are penalised in the reward. A hard per-task limit exists as a backstop — tasks that would exceed it are rejected before dispatch.
+
+**Drift detection and auto-quarantine** monitor each agent's reward distribution against a per-bucket baseline. When an agent's rolling mean drops more than 2σ below expectation, it is quarantined: the bandit stops routing to it and a probe sequence begins. On recovery the agent re-enters the pool with a reduced exploration bonus. This happens automatically, with no manual intervention.
 
 ---
 
@@ -206,6 +215,47 @@ GEMINI_API_KEY=...             # Gemini CLI
 
 ---
 
+## Monitoring
+
+The routing health dashboard reads `routing_decisions.db` directly — no server required.
+
+```bash
+orch metrics live              # one-shot snapshot with colors and alert banner
+orch metrics live --watch 30   # auto-refresh every 30 seconds
+orch metrics live --tail 20    # show more recent decisions in the tail
+orch metrics snapshot | jq .   # raw JSON — pipe to jq for specific fields
+```
+
+What it shows: rolling reward windows (100 / 500 / all-time), per-agent win rates, quarantine state, budget pacer status, escalation counts, composer shadow delta, and a chronological tail of recent decisions with per-row outcome and latency.
+
+For raw counts without the server:
+
+```bash
+sqlite3 ~/.mahoraga-v2/routing_decisions.db \
+  "SELECT COUNT(*) total, COUNT(reward) with_outcome FROM decisions;"
+
+sqlite3 ~/.mahoraga-v2/routing_decisions.db \
+  "SELECT selected_agent, COUNT(*) n, ROUND(AVG(reward),3) avg_reward \
+   FROM decisions GROUP BY selected_agent ORDER BY n DESC;"
+```
+
+---
+
+## MCP Server
+
+Mahoraga exposes itself as an MCP server, allowing Claude Code (or any MCP client) to route subtasks through the bandit at runtime.
+
+Key tools:
+- `run_task` — dispatch a single task with optional `capability_hint` to skip keyword classification
+- `run_batch` — dispatch multiple independent tasks; Mahoraga serializes those with file conflicts
+- `routing_stats` — live bandit state: arm counts, rewards, quarantine status
+- `agent_status` — health-check all registered agents
+- `switch_strategy` — hot-swap the routing strategy (linucb / thompson / ucb1 / static)
+
+The `/mahoraga` skill in Claude Code toggles routing on/off. When on, subtasks that can be expressed as self-contained prompts route to open-source agents (Qwen, Aider, Gemini CLI, Goose, OpenCode) instead of Claude Code subagents. The bandit picks the actual worker — `capability_hint` bypasses the keyword classifier and routes directly into the right UCB arm.
+
+---
+
 ## Adapter Interface
 
 Any agent that implements `AgentAdapter` is automatically registered and routed to:
@@ -232,17 +282,50 @@ The `AdapterRegistry` scores all registered adapters by `capability_confidence �
 
 ---
 
-## Agent Roster
+## Agent Pool
 
-| Agent | What It Is | Capability Buckets | Cost |
-|-------|-----------|-------------------|------|
-| ollama | Local Qwen3 4B via Ollama | general, plan, explain | Free |
-| codex-cli | OpenAI Codex CLI subprocess | code, refactor, test, explain | API cost |
-| aider | git-native multi-file editor | refactor, code, test | Free (Ollama default) / API cost |
-| gemini-cli | Google Gemini CLI | code, explain, research, general | Free tier (Flash) |
-| goose | Block's open-source agent | research, general, explain | Free/API (provider-dependent) |
-| opencode | sst/opencode, multi-provider | code, refactor, test, explain, general | Free/API |
-| claude | Anthropic API (escalation) | code, general, plan, explain, refactor, test | Per-token |
+The agent pool is defined in [`agents.yaml`](agents.yaml) at the project root. Edit the file and restart `orch serve` — no Python required. Setting `enabled: false` removes an agent from the pool without losing its bandit history in the DB.
+
+Capability confidence values in the YAML are warm-start priors. The bandit overwrites them from real routing data as it accumulates.
+
+**Five active arms (mid-2026):**
+
+| Agent | What It Is | Primary buckets | Cost |
+|-------|-----------|-----------------|------|
+| `ollama:qwen3.5` | Qwen3.5 9.7B Q4_K_M via Ollama | code, refactor, general | Free |
+| `ollama:gemma4-e4b` | Gemma 4 E4B via Ollama | plan, research, review | Free |
+| `gemini-cli` | Google Gemini CLI | research, explain, long-context | Free tier (1K req/day, 1M ctx) |
+| `codex-cli` | OpenAI Codex CLI | code, refactor, test | Free tier |
+| `claude` | Anthropic API | all buckets — escalation only | Per-token |
+
+The two local arms are competitive, not a compromise tier. Qwen3.5 9B Q4_K_M beats cloud agents on code and refactor in benchmark data. Gemma covers plan and research with different strengths, giving the bandit a real local choice before it considers cloud. Claude only enters when the budget pacer allows and the verifier has already failed on a cheaper agent.
+
+Each Ollama model spawns four workers internally (planner / fast / coder / general role prompts). The bandit arm is per-model — role selection happens below the bandit in the gateway.
+
+Disabled arms (`aider`, `opencode`, `goose`, `deepseek-r1`, `lfm2`) remain in `agents.yaml` with notes on why and what would re-enable them.
+
+---
+
+## CLI Reference
+
+All commands are under `orch`:
+
+| Command | What it does |
+|---------|-------------|
+| `orch serve` | Start the FastAPI server at localhost:8000 |
+| `orch status [run_id]` | Show active runs or a specific run |
+| `orch metrics live` | Routing health dashboard |
+| `orch metrics snapshot` | One-shot JSON health dump |
+| `orch run ...` | Submit a task or mission |
+| `orch replay <episode_id>` | Re-run a stored episode against current agents |
+| `orch analyze <run_id>` | Post-hoc analysis of a completed run |
+| `orch brain journal` | Write a session journal entry |
+| `orch quarantine list` | Show quarantined agents |
+| `orch budget status` | Show budget pacer state |
+| `orch eval ...` | Run quality evaluation on an output |
+| `orch benchmark simulate` | Strategy comparison over synthetic tasks |
+
+Run any command with `--help` for options.
 
 ---
 
@@ -263,7 +346,7 @@ Run `orch benchmark` with no arguments to see all subcommands.
 
 ## Known Limitations
 
-**Sequential execution.** Tasks run one at a time. The dependency resolution machinery exists (tasks have `ready`/`pending` status) but the executor doesn't fan out concurrently yet. `asyncio.gather` is the planned fix.
+**No general fan-out.** General task execution is still sequential. Double-run executes two agents in parallel for a single task, but independent tasks in a plan don't fan out concurrently yet. The ExecutionPool semaphore and dependency graph are in place; the executor scheduler isn't.
 
 **Single-user.** No session isolation. The bandit state, routing decisions, and episodic memory are global. Multi-user deployments would need per-session bandit instances.
 
@@ -273,7 +356,7 @@ Run `orch benchmark` with no arguments to see all subcommands.
 
 **Quality scoring is heuristic-only.** No LLM-as-judge. The 4-layer scorer (novelty ratio, structural checks, embedding similarity, length-to-bucket fit) works well enough for routing decisions but can't catch subtle correctness issues. This is a deliberate cost tradeoff — zero API cost for quality signal.
 
-**Congestion-aware routing is wired but inactive.** `queue_depth_norm` (context feature 9) exists in the feature vector but is always 0.0 since tasks run sequentially. It becomes meaningful once parallel execution is implemented.
+**Counterfactual estimation not yet active.** The composer shadow telemetry is recorded and the infrastructure exists, but k-NN counterfactual reward estimation (F3) requires ~500 decisions to be meaningful. It activates automatically once the DB reaches that threshold.
 
 ---
 

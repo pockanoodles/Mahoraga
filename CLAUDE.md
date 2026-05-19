@@ -20,7 +20,7 @@ Agent-agnostic LLM orchestration framework with online bandit routing. FastAPI b
 
 ## Key Architecture
 - Two-stage routing: keyword classifier → capability bucket → LinUCB bandit picks agent within bucket
-- 9-dimensional context vector (`routing/context.py`); feature 9 (`queue_depth_norm`) is always 0.0 (reserved)
+- 9-dimensional context vector (`routing/context.py`); feature 9 (`queue_depth_norm`) is live pool depth from ExecutionPool
 - dLinUCB (γ=0.98): discounted updates in `routing/strategies/linucb.py` `update()`
 - Composite reward: success/quality/speed/cost (per-bucket weights, learnable via OLS)
 - Spawn penalty fires when `agent_spawn_time_ms > 500`
@@ -33,10 +33,11 @@ Agent-agnostic LLM orchestration framework with online bandit routing. FastAPI b
 - `orch benchmark lab` — forced round-robin with quality scoring (8 agents × 24 prompts)
 
 ## Agents
-ollama:qwen3-4b (local), ollama:gemma4-e4b, ollama:lfm2, ollama:deepseek-r1, codex-cli, aider, gemini-cli, goose, opencode, claude (escalation only)
+Active (5 arms): ollama:qwen3.5 (9.7B Q4_K_M, local default), ollama:gemma4-e4b (local alt), gemini-cli (free cloud, research), codex-cli (free cloud, code), claude (escalation only)  
+Disabled in agents.yaml: aider, opencode, goose, deepseek-r1 (viable at 32GB+), lfm2 (superseded)
 
 ## Hardware
-MacBook Pro (Nov 2024), M-series, 16 GB unified memory. Qwen3 4B Q4_K_M at 33.8 t/s, LFM2 at 77.1 t/s.
+MacBook Pro (Nov 2024), M-series, 16 GB unified memory. Qwen3.5 9.7B Q4_K_M at ~30 t/s on Apple Silicon.
 
 ## Brain / Journal
 

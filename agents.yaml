@@ -1,0 +1,138 @@
+# agents.yaml — Mahoraga agent pool configuration
+#
+# Add, remove, or retune agents here. No Python required.
+# Restart `orch serve` to apply changes.
+#
+# Capability confidence values are warm-start priors fed to the LinUCB bandit.
+# The bandit overwrites these from real routing data as it accumulates —
+# values here only matter for cold-start exploration.
+#
+# enabled: false removes the agent from the pool on next restart.
+# Bandit history for disabled agents is preserved in routing_decisions.db.
+
+ollama:
+  base_url: "http://localhost:11434"  # override with OLLAMA_BASE_URL env var
+  roles: [planner, fast, coder, general]  # every model gets one worker per role
+  models:
+    - id: qwen3.5
+      model: qwen3.5:latest           # 9.7B Q4_K_M, 262K context, ~6.6 GB
+      max_ctx: 131072
+      warm: true                      # pre-warm at startup
+      extra_payload: {think: false}
+      capabilities:
+        code: 0.88
+        refactor: 0.85
+        general: 0.82
+        plan: 0.80
+        explain: 0.78
+
+    - id: gemma4-e4b
+      model: gemma4:e4b               # 9.6 GB — different strengths from Qwen
+      max_ctx: 131072
+      extra_payload: {think: false}
+      capabilities:
+        general: 0.88
+        plan: 0.85
+        research: 0.82
+        review: 0.78
+        explain: 0.80
+
+    - id: granite4.1-8b
+      model: granite4.1:8b            # IBM, ~5 GB — tool calling, structured output, long context
+      max_ctx: 131072
+      capabilities:
+        code: 0.82
+        test: 0.85
+        refactor: 0.83
+        review: 0.85
+        debug: 0.80
+
+    # ── Disabled arms ─────────────────────────────────────────────────────────
+    # deepseek-r1: unblocks at 32GB (123s avg latency on 16GB)
+    - id: deepseek-r1
+      model: deepseek-r1:8b
+      max_ctx: 131072
+      enabled: false
+      options: {temperature: 0.6}
+      capabilities:
+        code: 0.78
+        research: 0.85
+        review: 0.88
+        security: 0.88
+
+    # lfm2: superseded by 9B tier — speed advantage gone
+    - id: lfm2
+      model: maternion/lfm2:8b-a1b
+      max_ctx: 32768
+      enabled: false
+      options: {temperature: 0.3, min_p: 0.15, repeat_penalty: 1.05}
+      capabilities:
+        plan: 0.72
+        general: 0.68
+
+# ── Cloud/CLI agents ───────────────────────────────────────────────────────────
+
+claude:
+  enabled: true
+  model: claude-sonnet-4-6
+  worker_id: claude:sonnet
+  # Escalation only — budget pacer gates routing here.
+  # Requires ANTHROPIC_API_KEY. Silently skipped if absent.
+  capabilities:
+    code: 0.95
+    general: 0.95
+    plan: 0.95
+    explain: 0.95
+    refactor: 0.90
+    test: 0.90
+
+codex:
+  enabled: true
+  # Sandboxed single-file code execution.
+  # Requires: npm install -g @openai/codex + OPENAI_API_KEY
+  capabilities:
+    code: 0.90
+    refactor: 0.85
+    test: 0.82
+    explain: 0.70
+
+gemini:
+  enabled: true
+  # 1,000 free requests/day, 1M token context — research and long-context tasks.
+  # Set GEMINI_API_KEY for higher rate limits.
+  capabilities:
+    research: 0.88
+    explain: 0.85
+    general: 0.80
+    code: 0.78
+
+# ── Disabled CLI agents ────────────────────────────────────────────────────────
+
+aider:
+  enabled: false
+  model_env: AIDER_MODEL
+  model_default: ollama_chat/qwen3:4b
+  # Cut: slow spawn, operational overhead. Codex CLI covers the same niche
+  # more cleanly. Re-enable if the task distribution shows >10% multi-file
+  # git refactors and codex isn't handling them.
+  capabilities:
+    refactor: 0.90
+    code: 0.70
+    test: 0.70
+
+opencode:
+  enabled: false
+  # Cut: overlaps with codex-cli. LSP integration is interesting but not
+  # enough differentiation to justify a 6th arm slowing convergence.
+  capabilities:
+    code: 0.92
+    refactor: 0.88
+    test: 0.82
+
+goose:
+  enabled: false
+  # Cut: overlaps gemini-cli without the free-tier volume advantage.
+  capabilities:
+    research: 0.85
+    general: 0.82
+    explain: 0.78

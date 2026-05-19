@@ -18,6 +18,7 @@ from .commands.quarantine import app as quarantine_app
 from .commands.replay import app as replay_app
 from .commands.analyze import app as analyze_app
 from .commands import ops
+from .commands.service import app as service_app
 
 app = typer.Typer(
     name="orch",
@@ -60,6 +61,8 @@ app.add_typer(replay_app, name="replay")
 app.add_typer(analyze_app, name="analyze")
 
 # Flat commands
+app.add_typer(service_app, name="service")
+
 app.command("status")(ops.status)
 app.command("events")(ops.events)
 app.command("approve")(ops.approve)

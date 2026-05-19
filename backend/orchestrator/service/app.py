@@ -28,22 +28,8 @@ import anthropic
 from ..verifier.verifier import Verifier
 from ..config import ENABLED_BACKENDS, MahoragaConfig, get_workdir
 from ..workers.claude import ClaudeWorker
-from ..workers.ollama import OllamaWorker
-from ..workers.codex import CodexWorker
-from ..workers.aider import AiderWorker
-from ..workers.opencode import OpenCodeWorker
-from ..workers.gemini import GeminiWorker
-from ..workers.goose import GooseWorker
 from ..workers.registry import WorkerRegistry
-from ..adapters.base import AgentCapability
 from ..adapters.registry import AdapterRegistry
-from ..adapters.ollama_adapter import OllamaAdapter
-from ..adapters.claude_adapter import ClaudeAdapter
-from ..adapters.codex_adapter import CodexAdapter
-from ..adapters.aider_adapter import AiderAdapter
-from ..adapters.opencode_adapter import OpenCodeAdapter
-from ..adapters.gemini_adapter import GeminiCLIAdapter
-from ..adapters.goose_adapter import GooseAdapter
 from .approvals import grant_approval, reject_approval
 from .executor import run_task as _run_task, pop_task_metrics
 from .run_executor import run_run as _run_run
@@ -174,169 +160,45 @@ async def lifespan(app: FastAPI):
                 return VerificationResult(score=0, passed=False, feedback="empty or trivial output", action="retry")
             return VerificationResult(score=10, passed=True, feedback="", action="pass")
 
+    # ── Verifier setup ────────────────────────────────────────────────────────
     if "claude" in ENABLED_BACKENDS:
         api_key = os.getenv("ANTHROPIC_API_KEY")
-        if api_key:
-            _registry.register(ClaudeWorker(api_key=api_key))  # claude:sonnet
-            if os.getenv("ENABLE_OPUS", "0") == "1":
-                _registry.register(ClaudeWorker(
-                    api_key=api_key,
-                    model="claude-opus-4-6",
-                    worker_id="claude:opus",
-                    capabilities=["complex_reasoning", "deep_reasoning", "general"],
-                ))
-            _verifier = Verifier(client=anthropic.Anthropic(api_key=api_key))
-        else:
-            _verifier = _PassthroughVerifier()
+        _verifier = (
+            Verifier(client=anthropic.Anthropic(api_key=api_key))
+            if api_key else _PassthroughVerifier()
+        )
     else:
         _verifier = _PassthroughVerifier()
 
-    # ── Register Ollama workers + adapters ───────────────────────────────────
-    # Four models, four role-prompts each = 16 workers. Each adapter is one
-    # bandit arm; role resolves below the bandit in gateway._resolve_worker_id.
+    # ── Agent pool from agents.yaml ───────────────────────────────────────────
+    # Edit agents.yaml at the project root to add, remove, or retune agents.
+    # No Python required — restart orch serve to apply changes.
     _config = MahoragaConfig()
-    ollama_url = _config.get("ollama_base_url") or "http://localhost:11434"
-    _ROLES = ("planner", "fast", "coder", "general")
-
-    _OLLAMA_MODELS: list[dict] = [
-        {
-            "name": "ollama:qwen3-4b",
-            "model": "qwen3:4b-q4_K_M",
-            "max_ctx": 131072,
-            "options": None,
-            "extra_payload": {"think": False},
-            "warm": True,
-        },
-        {
-            "name": "ollama:gemma4-e4b",
-            "model": "gemma4:e4b",
-            "max_ctx": 131072,
-            "options": None,
-            "extra_payload": {"think": False},
-            "warm": False,
-        },
-        {
-            "name": "ollama:deepseek-r1",
-            "model": "deepseek-r1:8b",
-            "max_ctx": 131072,
-            "options": {"temperature": 0.6},
-            # R1 thinks unconditionally; don't try to suppress it.
-            "extra_payload": {},
-            "warm": False,
-        },
-        {
-            "name": "ollama:lfm2",
-            "model": "maternion/lfm2:8b-a1b",
-            "max_ctx": 32768,  # hard cap — LFM2 spec
-            "options": {"temperature": 0.3, "min_p": 0.15, "repeat_penalty": 1.05},
-            "extra_payload": {},
-            "warm": False,
-        },
-    ]
-
-    _first_workers: list[OllamaWorker] = []
-    for spec in _OLLAMA_MODELS:
-        for role in _ROLES:
-            w = OllamaWorker(
-                model=spec["model"],
-                worker_id=f"{spec['name']}:{role}",
-                base_url=ollama_url,
-                options=spec["options"],
-                extra_payload=spec["extra_payload"],
-                max_ctx=spec["max_ctx"],
-            )
-            _registry.register(w)
-        if spec["warm"]:
-            # Pre-warm the qwen3 baseline — stays loaded for the session.
-            _first_workers.append(OllamaWorker(
-                model=spec["model"],
-                worker_id=f"{spec['name']}:general",
-                base_url=ollama_url,
-                options=spec["options"],
-                extra_payload=spec["extra_payload"],
-                max_ctx=spec["max_ctx"],
-            ))
-    import asyncio as _asyncio
-    for w in _first_workers:
-        _asyncio.ensure_future(w.warm())
-
-    # ── CWD for file-writing workers ──────────────────────────────────────────
+    from ..adapters.loader import load_agent_pool
     _workdir = get_workdir()
+    _pool_workers, _pool_adapters = load_agent_pool(
+        workdir=_workdir,
+        ollama_url_override=_config.get("ollama_base_url") or None,
+    )
+    for w in _pool_workers:
+        _registry.register(w)
 
-    # ── Register Codex CLI worker ─────────────────────────────────────────────
-    _codex_worker = CodexWorker(cwd=_workdir)
-    _registry.register(_codex_worker)
-
-    # ── Register Aider worker ─────────────────────────────────────────────────
-    # aider CLI doesn't recognize Ollama quant suffixes (`-q4_K_M`); use base tag.
-    _aider_model = os.getenv("AIDER_MODEL", "ollama_chat/qwen3:4b")
-    _aider_worker = AiderWorker(model=_aider_model, cwd=_workdir)
-    _registry.register(_aider_worker)
-
-    # ── Register OpenCode worker ──────────────────────────────────────────────
-    _opencode_worker = OpenCodeWorker()
-    _registry.register(_opencode_worker)
-
-    # ── Register Gemini CLI worker ────────────────────────────────────────────
-    _gemini_worker = GeminiWorker()
-    _registry.register(_gemini_worker)
-
-    # ── Register Goose worker ─────────────────────────────────────────────────
-    _goose_worker = GooseWorker()
-    _registry.register(_goose_worker)
+    # Opus: opt-in via ENABLE_OPUS=1, intentionally absent from agents.yaml
+    # (escalation-only; not a default bandit arm)
+    if "claude" in ENABLED_BACKENDS and os.getenv("ENABLE_OPUS") == "1":
+        _opus_key = os.getenv("ANTHROPIC_API_KEY")
+        if _opus_key:
+            _registry.register(ClaudeWorker(
+                api_key=_opus_key,
+                model="claude-opus-4-6",
+                worker_id="claude:opus",
+                capabilities=["complex_reasoning", "deep_reasoning", "general"],
+            ))
 
     # ── Build AdapterRegistry ─────────────────────────────────────────────────
     _adapter_registry = AdapterRegistry()
-    # One adapter per Ollama model. Capability profile per §5.4 of the
-    # new-agents spec: narrow for LFM2 (speed specialist, Liquid AI explicitly
-    # recommends against code/security/review), broad for Gemma (quality
-    # generalist), reasoning-heavy for DeepSeek-R1.
-    _OLLAMA_ADAPTER_CAPS = {
-        "ollama:qwen3-4b": [
-            AgentCapability("general", 0.90),
-            AgentCapability("plan",    0.85),
-            AgentCapability("explain", 0.80),
-        ],
-        "ollama:gemma4-e4b": [
-            AgentCapability("general",  0.88),
-            AgentCapability("plan",     0.82),
-            AgentCapability("research", 0.82),
-            AgentCapability("review",   0.75),
-            AgentCapability("explain",  0.80),
-        ],
-        "ollama:deepseek-r1": [
-            AgentCapability("code",     0.78),
-            AgentCapability("research", 0.85),
-            AgentCapability("review",   0.88),
-            AgentCapability("refactor", 0.82),
-            AgentCapability("security", 0.88),
-            AgentCapability("test",     0.80),
-        ],
-        "ollama:lfm2": [
-            AgentCapability("plan",     0.72),
-            AgentCapability("general",  0.68),
-            AgentCapability("research", 0.65),
-        ],
-    }
-    for spec in _OLLAMA_MODELS:
-        _adapter_registry.register(OllamaAdapter(
-            model=spec["model"],
-            ollama_base_url=ollama_url,
-            name=spec["name"],
-            worker_id=f"{spec['name']}:general",
-            capabilities=_OLLAMA_ADAPTER_CAPS[spec["name"]],
-        ))
-    if "claude" in ENABLED_BACKENDS and os.getenv("ANTHROPIC_API_KEY"):
-        _adapter_registry.register(ClaudeAdapter(
-            api_key=os.getenv("ANTHROPIC_API_KEY"),
-            model="claude-sonnet-4-6",
-            worker_id="claude:sonnet",
-        ))
-    _adapter_registry.register(CodexAdapter())
-    _adapter_registry.register(AiderAdapter(model=_aider_model))
-    _adapter_registry.register(OpenCodeAdapter())
-    _adapter_registry.register(GeminiCLIAdapter())
-    _adapter_registry.register(GooseAdapter())
+    for a in _pool_adapters:
+        _adapter_registry.register(a)
 
     logger = logging.getLogger(__name__)
     for adapter in _adapter_registry.all():

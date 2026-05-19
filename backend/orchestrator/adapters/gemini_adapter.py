@@ -26,9 +26,11 @@ class GeminiCLIAdapter(AgentAdapter):
         self,
         binary_path: str = "gemini",
         model: str | None = None,
+        capabilities: list[AgentCapability] | None = None,
     ) -> None:
         self._binary = binary_path
         self._model = model  # None → gemini picks default (usually 2.0-flash on free tier)
+        self._capabilities = capabilities if capabilities is not None else _CAPABILITIES
 
     @property
     def name(self) -> str:
@@ -40,7 +42,7 @@ class GeminiCLIAdapter(AgentAdapter):
 
     @property
     def capabilities(self) -> list[AgentCapability]:
-        return _CAPABILITIES
+        return self._capabilities
 
     def estimate_cost(self, task: "Task") -> CostEstimate:
         model = (self._model or "flash").lower()

@@ -25,9 +25,11 @@ class AiderAdapter(AgentAdapter):
         self,
         binary_path: str = "aider",
         model: str = "ollama_chat/qwen3:4b",
+        capabilities: list[AgentCapability] | None = None,
     ) -> None:
         self._binary = binary_path
         self._model = model
+        self._capabilities = capabilities if capabilities is not None else _CAPABILITIES
 
     @property
     def name(self) -> str:
@@ -39,7 +41,7 @@ class AiderAdapter(AgentAdapter):
 
     @property
     def capabilities(self) -> list[AgentCapability]:
-        return _CAPABILITIES
+        return self._capabilities
 
     def estimate_cost(self, task: "Task") -> CostEstimate:
         if "ollama" in self._model.lower():

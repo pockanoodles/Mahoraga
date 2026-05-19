@@ -27,9 +27,11 @@ class OpenCodeAdapter(AgentAdapter):
         self,
         binary_path: str = "opencode",
         model: str | None = None,
+        capabilities: list[AgentCapability] | None = None,
     ) -> None:
         self._binary = binary_path
         self._model = model
+        self._capabilities = capabilities if capabilities is not None else _CAPABILITIES
 
     @property
     def name(self) -> str:
@@ -41,7 +43,7 @@ class OpenCodeAdapter(AgentAdapter):
 
     @property
     def capabilities(self) -> list[AgentCapability]:
-        return _CAPABILITIES
+        return self._capabilities
 
     def estimate_cost(self, task: "Task") -> CostEstimate:
         model = (self._model or "").lower()

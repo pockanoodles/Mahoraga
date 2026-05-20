@@ -73,11 +73,11 @@ ollama:
 # ── Cloud/CLI agents ───────────────────────────────────────────────────────────
 
 claude:
-  enabled: true
+  enabled: false
   model: claude-sonnet-4-6
   worker_id: claude:sonnet
-  # Escalation only — budget pacer gates routing here.
-  # Requires ANTHROPIC_API_KEY. Silently skipped if absent.
+  # Disabled for v2 local-only phase. Re-enable for escalation testing.
+  # Unexplored arms inflate UCB and steal routes from trained local arms.
   capabilities:
     code: 0.95
     general: 0.95
@@ -87,9 +87,9 @@ claude:
     test: 0.90
 
 codex:
-  enabled: true
-  # Sandboxed single-file code execution.
-  # Requires: npm install -g @openai/codex + OPENAI_API_KEY
+  enabled: false
+  # Re-enable when OPENAI_API_KEY is set and npm install -g @openai/codex is done.
+  # Disabled: unexplored arms inflate UCB and steal routes from trained local arms.
   capabilities:
     code: 0.90
     refactor: 0.85
@@ -97,9 +97,9 @@ codex:
     explain: 0.70
 
 gemini:
-  enabled: true
-  # 1,000 free requests/day, 1M token context — research and long-context tasks.
-  # Set GEMINI_API_KEY for higher rate limits.
+  enabled: false
+  # Re-enable when GEMINI_API_KEY is set.
+  # Disabled: same reason as codex — unexplored arm problem.
   capabilities:
     research: 0.88
     explain: 0.85

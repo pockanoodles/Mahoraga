@@ -35,9 +35,10 @@ routing_decisions.db (SQLite, ~/.mahoraga-v2/)
 ## Bandit state
 
 - Strategy: `linucb_per_bucket` (per-bucket disjoint A/b matrices, γ=0.98 global decay)
-- State file: `~/.mahoraga-v2/bandit_state.json` — starts fresh (no prior state)
-- Real traffic: 1 task as of 2026-05-20 (decision #251, `code_generation` bucket, reward 0.8001)
-- Synthetic benchmark data: 250 decisions in DB from prior simulation runs
+- State file: `~/.mahoraga-v2/bandit_state.json` — **clean reset as of 2026-05-20**
+- Decisions DB: `~/.mahoraga-v2/routing_decisions.db` — **clean reset as of 2026-05-20**
+- All three arms at equal cold-start priors (UCB=3.72, identical). Will diverge from real traffic.
+- Backups of pre-reset state at `~/.mahoraga-v2/*.bak`
 
 ## Infrastructure
 
@@ -57,12 +58,10 @@ qwen3:14b            9.3 GB  ← STALE, remove with: ollama rm qwen3:14b
 
 ## Next steps (in order)
 
-### 1. Clean stale model
-```bash
-ollama rm qwen3:14b
-```
+### 1. ~~Clean stale model~~ ✅ done
+### 2. ~~`orch benchmark lab`~~ ✅ done (also found + fixed unexplored-arm UCB inflation bug)
 
-### 2. `orch benchmark lab` — feed the bandit real data
+### Next: let real traffic train the bandit
 Forces all 3 arms through real Ollama calls with quality scoring.
 Without this, the bandit has 1 real data point and can't differentiate arms.
 Run from project root:
@@ -113,8 +112,16 @@ never verified against our 3-arm roster. After benchmark lab run:
 | `~/.mahoraga-v2/routing_decisions.db` | All routing decisions + rewards |
 | `~/.mahoraga-v2/bandit_state.json` | Persisted A/b matrices per bucket |
 
-## Known issues
+## Known issues / lessons
 
-- `qwen3:14b` (9.3 GB) still in Ollama — not in roster, wastes disk
-- Cross-bucket routing unverified with real traffic — only `code_generation` tested
-- `_DEFAULT_PRIORS` equal across all 3 arms (by design, for pure cold-start exploration) — will diverge naturally with data
+- **Never use `--mode force-explore` to seed the bandit.** Force-explore trains some arms and leaves others cold — creates UCB inflation asymmetry. If seeding is needed, use `inject_pseudo_obs` or run bandit mode.
+- Cross-bucket routing unverified with real traffic — only tested via routing probe
+- `_DEFAULT_PRIORS` equal across all 3 arms (by design, pure cold-start exploration) — will diverge naturally
+
+## What we learned from the bench run (2026-05-20)
+
+Even though the bench data was wiped from the bandit matrices (clean reset), the quality signal is informative:
+- **granite4.1-8b** won 6/7 buckets — best avg reward, especially plan (0.874) and research (0.833)
+- **qwen3.5** narrowly beat granite on code only (0.782 vs 0.776)
+- **gemma4-e4b** underperformed across the board — lowest reward in every bucket
+The bandit will rediscover this naturally from real traffic.

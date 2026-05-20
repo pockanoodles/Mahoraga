@@ -205,7 +205,7 @@ async def lifespan(app: FastAPI):
         logger.info("adapter registered: %s", adapter.name)
 
     _bandit_router = BanditRouter(
-        strategy="linucb",
+        strategy="linucb_per_bucket",
         registry=_adapter_registry,
     )
 

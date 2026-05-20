@@ -46,15 +46,14 @@ from .base import RoutingStrategy
 from .static import classify_bucket
 
 
-# Same priors as v1 LinUCBRouter — kept here to avoid a circular import.
+# Cold-start priors for the 3-arm local roster + cloud escalation arm.
+# Equal local priors → pure exploration at cold start; claude higher as
+# escalation arm that should be preferred when it is available.
 _DEFAULT_PRIORS: dict[str, float] = {
-    "codex-cli":    0.90,
-    "aider":        0.85,
-    "gemini-cli":   0.80,
-    "opencode":     0.75,
-    "ollama":       0.70,
-    "goose":        0.60,
-    "claude":       0.85,
+    "ollama:qwen3.5":        0.75,
+    "ollama:gemma4-e4b":     0.75,
+    "ollama:granite4.1-8b":  0.75,
+    "claude":                0.85,  # adapter name, not worker_id
 }
 
 _PERSISTENCE_VERSION = 3

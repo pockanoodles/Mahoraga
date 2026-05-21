@@ -10,6 +10,20 @@ from dataclasses import dataclass
 from typing import ClassVar
 
 
+SECURITY_KEYWORDS = frozenset({
+    "security", "vulnerability", "vulnerabilities", "exploit", "attack", "threat",
+    "injection", "xss", "csrf", "sqli", "authentication", "authorization",
+    "cve", "cwe", "owasp", "sanitize", "sanitise", "pentest", "penetration",
+    "malware", "phishing", "breach", "credential", "privilege", "encrypt",
+    "decrypt", "cipher", "bcrypt", "argon", "tls", "ssl", "rbac", "acl",
+    "firewall", "intrusion", "payload", "reverse shell", "rce", "lfi", "rfi",
+})
+
+REVIEW_KEYWORDS = frozenset({
+    "review", "audit", "critique", "inspect", "assess",
+    "feedback", "evaluate", "examine", "look over",
+})
+
 CODE_KEYWORDS = frozenset({
     "function", "class", "def", "import", "return", "variable", "api",
     "endpoint", "database", "query", "sql", "html", "css", "javascript",
@@ -49,6 +63,8 @@ class TaskContext:
     has_creation_keywords: float
     has_research_keywords: float
     queue_depth_norm: float = 0.0   # fraction of resource group capacity in use at selection time
+    has_security_keywords: float = 0.0  # metadata only — not in to_vector(); used by classify_bucket
+    has_review_keywords: float = 0.0    # metadata only — not in to_vector(); used by classify_bucket
 
     QUEUE_DEPTH_CAP: ClassVar[float] = 5.0   # normalize queue depth by this cap
 
@@ -104,4 +120,6 @@ class TaskContext:
             has_error_keywords=1.0 if any(w in words for w in ERROR_KEYWORDS) else 0.0,
             has_creation_keywords=1.0 if any(w in words for w in CREATION_KEYWORDS) else 0.0,
             has_research_keywords=1.0 if any(w in words for w in RESEARCH_KEYWORDS) else 0.0,
+            has_security_keywords=1.0 if any(w in words for w in SECURITY_KEYWORDS) else 0.0,
+            has_review_keywords=1.0 if any(w in words for w in REVIEW_KEYWORDS) else 0.0,
         )

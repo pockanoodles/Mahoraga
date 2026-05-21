@@ -47,7 +47,7 @@ _CODEGEN_GOAL = "write a function that computes Fibonacci numbers"
 def _verify_test_buckets():
     """Sanity guard — tests assume these prompts land in distinct buckets."""
     assert classify_bucket(_ctx(_RESEARCH_GOAL)) == "research"
-    assert classify_bucket(_ctx(_DEBUG_GOAL)) == "debugging"
+    assert classify_bucket(_ctx(_DEBUG_GOAL)) == "debug"
 
 
 # ── Construction ─────────────────────────────────────────────────────────────
@@ -79,25 +79,25 @@ class TestInitialisation:
         s._init_agent("research", "ollama")
         # Cold start: A = I, b = prior · 1
         assert np.allclose(s.A["research"]["ollama"], np.identity(9))
-        # Default prior for ollama is 0.70.
-        assert np.allclose(s.b["research"]["ollama"], 0.70 * np.ones((9, 1)))
+        # Unknown agent falls back to default prior of 0.5.
+        assert np.allclose(s.b["research"]["ollama"], 0.5 * np.ones((9, 1)))
 
     def test_independent_buckets_initialise_independently(self) -> None:
         s = LinUCBPerBucketRouter()
         s._init_agent("research", "ollama")
-        s._init_agent("debugging", "ollama")
+        s._init_agent("debug", "ollama")
         # Both fresh cold-start → identical matrices for the same agent.
         assert np.allclose(
-            s.A["research"]["ollama"], s.A["debugging"]["ollama"]
+            s.A["research"]["ollama"], s.A["debug"]["ollama"]
         )
         assert np.allclose(
-            s.b["research"]["ollama"], s.b["debugging"]["ollama"]
+            s.b["research"]["ollama"], s.b["debug"]["ollama"]
         )
         # But they're SEPARATE storage — modifying one shouldn't mutate
         # the other.
         s.A["research"]["ollama"] += 5.0
         assert not np.allclose(
-            s.A["research"]["ollama"], s.A["debugging"]["ollama"]
+            s.A["research"]["ollama"], s.A["debug"]["ollama"]
         )
 
     def test_cross_bucket_pooling_seeds_new_bucket(self) -> None:
@@ -112,8 +112,8 @@ class TestInitialisation:
         before_pooling = s.A["research"]["ollama"].copy()
 
         # Now initialise ollama in debugging bucket — should pool from research.
-        s._init_agent("debugging", "ollama")
-        debugging_A = s.A["debugging"]["ollama"]
+        s._init_agent("debug", "ollama")
+        debugging_A = s.A["debug"]["ollama"]
 
         # The new debugging A should not equal the cold-start identity:
         # half-cold-half-research-pool.
@@ -128,8 +128,8 @@ class TestInitialisation:
         for _ in range(5):
             s.update(_ctx(_RESEARCH_GOAL), "ollama", 0.95)
         # New bucket init should NOT pull research signal.
-        s._init_agent("debugging", "ollama")
-        assert np.allclose(s.A["debugging"]["ollama"], np.identity(9))
+        s._init_agent("debug", "ollama")
+        assert np.allclose(s.A["debug"]["ollama"], np.identity(9))
 
     def test_init_idempotent(self) -> None:
         s = LinUCBPerBucketRouter()
@@ -147,16 +147,16 @@ class TestBucketIsolation:
         s = LinUCBPerBucketRouter(bucket_pooling_weight=0.0)
         # Pre-touch both buckets so they exist with cold-start matrices.
         s._init_agent("research", "ollama")
-        s._init_agent("debugging", "ollama")
-        debug_A_before = s.A["debugging"]["ollama"].copy()
-        debug_b_before = s.b["debugging"]["ollama"].copy()
+        s._init_agent("debug", "ollama")
+        debug_A_before = s.A["debug"]["ollama"].copy()
+        debug_b_before = s.b["debug"]["ollama"].copy()
 
         # Hammer research with updates.
         for _ in range(20):
             s.update(_ctx(_RESEARCH_GOAL), "ollama", 0.95)
 
-        assert np.allclose(s.A["debugging"]["ollama"], debug_A_before)
-        assert np.allclose(s.b["debugging"]["ollama"], debug_b_before)
+        assert np.allclose(s.A["debug"]["ollama"], debug_A_before)
+        assert np.allclose(s.b["debug"]["ollama"], debug_b_before)
 
     def test_select_agent_uses_bucket_specific_state(self) -> None:
         """Select on bucket A reflects bucket A's θ, not bucket B's.
@@ -196,7 +196,7 @@ class TestBucketIsolation:
         for _ in range(3):
             s.select_agent(_ctx(_DEBUG_GOAL), ["ollama", "aider"])
         assert s.t["research"] == 7
-        assert s.t["debugging"] == 3
+        assert s.t["debug"] == 3
 
 
 # ── compute_scores shape ─────────────────────────────────────────────────────
@@ -240,7 +240,7 @@ class TestPersistence:
         assert raw["version"] == _PERSISTENCE_VERSION
         assert "buckets" in raw
         assert "research" in raw["buckets"]
-        assert "debugging" in raw["buckets"]
+        assert "debug" in raw["buckets"]
 
         # Roundtrip via load_state.
         s2 = LinUCBPerBucketRouter()
@@ -319,7 +319,7 @@ class TestWarmStart:
         assert "code_editing" in s.A
         assert "aider" in s.A["code_editing"]
         # debugging should be untouched.
-        assert "debugging" not in s.A or "aider" not in s.A.get("debugging", {})
+        assert "debug" not in s.A or "aider" not in s.A.get("debug", {})
 
     def test_inject_without_bucket_broadcasts(self) -> None:
         """When called without bucket on an existing strategy with multiple
@@ -358,9 +358,9 @@ class TestDiagnostics:
         s.update(_ctx(_DEBUG_GOAL), "aider", 0.85)
         summary = s.per_bucket_summary()
         assert "research" in summary
-        assert "debugging" in summary
+        assert "debug" in summary
         assert summary["research"]["n_arms"] == 2
-        assert summary["debugging"]["n_arms"] == 1
+        assert summary["debug"]["n_arms"] == 1
 
 
 # ── Sanity: integrates with BanditRouter unchanged ────────────────────────────
@@ -416,4 +416,4 @@ class TestBanditRouterIntegration:
 
         # Strategy itself exposes per_bucket_summary.
         summary = router.strategy.per_bucket_summary()
-        assert set(summary) == {"research", "debugging"}
+        assert set(summary) == {"research", "debug"}

@@ -10,63 +10,61 @@ from __future__ import annotations
 from .base import RoutingStrategy
 
 
-# Canonical bucket names, in classification priority order.
+# Canonical bucket names, aligned with quality scorer and reward weight vocabulary.
+# Classification priority order: more specific buckets first.
 BUCKETS = (
+    "security",
     "research",
-    "simple_qa",
-    "debugging",
-    "code_generation",
-    "complex",
-    "code_editing",
-    "default",
+    "review",
+    "debug",
+    "code",
+    "plan",
+    "general",
 )
 
 
 def classify_bucket(context) -> str:
     """Classify a TaskContext into one of the canonical routing buckets.
 
-    Deterministic over the 9-dim handcraft vector. Used at route-time by
-    BanditRouter for per-bucket α gating, by the reward-weight learner,
-    and by StaticRouter itself.
+    Uses the 9-dim feature vector plus two metadata fields (has_security_keywords,
+    has_review_keywords) that are computed by TaskContext.from_task() but not
+    included in the bandit's feature vector (d=9 stays fixed).
     """
+    if context.has_security_keywords > 0.5:
+        return "security"
     if context.has_research_keywords > 0.5 and context.code_keyword_density < 0.05:
         return "research"
-    if (
-        context.is_question > 0.5
-        and context.code_keyword_density < 0.1
-        and context.word_count_norm < 0.1
-    ):
-        return "simple_qa"
+    if context.has_review_keywords > 0.5:
+        return "review"
     if context.has_error_keywords > 0.5:
-        return "debugging"
+        return "debug"
     if context.has_creation_keywords > 0.5 and context.code_keyword_density > 0.05:
-        return "code_generation"
+        return "code"
     if context.complexity_tier > 0.8:
-        return "complex"
+        return "plan"
     if context.code_keyword_density > 0.1:
-        return "code_editing"
-    return "default"
+        return "code"
+    return "general"
 
 
 class StaticRouter(RoutingStrategy):
     name = "static"
 
     ROUTING_MAP = {
-        "code_generation": ["aider", "opencode", "ollama", "codex"],
-        "code_editing":    ["aider", "opencode", "claude"],
-        "debugging":       ["opencode", "aider", "claude"],
-        "research":        ["goose", "gemini-cli", "claude"],
-        "simple_qa":       ["ollama", "gemini-cli", "goose"],
-        "complex":         ["claude", "opencode", "codex"],
-        "terminal":        ["opencode", "goose", "ollama"],
-        "default":         ["ollama", "opencode", "aider", "claude"],
+        "code":     ["ollama:qwen3.5",      "ollama:granite4.1-8b"],
+        "debug":    ["ollama:granite4.1-8b", "ollama:qwen3.5"],
+        "research": ["ollama:granite4.1-8b", "ollama:qwen3.5"],
+        "review":   ["ollama:granite4.1-8b", "ollama:qwen3.5"],
+        "plan":     ["ollama:granite4.1-8b", "ollama:qwen3.5"],
+        "security": ["ollama:granite4.1-8b", "ollama:qwen3.5"],
+        "general":  ["ollama:qwen3.5",      "ollama:granite4.1-8b"],
     }
 
     def select_agent(self, context, available_agents: list[str]) -> str:
         if not available_agents:
             raise ValueError("available_agents must not be empty")
         task_type = self._classify(context)
-        preferences = self.ROUTING_MAP.get(task_type, self.ROUTING_MAP["default"])
+        preferences = self.ROUTING_MAP.get(task_type, self.ROUTING_MAP["general"])
         for agent in preferences:
             if agent in available_agents:
                 return agent

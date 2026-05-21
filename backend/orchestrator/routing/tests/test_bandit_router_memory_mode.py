@@ -624,10 +624,10 @@ class TestResolvePerBucketAlpha:
         import json as _json
         monkeypatch.setenv(
             "MAHORAGA_MEMORY_ALPHA_PER_BUCKET",
-            _json.dumps({"research": 0.0, "code_editing": 0.15}),
+            _json.dumps({"research": 0.0, "code": 0.15}),
         )
         result = br_mod._resolve_per_bucket_alpha()
-        assert result == {"research": 0.0, "code_editing": 0.15}
+        assert result == {"research": 0.0, "code": 0.15}
 
     def test_invalid_json_falls_back_to_empty(
         self, monkeypatch: pytest.MonkeyPatch
@@ -725,12 +725,12 @@ class TestPerBucketGating:
         import json as _json
         monkeypatch.setenv(
             "MAHORAGA_MEMORY_ALPHA_PER_BUCKET",
-            _json.dumps({"code_editing": 0.20, "research": 0.0}),
+            _json.dumps({"code": 0.20, "research": 0.0}),
         )
         router, _ = make_router(memory_mode="keyword")
         em = router.get_stats()["episodic_memory"]
         assert em["memory_alpha_per_bucket"] == {
-            "code_editing": 0.20,
+            "code": 0.20,
             "research": 0.0,
         }
 
@@ -752,7 +752,7 @@ class TestClassifyBucket:
         ctx = TaskContext.from_task(
             MockTask(goal="fix the NullPointerException in auth.py line 42")
         )
-        assert classify_bucket(ctx) == "debugging"
+        assert classify_bucket(ctx) == "debug"
 
     def test_code_generation_classified(self) -> None:
         from backend.orchestrator.routing.context import TaskContext

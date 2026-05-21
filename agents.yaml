@@ -27,8 +27,9 @@ ollama:
         explain: 0.78
 
     - id: gemma4-e4b
-      model: gemma4:e4b               # 9.6 GB — different strengths from Qwen
+      model: gemma4:e4b               # 9.6 GB — dropped: lowest reward in all 7 buckets (bench 2026-05-20)
       max_ctx: 131072
+      enabled: false
       extra_payload: {think: false}
       capabilities:
         general: 0.88

@@ -47,6 +47,13 @@ def router(tmp_path, monkeypatch):
     monkeypatch.setenv("MAHORAGA_QUARANTINE_AUTO_RELEASE", "3")
     monkeypatch.setenv("MAHORAGA_QUARANTINE_PROBE_QUALITY_FLOOR", "0.5")
 
+    # Prevent the OLS reward learner from converging during the test window.
+    # If MIN_SAMPLES is hit mid-test, the learner changes effective weights,
+    # which can look like drift even with a constant true reward. The drift
+    # test is about the *detector*, not the learner — pin MIN_SAMPLES high.
+    import backend.orchestrator.routing.reward_learner as _rl
+    monkeypatch.setattr(_rl, "MIN_SAMPLES", 10_000)
+
     # Patch the quarantine module's default path BEFORE constructing the
     # router so QuarantineManager.load() inside __init__ picks up the
     # test path. Otherwise save() would write to the user's home dir.

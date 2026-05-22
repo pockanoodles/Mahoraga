@@ -69,7 +69,7 @@ class LinUCBRouter(RoutingStrategy):
         if matrix and agent in matrix:
             warm_start_from_matrix(self, {agent: matrix[agent]}, lambda_prior=2.0)
 
-    def inject_pseudo_obs(self, agent: str, x: np.ndarray, reward: float, lambda_prior: float = 1.0) -> None:
+    def inject_pseudo_obs(self, agent: str, x: np.ndarray, reward: float, lambda_prior: float = 1.0, bucket: str | None = None) -> None:  # noqa: ARG002
         """Inject one pseudo-observation into arm `agent`.
 
         A[agent] += lambda_prior * outer(x, x)

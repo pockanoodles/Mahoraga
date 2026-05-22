@@ -311,7 +311,12 @@ class BanditRouter:
 
         # Load tuned hyperparameters from pareto-sweep if available.
         # Applied before warm-start so the injected pseudo-obs use the tuned alpha.
-        if isinstance(self.strategy, LinUCBRouter) and TUNED_HYPERPARAMS_PATH.exists():
+        # Duck-type so LinUCBPerBucketRouter (not a subclass of LinUCBRouter) also benefits.
+        if (
+            hasattr(self.strategy, "alpha")
+            and hasattr(self.strategy, "decay")
+            and TUNED_HYPERPARAMS_PATH.exists()
+        ):
             try:
                 tuned = json.loads(TUNED_HYPERPARAMS_PATH.read_text())
                 if "alpha" in tuned:
@@ -325,10 +330,10 @@ class BanditRouter:
             except Exception as exc:
                 _log.warning("bandit_router: failed to load tuned_hyperparams.json (%s)", exc)
 
-        # Auto-warm-start: if this is a fresh LinUCB bandit (no arms yet) and a
-        # compatibility matrix exists from a previous benchmark run, inject it as
-        # pseudo-observations to skip the cold-start exploration phase.
-        if isinstance(self.strategy, LinUCBRouter) and not self.strategy.A:
+        # Auto-warm-start: if this is a fresh bandit (no arms yet) and a compatibility
+        # matrix exists from a previous benchmark run, inject it as pseudo-observations.
+        # Duck-type via inject_pseudo_obs so LinUCBPerBucketRouter is included.
+        if hasattr(self.strategy, "inject_pseudo_obs") and not self.strategy.A:
             matrix = load_compatibility_matrix()
             if matrix:
                 warm_start_from_matrix(self.strategy, matrix)

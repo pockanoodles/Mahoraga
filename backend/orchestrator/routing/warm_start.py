@@ -67,7 +67,7 @@ def warm_start_from_matrix(
         for bucket, reward in bucket_rewards.items():
             x = bucket_context_vector(bucket)
             reward = float(max(0.0, min(1.0, reward)))
-            router.inject_pseudo_obs(agent, x, reward, lambda_prior=lambda_prior)
+            router.inject_pseudo_obs(agent, x, reward, lambda_prior=lambda_prior, bucket=bucket)
 
 
 def load_compatibility_matrix() -> dict | None:

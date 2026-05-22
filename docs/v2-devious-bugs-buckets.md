@@ -512,7 +512,7 @@ The bucket-name and OLS/drift bugs both lived in contracts between modules with 
 
 3. **(reward, OLS learner)** — Reward observations stream into the OLS learner; learner refits per-bucket weights. Adversarial: feed 100 constant-reward observations to one bucket's OLS, assert the learner's stored `θ_new` matches the constant-reward optimum.
 
-4. **(OLS learner, drift detector)** — This is the false-positive bug. Adversarial: trigger OLS `_fit()` with smoothed transition active (Fix B); assert drift detector's per-arm `γ` does not drop below `γ_default - 0.05`. (Same as the Fix B positive-direction test from § 6.4.)
+4. **(OLS learner, drift detector)** — This is the false-positive bug. Adversarial: trigger OLS `_fit()` with smoothed transition active (Fix B); assert no DriftAlert is raised during the OLS fit + 20-step smoothed transition window, and the arm remains un-quarantined. (Same assertion as the Fix B positive-direction test from § 6.4.)
 
 5. **(drift detector, quarantine)** — When drift detector signals an arm is drifting hard, quarantine manager removes it from selection. Adversarial: feed degrading rewards to arm A until drift fires, assert arm A is in the quarantine set and `select_arm()` no longer returns it.
 
@@ -581,10 +581,8 @@ v2 changes the default bandit strategy, the bucket vocabulary, and the OLS learn
 
 ### 11.1 Pre-deploy backups
 
-Before merging v2:
-- `cp ~/.mahoraga/routing_decisions.db ~/.mahoraga/routing_decisions.db.pre-v2`
-- `cp ~/.mahoraga/compatibility_matrix.json ~/.mahoraga/compatibility_matrix.json.pre-v2`
-- `cp ~/.mahoraga/episodic_memory.bin ~/.mahoraga/episodic_memory.bin.pre-v2` (if exists)
+v1 state lives in `~/.mahoraga/`. v2 writes to `~/.mahoraga-v2/`. Before merging v2, back up v1 state so a rollback can restore it:
+- `cp -r ~/.mahoraga/ ~/.mahoraga.pre-v2-backup/`
 
 ### 11.2 Config flag
 
@@ -600,8 +598,7 @@ The single-matrix `linucb` code path remains intact through v2. Switching the fl
 
 ```bash
 orch memory clear           # clears HNSW index + episode metadata
-rm ~/.mahoraga/routing_decisions.db
-rm ~/.mahoraga/compatibility_matrix.json
+rm -rf ~/.mahoraga-v2/      # clears v2 state (matrix, decisions DB, episodic memory)
 orch serve                  # daemon starts fresh, cold bandit, no warm-start
 ```
 
@@ -702,7 +699,7 @@ Ordered work items, do not skip:
 9. **agents.yaml trimmed.** Disabled arms explicitly commented.
 10. **README updated.** v2 section added, v1 marked historical.
 11. **Deploy daemon, route real traffic via MCP.** Accumulate 200 episodes.
-12. **200-episode review.** Check UCB spread criterion. If fails, debug per § 13.6.
+12. **200-episode review.** Check mean reward spread criterion per § 13 item 6 (θᵀx spread, not UCB). If fails, debug per § 13.
 
 Items 1–10 are pre-deploy. 11–12 happen post-deploy and are part of v2 being "done."
 

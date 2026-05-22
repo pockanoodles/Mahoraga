@@ -1271,7 +1271,7 @@ async def routing_agents(adapter_reg: AdapterRegistryDep):
 async def set_routing_strategy(body: dict):
     """Switch routing strategy at runtime."""
     router = get_bandit_router()
-    name = body.get("strategy", "linucb")
+    name = body.get("strategy", "linucb_per_bucket")
     if name not in STRATEGIES:
         raise HTTPException(status_code=400, detail=f"Unknown strategy: {name}. Options: {list(STRATEGIES)}")
     router.set_strategy(name)

@@ -14,6 +14,7 @@ The prior weights from reward.BUCKET_WEIGHTS are used for buckets not yet conver
 from __future__ import annotations
 import json
 import math
+import os
 from pathlib import Path
 
 import numpy as np
@@ -24,6 +25,11 @@ from .reward import BUCKET_WEIGHTS, _SPEED_LAMBDA, _SPEED_T_REF, _COST_REF
 MIN_SAMPLES: int = 100      # Observations before OLS fit is trusted
 WEIGHT_FLOOR: float = 0.05  # Prevents weight collapse
 MAX_BUFFER: int = 500       # Cap per bucket (FIFO when exceeded)
+
+# Fix B: exponential smoothing toward OLS target.
+# α = 1/K → per-step weight perturbation ≤ 5% of OLS-shift (K=20).
+# Emergency disable: set MAHORAGA_OLS_TRANSITION_STEPS=1 → collapses to hard replacement.
+OLS_TRANSITION_STEPS: int = max(1, int(os.environ.get("MAHORAGA_OLS_TRANSITION_STEPS", "20")))
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
@@ -154,26 +160,38 @@ class RewardWeightLearner:
 
     def _fit(self, bucket: str) -> None:
         data = np.array(self._buffer[bucket], dtype=float)  # (n, 5)
-        X = data[:, :4]   # [1.0, quality, phi_sp, phi_c]
-        y = data[:, 4]    # reward
+        x_mat = data[:, :4]   # [1.0, quality, phi_sp, phi_c]
+        y_vec = data[:, 4]    # reward
 
         try:
-            w_raw, _, _, _ = np.linalg.lstsq(X, y, rcond=None)
+            w_raw, _, _, _ = np.linalg.lstsq(x_mat, y_vec, rcond=None)
         except np.linalg.LinAlgError:
             return  # singular matrix — not enough feature variance yet
 
-        w_proj = _project_simplex(w_raw)
+        theta_new = _project_simplex(w_raw)
+
+        # Fix B: blend toward OLS target instead of hard-replacing.
+        # Each call moves α = 1/K of the remaining gap → drift detector sees
+        # ≤5% of the full OLS-shift per step, staying below its alert threshold.
         prev = self._learned.get(bucket)
-        w0, w1, w2, w3 = (round(float(x), 6) for x in w_proj)
+        if prev is not None:
+            theta_prev = np.array(prev, dtype=float)
+        else:
+            theta_prev = np.array(
+                BUCKET_WEIGHTS.get(bucket, BUCKET_WEIGHTS["general"]), dtype=float
+            )
+        alpha = 1.0 / OLS_TRANSITION_STEPS
+        theta_eff = _project_simplex((1.0 - alpha) * theta_prev + alpha * theta_new)
+
+        w0, w1, w2, w3 = (round(float(x), 6) for x in theta_eff)
         new: tuple[float, float, float, float] = (w0, w1, w2, w3)
 
-        if prev != new:
+        if new != self._learned.get(bucket):
             self._learned[bucket] = new
             if self._learner_path:
                 self._save()
 
     def _save(self) -> None:
-        import os
         state = {"learned": {b: list(w) for b, w in self._learned.items()}}
         tmp = str(self._learner_path) + ".tmp"
         Path(tmp).write_text(json.dumps(state, indent=2), encoding="utf-8")
@@ -186,7 +204,7 @@ class RewardWeightLearner:
             state = json.loads(self._learner_path.read_text())
             for bucket, w in state.get("learned", {}).items():
                 if len(w) == 4:
-                    a, b, c, d = w
-            self._learned[bucket] = (float(a), float(b), float(c), float(d))
-        except Exception:
+                    w0, w1, w2, w3 = w
+                    self._learned[bucket] = (float(w0), float(w1), float(w2), float(w3))
+        except Exception:  # noqa: BLE001
             pass  # corrupt file — start fresh

@@ -17,8 +17,8 @@ Design (full scope: `docs/per-bucket-bandits.md`):
 
   bucket comes from `classify_bucket(context)` — same deterministic
   classifier used by per-bucket α gating, so names are consistent with
-  StaticRouter's labels: research, simple_qa, debugging, code_generation,
-  complex, code_editing, default.
+  vocab.BUCKETS: code, debug, plan, research, review, refactor, security,
+  test, general.
 
   cold start: first time a (bucket, agent) pair is seen, initialise from
   one of three paths:
@@ -44,17 +44,20 @@ import numpy as np
 
 from .base import RoutingStrategy
 from .static import classify_bucket
+from ..vocab import ENABLED_AGENTS
 
 
-# Cold-start priors for the 3-arm local roster + cloud escalation arm.
-# Equal local priors → pure exploration at cold start; claude higher as
-# escalation arm that should be preferred when it is available.
+# Cold-start priors: one entry per enabled agent. Equal priors → pure exploration
+# at cold start; the bandit differentiates via reward signal, not priors.
+# Keys must be a subset of vocab.ENABLED_AGENTS — enforced by test_vocab_prior_agent_subset.
 _DEFAULT_PRIORS: dict[str, float] = {
     "ollama:qwen3.5":        0.75,
-    "ollama:gemma4-e4b":     0.75,
     "ollama:granite4.1-8b":  0.75,
-    "claude":                0.85,  # adapter name, not worker_id
 }
+assert set(_DEFAULT_PRIORS.keys()) <= set(ENABLED_AGENTS), (
+    f"_DEFAULT_PRIORS references agents not in vocab.ENABLED_AGENTS: "
+    f"{set(_DEFAULT_PRIORS.keys()) - set(ENABLED_AGENTS)}"
+)
 
 _PERSISTENCE_VERSION = 3
 _LEGACY_BUCKET = "default"  # where v1/v2 flat state lands on migration

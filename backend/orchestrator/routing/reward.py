@@ -19,6 +19,8 @@ import math
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from .vocab import BUCKETS
+
 if TYPE_CHECKING:
     from .budget_pacer import BudgetPacer
     from .reward_learner import RewardWeightLearner
@@ -29,15 +31,20 @@ if TYPE_CHECKING:
 # These are informed priors — learnable via OLS regression after 100 tasks/bucket.
 BUCKET_WEIGHTS: dict[str, tuple[float, float, float, float]] = {
     "code":     (0.60, 0.20, 0.15, 0.05),
-    "research": (0.35, 0.45, 0.10, 0.10),
+    "debug":    (0.55, 0.25, 0.15, 0.05),
     "plan":     (0.40, 0.40, 0.10, 0.10),
-    "security": (0.55, 0.35, 0.05, 0.05),
-    "test":     (0.60, 0.25, 0.10, 0.05),
+    "research": (0.35, 0.45, 0.10, 0.10),
     "review":   (0.35, 0.50, 0.10, 0.05),
     "refactor": (0.45, 0.35, 0.15, 0.05),
-    "debug":    (0.55, 0.25, 0.15, 0.05),
+    "security": (0.55, 0.35, 0.05, 0.05),
+    "test":     (0.60, 0.25, 0.10, 0.05),
     "general":  (0.45, 0.25, 0.20, 0.10),
 }
+assert set(BUCKET_WEIGHTS.keys()) == set(BUCKETS), (
+    f"BUCKET_WEIGHTS keys out of sync with vocab.BUCKETS. "
+    f"Missing: {set(BUCKETS) - set(BUCKET_WEIGHTS.keys())}. "
+    f"Extra: {set(BUCKET_WEIGHTS.keys()) - set(BUCKETS)}."
+)
 
 # Speed reference: a 5 s response is "normal" for a local model.
 # exp(-1 * 5/5) ≈ 0.37 — moderate penalty at reference time.

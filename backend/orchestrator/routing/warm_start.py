@@ -10,6 +10,8 @@ from pathlib import Path
 import json
 import numpy as np
 
+from .vocab import BUCKETS
+
 COMPATIBILITY_MATRIX_PATH = Path.home() / ".mahoraga-v2" / "compatibility_matrix.json"
 TUNED_HYPERPARAMS_PATH    = Path.home() / ".mahoraga-v2" / "tuned_hyperparams.json"
 
@@ -28,6 +30,11 @@ _BUCKET_VECTORS: dict[str, list[float]] = {
     "general":  [0.15, 0.10, 0.5, 0.33, 0.0, 0.0,  0.2, 0.3,  0.0],
     "security": [0.20, 0.20, 0.0, 0.67, 0.1, 0.3,  0.2, 0.3,  0.0],
 }
+assert set(_BUCKET_VECTORS.keys()) == set(BUCKETS), (
+    f"_BUCKET_VECTORS keys out of sync with vocab.BUCKETS. "
+    f"Missing: {set(BUCKETS) - set(_BUCKET_VECTORS.keys())}. "
+    f"Extra: {set(_BUCKET_VECTORS.keys()) - set(BUCKETS)}."
+)
 
 
 def bucket_context_vector(bucket: str) -> np.ndarray:

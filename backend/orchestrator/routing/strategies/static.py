@@ -10,34 +10,26 @@ from __future__ import annotations
 from .base import RoutingStrategy
 
 
-# Canonical bucket names, aligned with quality scorer and reward weight vocabulary.
-# Classification priority order: more specific buckets first.
-BUCKETS = (
-    "security",
-    "research",
-    "review",
-    "debug",
-    "code",
-    "plan",
-    "general",
-)
-
-
 def classify_bucket(context) -> str:
     """Classify a TaskContext into one of the canonical routing buckets.
 
-    Uses the 9-dim feature vector plus two metadata fields (has_security_keywords,
-    has_review_keywords) that are computed by TaskContext.from_task() but not
-    included in the bandit's feature vector (d=9 stays fixed).
+    Uses the 9-dim feature vector plus metadata fields (has_security_keywords,
+    has_review_keywords, has_test_keywords, has_refactor_keywords) computed by
+    TaskContext.from_task() but not included in the bandit's feature vector
+    (d=9 stays fixed). First match wins; ordering is priority order.
     """
-    if context.has_security_keywords > 0.5:
-        return "security"
-    if context.has_research_keywords > 0.5 and context.code_keyword_density < 0.05:
-        return "research"
-    if context.has_review_keywords > 0.5:
-        return "review"
     if context.has_error_keywords > 0.5:
         return "debug"
+    if context.has_test_keywords > 0.5:
+        return "test"
+    if context.has_refactor_keywords > 0.5:
+        return "refactor"
+    if context.has_security_keywords > 0.5:
+        return "security"
+    if context.has_review_keywords > 0.5:
+        return "review"
+    if context.has_research_keywords > 0.5 and context.code_keyword_density < 0.05:
+        return "research"
     if context.has_creation_keywords > 0.5 and context.code_keyword_density > 0.05:
         return "code"
     if context.complexity_tier > 0.8:
@@ -52,6 +44,8 @@ class StaticRouter(RoutingStrategy):
 
     ROUTING_MAP = {
         "code":     ["ollama:qwen3.5",      "ollama:granite4.1-8b"],
+        "test":     ["ollama:qwen3.5",      "ollama:granite4.1-8b"],
+        "refactor": ["ollama:qwen3.5",      "ollama:granite4.1-8b"],
         "debug":    ["ollama:granite4.1-8b", "ollama:qwen3.5"],
         "research": ["ollama:granite4.1-8b", "ollama:qwen3.5"],
         "review":   ["ollama:granite4.1-8b", "ollama:qwen3.5"],

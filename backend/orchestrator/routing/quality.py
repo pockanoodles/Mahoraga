@@ -43,44 +43,40 @@ import statistics
 
 import httpx
 
+from .vocab import CODE_LIKE_BUCKETS, DEBUG_BUCKETS, SECURITY_BUCKETS, PLAN_LIKE_BUCKETS
+
 
 # ── Infrastructure ──────────────────────────────────────────────────────────
 
 _OLLAMA_EMBED_URL = "http://localhost:11434/api/embed"
 _EMBED_MODEL = "nomic-embed-text"
 
-# Buckets whose "answer is a plan" — no structural penalty applied here.
-_PLAN_LIKE_BUCKETS: frozenset[str] = frozenset({"plan"})
-
-# Buckets that expect code; structural check uses syntax/blocks instead of prose.
-# NOTE: "security" was previously in this set, but security answers are
-# almost always prose (CWE references, mitigation steps, threat-model
-# discussion) rather than code, so AST parsing always failed and every
-# agent's score plateaued at 0.65 (0.5 base + 0.05 parse-fail + 0.10
-# length bonus). The dedicated `_score_security` path below is structural
-# but prose-aware. "debug" was *also* affected — the audit caught it
-# next: prose diagnostic answers ("the issue is X, fix Y") all plateaued
-# at 0.55 through the same code-fallback path. The new `_DEBUG_BUCKETS`
-# routes through `_score_debug` which tries code first and falls back
-# to prose scoring when no code is present.
-_CODE_BUCKETS: frozenset[str] = frozenset({"code", "test", "refactor"})
-
-_DEBUG_BUCKETS: frozenset[str] = frozenset({"debug"})
-
-_SECURITY_BUCKETS: frozenset[str] = frozenset({"security"})
+# Bucket groupings imported from vocab — single source of truth.
+# NOTE on historical context: "security" was previously in CODE_LIKE_BUCKETS,
+# but security answers are almost always prose (CWE references, mitigation
+# steps, threat-model discussion) rather than code, so AST parsing always
+# failed and every agent's score plateaued at 0.65. The dedicated
+# _score_security path below is structural but prose-aware. "debug" was
+# also affected: prose diagnostic answers plateaued at 0.55 through the
+# code-fallback path. _score_debug tries code first and falls back to prose.
+_CODE_BUCKETS = CODE_LIKE_BUCKETS
+_DEBUG_BUCKETS = DEBUG_BUCKETS
+_SECURITY_BUCKETS = SECURITY_BUCKETS
+_PLAN_LIKE_BUCKETS = PLAN_LIKE_BUCKETS
 
 # Expected response-to-prompt word ratio by bucket. Tunable; these are
 # conservative starting points that shouldn't hurt reasonable answers.
+# Keys must cover all BUCKETS — enforced by test_vocab_scoring_coverage.
 _LENGTH_RATIO_TARGETS: dict[str, float] = {
-    "research": 10.0,
-    "general":   8.0,
-    "review":    5.0,
     "code":      3.0,
-    "plan":      2.0,
-    "test":      3.0,
-    "refactor":  3.0,
     "debug":     4.0,
+    "plan":      2.0,
+    "research": 10.0,
+    "review":    5.0,
+    "refactor":  3.0,
     "security":  5.0,
+    "test":      3.0,
+    "general":   8.0,
 }
 
 # Stopwords — stripped before computing novelty so "the / and / of" don't

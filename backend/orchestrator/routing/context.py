@@ -10,6 +10,18 @@ from dataclasses import dataclass
 from typing import ClassVar
 
 
+TEST_KEYWORDS = frozenset({
+    "write tests", "add test", "unit test", "test coverage", "pytest",
+    "test case", "test suite", "assert that", "integration test",
+    "mock", "fixture", "test the", "tests for",
+})
+
+REFACTOR_KEYWORDS = frozenset({
+    "refactor", "clean up", "restructure", "extract method", "simplify",
+    "rewrite this", "reorganize", "decompose", "decouple", "rename",
+    "move this", "split this",
+})
+
 SECURITY_KEYWORDS = frozenset({
     "security", "vulnerability", "vulnerabilities", "exploit", "attack", "threat",
     "injection", "xss", "csrf", "sqli", "authentication", "authorization",
@@ -63,8 +75,10 @@ class TaskContext:
     has_creation_keywords: float
     has_research_keywords: float
     queue_depth_norm: float = 0.0   # fraction of resource group capacity in use at selection time
-    has_security_keywords: float = 0.0  # metadata only — not in to_vector(); used by classify_bucket
-    has_review_keywords: float = 0.0    # metadata only — not in to_vector(); used by classify_bucket
+    has_security_keywords: float = 0.0   # metadata only — not in to_vector(); used by classify_bucket
+    has_review_keywords: float = 0.0     # metadata only — not in to_vector(); used by classify_bucket
+    has_test_keywords: float = 0.0       # metadata only — not in to_vector(); used by classify_bucket
+    has_refactor_keywords: float = 0.0   # metadata only — not in to_vector(); used by classify_bucket
 
     QUEUE_DEPTH_CAP: ClassVar[float] = 5.0   # normalize queue depth by this cap
 
@@ -122,4 +136,6 @@ class TaskContext:
             has_research_keywords=1.0 if any(w in words for w in RESEARCH_KEYWORDS) else 0.0,
             has_security_keywords=1.0 if any(w in words for w in SECURITY_KEYWORDS) else 0.0,
             has_review_keywords=1.0 if any(w in words for w in REVIEW_KEYWORDS) else 0.0,
+            has_test_keywords=1.0 if any(kw in goal_lower for kw in TEST_KEYWORDS) else 0.0,
+            has_refactor_keywords=1.0 if any(kw in goal_lower for kw in REFACTOR_KEYWORDS) else 0.0,
         )

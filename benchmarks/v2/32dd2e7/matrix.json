@@ -1,0 +1,24 @@
+{
+  "ollama:qwen3.5": {
+    "code": 0.8746,
+    "debug": 0.5588,
+    "plan": 0.8105,
+    "research": 0.5328,
+    "review": 0.5025,
+    "refactor": 0.5348,
+    "security": 0.5601,
+    "test": 0.8514,
+    "general": 0.7764
+  },
+  "ollama:granite4.1-8b": {
+    "code": 0.5588,
+    "debug": 0.8601,
+    "plan": 0.5241,
+    "research": 0.8141,
+    "review": 0.7909,
+    "refactor": 0.8222,
+    "security": 0.8371,
+    "test": 0.5492,
+    "general": 0.4976
+  }
+}

@@ -1,11 +1,14 @@
 # agents.yaml — Mahoraga agent pool configuration
 #
-# Add, remove, or retune agents here. No Python required.
+# v2 active arms: ollama:qwen3.5, ollama:granite4.1-8b  (local only — no cloud)
+# All other arms are disabled with explanatory comments below.
+#
 # Restart `orch serve` to apply changes.
 #
 # Capability confidence values are warm-start priors fed to the LinUCB bandit.
 # The bandit overwrites these from real routing data as it accumulates —
-# values here only matter for cold-start exploration.
+# values here only matter for cold-start exploration (before 100 observations
+# per bucket accumulate and OLS weight learning activates).
 #
 # enabled: false removes the agent from the pool on next restart.
 # Bandit history for disabled agents is preserved in routing_decisions.db.
@@ -26,8 +29,12 @@ ollama:
         plan: 0.80
         explain: 0.78
 
+    # gemma4-e4b: lowest reward across all measured buckets in bench 2026-05-20.
+    # Dropped in favour of granite4.1-8b which covers the same capability space
+    # at better quality. Re-evaluate if Gemma releases a checkpoint with better
+    # instruction-following on structured outputs.
     - id: gemma4-e4b
-      model: gemma4:e4b               # 9.6 GB — dropped: lowest reward in all 7 buckets (bench 2026-05-20)
+      model: gemma4:e4b               # 9.6 GB — disabled: see comment above
       max_ctx: 131072
       enabled: false
       extra_payload: {think: false}

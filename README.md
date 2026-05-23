@@ -126,7 +126,47 @@ graph LR
 
 ---
 
-## Benchmark Results
+## v2 Benchmark
+
+Results from the committed 54-prompt bench set (`benchmarks/v2/32dd2e7/`). Run:
+```bash
+orch benchmark v2 --save-matrix   # gate → simulation → warm-start matrix
+```
+
+### v2 Compatibility Matrix (54 prompts × 2 arms, seed=42)
+
+| Bucket | ollama:qwen3.5 | ollama:granite4.1-8b | Better arm |
+|--------|---------------|----------------------|------------|
+| code | **0.875** | 0.559 | qwen3.5 |
+| test | **0.851** | 0.549 | qwen3.5 |
+| plan | **0.811** | 0.524 | qwen3.5 |
+| general | **0.776** | 0.498 | qwen3.5 |
+| debug | 0.559 | **0.860** | granite4.1-8b |
+| refactor | 0.535 | **0.822** | granite4.1-8b |
+| security | 0.560 | **0.837** | granite4.1-8b |
+| research | 0.533 | **0.814** | granite4.1-8b |
+| review | 0.503 | **0.791** | granite4.1-8b |
+
+The split follows a creation vs. analysis axis: qwen3.5 leads on generation-heavy tasks
+(code, test, plan), granite4.1-8b leads on structured reasoning tasks (debug, security,
+refactor, research). This matrix is written to `~/.mahoraga-v2/compatibility_matrix.json`
+and consumed as the bandit's warm-start prior.
+
+The v2 strategy is `linucb_per_bucket` — each bucket maintains its own A/b matrices,
+so the bandit can learn different per-arm preferences per bucket rather than averaging
+across task types. After 200 real routing episodes the spread criterion (§13 item 6)
+will verify that ≥3 buckets show θᵀx spread > 0.1 between the two arms.
+
+---
+
+## Benchmark Results — Historical (v1)
+
+> **Note:** These numbers are from the v1 benchmark and are technically suspect.
+> In v1, a bucket-name mismatch in the reward calculator caused every task to be
+> scored with `general`-bucket weights regardless of its actual bucket.
+> Per-bucket columns in the matrix below are mostly noise — they reflect the generic
+> prose scorer, not bucket-specific evaluation. Agent-level averages (the `Avg` column)
+> are still broadly meaningful. The v2 bench above supersedes this data.
 
 ### Agent × Bucket Quality Matrix
 
@@ -331,13 +371,20 @@ Run any command with `--help` for options.
 
 ## Run the Benchmark
 
+**v2 bench (current):**
+```bash
+orch benchmark v2                         # gate → simulation → print matrix
+orch benchmark v2 --save-matrix           # also write warm-start matrix to ~/.mahoraga-v2/
+orch benchmark v2 --write-roster          # capture current Ollama model IDs into roster.json
+orch benchmark v2 --gate-only             # verify all 54 prompts still classify correctly
+```
+
+**v1 bench (historical):**
 ```bash
 orch benchmark simulate          # strategy comparison, 200 synthetic tasks
-orch benchmark simulate --warm-start --save-matrix  # with warm-start + export matrix
 orch benchmark ablation          # full ablation study (5 experiments, 5 charts)
 orch benchmark pareto-sweep      # sweep (α, γ, β) grid, write tuned_hyperparams.json
 orch benchmark live-report       # analyse real routing decisions from SQLite
-orch benchmark report --json     # machine-readable last-run summary
 ```
 
 Run `orch benchmark` with no arguments to see all subcommands.

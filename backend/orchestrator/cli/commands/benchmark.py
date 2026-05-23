@@ -762,6 +762,88 @@ def v2_bench(
         typer.echo(row)
 
 
+@app.command("v2-review")
+def v2_review(
+    server: str = typer.Option(
+        "http://localhost:8000", "--server",
+        help="Mahoraga server URL",
+    ),
+    min_decisions: int = typer.Option(
+        200, "--min-decisions",
+        help="Warn if fewer decisions recorded than this threshold.",
+    ),
+) -> None:
+    """§13 item 6 — Check mean-reward spread criterion after live routing.
+
+    Queries the live server's /api/routing/spread endpoint and reports
+    whether ≥3 buckets show θᵀx spread > 0.1 between ollama:qwen3.5 and
+    ollama:granite4.1-8b.
+
+    Criterion: after 200 real routing episodes through MCP, at least 3 of
+    the 9 buckets must differentiate the two arms by more than 0.1 in mean
+    reward estimated at the bucket's representative context vector. UCB
+    exploration bonus is excluded — this is pure exploitation signal.
+
+    Use after accumulating real traffic:  orch benchmark v2-review
+    """
+    import httpx
+
+    try:
+        r = httpx.get(f"{server}/api/routing/spread", timeout=10.0)
+        r.raise_for_status()
+    except httpx.ConnectError:
+        typer.echo(f"Cannot connect to {server}. Is `orch serve` running?", err=True)
+        raise typer.Exit(1)
+    except httpx.HTTPStatusError as exc:
+        typer.echo(f"Server error: {exc.response.status_code} — {exc.response.text}", err=True)
+        raise typer.Exit(1)
+
+    data = r.json()
+    decisions = data.get("total_decisions", 0)
+    passing = data.get("buckets_meeting_criterion", 0)
+    passed = data.get("criterion_passed", False)
+    threshold = data.get("criterion_threshold", 0.1)
+    required = data.get("criterion_required_buckets", 3)
+
+    if decisions < min_decisions:
+        typer.echo(
+            f"WARNING: only {decisions} routing decisions recorded "
+            f"(need {min_decisions}). Results may not be stable.",
+            err=True,
+        )
+    else:
+        typer.echo(f"Routing decisions: {decisions}")
+
+    typer.echo(f"\n{'PASS' if passed else 'FAIL'} — {passing}/{required} buckets meet spread > {threshold}\n")
+    typer.echo(f"  {'bucket':<12}  {'qwen3.5':>10}  {'granite4.1-8b':>16}  {'spread':>8}  {'criterion':>10}")
+    typer.echo(f"  {'-'*12}  {'-'*10}  {'-'*16}  {'-'*8}  {'-'*10}")
+
+    from backend.orchestrator.routing.vocab import BUCKETS, ENABLED_AGENTS
+    for bucket in BUCKETS:
+        info = data.get("buckets", {}).get(bucket, {})
+        rewards = info.get("mean_rewards", {})
+        spread = info.get("spread", 0.0)
+        met = info.get("criterion_met", False)
+        q_val = rewards.get(ENABLED_AGENTS[0], float("nan"))
+        g_val = rewards.get(ENABLED_AGENTS[1], float("nan"))
+        marker = "✓" if met else " "
+        typer.echo(
+            f"  {bucket:<12}  {q_val:>10.4f}  {g_val:>16.4f}  {spread:>8.4f}  {marker:>10}"
+        )
+
+    if passed:
+        typer.echo(
+            f"\nv2 learning criterion MET. The bandit has differentiated "
+            f"arm preferences in ≥{required} buckets."
+        )
+    else:
+        typer.echo(
+            f"\nCriterion not yet met ({passing}/{required} buckets). "
+            "Possible causes: not enough real traffic, reward signal weak, "
+            "per-bucket isolation broken. See docs/v2-devious-bugs-buckets.md §13."
+        )
+
+
 @app.command("refresh")
 def refresh(
     json_output: bool = typer.Option(False, "--json"),

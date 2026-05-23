@@ -1343,6 +1343,55 @@ async def routing_dry_run(body: dict):
     }
 
 
+@app.get("/api/routing/spread")
+async def routing_spread():
+    """Per-bucket mean-reward spread between the two active arms (θᵀx, no UCB bonus).
+
+    Used by `orch benchmark v2-review` to evaluate the §13 item 6 learning criterion:
+    ≥3 buckets must show |θᵀx(qwen) - θᵀx(granite)| > 0.1 after 200 episodes.
+    Compute as (A⁻¹b)ᵀx at each bucket's representative context vector.
+    """
+    import numpy as np
+    from ..routing.warm_start import _BUCKET_VECTORS
+    from ..routing.vocab import BUCKETS, ENABLED_AGENTS
+
+    router = get_bandit_router()
+    strategy = router.strategy
+    if not hasattr(strategy, "A") or not hasattr(strategy, "get_theta"):
+        return {"error": "Strategy does not expose per-bucket theta", "strategy": strategy.name}
+
+    results: dict[str, dict] = {}
+    for bucket in BUCKETS:
+        x = np.array(_BUCKET_VECTORS[bucket], dtype=float)
+        bucket_result: dict[str, float] = {}
+        for agent in ENABLED_AGENTS:
+            try:
+                theta = strategy.get_theta(agent, bucket)
+                mean_reward = float(x @ theta)
+            except Exception:  # noqa: BLE001
+                mean_reward = float("nan")
+            bucket_result[agent] = round(mean_reward, 4)
+
+        agent_values = [v for v in bucket_result.values() if v == v]  # drop nan
+        spread = round(max(agent_values) - min(agent_values), 4) if len(agent_values) >= 2 else 0.0
+        results[bucket] = {
+            "mean_rewards": bucket_result,
+            "spread": spread,
+            "criterion_met": spread > 0.1,
+        }
+
+    buckets_meeting_criterion = sum(1 for r in results.values() if r["criterion_met"])
+    total_decisions = router.logger.count()
+    return {
+        "total_decisions": total_decisions,
+        "criterion_threshold": 0.1,
+        "criterion_required_buckets": 3,
+        "buckets_meeting_criterion": buckets_meeting_criterion,
+        "criterion_passed": buckets_meeting_criterion >= 3,
+        "buckets": results,
+    }
+
+
 @app.get("/api/routing/decisions")
 async def routing_decisions(
     limit: int = 10,

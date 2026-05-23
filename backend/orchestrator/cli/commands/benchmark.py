@@ -653,6 +653,115 @@ def bootstrap(
     typer.echo(f"  db: {db}")
 
 
+@app.command("v2")
+def v2_bench(
+    prompts: Optional[str] = typer.Option(
+        None, "--prompts",
+        help="Path to prompts.json (default: benchmarks/v2/prompts.json)",
+    ),
+    roster: Optional[str] = typer.Option(
+        None, "--roster",
+        help="Path to roster.json for model hash verification (default: benchmarks/v2/roster.json)",
+    ),
+    output: Optional[str] = typer.Option(
+        None, "--output",
+        help="Output directory for artifacts (default: benchmarks/v2/<commit_sha>/)",
+    ),
+    seed: int = typer.Option(42, "--seed", help="Random seed for simulation"),
+    write_roster: bool = typer.Option(
+        False, "--write-roster",
+        help="Capture current Ollama model IDs into roster.json before running.",
+    ),
+    skip_hash_check: bool = typer.Option(
+        False, "--skip-hash-check",
+        help="Skip model hash verification (use when roster.json is absent).",
+    ),
+    gate_only: bool = typer.Option(
+        False, "--gate-only",
+        help="Run classification gate check only — no simulation.",
+    ),
+    save_matrix: bool = typer.Option(
+        False, "--save-matrix",
+        help="Write the compatibility matrix to ~/.mahoraga-v2/compatibility_matrix.json "
+             "so the bandit loads it as a warm-start prior on next cold start.",
+    ),
+) -> None:
+    """v2 benchmark: classification gate + model hash check + 54-prompt simulation.
+
+    Mandatory pre-run gates (both abort loudly on failure):
+      1. Classification gate — every prompt must route to its intended_bucket.
+      2. Model hash check    — active arm model IDs must match roster.json.
+
+    After both gates pass, runs the 54-prompt simulation and writes:
+      benchmarks/v2/<commit_sha>/matrix.json
+      benchmarks/v2/<commit_sha>/run_metadata.json
+
+    Use --write-roster on the first run to capture the current Ollama model IDs.
+    Use --save-matrix to push results to the bandit's warm-start path.
+    """
+    import subprocess as _sp
+    from pathlib import Path as _Path
+    from backend.orchestrator.routing.benchmark.v2_harness import (
+        run_classification_gate,
+        run_v2_bench,
+        PROMPTS_PATH,
+    )
+
+    prompts_path = _Path(prompts) if prompts else PROMPTS_PATH
+    roster_path = _Path(roster) if roster else (_Path("benchmarks") / "v2" / "roster.json")
+
+    if not prompts_path.exists():
+        typer.echo(f"Prompts file not found: {prompts_path}", err=True)
+        raise typer.Exit(1)
+
+    if gate_only:
+        import json as _json
+        prompt_list = _json.loads(prompts_path.read_text())
+        typer.echo(f"Running classification gate on {len(prompt_list)} prompts...")
+        run_classification_gate(prompt_list)
+        typer.echo(f"Gate passed. All {len(prompt_list)} prompts classify correctly.")
+        return
+
+    # Determine output directory: benchmarks/v2/<commit_sha>/
+    if output:
+        out_dir = _Path(output)
+    else:
+        try:
+            sha = _sp.check_output(
+                ["git", "rev-parse", "--short", "HEAD"],
+                text=True,
+            ).strip()
+        except Exception:  # noqa: BLE001
+            sha = "local"
+        out_dir = _Path("benchmarks") / "v2" / sha
+
+    typer.echo(f"v2 bench run → {out_dir}/")
+
+    matrix = run_v2_bench(
+        prompts_path=prompts_path,
+        roster_path=roster_path,
+        out_dir=out_dir,
+        seed=seed,
+        write_roster=write_roster,
+        skip_hash_check=skip_hash_check,
+    )
+
+    if save_matrix:
+        from backend.orchestrator.routing.warm_start import save_compatibility_matrix
+        save_compatibility_matrix(matrix)
+        typer.echo("  Saved → ~/.mahoraga-v2/compatibility_matrix.json")
+
+    typer.echo("\nCompatibility matrix (mean reward per bucket):")
+    from backend.orchestrator.routing.vocab import BUCKETS
+    header = f"  {'bucket':<12}" + "".join(f"  {a.split(':')[1]:<18}" for a in matrix)
+    typer.echo(header)
+    for bucket in BUCKETS:
+        row = f"  {bucket:<12}" + "".join(
+            f"  {matrix[a].get(bucket, 0.0):<18.4f}" for a in matrix
+        )
+        typer.echo(row)
+
+
 @app.command("refresh")
 def refresh(
     json_output: bool = typer.Option(False, "--json"),

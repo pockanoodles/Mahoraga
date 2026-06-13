@@ -1,7 +1,7 @@
 """
 A2 — Escalation strategies.
 
-Spec: docs/v2-remaining-work.md §A2.
+Spec: docs/specs/v2-remaining-work.md §A2.
 
 When `should_escalate=True` is set on a ComposedDecision, the gateway
 needs to know HOW to escalate. Three strategies, selected by the

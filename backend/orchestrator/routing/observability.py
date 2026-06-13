@@ -1,7 +1,7 @@
 """
 R1.4 — Routing health observability.
 
-Spec: docs/v2-debug-F1-F4.md §R1.4 + §Research Methodology Shift.
+Spec: docs/specs/v2-debug-F1-F4.md §R1.4 + §Research Methodology Shift.
 
 Single read-only entry point: `compute_health_snapshot(db_path) -> HealthSnapshot`.
 Runs a small fixed set of SQL queries over the decisions DB and returns a

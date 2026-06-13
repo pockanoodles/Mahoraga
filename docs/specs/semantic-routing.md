@@ -1069,7 +1069,7 @@ Future work — see §16 (deferred).
 
 ### 15.7 Per-bucket bandits — the architectural fix that finally lets A1 win
 
-The §15.6 finding pointed at the global LinUCB θ as the root cause: wrong picks in one bucket poison the others, and semantic memory's high-fidelity retrieval reproduces those wrong picks at test time. `docs/per-bucket-bandits.md` scoped a per-bucket bandit (one θ matrix per classified bucket) as the architectural fix.
+The §15.6 finding pointed at the global LinUCB θ as the root cause: wrong picks in one bucket poison the others, and semantic memory's high-fidelity retrieval reproduces those wrong picks at test time. `docs/specs/per-bucket-bandits.md` scoped a per-bucket bandit (one θ matrix per classified bucket) as the architectural fix.
 
 The implementation ships as the `linucb_per_bucket` strategy, parallel to `linucb`. Same router-side API. Per-bucket A/b plus configurable cross-bucket pooling for new-arm initialisation. v2 state migrates into a `default` pseudo-bucket so existing user history is preserved.
 

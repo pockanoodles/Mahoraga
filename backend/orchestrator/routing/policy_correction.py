@@ -1,7 +1,7 @@
 """
 Off-policy correction for composer overrides.
 
-Spec: docs/v2-remaining-work.md §A1.
+Spec: docs/specs/v2-remaining-work.md §A1.
 
 When the cross-axis composer overrides the bandit's pick (e.g. flips
 codex-cli → ollama because A3 strongly disagrees), the bandit's update

@@ -1,7 +1,7 @@
 """
 F1 — Budget Pacer.
 
-Spec: docs/v2-debug-F1-F4.md §F1.
+Spec: docs/specs/v2-debug-F1-F4.md §F1.
 
 Online primal-dual budget pacer adapted from ParetoBandit (Apache 2.0).
 Enforces a per-task average cost ceiling via a Lagrange multiplier λ

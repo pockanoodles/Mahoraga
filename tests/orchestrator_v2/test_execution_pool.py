@@ -1,6 +1,6 @@
 """Tests for F2 — ExecutionPool + QueueTracker.
 
-Spec: docs/v2-debug-F1-F4.md §F2 acceptance criteria.
+Spec: docs/specs/v2-debug-F1-F4.md §F2 acceptance criteria.
 
 Most assertions cover concurrency invariants (semaphores actually serialize
 overlapping work) — verified by collecting timestamped acquire/release

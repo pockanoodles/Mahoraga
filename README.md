@@ -1,6 +1,6 @@
 # Mahoraga
 
-> **You are looking at the `v2` branch.** Active development of semantic-augmented routing. See [`docs/semantic-routing.md`](docs/semantic-routing.md) for the design spec. The stable v1 release is on the [`main` branch](https://github.com/pockanoodles/Mahoraga/tree/main).
+> **You are looking at the `v2` branch.** Active development of semantic-augmented routing. See [`docs/specs/semantic-routing.md`](docs/specs/semantic-routing.md) for the design spec. The stable v1 release is on the [`main` branch](https://github.com/pockanoodles/Mahoraga/tree/main).
 
 An online bandit routing engine for heterogeneous AI agents. Local-first — local models are the default tier, not the fallback. Learns from every task.
 *Mahoraga analyzes, adapts, and overcomes.*

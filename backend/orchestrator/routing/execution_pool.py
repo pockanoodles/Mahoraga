@@ -1,7 +1,7 @@
 """
 F2 — ExecutionPool + QueueTracker.
 
-Spec: docs/v2-debug-F1-F4.md §F2.
+Spec: docs/specs/v2-debug-F1-F4.md §F2.
 
 Centralized concurrency primitives for the agent-execution layer.
 Three goals:

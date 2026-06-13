@@ -1,6 +1,6 @@
 """Tests for A2 — escalation strategy selection (routing/escalation_strategies.py).
 
-Spec: docs/v2-remaining-work.md §A2.
+Spec: docs/specs/v2-remaining-work.md §A2.
 """
 from __future__ import annotations
 

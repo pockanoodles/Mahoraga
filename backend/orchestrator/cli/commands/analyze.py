@@ -1,7 +1,7 @@
 """
 `orch analyze` — L3.3 post-hoc decision analysis.
 
-Spec: docs/v2-debug-F1-F4.md §L3.3.
+Spec: docs/specs/v2-debug-F1-F4.md §L3.3.
 
 Read-only queries against `routing_decisions.db` that answer specific
 operational questions. Distinct from the live observability dashboard

@@ -840,7 +840,7 @@ def v2_review(
         typer.echo(
             f"\nCriterion not yet met ({passing}/{required} buckets). "
             "Possible causes: not enough real traffic, reward signal weak, "
-            "per-bucket isolation broken. See docs/v2-devious-bugs-buckets.md §13."
+            "per-bucket isolation broken. See docs/specs/v2-devious-bugs-buckets.md §13."
         )
 
 

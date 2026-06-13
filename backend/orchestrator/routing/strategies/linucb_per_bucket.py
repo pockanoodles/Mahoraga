@@ -4,12 +4,12 @@ LinUCB with per-bucket disjoint linear models.
 Same algorithmic core as `linucb.LinUCBRouter` (Li, Chu, Langford, Schapire,
 WWW 2010) but with per-classified-bucket A/b matrices instead of one
 global pair per agent. Motivated by the empirical findings in
-`docs/semantic-routing.md §15.5–§15.6` — the global-θ design couples
+`docs/specs/semantic-routing.md §15.5–§15.6` — the global-θ design couples
 buckets through the bandit state, which causes wrong picks in one bucket
 to poison routing on others and lets memory faithfully reproduce those
 mistakes.
 
-Design (full scope: `docs/per-bucket-bandits.md`):
+Design (full scope: `docs/specs/per-bucket-bandits.md`):
 
   state shape:   A[bucket][agent] ∈ R^{d×d}
                  b[bucket][agent] ∈ R^{d×1}

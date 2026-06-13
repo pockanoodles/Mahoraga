@@ -1,7 +1,7 @@
 """
 A4 — Brain/journal integration (read-only retrieval).
 
-Spec: docs/semantic-routing.md §15 — "What A1 Unlocks: A4".
+Spec: docs/specs/semantic-routing.md §15 — "What A1 Unlocks: A4".
 
 This module indexes the repo-local `brain/` markdown corpus
 (decisions, journal, concepts, state) into the same MiniLM-L6-v2
@@ -111,7 +111,7 @@ def summarise_brain_hits(
 ) -> str:
     """Pure-function keyword extraction over the top-k brain hits.
 
-    Spec: docs/v2-remaining-work.md §A4. The output is meant to be
+    Spec: docs/specs/v2-remaining-work.md §A4. The output is meant to be
     concatenated into a task description before semantic encoding, so
     it should be short, dense, and free of generic prose. Heuristics:
 

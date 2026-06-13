@@ -1,6 +1,6 @@
 """Tests for F1 — Budget Pacer.
 
-Acceptance criteria from docs/v2-debug-F1-F4.md §F1:
+Acceptance criteria from docs/specs/v2-debug-F1-F4.md §F1:
   1. BUDGET_CEILING=0.0 → no paid agent ever selected (over 100 sims).
   2. BUDGET_CEILING=0.05 → paid agents allowed but rolling avg < 0.05.
   3. λ converges (variance < 0.01 over last 50 updates after 200 tasks).

@@ -1,6 +1,6 @@
 """Tests for A1 — off-policy correction (routing/policy_correction.py).
 
-Spec: docs/v2-remaining-work.md §A1.
+Spec: docs/specs/v2-remaining-work.md §A1.
 """
 from __future__ import annotations
 

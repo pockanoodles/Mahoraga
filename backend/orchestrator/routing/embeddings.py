@@ -2,7 +2,7 @@
 Semantic embedding service for task descriptions.
 
 Provides 384-dim L2-normalised vectors via all-MiniLM-L6-v2 for the
-two-tower episodic memory upgrade (see docs/semantic-routing.md §4).
+two-tower episodic memory upgrade (see docs/specs/semantic-routing.md §4).
 
 Two-layer cache:
   1. In-memory LRU (1000 entries) — hot path, <0.01 ms

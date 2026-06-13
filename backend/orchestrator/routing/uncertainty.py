@@ -1,7 +1,7 @@
 """
 A2 — Confidence-aware escalation (uncertainty signal).
 
-Spec: docs/semantic-routing.md §15 — "What A1 Unlocks: A2".
+Spec: docs/specs/semantic-routing.md §15 — "What A1 Unlocks: A2".
 
 LinUCB's posterior variance for arm a at context x is
 

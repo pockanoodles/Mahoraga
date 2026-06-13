@@ -1,7 +1,7 @@
 """
 L3.2 — Episode replay engine.
 
-Spec: docs/v2-debug-F1-F4.md §L3.2.
+Spec: docs/specs/v2-debug-F1-F4.md §L3.2.
 
 Re-execute logged routing decisions under a hypothetical config and
 report what would have happened. The decisions DB carries everything

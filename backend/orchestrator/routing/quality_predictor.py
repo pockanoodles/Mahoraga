@@ -1,7 +1,7 @@
 """
 A3 — Learned quality scoring (offline trainer + scorer).
 
-Spec: docs/semantic-routing.md §15 — "What A1 Unlocks: A3".
+Spec: docs/specs/semantic-routing.md §15 — "What A1 Unlocks: A3".
 
 Today's quality score is a heuristic blend of structural / novelty /
 length / not-plan / embed components (see `verifier/quality.py`). After
@@ -54,7 +54,7 @@ DEFAULT_LR = 0.1
 DEFAULT_ITERS = 400
 HANDCRAFT_DIM = 9
 
-# A3 staleness thresholds (spec: docs/v2-remaining-work.md §A3).
+# A3 staleness thresholds (spec: docs/specs/v2-remaining-work.md §A3).
 # Retrain triggers when EITHER condition holds:
 STALENESS_RATIO = 1.5      # current_count > trained_count × ratio
 STALENESS_ABSOLUTE = 500   # current_count − trained_count > absolute

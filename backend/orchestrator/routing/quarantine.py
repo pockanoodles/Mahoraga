@@ -1,7 +1,7 @@
 """
 F5 — Quarantine manager + recovery probes.
 
-Spec: docs/v2-debug-F1-F4.md §F5.
+Spec: docs/specs/v2-debug-F1-F4.md §F5.
 
 When the drift detector fires a `DriftAlert`, this module records the
 quarantine entry and exposes:

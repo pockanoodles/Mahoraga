@@ -1,7 +1,7 @@
 """
 F5 — Drift detection for agent reward distributions.
 
-Spec: docs/v2-debug-F1-F4.md §F5.
+Spec: docs/specs/v2-debug-F1-F4.md §F5.
 
 Watches per-(bucket, agent) reward streams and fires `DriftAlert` when
 the rolling-window mean drops more than `sigma_threshold` standard

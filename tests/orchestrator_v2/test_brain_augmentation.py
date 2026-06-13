@@ -1,6 +1,6 @@
 """Tests for A4 — brain hits → embedding augmentation.
 
-Spec: docs/v2-remaining-work.md §A4. Brain entries don't get mapped to
+Spec: docs/specs/v2-remaining-work.md §A4. Brain entries don't get mapped to
 per-agent biases; they tag the task description with project context
 keywords before semantic encoding. Episodic retrieval then lands in
 project-specific clusters.

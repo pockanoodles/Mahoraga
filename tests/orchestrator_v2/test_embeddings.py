@@ -422,7 +422,7 @@ class TestRealModelAcceptance:
     in roughly [-0.15, 0.30]. The retrieval property the bandit cares
     about is the *gap* between in-cluster and out-of-cluster pairs, not
     the absolute magnitude — which is large and robust here. See
-    docs/semantic-routing.md §13.1 for the calibration table.
+    docs/specs/semantic-routing.md §13.1 for the calibration table.
     """
 
     def test_returns_unit_vector(self, real_service: EmbeddingService) -> None:

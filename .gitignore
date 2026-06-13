@@ -10,3 +10,7 @@ __pycache__/
 experiments/
 *.jsonl
 .claude/
+
+# Local AI-call context / build scaffolding — never pushed
+docs/superpowers/
+.DS_Store

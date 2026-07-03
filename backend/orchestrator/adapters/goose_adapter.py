@@ -21,8 +21,13 @@ _CAPABILITIES = [
 class GooseAdapter(AgentAdapter):
     """Routes tasks to GooseWorker — Block's general-purpose open-source AI agent."""
 
-    def __init__(self, binary_path: str = "goose") -> None:
+    def __init__(
+        self,
+        binary_path: str = "goose",
+        capabilities: list[AgentCapability] | None = None,
+    ) -> None:
         self._binary = binary_path
+        self._capabilities = capabilities if capabilities is not None else _CAPABILITIES
 
     @property
     def name(self) -> str:
@@ -34,7 +39,7 @@ class GooseAdapter(AgentAdapter):
 
     @property
     def capabilities(self) -> list[AgentCapability]:
-        return _CAPABILITIES
+        return self._capabilities
 
     def estimate_cost(self, task: "Task") -> CostEstimate:
         return CostEstimate(

@@ -11,7 +11,7 @@ Outputs (benchmark_results/):
     pareto_sweep.json   — all 100 run results
     pareto_front.png    — scatter plot with Pareto front + knee highlighted
 
-The winning config is written to ~/.mahoraga/tuned_hyperparams.json so
+The winning config is written to ~/.mahoraga-v2/tuned_hyperparams.json so
 BanditRouter can load it on next startup.
 """
 from __future__ import annotations
@@ -30,7 +30,7 @@ except ImportError:
     from oracle import AGENTS, Oracle, Task  # type: ignore[no-redef]
 
 RESULTS_DIR = Path(__file__).parent / "results"
-TUNED_HYPERPARAMS_PATH = Path.home() / ".mahoraga" / "tuned_hyperparams.json"
+TUNED_HYPERPARAMS_PATH = Path.home() / ".mahoraga-v2" / "tuned_hyperparams.json"
 
 # ── Sweep grid ─────────────────────────────────────────────────────────────
 ALPHA_GRID: list[float]    = [0.5, 1.0, 1.5, 2.0]

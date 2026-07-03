@@ -92,7 +92,7 @@ class OllamaWorker(WorkerAdapter):
 
     @property
     def capabilities(self) -> list[str]:
-        return ["general", "code_generation", "analysis"]
+        return ["general", "code", "research"]
 
     @property
     def max_ctx(self) -> int | None:

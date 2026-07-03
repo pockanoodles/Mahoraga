@@ -19,7 +19,7 @@ _DEFAULTS: dict = {
 
 class MahoragaConfig:
     def __init__(self, path: Path | None = None) -> None:
-        self._path = path or (Path.home() / ".mahoraga" / "config.json")
+        self._path = path or (Path.home() / ".mahoraga-v2" / "config.json")
 
     def _load(self) -> dict:
         if not self._path.exists():

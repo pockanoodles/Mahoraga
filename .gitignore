@@ -9,3 +9,11 @@ __pycache__/
 .aider.*
 experiments/
 *.jsonl
+.claude/
+
+# Local AI-call context / build scaffolding — never pushed
+docs/superpowers/
+.DS_Store
+
+# Runtime state — the router's decision data lives in ~/.mahoraga-v2/, not the repo
+brain/decisions/log.md

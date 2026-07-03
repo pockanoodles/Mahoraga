@@ -69,7 +69,7 @@ class LinUCBRouter(RoutingStrategy):
         if matrix and agent in matrix:
             warm_start_from_matrix(self, {agent: matrix[agent]}, lambda_prior=2.0)
 
-    def inject_pseudo_obs(self, agent: str, x: np.ndarray, reward: float, lambda_prior: float = 1.0) -> None:
+    def inject_pseudo_obs(self, agent: str, x: np.ndarray, reward: float, lambda_prior: float = 1.0, bucket: str | None = None) -> None:  # noqa: ARG002
         """Inject one pseudo-observation into arm `agent`.
 
         A[agent] += lambda_prior * outer(x, x)
@@ -93,12 +93,14 @@ class LinUCBRouter(RoutingStrategy):
             theta = np.linalg.solve(self.A[a], self.b[a])
             exploit = float((x.T @ theta).item())
             explore_sq = float((x.T @ np.linalg.solve(self.A[a], x)).item())
-            explore = self.alpha * float(np.sqrt(max(0.0, explore_sq)))
+            explore_sq = max(0.0, explore_sq)
+            explore = self.alpha * float(np.sqrt(explore_sq))
             ucb = exploit + explore
             scores[a] = {
                 "ucb": round(ucb, 4),
                 "exploit": round(exploit, 4),
                 "explore": round(explore, 4),
+                "variance": round(explore_sq, 6),
             }
             if ucb > best_ucb:
                 best_ucb = ucb
@@ -106,15 +108,28 @@ class LinUCBRouter(RoutingStrategy):
         self._last_scores = scores
         return best_agent
 
-    def update(self, context, agent: str, reward: float) -> None:
+    def update(
+        self,
+        context,
+        agent: str,
+        reward: float,
+        weight: float = 1.0,
+    ) -> None:
+        """Update A, b for the agent that actually ran.
+
+        `weight` is the off-policy importance weight: 1.0 in the standard
+        case, or P_bandit(final_agent) when the composer overrode the
+        bandit's pick. See `routing/policy_correction.py`.
+        """
         self._init_agent(agent)
         x = context.to_vector().reshape(-1, 1)
+        w = float(weight)
         if self.decay < 1.0:
-            self.A[agent] = self.decay * self.A[agent] + x @ x.T
-            self.b[agent] = self.decay * self.b[agent] + reward * x
+            self.A[agent] = self.decay * self.A[agent] + w * (x @ x.T)
+            self.b[agent] = self.decay * self.b[agent] + w * reward * x
         else:
-            self.A[agent] = self.A[agent] + x @ x.T
-            self.b[agent] = self.b[agent] + reward * x
+            self.A[agent] = self.A[agent] + w * (x @ x.T)
+            self.b[agent] = self.b[agent] + w * reward * x
 
     def get_scores(self) -> dict:
         return getattr(self, '_last_scores', {})
@@ -130,11 +145,13 @@ class LinUCBRouter(RoutingStrategy):
             theta = np.linalg.solve(self.A[a], self.b[a])
             exploit = float((x.T @ theta).item())
             explore_sq = float((x.T @ np.linalg.solve(self.A[a], x)).item())
-            explore = self.alpha * float(np.sqrt(max(0.0, explore_sq)))
+            explore_sq = max(0.0, explore_sq)
+            explore = self.alpha * float(np.sqrt(explore_sq))
             scores[a] = {
                 "ucb": round(exploit + explore, 4),
                 "exploit": round(exploit, 4),
                 "explore": round(explore, 4),
+                "variance": round(explore_sq, 6),
             }
         return scores
 

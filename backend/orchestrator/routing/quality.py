@@ -43,30 +43,40 @@ import statistics
 
 import httpx
 
+from .vocab import CODE_LIKE_BUCKETS, DEBUG_BUCKETS, SECURITY_BUCKETS, PLAN_LIKE_BUCKETS
+
 
 # ── Infrastructure ──────────────────────────────────────────────────────────
 
 _OLLAMA_EMBED_URL = "http://localhost:11434/api/embed"
 _EMBED_MODEL = "nomic-embed-text"
 
-# Buckets whose "answer is a plan" — no structural penalty applied here.
-_PLAN_LIKE_BUCKETS: frozenset[str] = frozenset({"plan"})
-
-# Buckets that expect code; structural check uses syntax/blocks instead of prose.
-_CODE_BUCKETS: frozenset[str] = frozenset({"code", "test", "refactor", "debug", "security"})
+# Bucket groupings imported from vocab — single source of truth.
+# NOTE on historical context: "security" was previously in CODE_LIKE_BUCKETS,
+# but security answers are almost always prose (CWE references, mitigation
+# steps, threat-model discussion) rather than code, so AST parsing always
+# failed and every agent's score plateaued at 0.65. The dedicated
+# _score_security path below is structural but prose-aware. "debug" was
+# also affected: prose diagnostic answers plateaued at 0.55 through the
+# code-fallback path. _score_debug tries code first and falls back to prose.
+_CODE_BUCKETS = CODE_LIKE_BUCKETS
+_DEBUG_BUCKETS = DEBUG_BUCKETS
+_SECURITY_BUCKETS = SECURITY_BUCKETS
+_PLAN_LIKE_BUCKETS = PLAN_LIKE_BUCKETS
 
 # Expected response-to-prompt word ratio by bucket. Tunable; these are
 # conservative starting points that shouldn't hurt reasonable answers.
+# Keys must cover all BUCKETS — enforced by test_vocab_scoring_coverage.
 _LENGTH_RATIO_TARGETS: dict[str, float] = {
-    "research": 10.0,
-    "general":   8.0,
-    "review":    5.0,
     "code":      3.0,
-    "plan":      2.0,
-    "test":      3.0,
-    "refactor":  3.0,
     "debug":     4.0,
+    "plan":      2.0,
+    "research": 10.0,
+    "review":    5.0,
+    "refactor":  3.0,
     "security":  5.0,
+    "test":      3.0,
+    "general":   8.0,
 }
 
 # Stopwords — stripped before computing novelty so "the / and / of" don't
@@ -135,6 +145,121 @@ def _score_code(output: str) -> float:
     if "```" in output or re.search(r"^\s{4}", output, re.MULTILINE):
         score += 0.1
     return min(score, 1.0)
+
+
+# Security-specific structural signals. Empirically chosen to reward the
+# kinds of artefacts a thorough security answer contains: identifier
+# references (CWE/CVE), mitigation language, and explicit threat-model
+# structure. None of these alone is sufficient — they're additive so a
+# good answer collects multiple. Tuned to keep a plain prose answer
+# scoring near 0.5 (so non-security agents don't get penalised hard).
+
+_CWE_RE = re.compile(r"\bCWE[-\s]?\d{1,4}\b", re.IGNORECASE)
+_CVE_RE = re.compile(r"\bCVE[-\s]?\d{4}[-\s]?\d{1,7}\b", re.IGNORECASE)
+_MITIGATION_KEYWORDS = (
+    "sanitize", "sanitise", "validate", "escape", "parameteris", "parameteriz",
+    "least privilege", "principle of least", "defense in depth", "defence in depth",
+    "rate limit", "rate-limit", "encrypt", "tls", "ssl", "hash", "salt",
+    "csrf", "xss", "sql injection", "input validation", "output encoding",
+    "auth", "rbac", "acl", "permission", "audit log", "secrets management",
+    "key rotation", "patch", "fix", "remediat", "mitigat", "harden",
+)
+_THREAT_KEYWORDS = (
+    "threat model", "attack surface", "attacker", "adversar", "exploit",
+    "vulnerab", "risk", "impact", "exposure", "breach", "compromise",
+    "malicious", "untrusted", "boundary",
+)
+_SECURITY_HEADER_RE = re.compile(
+    r"^\s*#{1,4}\s*(threat|risk|mitigation|remediation|attack|vulnerab|exploit|countermeasure|recommendation)",
+    re.IGNORECASE | re.MULTILINE,
+)
+
+
+def _score_security(output: str) -> float:
+    """Structural quality for *prose* security answers.
+
+    Layers (each contributes a bounded amount; total clipped to 1.0):
+      - Base (0.40): non-empty + minimum-length prose.
+      - Identifier references (CWE/CVE), capped at +0.20.
+      - Mitigation/remediation language, capped at +0.20.
+      - Threat-model vocabulary, capped at +0.10.
+      - Explicit section structure (## Threat / ## Mitigation), +0.10.
+    """
+    text = output.strip()
+    if not text:
+        return 0.0
+    word_count = len(text.split())
+    if word_count < _MIN_WORDS:
+        return 0.10
+
+    score = 0.40
+    # Length is a soft prerequisite — short answers can't realistically
+    # cover threat-model + mitigation, so trim base for very short replies.
+    if word_count < 30:
+        score = 0.30
+
+    # CWE / CVE references — distinct identifiers count more than repeats.
+    cwes = {m.group(0).upper() for m in _CWE_RE.finditer(text)}
+    cves = {m.group(0).upper() for m in _CVE_RE.finditer(text)}
+    score += min(0.10, 0.05 * len(cwes))
+    score += min(0.10, 0.05 * len(cves))
+
+    lower = text.lower()
+    mitigation_hits = sum(1 for kw in _MITIGATION_KEYWORDS if kw in lower)
+    score += min(0.20, 0.04 * mitigation_hits)
+
+    threat_hits = sum(1 for kw in _THREAT_KEYWORDS if kw in lower)
+    score += min(0.10, 0.025 * threat_hits)
+
+    if _SECURITY_HEADER_RE.search(text):
+        score += 0.10
+
+    return round(min(score, 1.0), 4)
+
+
+def _score_debug(prompt: str, output: str) -> float:
+    """Hybrid scorer for the debug bucket.
+
+    Real debug answers vary: some are pure code patches, some are pure
+    diagnostic prose ("the issue is X — add a null check"), most are
+    a mix. The pre-fix code-only path penalised diagnostic-prose answers
+    by routing them through `_score_code`, where they all hit 0.55
+    (0.50 base + 0.05 parse-fail + 0 for everything else).
+
+    The hybrid path:
+      1. Compute the code score. If it's ≥ 0.7 we trust it (real code
+         present), short-circuit and return.
+      2. Otherwise compute a prose score that combines structural
+         signals with a small bonus for diagnostic vocabulary
+         ("issue", "cause", "fix", "because", "error", "exception",
+         "bug", "stack trace") — markers that distinguish a debugging
+         answer from generic prose.
+      3. Return max(code, prose). Pure code answers still score high;
+         prose-only answers get fair structural credit; mixed answers
+         take whichever path scored them better.
+    """
+    if not output.strip():
+        return 0.0
+
+    code_score = _score_code(output)
+    if code_score >= 0.7:
+        return code_score
+
+    prose = _score_prose_structural(output)
+    novelty = _novelty_ratio(prompt, output) if prompt else 0.0
+
+    diag_keywords = (
+        "issue", "cause", "root cause", "because", "bug",
+        "fix", "fixed", "patch", "error", "exception",
+        "traceback", "stack trace", "null", "race", "deadlock",
+        "leak", "off-by-one", "regression",
+    )
+    lower = output.lower()
+    diag_hits = sum(1 for kw in diag_keywords if kw in lower)
+    diag_bonus = min(0.15, 0.04 * diag_hits)
+
+    prose_combined = min(1.0, 0.55 * prose + 0.25 * novelty + diag_bonus)
+    return round(max(code_score, prose_combined), 4)
 
 
 def _score_prose_structural(output: str) -> float:
@@ -285,6 +410,10 @@ def score_heuristic(prompt: str, output: str, bucket: str = "general") -> float:
     """Synchronous heuristic score (no embedding call). Usable offline."""
     if bucket in _CODE_BUCKETS:
         return _score_code(output)
+    if bucket in _DEBUG_BUCKETS:
+        return _score_debug(prompt, output)
+    if bucket in _SECURITY_BUCKETS:
+        return _score_security(output)
 
     if not output.strip():
         return 0.0
@@ -311,6 +440,10 @@ async def score_quality_detailed(
     """
     if bucket in _CODE_BUCKETS:
         return round(_score_code(output), 4), None
+    if bucket in _DEBUG_BUCKETS:
+        return round(_score_debug(prompt, output), 4), None
+    if bucket in _SECURITY_BUCKETS:
+        return round(_score_security(output), 4), None
 
     if not output.strip():
         return 0.0, {"structural": 0.0, "novelty": 0.0, "not_plan": 0.0, "length": 0.0, "embed": None}

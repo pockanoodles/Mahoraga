@@ -4,7 +4,7 @@
 Agent-agnostic LLM orchestration framework with online bandit routing. FastAPI backend, Python 3.12, vanilla HTML/CSS/JS frontend. GitHub: pockanoodles/Mahoraga
 
 **Stack:** Python 3.12, FastAPI, aiosqlite, anthropic SDK, httpx  
-**Active branch:** `personal`  
+**Active branch:** `v2` (semantic-augmented routing — see `docs/specs/semantic-routing.md`). v1 is frozen on `main`.  
 **Tests:** `pytest` from project root
 
 ## Repo Layout
@@ -20,11 +20,11 @@ Agent-agnostic LLM orchestration framework with online bandit routing. FastAPI b
 
 ## Key Architecture
 - Two-stage routing: keyword classifier → capability bucket → LinUCB bandit picks agent within bucket
-- 9-dimensional context vector (`routing/context.py`); feature 9 (`queue_depth_norm`) is always 0.0 (reserved)
+- 9-dimensional context vector (`routing/context.py`); feature 9 (`queue_depth_norm`) is live pool depth from ExecutionPool
 - dLinUCB (γ=0.98): discounted updates in `routing/strategies/linucb.py` `update()`
 - Composite reward: success/quality/speed/cost (per-bucket weights, learnable via OLS)
 - Spawn penalty fires when `agent_spawn_time_ms > 500`
-- State: `~/.mahoraga/bandit_state.json` (bandit), `~/.mahoraga/routing_decisions.db` (SQLite log)
+- State: `~/.mahoraga-v2/bandit_state.json` (bandit), `~/.mahoraga-v2/routing_decisions.db` (SQLite log)
 
 ## Running
 - `orch serve` — backend at localhost:8000
@@ -33,10 +33,12 @@ Agent-agnostic LLM orchestration framework with online bandit routing. FastAPI b
 - `orch benchmark lab` — forced round-robin with quality scoring (8 agents × 24 prompts)
 
 ## Agents
-ollama:qwen3-4b (local), ollama:gemma4-e4b, ollama:lfm2, ollama:deepseek-r1, codex-cli, aider, gemini-cli, goose, opencode, claude (escalation only)
+Active (2 arms, local only): ollama:qwen3.5 (9.7B Q4_K_M, code/reasoning), ollama:granite4.1-8b (IBM, test/review/structured output)  
+Disabled in agents.yaml: gemma4-e4b (lowest reward in every bucket, bench 2026-05-20), claude, codex, gemini, aider, opencode, goose  
+Roster source of truth: `agents.yaml`; current snapshot in `brain/state/current_state.md`
 
 ## Hardware
-MacBook Pro (Nov 2024), M-series, 16 GB unified memory. Qwen3 4B Q4_K_M at 33.8 t/s, LFM2 at 77.1 t/s.
+MacBook Pro (Nov 2024), M-series, 16 GB unified memory. Qwen3.5 9.7B Q4_K_M at ~30 t/s on Apple Silicon.
 
 ## Brain / Journal
 

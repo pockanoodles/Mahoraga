@@ -1,3 +1,0 @@
-user_input = input("Enter name: ")
-query = "SELECT * FROM users WHERE name = ?"
-cursor.execute(query, (user_input,))

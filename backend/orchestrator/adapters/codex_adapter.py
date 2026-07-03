@@ -22,8 +22,13 @@ _CAPABILITIES = [
 class CodexAdapter(AgentAdapter):
     """Routes tasks to CodexWorker (subprocess-based OpenAI Codex CLI)."""
 
-    def __init__(self, binary_path: str = "codex") -> None:
+    def __init__(
+        self,
+        binary_path: str = "codex",
+        capabilities: list[AgentCapability] | None = None,
+    ) -> None:
         self._binary = binary_path
+        self._capabilities = capabilities if capabilities is not None else _CAPABILITIES
 
     @property
     def name(self) -> str:
@@ -35,7 +40,7 @@ class CodexAdapter(AgentAdapter):
 
     @property
     def capabilities(self) -> list[AgentCapability]:
-        return _CAPABILITIES
+        return self._capabilities
 
     def estimate_cost(self, task: "Task") -> CostEstimate:
         return CostEstimate(

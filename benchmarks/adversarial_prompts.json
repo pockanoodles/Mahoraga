@@ -1,0 +1,259 @@
+{
+  "version": 1,
+  "spec_section": "docs/semantic-routing.md §9.3",
+  "description": "Adversarial prompt set for testing semantic vs keyword episodic retrieval. Within each cluster, prompts share surface keyword features (so the 9-dim handcrafted context vector cannot discriminate them) but require different agents based on actual semantic content. The hypothesis is that semantic memory retrieval should pull the *right* historical neighbours for each prompt; keyword retrieval should pull a mix dominated by surface-form similarity.",
+  "clusters": [
+    {
+      "id": 1,
+      "theme": "Fix tasks",
+      "shared_features": "All begin with 'Fix' — keyword classifier collapses to debug/code; agents needed range from claude (concurrency) to ollama (typo) to codex-cli (config files).",
+      "prompts": [
+        {
+          "prompt": "Fix the database race condition in the connection pool",
+          "bucket": "debugging",
+          "oracle_agent": "claude",
+          "oracle_reward": 0.91,
+          "rationale": "Concurrency bug in shared resource — needs deep code reasoning"
+        },
+        {
+          "prompt": "Fix the typo in the README header",
+          "bucket": "simple_chat",
+          "oracle_agent": "ollama",
+          "oracle_reward": 0.88,
+          "rationale": "Trivial edit; any agent works, ollama is cheapest"
+        },
+        {
+          "prompt": "Fix the CI pipeline to cache node_modules between runs",
+          "bucket": "file_operations",
+          "oracle_agent": "codex-cli",
+          "oracle_reward": 0.90,
+          "rationale": "DevOps config edit; codex-cli good at file ops"
+        },
+        {
+          "prompt": "Fix the memory leak in the WebSocket handler",
+          "bucket": "debugging",
+          "oracle_agent": "aider",
+          "oracle_reward": 0.88,
+          "rationale": "Performance debugging needs file context — aider's strength"
+        },
+        {
+          "prompt": "Fix the CORS headers for the staging environment",
+          "bucket": "file_operations",
+          "oracle_agent": "codex-cli",
+          "oracle_reward": 0.89,
+          "rationale": "Infrastructure config; codex-cli handles config files well"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "theme": "Explain tasks",
+      "shared_features": "All begin with 'Explain' — keyword classifier puts all in research bucket; required agent depends on whether it's CS theory (claude), project context (gemini-cli), or perf analysis (aider).",
+      "prompts": [
+        {
+          "prompt": "Explain how B-tree page splits work during concurrent inserts",
+          "bucket": "complex_reasoning",
+          "oracle_agent": "claude",
+          "oracle_reward": 0.94,
+          "rationale": "Deep CS data-structure question — claude best at complex reasoning"
+        },
+        {
+          "prompt": "Explain our deployment pipeline to a new team member",
+          "bucket": "research",
+          "oracle_agent": "gemini-cli",
+          "oracle_reward": 0.86,
+          "rationale": "Project-context research — gemini-cli does well on broad research"
+        },
+        {
+          "prompt": "Explain the GDPR implications of storing user IP addresses",
+          "bucket": "complex_reasoning",
+          "oracle_agent": "claude",
+          "oracle_reward": 0.93,
+          "rationale": "Legal/compliance reasoning — claude reliable"
+        },
+        {
+          "prompt": "Explain why the test suite takes 40 minutes to run",
+          "bucket": "debugging",
+          "oracle_agent": "aider",
+          "oracle_reward": 0.85,
+          "rationale": "Performance analysis needing file context — aider's lane"
+        },
+        {
+          "prompt": "Explain the tradeoffs between gRPC and REST for our internal APIs",
+          "bucket": "planning",
+          "oracle_agent": "gemini-cli",
+          "oracle_reward": 0.82,
+          "rationale": "Architecture comparison — gemini-cli good at planning/tradeoff analysis"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "theme": "Create tasks",
+      "shared_features": "All begin with 'Create' — keyword classifier puts in code_generation bucket; actual targets span code (codex-cli), planning (claude), research (gemini-cli).",
+      "prompts": [
+        {
+          "prompt": "Create a Python CLI that converts CSV to Parquet",
+          "bucket": "code_generation",
+          "oracle_agent": "codex-cli",
+          "oracle_reward": 0.90,
+          "rationale": "Well-defined code generation — codex-cli's strongest area"
+        },
+        {
+          "prompt": "Create a project plan for migrating to Kubernetes",
+          "bucket": "planning",
+          "oracle_agent": "claude",
+          "oracle_reward": 0.92,
+          "rationale": "High-stakes planning — claude best at complex planning"
+        },
+        {
+          "prompt": "Create a security review checklist for the auth service",
+          "bucket": "complex_reasoning",
+          "oracle_agent": "claude",
+          "oracle_reward": 0.90,
+          "rationale": "Domain-knowledge security audit — claude or strong-research"
+        },
+        {
+          "prompt": "Create unit tests for the payment processing module",
+          "bucket": "code_generation",
+          "oracle_agent": "aider",
+          "oracle_reward": 0.84,
+          "rationale": "Test generation needing file context — aider with code context"
+        },
+        {
+          "prompt": "Create a one-pager comparing our pricing to competitors",
+          "bucket": "research",
+          "oracle_agent": "gemini-cli",
+          "oracle_reward": 0.86,
+          "rationale": "Research + writing, not code — gemini-cli well-suited"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "theme": "Short imperatives",
+      "shared_features": "All ~6-10 words, complexity_tier=0.33 — keyword vector treats them identically; required agent depends entirely on semantic content.",
+      "prompts": [
+        {
+          "prompt": "Add logging to the order service",
+          "bucket": "code_generation",
+          "oracle_agent": "aider",
+          "oracle_reward": 0.83,
+          "rationale": "Modify existing service — aider strong with codebase context"
+        },
+        {
+          "prompt": "Summarise the RFC 7519 JWT spec",
+          "bucket": "research",
+          "oracle_agent": "gemini-cli",
+          "oracle_reward": 0.87,
+          "rationale": "Spec summarisation — gemini-cli's research strength"
+        },
+        {
+          "prompt": "Refactor the user model to use dataclasses",
+          "bucket": "code_refactoring",
+          "oracle_agent": "aider",
+          "oracle_reward": 0.91,
+          "rationale": "Refactoring — aider's #1 strength"
+        },
+        {
+          "prompt": "Add input validation to the user signup form",
+          "bucket": "code_generation",
+          "oracle_agent": "codex-cli",
+          "oracle_reward": 0.88,
+          "rationale": "Add new code logic — codex-cli for fresh code generation"
+        },
+        {
+          "prompt": "Benchmark the hash map implementation",
+          "bucket": "debugging",
+          "oracle_agent": "aider",
+          "oracle_reward": 0.85,
+          "rationale": "Perf benchmarking on existing code — aider's debug+context strength"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "theme": "Multi-file references",
+      "shared_features": "All explicitly name 2+ files (file_count >= 2) — keyword vector groups them together; semantic content varies (refactor / review / debug / test-gen).",
+      "prompts": [
+        {
+          "prompt": "Update auth.py and middleware.py to use the new token format",
+          "bucket": "code_refactoring",
+          "oracle_agent": "aider",
+          "oracle_reward": 0.91,
+          "rationale": "Cross-file refactoring — aider's home turf"
+        },
+        {
+          "prompt": "Compare the implementations in sort_v1.py and sort_v2.py",
+          "bucket": "research",
+          "oracle_agent": "claude",
+          "oracle_reward": 0.89,
+          "rationale": "Code review and analysis — claude strong on code understanding"
+        },
+        {
+          "prompt": "Move the config from settings.yaml to config.py and update main.py",
+          "bucket": "code_refactoring",
+          "oracle_agent": "aider",
+          "oracle_reward": 0.90,
+          "rationale": "Mechanical refactor across multiple files — aider"
+        },
+        {
+          "prompt": "Write tests for api.py based on the spec in openapi.yaml",
+          "bucket": "code_generation",
+          "oracle_agent": "codex-cli",
+          "oracle_reward": 0.87,
+          "rationale": "Spec-driven test generation — codex-cli good at fresh code from spec"
+        },
+        {
+          "prompt": "The errors in build.log are caused by Dockerfile — fix both",
+          "bucket": "debugging",
+          "oracle_agent": "aider",
+          "oracle_reward": 0.86,
+          "rationale": "Cross-file debugging — aider's strength"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "theme": "Research-coded but computationally distinct",
+      "shared_features": "All have research keywords (Survey/Compare/Summarise/Review) — keyword classifier puts all in research bucket; required agent depends on whether broad research (gemini), CS analysis (claude), or factual extraction (ollama).",
+      "prompts": [
+        {
+          "prompt": "Survey the state of WebAssembly support in Python",
+          "bucket": "research",
+          "oracle_agent": "gemini-cli",
+          "oracle_reward": 0.87,
+          "rationale": "Broad ecosystem survey — gemini-cli's research strength"
+        },
+        {
+          "prompt": "Compare the time complexity of merge sort vs timsort on nearly-sorted data",
+          "bucket": "complex_reasoning",
+          "oracle_agent": "claude",
+          "oracle_reward": 0.94,
+          "rationale": "Specific CS algorithmic analysis — claude best for theory"
+        },
+        {
+          "prompt": "Summarise the key changes in Python 3.12 release notes",
+          "bucket": "research",
+          "oracle_agent": "ollama",
+          "oracle_reward": 0.78,
+          "rationale": "Factual extraction from short text — ollama is fast and good enough"
+        },
+        {
+          "prompt": "What are the security implications of running Ollama without auth?",
+          "bucket": "complex_reasoning",
+          "oracle_agent": "claude",
+          "oracle_reward": 0.92,
+          "rationale": "Security-reasoning question — claude reliable"
+        },
+        {
+          "prompt": "Review the literature on contextual bandits for recommendation systems",
+          "bucket": "research",
+          "oracle_agent": "claude",
+          "oracle_reward": 0.89,
+          "rationale": "Academic literature review — claude depth, gemini-cli also strong"
+        }
+      ]
+    }
+  ]
+}

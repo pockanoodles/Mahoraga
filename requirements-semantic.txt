@@ -1,0 +1,8 @@
+# Optional dependency for A1 semantic-augmented routing.
+# Install via:  pip install -r requirements-semantic.txt
+#
+# Without this, EmbeddingService.available returns False and routing falls
+# back to the 9-dim handcrafted context vector (v1 behaviour). See
+# docs/semantic-routing.md §3 + §4.4.
+
+sentence-transformers>=2.2.0

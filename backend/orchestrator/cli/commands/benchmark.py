@@ -79,8 +79,8 @@ def simulate(
     tasks: int = typer.Option(50, "--tasks", "-n", help="Number of synthetic tasks to simulate"),
     strategies: Optional[str] = typer.Option(None, "--strategies", "-s", help="Comma-separated strategies (linucb,ucb1,thompson,static). Default: all"),
     seed: int = typer.Option(42, "--seed", help="Random seed for reproducibility"),
-    warm_start: bool = typer.Option(False, "--warm-start", help="Warm-start LinUCB from ~/.mahoraga/compatibility_matrix.json"),
-    save_matrix: bool = typer.Option(False, "--save-matrix", help="Write oracle rewards to ~/.mahoraga/compatibility_matrix.json after sim"),
+    warm_start: bool = typer.Option(False, "--warm-start", help="Warm-start LinUCB from ~/.mahoraga-v2/compatibility_matrix.json"),
+    save_matrix: bool = typer.Option(False, "--save-matrix", help="Write oracle rewards to ~/.mahoraga-v2/compatibility_matrix.json after sim"),
 ):
     """Run an offline simulation of routing strategies on synthetic tasks."""
     from backend.orchestrator.routing.strategies.linucb import LinUCBRouter
@@ -185,7 +185,7 @@ def simulate(
             _, bucket, oracle_agent, _, oracle_qual = t
             oracle_matrix.setdefault(oracle_agent, {})[bucket] = round(oracle_qual, 3)
         save_compatibility_matrix(oracle_matrix)
-        typer.echo("\n[saved] compatibility_matrix.json → ~/.mahoraga/")
+        typer.echo("\n[saved] compatibility_matrix.json → ~/.mahoraga-v2/")
 
 
 @app.command("report")
@@ -262,11 +262,586 @@ def pareto_sweep(
 ):
     """Sweep (alpha, gamma, beta_swap) grid and find the Pareto knee-point config.
 
-    Runs 100 configs × N tasks. Writes tuned_hyperparams.json to ~/.mahoraga/
+    Runs 100 configs × N tasks. Writes tuned_hyperparams.json to ~/.mahoraga-v2/
     for automatic loading by BanditRouter on next startup.
     """
     from backend.orchestrator.routing.benchmark.pareto_sweep import run_pareto_sweep
     run_pareto_sweep(n_tasks=tasks, seed=seed, output_dir=output, dpi=dpi)
+
+
+@app.command("memory-mode")
+def memory_mode(
+    prompts: str = typer.Option(
+        "adversarial",
+        "--prompts",
+        help="Prompt set: 'adversarial' (the 30 keyword-collision clusters) "
+        "or 'synthetic' (the 28 well-separated baseline tasks).",
+    ),
+    seeds: int = typer.Option(
+        10, "--seeds", help="Number of seeds (locked design decision #7: N=10)."
+    ),
+    repeats: int = typer.Option(
+        5,
+        "--repeats",
+        help="Times each prompt is replayed within a seed run. Lower = "
+        "memory accumulates less; higher = more chances for retrieval to "
+        "engage. Default 5.",
+    ),
+    modes: str = typer.Option(
+        "semantic,keyword,off",
+        "--modes",
+        help="Comma-separated memory modes to evaluate.",
+    ),
+    alphas: str = typer.Option(
+        "0.20",
+        "--alphas",
+        help="Comma-separated α values to sweep (memory bias weight). "
+        "Example: '0.0,0.05,0.10,0.20,0.30'. Off-mode runs once at α=0.0.",
+    ),
+    confidence_weighting: str = typer.Option(
+        "off",
+        "--confidence-weighting",
+        help="'off' (default), 'on', or 'both' to compare confidence-weighted "
+        "blending against the unweighted blend.",
+    ),
+    alpha_per_bucket: Optional[str] = typer.Option(
+        None,
+        "--alpha-per-bucket",
+        help="JSON dict mapping bucket name to α override "
+        "(e.g. '{\"research\": 0.0, \"code_editing\": 0.15}'). "
+        "Applied to every non-off condition; missing buckets fall through "
+        "to the per-condition global α.",
+    ),
+    strategy: str = typer.Option(
+        "linucb",
+        "--strategy",
+        help="Bandit strategy. Options: linucb (global θ, default), "
+        "linucb_per_bucket (per-classifier-bucket θ), ucb1, thompson, "
+        "static.",
+    ),
+    output: Optional[str] = typer.Option(
+        None,
+        "--output",
+        help="Result directory (default: benchmarks/results/memory_mode_<set>_<ts>).",
+    ),
+    adversarial_path: str = typer.Option(
+        "benchmarks/adversarial_prompts.json",
+        "--adversarial-path",
+        help="Path to the adversarial prompt JSON.",
+    ),
+) -> None:
+    """Phase-4 evaluation: compare memory modes (semantic vs keyword vs off)
+    on a held-out prompt set with N seeds and statistical aggregation."""
+    from datetime import datetime, timezone
+    from pathlib import Path as _Path
+    from backend.orchestrator.routing.benchmark.memory_mode_eval import (
+        load_adversarial, load_synthetic, run_eval,
+    )
+
+    if prompts == "adversarial":
+        prompt_set = load_adversarial(_Path(adversarial_path).expanduser())
+    elif prompts == "synthetic":
+        prompt_set = load_synthetic()
+    else:
+        typer.echo(f"Unknown prompt set {prompts!r}. Use 'adversarial' or 'synthetic'.",
+                   err=True)
+        raise typer.Exit(1)
+
+    mode_list = [m.strip() for m in modes.split(",") if m.strip()]
+    seed_list = list(range(seeds))
+    try:
+        alpha_list = [float(a.strip()) for a in alphas.split(",") if a.strip()]
+    except ValueError as exc:
+        typer.echo(f"Failed to parse --alphas={alphas!r}: {exc}", err=True)
+        raise typer.Exit(1) from exc
+    cw_lower = confidence_weighting.strip().lower()
+    if cw_lower in ("off", "false", "no", "0"):
+        cw_list = [False]
+    elif cw_lower in ("on", "true", "yes", "1"):
+        cw_list = [True]
+    elif cw_lower == "both":
+        cw_list = [False, True]
+    else:
+        typer.echo(
+            f"--confidence-weighting must be 'off', 'on', or 'both' "
+            f"(got {confidence_weighting!r})",
+            err=True,
+        )
+        raise typer.Exit(1)
+
+    if output is None:
+        ts = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+        output = f"benchmarks/results/memory_mode_{prompts}_{ts}"
+    out_dir = _Path(output).expanduser()
+
+    pba_dict: Optional[dict] = None
+    if alpha_per_bucket:
+        try:
+            import json as _json
+            parsed = _json.loads(alpha_per_bucket)
+            if not isinstance(parsed, dict):
+                raise ValueError("not a JSON object")
+            pba_dict = {
+                str(k): float(v) for k, v in parsed.items()
+                if isinstance(v, (int, float))
+            }
+        except (ValueError, _json.JSONDecodeError) as exc:
+            typer.echo(
+                f"--alpha-per-bucket is not valid JSON dict: {exc}", err=True
+            )
+            raise typer.Exit(1) from exc
+
+    n_conditions = sum(
+        len(alpha_list) * len(cw_list) if m != "off" else 1
+        for m in mode_list
+    )
+
+    typer.echo(f"Prompts    : {prompts} ({len(prompt_set)} × {repeats} repeats)")
+    typer.echo(f"Seeds      : {seeds}")
+    typer.echo(f"Modes      : {', '.join(mode_list)}")
+    typer.echo(f"α values   : {alpha_list}")
+    typer.echo(f"Conf weight: {cw_list}")
+    if pba_dict:
+        typer.echo(f"Per-bucket α: {pba_dict}")
+    typer.echo(f"Conditions : {n_conditions} × {seeds} seeds = {n_conditions * seeds} runs")
+    typer.echo(f"Output     : {out_dir}")
+    typer.echo("")
+    typer.echo("Running…")
+
+    summary = run_eval(
+        prompts=prompt_set, modes=mode_list, seeds=seed_list,
+        result_dir=out_dir, repeats=repeats,
+        alphas=alpha_list, confidence_weighting=cw_list,
+        alpha_per_bucket=pba_dict, strategy=strategy,
+    )
+
+    typer.echo("")
+    typer.echo(f"Wrote {out_dir}/summary.md")
+    typer.echo(f"Wrote {out_dir}/summary.json")
+    typer.echo(f"Wrote {out_dir}/raw_results.json")
+    typer.echo("")
+    typer.echo("─── Headline (sorted by mean reward) ──────────")
+    sorted_conds = sorted(
+        summary["by_condition"].items(),
+        key=lambda kv: -kv[1]["cumulative_reward"]["mean"],
+    )
+    for cond, m in sorted_conds:
+        cr = m["cumulative_reward"]
+        ac = m["accuracy"]
+        typer.echo(
+            f"  {cond:30s}  reward={cr['mean']:6.2f}±{cr['std']:5.2f}  "
+            f"acc={ac['mean']:6.2%}"
+        )
+
+
+@app.command("paraphrase")
+def paraphrase(
+    pairs_path: str = typer.Option(
+        "benchmarks/paraphrase_pairs.json",
+        "--pairs-path",
+        help="Path to paraphrase-pairs JSON (training_prompt + test_paraphrases per pair).",
+    ),
+    seeds: int = typer.Option(
+        10, "--seeds", help="Number of seeds (locked design decision #7: N=10)."
+    ),
+    train_repeats: int = typer.Option(
+        6,
+        "--train-repeats",
+        help="Times each training prompt is replayed during the train phase. "
+        "Lower = less memory accumulation; higher = bandit converges harder.",
+    ),
+    modes: str = typer.Option(
+        "semantic,keyword,off",
+        "--modes",
+        help="Comma-separated memory modes to evaluate.",
+    ),
+    alphas: str = typer.Option(
+        "0.10",
+        "--alphas",
+        help="Comma-separated α values to sweep. Off-mode runs once at α=0.0.",
+    ),
+    confidence_weighting: str = typer.Option(
+        "off",
+        "--confidence-weighting",
+        help="'off' (default), 'on', or 'both'.",
+    ),
+    strategy: str = typer.Option(
+        "linucb",
+        "--strategy",
+        help="Bandit strategy. Options: linucb (default), linucb_per_bucket.",
+    ),
+    output: Optional[str] = typer.Option(
+        None,
+        "--output",
+        help="Result directory (default: benchmarks/results/paraphrase_<ts>).",
+    ),
+) -> None:
+    """Phase-4 paraphrase-transfer benchmark — the actual A1 hypothesis test.
+
+    Train phase: replay each training_prompt N times, accumulating bandit +
+    memory state. Test phase: present each test_paraphrase ONCE (no
+    observe(), no learning) and measure routing accuracy.
+
+    Hypothesis: semantic-mode achieves higher test-phase accuracy than
+    keyword/off, because semantic retrieval generalises across surface-form
+    paraphrases via embedding similarity. Keyword retrieval should fail
+    when the test paraphrase shares meaning but not keywords with training.
+    """
+    from datetime import datetime, timezone
+    from pathlib import Path as _Path
+    from backend.orchestrator.routing.benchmark.paraphrase_eval import (
+        load_pairs, run_eval,
+    )
+
+    pairs = load_pairs(_Path(pairs_path).expanduser())
+    mode_list = [m.strip() for m in modes.split(",") if m.strip()]
+    seed_list = list(range(seeds))
+    try:
+        alpha_list = [float(a.strip()) for a in alphas.split(",") if a.strip()]
+    except ValueError as exc:
+        typer.echo(f"Failed to parse --alphas={alphas!r}: {exc}", err=True)
+        raise typer.Exit(1) from exc
+    cw_lower = confidence_weighting.strip().lower()
+    if cw_lower in ("off", "false", "no", "0"):
+        cw_list = [False]
+    elif cw_lower in ("on", "true", "yes", "1"):
+        cw_list = [True]
+    elif cw_lower == "both":
+        cw_list = [False, True]
+    else:
+        typer.echo(
+            "--confidence-weighting must be 'off', 'on', or 'both'", err=True,
+        )
+        raise typer.Exit(1)
+
+    if output is None:
+        ts = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+        output = f"benchmarks/results/paraphrase_{ts}"
+    out_dir = _Path(output).expanduser()
+
+    typer.echo(
+        f"Pairs        : {len(pairs)} "
+        f"({sum(len(p.test_paraphrases) for p in pairs)} test paraphrases)"
+    )
+    typer.echo(f"Seeds        : {seeds}")
+    typer.echo(f"Train repeats: {train_repeats}")
+    typer.echo(f"Modes        : {', '.join(mode_list)}")
+    typer.echo(f"α values     : {alpha_list}")
+    typer.echo(f"Conf weight  : {cw_list}")
+    typer.echo(f"Output       : {out_dir}")
+    typer.echo("")
+    typer.echo("Running…")
+
+    summary = run_eval(
+        pairs=pairs, modes=mode_list, seeds=seed_list,
+        result_dir=out_dir, train_repeats=train_repeats,
+        alphas=alpha_list, confidence_weighting=cw_list,
+        strategy=strategy,
+    )
+
+    typer.echo("")
+    typer.echo(f"Wrote {out_dir}/summary.md")
+    typer.echo(f"Wrote {out_dir}/summary.json")
+    typer.echo(f"Wrote {out_dir}/raw_results.json")
+    typer.echo("")
+    typer.echo("─── Test-phase accuracy (sorted) ──────────────")
+    sorted_conds = sorted(
+        summary["by_condition"].items(),
+        key=lambda kv: -kv[1]["test_accuracy"]["mean"],
+    )
+    for cond, m in sorted_conds:
+        ac = m["test_accuracy"]
+        typer.echo(
+            f"  {cond:30s}  acc={ac['mean']:6.2%}±{ac['std']:5.2%}  "
+            f"CI95=[{ac['ci95'][0]:6.2%}, {ac['ci95'][1]:6.2%}]"
+        )
+
+
+@app.command("bootstrap")
+def bootstrap(
+    tasks: int = typer.Option(200, "--tasks", "-n", help="Number of synthetic tasks to write"),
+    seed: int = typer.Option(42, "--seed", help="Random seed for reproducibility"),
+    strategy: str = typer.Option(
+        "linucb_per_bucket", "--strategy",
+        help="Bandit strategy to use (linucb, linucb_per_bucket, ucb1, thompson)",
+    ),
+    state_path: Optional[str] = typer.Option(
+        None, "--state-path",
+        help="Bandit state path (default: temp file — does not pollute ~/.mahoraga-v2/)",
+    ),
+    db_path: Optional[str] = typer.Option(
+        None, "--db",
+        help="Decisions DB path (default: ~/.mahoraga-v2/routing_decisions.db)",
+    ),
+    reset: bool = typer.Option(
+        False, "--reset",
+        help="Drop existing decisions DB before writing (use with caution).",
+    ),
+):
+    """Bootstrap routing_decisions.db with synthetic labelled rows.
+
+    Pipes the synthetic task pool through the *real* BanditRouter so that
+    log_decision + log_outcome populate the DB. Generates training data for
+    A3 (`orch quality train|eval`) without waiting for organic traffic.
+
+    Each task gets a TaskOutcome with success=True and quality_score derived
+    from the same oracle reward simulator `simulate` uses.
+    """
+    import random as _random
+    import tempfile
+    from pathlib import Path as _Path
+    import sqlite3 as _sqlite3
+
+    from backend.orchestrator.routing.bandit_router import BanditRouter
+    from backend.orchestrator.routing.decision_log import DecisionLogger
+    from backend.orchestrator.routing.reward import TaskOutcome
+    from backend.orchestrator.routing.strategies.static import classify_bucket
+    from backend.orchestrator.routing.context import TaskContext
+
+    _random.seed(seed)
+    db = _Path(db_path).expanduser() if db_path else _Path.home() / ".mahoraga-v2" / "routing_decisions.db"
+
+    if reset and db.exists():
+        # Clear *only* the decisions table; keep bench_runs intact.
+        with _sqlite3.connect(str(db)) as conn:
+            conn.execute("DELETE FROM decisions")
+        typer.echo(f"  [reset] cleared decisions in {db}")
+
+    sp = _Path(state_path) if state_path else _Path(tempfile.mkstemp(prefix="mahoraga_bootstrap_", suffix=".json")[1])
+
+    logger = DecisionLogger(db_path=db)
+    router = BanditRouter(
+        strategy=strategy,
+        registry=None,
+        logger=logger,
+        state_path=sp,
+    )
+
+    all_agents = ["ollama", "aider", "codex-cli", "gemini-cli"]
+
+    written = 0
+    correct = 0
+    bucket_counts: dict[str, int] = {}
+
+    for i in range(tasks):
+        spec = _SYNTHETIC_TASKS[i % len(_SYNTHETIC_TASKS)]
+        goal, _bucket_label, oracle_agent, latency_s, oracle_qual = spec
+        task_obj = _make_task(goal)
+        ctx = TaskContext.from_task(task_obj)
+        bucket = classify_bucket(ctx)
+        bucket_counts[bucket] = bucket_counts.get(bucket, 0) + 1
+
+        selected = router.route(task_obj, available_agents=all_agents)
+        reward = _simulated_reward(selected, oracle_agent, oracle_qual)
+        if selected == oracle_agent:
+            correct += 1
+
+        outcome = TaskOutcome(
+            success=True,
+            latency_s=latency_s,
+            cost_usd=0.001,
+            quality_score=reward,
+            agent_name=selected,
+        )
+        # observe() runs strategy.update + memory + logger.log_outcome.
+        router.observe(task_obj, outcome)
+        written += 1
+
+    win_rate = correct / max(1, tasks)
+    typer.echo(f"  wrote {written} rows  win_rate={win_rate:.1%}  strategy={strategy}")
+    typer.echo(f"  bucket distribution: {bucket_counts}")
+    typer.echo(f"  db: {db}")
+
+
+@app.command("v2")
+def v2_bench(
+    prompts: Optional[str] = typer.Option(
+        None, "--prompts",
+        help="Path to prompts.json (default: benchmarks/v2/prompts.json)",
+    ),
+    roster: Optional[str] = typer.Option(
+        None, "--roster",
+        help="Path to roster.json for model hash verification (default: benchmarks/v2/roster.json)",
+    ),
+    output: Optional[str] = typer.Option(
+        None, "--output",
+        help="Output directory for artifacts (default: benchmarks/v2/<commit_sha>/)",
+    ),
+    seed: int = typer.Option(42, "--seed", help="Random seed for simulation"),
+    write_roster: bool = typer.Option(
+        False, "--write-roster",
+        help="Capture current Ollama model IDs into roster.json before running.",
+    ),
+    skip_hash_check: bool = typer.Option(
+        False, "--skip-hash-check",
+        help="Skip model hash verification (use when roster.json is absent).",
+    ),
+    gate_only: bool = typer.Option(
+        False, "--gate-only",
+        help="Run classification gate check only — no simulation.",
+    ),
+    save_matrix: bool = typer.Option(
+        False, "--save-matrix",
+        help="Write the compatibility matrix to ~/.mahoraga-v2/compatibility_matrix.json "
+             "so the bandit loads it as a warm-start prior on next cold start.",
+    ),
+) -> None:
+    """v2 benchmark: classification gate + model hash check + 54-prompt simulation.
+
+    Mandatory pre-run gates (both abort loudly on failure):
+      1. Classification gate — every prompt must route to its intended_bucket.
+      2. Model hash check    — active arm model IDs must match roster.json.
+
+    After both gates pass, runs the 54-prompt simulation and writes:
+      benchmarks/v2/<commit_sha>/matrix.json
+      benchmarks/v2/<commit_sha>/run_metadata.json
+
+    Use --write-roster on the first run to capture the current Ollama model IDs.
+    Use --save-matrix to push results to the bandit's warm-start path.
+    """
+    import subprocess as _sp
+    from pathlib import Path as _Path
+    from backend.orchestrator.routing.benchmark.v2_harness import (
+        run_classification_gate,
+        run_v2_bench,
+        PROMPTS_PATH,
+    )
+
+    prompts_path = _Path(prompts) if prompts else PROMPTS_PATH
+    roster_path = _Path(roster) if roster else (_Path("benchmarks") / "v2" / "roster.json")
+
+    if not prompts_path.exists():
+        typer.echo(f"Prompts file not found: {prompts_path}", err=True)
+        raise typer.Exit(1)
+
+    if gate_only:
+        import json as _json
+        prompt_list = _json.loads(prompts_path.read_text())
+        typer.echo(f"Running classification gate on {len(prompt_list)} prompts...")
+        run_classification_gate(prompt_list)
+        typer.echo(f"Gate passed. All {len(prompt_list)} prompts classify correctly.")
+        return
+
+    # Determine output directory: benchmarks/v2/<commit_sha>/
+    if output:
+        out_dir = _Path(output)
+    else:
+        try:
+            sha = _sp.check_output(
+                ["git", "rev-parse", "--short", "HEAD"],
+                text=True,
+            ).strip()
+        except Exception:  # noqa: BLE001
+            sha = "local"
+        out_dir = _Path("benchmarks") / "v2" / sha
+
+    typer.echo(f"v2 bench run → {out_dir}/")
+
+    matrix = run_v2_bench(
+        prompts_path=prompts_path,
+        roster_path=roster_path,
+        out_dir=out_dir,
+        seed=seed,
+        write_roster=write_roster,
+        skip_hash_check=skip_hash_check,
+    )
+
+    if save_matrix:
+        from backend.orchestrator.routing.warm_start import save_compatibility_matrix
+        save_compatibility_matrix(matrix)
+        typer.echo("  Saved → ~/.mahoraga-v2/compatibility_matrix.json")
+
+    typer.echo("\nCompatibility matrix (mean reward per bucket):")
+    from backend.orchestrator.routing.vocab import BUCKETS
+    header = f"  {'bucket':<12}" + "".join(f"  {a.split(':')[1]:<18}" for a in matrix)
+    typer.echo(header)
+    for bucket in BUCKETS:
+        row = f"  {bucket:<12}" + "".join(
+            f"  {matrix[a].get(bucket, 0.0):<18.4f}" for a in matrix
+        )
+        typer.echo(row)
+
+
+@app.command("v2-review")
+def v2_review(
+    server: str = typer.Option(
+        "http://localhost:8000", "--server",
+        help="Mahoraga server URL",
+    ),
+    min_decisions: int = typer.Option(
+        200, "--min-decisions",
+        help="Warn if fewer decisions recorded than this threshold.",
+    ),
+) -> None:
+    """§13 item 6 — Check mean-reward spread criterion after live routing.
+
+    Queries the live server's /api/routing/spread endpoint and reports
+    whether ≥3 buckets show θᵀx spread > 0.1 between ollama:qwen3.5 and
+    ollama:granite4.1-8b.
+
+    Criterion: after 200 real routing episodes through MCP, at least 3 of
+    the 9 buckets must differentiate the two arms by more than 0.1 in mean
+    reward estimated at the bucket's representative context vector. UCB
+    exploration bonus is excluded — this is pure exploitation signal.
+
+    Use after accumulating real traffic:  orch benchmark v2-review
+    """
+    import httpx
+
+    try:
+        r = httpx.get(f"{server}/api/routing/spread", timeout=10.0)
+        r.raise_for_status()
+    except httpx.ConnectError:
+        typer.echo(f"Cannot connect to {server}. Is `orch serve` running?", err=True)
+        raise typer.Exit(1)
+    except httpx.HTTPStatusError as exc:
+        typer.echo(f"Server error: {exc.response.status_code} — {exc.response.text}", err=True)
+        raise typer.Exit(1)
+
+    data = r.json()
+    decisions = data.get("total_decisions", 0)
+    passing = data.get("buckets_meeting_criterion", 0)
+    passed = data.get("criterion_passed", False)
+    threshold = data.get("criterion_threshold", 0.1)
+    required = data.get("criterion_required_buckets", 3)
+
+    if decisions < min_decisions:
+        typer.echo(
+            f"WARNING: only {decisions} routing decisions recorded "
+            f"(need {min_decisions}). Results may not be stable.",
+            err=True,
+        )
+    else:
+        typer.echo(f"Routing decisions: {decisions}")
+
+    typer.echo(f"\n{'PASS' if passed else 'FAIL'} — {passing}/{required} buckets meet spread > {threshold}\n")
+    typer.echo(f"  {'bucket':<12}  {'qwen3.5':>10}  {'granite4.1-8b':>16}  {'spread':>8}  {'criterion':>10}")
+    typer.echo(f"  {'-'*12}  {'-'*10}  {'-'*16}  {'-'*8}  {'-'*10}")
+
+    from backend.orchestrator.routing.vocab import BUCKETS, ENABLED_AGENTS
+    for bucket in BUCKETS:
+        info = data.get("buckets", {}).get(bucket, {})
+        rewards = info.get("mean_rewards", {})
+        spread = info.get("spread", 0.0)
+        met = info.get("criterion_met", False)
+        q_val = rewards.get(ENABLED_AGENTS[0], float("nan"))
+        g_val = rewards.get(ENABLED_AGENTS[1], float("nan"))
+        marker = "✓" if met else " "
+        typer.echo(
+            f"  {bucket:<12}  {q_val:>10.4f}  {g_val:>16.4f}  {spread:>8.4f}  {marker:>10}"
+        )
+
+    if passed:
+        typer.echo(
+            f"\nv2 learning criterion MET. The bandit has differentiated "
+            f"arm preferences in ≥{required} buckets."
+        )
+    else:
+        typer.echo(
+            f"\nCriterion not yet met ({passing}/{required} buckets). "
+            "Possible causes: not enough real traffic, reward signal weak, "
+            "per-bucket isolation broken. See docs/specs/v2-devious-bugs-buckets.md §13."
+        )
 
 
 @app.command("refresh")

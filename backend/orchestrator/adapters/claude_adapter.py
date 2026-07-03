@@ -34,10 +34,12 @@ class ClaudeAdapter(AgentAdapter):
         api_key: str | None = None,
         model: str = "claude-sonnet-4-6",
         worker_id: str = "claude:sonnet",
+        capabilities: list[AgentCapability] | None = None,
     ) -> None:
         self._api_key = api_key
         self._model = model
         self._worker_id = worker_id
+        self._capabilities = capabilities if capabilities is not None else _CAPABILITIES
 
     @property
     def name(self) -> str:
@@ -49,7 +51,7 @@ class ClaudeAdapter(AgentAdapter):
 
     @property
     def capabilities(self) -> list[AgentCapability]:
-        return _CAPABILITIES
+        return self._capabilities
 
     def estimate_cost(self, task: "Task") -> CostEstimate:
         # Rough estimate: ~4 chars per token, output ~= 2× input

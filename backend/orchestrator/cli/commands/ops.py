@@ -5,14 +5,29 @@ import httpx
 from . import BASE_URL as _BASE
 
 
+def _require_server() -> None:
+    """Print a helpful message and exit when the server is unreachable."""
+    typer.echo(
+        "Mahoraga server is not running. Start it with:\n\n"
+        "  orch serve\n\n"
+        "or:\n\n"
+        "  cd ~/Projects/Mahoraga && uvicorn backend.orchestrator.service.app:app --port 8000",
+        err=True,
+    )
+    raise typer.Exit(code=1)
+
+
 def status(run_id: str = typer.Argument(None)):
     """Show current status of a run or all active runs."""
-    if run_id:
-        resp = httpx.get(f"{_BASE}/runs/{run_id}", timeout=10)
-    else:
-        resp = httpx.get(f"{_BASE}/runs?status=active", timeout=10)
-    resp.raise_for_status()
-    typer.echo(resp.text)
+    try:
+        if run_id:
+            resp = httpx.get(f"{_BASE}/runs/{run_id}", timeout=10)
+        else:
+            resp = httpx.get(f"{_BASE}/runs?status=active", timeout=10)
+        resp.raise_for_status()
+        typer.echo(resp.text)
+    except httpx.ConnectError:
+        _require_server()
 
 
 def events(run_id: str, task_id: str = typer.Option(None, "--task")):

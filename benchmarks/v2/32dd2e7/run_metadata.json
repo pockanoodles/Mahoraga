@@ -1,0 +1,20 @@
+{
+  "prompts_path": "/Users/kaitosoeno/Projects/Mahoraga/benchmarks/v2/prompts.json",
+  "prompt_count": 54,
+  "seed": 42,
+  "agents": [
+    "ollama:qwen3.5",
+    "ollama:granite4.1-8b"
+  ],
+  "buckets": [
+    "code",
+    "debug",
+    "plan",
+    "research",
+    "review",
+    "refactor",
+    "security",
+    "test",
+    "general"
+  ]
+}

@@ -1,4 +1,5 @@
 from __future__ import annotations
+import asyncio
 import datetime
 import logging
 import time
@@ -27,28 +28,17 @@ import anthropic
 from ..verifier.verifier import Verifier
 from ..config import ENABLED_BACKENDS, MahoragaConfig, get_workdir
 from ..workers.claude import ClaudeWorker
-from ..workers.ollama import OllamaWorker
-from ..workers.codex import CodexWorker
-from ..workers.aider import AiderWorker
-from ..workers.opencode import OpenCodeWorker
-from ..workers.gemini import GeminiWorker
-from ..workers.goose import GooseWorker
 from ..workers.registry import WorkerRegistry
-from ..adapters.base import AgentCapability
 from ..adapters.registry import AdapterRegistry
-from ..adapters.ollama_adapter import OllamaAdapter
-from ..adapters.claude_adapter import ClaudeAdapter
-from ..adapters.codex_adapter import CodexAdapter
-from ..adapters.aider_adapter import AiderAdapter
-from ..adapters.opencode_adapter import OpenCodeAdapter
-from ..adapters.gemini_adapter import GeminiCLIAdapter
-from ..adapters.goose_adapter import GooseAdapter
 from .approvals import grant_approval, reject_approval
 from .executor import run_task as _run_task, pop_task_metrics
 from .run_executor import run_run as _run_run
 from ..planning.planner import generate_tasks, PlannerError
 from ..routing import BanditRouter, STRATEGIES, TaskOutcome
-from ..brain_logger import log_session_summary
+from ..routing.escalation_strategies import (
+    EscalationStrategy,
+    apply_strategy as _apply_escalation_strategy,
+)
 from ..routing.implicit_quality import ImplicitQualityTracker
 from ..store.eval_store import EvalStore
 from ..store.rankings_store import RankingsStore
@@ -169,176 +159,52 @@ async def lifespan(app: FastAPI):
                 return VerificationResult(score=0, passed=False, feedback="empty or trivial output", action="retry")
             return VerificationResult(score=10, passed=True, feedback="", action="pass")
 
+    # ── Verifier setup ────────────────────────────────────────────────────────
     if "claude" in ENABLED_BACKENDS:
         api_key = os.getenv("ANTHROPIC_API_KEY")
-        if api_key:
-            _registry.register(ClaudeWorker(api_key=api_key))  # claude:sonnet
-            if os.getenv("ENABLE_OPUS", "0") == "1":
-                _registry.register(ClaudeWorker(
-                    api_key=api_key,
-                    model="claude-opus-4-6",
-                    worker_id="claude:opus",
-                    capabilities=["complex_reasoning", "deep_reasoning", "general"],
-                ))
-            _verifier = Verifier(client=anthropic.Anthropic(api_key=api_key))
-        else:
-            _verifier = _PassthroughVerifier()
+        _verifier = (
+            Verifier(client=anthropic.Anthropic(api_key=api_key))
+            if api_key else _PassthroughVerifier()
+        )
     else:
         _verifier = _PassthroughVerifier()
 
-    # ── Register Ollama workers + adapters ───────────────────────────────────
-    # Four models, four role-prompts each = 16 workers. Each adapter is one
-    # bandit arm; role resolves below the bandit in gateway._resolve_worker_id.
+    # ── Agent pool from agents.yaml ───────────────────────────────────────────
+    # Edit agents.yaml at the project root to add, remove, or retune agents.
+    # No Python required — restart orch serve to apply changes.
     _config = MahoragaConfig()
-    ollama_url = _config.get("ollama_base_url") or "http://localhost:11434"
-    _ROLES = ("planner", "fast", "coder", "general")
-
-    _OLLAMA_MODELS: list[dict] = [
-        {
-            "name": "ollama:qwen3-4b",
-            "model": "qwen3:4b-q4_K_M",
-            "max_ctx": 131072,
-            "options": None,
-            "extra_payload": {"think": False},
-            "warm": True,
-        },
-        {
-            "name": "ollama:gemma4-e4b",
-            "model": "gemma4:e4b",
-            "max_ctx": 131072,
-            "options": None,
-            "extra_payload": {"think": False},
-            "warm": False,
-        },
-        {
-            "name": "ollama:deepseek-r1",
-            "model": "deepseek-r1:8b",
-            "max_ctx": 131072,
-            "options": {"temperature": 0.6},
-            # R1 thinks unconditionally; don't try to suppress it.
-            "extra_payload": {},
-            "warm": False,
-        },
-        {
-            "name": "ollama:lfm2",
-            "model": "maternion/lfm2:8b-a1b",
-            "max_ctx": 32768,  # hard cap — LFM2 spec
-            "options": {"temperature": 0.3, "min_p": 0.15, "repeat_penalty": 1.05},
-            "extra_payload": {},
-            "warm": False,
-        },
-    ]
-
-    _first_workers: list[OllamaWorker] = []
-    for spec in _OLLAMA_MODELS:
-        for role in _ROLES:
-            w = OllamaWorker(
-                model=spec["model"],
-                worker_id=f"{spec['name']}:{role}",
-                base_url=ollama_url,
-                options=spec["options"],
-                extra_payload=spec["extra_payload"],
-                max_ctx=spec["max_ctx"],
-            )
-            _registry.register(w)
-        if spec["warm"]:
-            # Pre-warm the qwen3 baseline — stays loaded for the session.
-            _first_workers.append(OllamaWorker(
-                model=spec["model"],
-                worker_id=f"{spec['name']}:general",
-                base_url=ollama_url,
-                options=spec["options"],
-                extra_payload=spec["extra_payload"],
-                max_ctx=spec["max_ctx"],
-            ))
-    import asyncio as _asyncio
-    for w in _first_workers:
-        _asyncio.ensure_future(w.warm())
-
-    # ── CWD for file-writing workers ──────────────────────────────────────────
+    from ..adapters.loader import load_agent_pool
     _workdir = get_workdir()
+    _pool_workers, _pool_adapters = load_agent_pool(
+        workdir=_workdir,
+        ollama_url_override=_config.get("ollama_base_url") or None,
+    )
+    for w in _pool_workers:
+        _registry.register(w)
 
-    # ── Register Codex CLI worker ─────────────────────────────────────────────
-    _codex_worker = CodexWorker(cwd=_workdir)
-    _registry.register(_codex_worker)
-
-    # ── Register Aider worker ─────────────────────────────────────────────────
-    # aider CLI doesn't recognize Ollama quant suffixes (`-q4_K_M`); use base tag.
-    _aider_model = os.getenv("AIDER_MODEL", "ollama_chat/qwen3:4b")
-    _aider_worker = AiderWorker(model=_aider_model, cwd=_workdir)
-    _registry.register(_aider_worker)
-
-    # ── Register OpenCode worker ──────────────────────────────────────────────
-    _opencode_worker = OpenCodeWorker()
-    _registry.register(_opencode_worker)
-
-    # ── Register Gemini CLI worker ────────────────────────────────────────────
-    _gemini_worker = GeminiWorker()
-    _registry.register(_gemini_worker)
-
-    # ── Register Goose worker ─────────────────────────────────────────────────
-    _goose_worker = GooseWorker()
-    _registry.register(_goose_worker)
+    # Opus: opt-in via ENABLE_OPUS=1, intentionally absent from agents.yaml
+    # (escalation-only; not a default bandit arm)
+    if "claude" in ENABLED_BACKENDS and os.getenv("ENABLE_OPUS") == "1":
+        _opus_key = os.getenv("ANTHROPIC_API_KEY")
+        if _opus_key:
+            _registry.register(ClaudeWorker(
+                api_key=_opus_key,
+                model="claude-opus-4-6",
+                worker_id="claude:opus",
+                capabilities=["complex_reasoning", "deep_reasoning", "general"],
+            ))
 
     # ── Build AdapterRegistry ─────────────────────────────────────────────────
     _adapter_registry = AdapterRegistry()
-    # One adapter per Ollama model. Capability profile per §5.4 of the
-    # new-agents spec: narrow for LFM2 (speed specialist, Liquid AI explicitly
-    # recommends against code/security/review), broad for Gemma (quality
-    # generalist), reasoning-heavy for DeepSeek-R1.
-    _OLLAMA_ADAPTER_CAPS = {
-        "ollama:qwen3-4b": [
-            AgentCapability("general", 0.90),
-            AgentCapability("plan",    0.85),
-            AgentCapability("explain", 0.80),
-        ],
-        "ollama:gemma4-e4b": [
-            AgentCapability("general",  0.88),
-            AgentCapability("plan",     0.82),
-            AgentCapability("research", 0.82),
-            AgentCapability("review",   0.75),
-            AgentCapability("explain",  0.80),
-        ],
-        "ollama:deepseek-r1": [
-            AgentCapability("code",     0.78),
-            AgentCapability("research", 0.85),
-            AgentCapability("review",   0.88),
-            AgentCapability("refactor", 0.82),
-            AgentCapability("security", 0.88),
-            AgentCapability("test",     0.80),
-        ],
-        "ollama:lfm2": [
-            AgentCapability("plan",     0.72),
-            AgentCapability("general",  0.68),
-            AgentCapability("research", 0.65),
-        ],
-    }
-    for spec in _OLLAMA_MODELS:
-        _adapter_registry.register(OllamaAdapter(
-            model=spec["model"],
-            ollama_base_url=ollama_url,
-            name=spec["name"],
-            worker_id=f"{spec['name']}:general",
-            capabilities=_OLLAMA_ADAPTER_CAPS[spec["name"]],
-        ))
-    if "claude" in ENABLED_BACKENDS and os.getenv("ANTHROPIC_API_KEY"):
-        _adapter_registry.register(ClaudeAdapter(
-            api_key=os.getenv("ANTHROPIC_API_KEY"),
-            model="claude-sonnet-4-6",
-            worker_id="claude:sonnet",
-        ))
-    _adapter_registry.register(CodexAdapter())
-    _adapter_registry.register(AiderAdapter(model=_aider_model))
-    _adapter_registry.register(OpenCodeAdapter())
-    _adapter_registry.register(GeminiCLIAdapter())
-    _adapter_registry.register(GooseAdapter())
+    for a in _pool_adapters:
+        _adapter_registry.register(a)
 
     logger = logging.getLogger(__name__)
     for adapter in _adapter_registry.all():
         logger.info("adapter registered: %s", adapter.name)
 
     _bandit_router = BanditRouter(
-        strategy="linucb",
+        strategy="linucb_per_bucket",
         registry=_adapter_registry,
     )
 
@@ -377,11 +243,60 @@ async def lifespan(app: FastAPI):
         bandit_router=_bandit_router,
     )
 
+    # A3 retrain lifespan hook. Gated by MAHORAGA_AUTO_RETRAIN so a fresh
+    # install doesn't spend startup time on retraining without explicit
+    # opt-in. Two triggers:
+    #   1. Startup staleness check (one-shot, in a background thread so
+    #      the FastAPI app boots without waiting for the trainer).
+    #   2. Periodic check every MAHORAGA_AUTO_RETRAIN_INTERVAL_S seconds
+    #      (default 1800 = 30 min) for the duration of the session.
+    # The mtime-based hot-swap in quality_predictor.get_model() means
+    # any new weights propagate to in-process callers automatically.
+    _retrain_task: asyncio.Task | None = None
+    if os.getenv("MAHORAGA_AUTO_RETRAIN", "").strip().lower() in ("1", "true", "yes", "on"):
+        from ..routing.quality_predictor import maybe_retrain as _maybe_retrain
+        _interval_s = int(
+            os.getenv("MAHORAGA_AUTO_RETRAIN_INTERVAL_S", "1800") or "1800"
+        )
+
+        def _retrain_once() -> None:
+            try:
+                result = _maybe_retrain()
+                _startup_logger.info(
+                    "auto_retrain: %s",
+                    {k: v for k, v in result.items() if k != "outcome"},
+                )
+            except Exception as exc:  # noqa: BLE001
+                _startup_logger.warning("auto_retrain failed: %s", exc)
+
+        async def _retrain_loop() -> None:
+            # First check at startup (in a thread so we don't block).
+            await asyncio.get_event_loop().run_in_executor(None, _retrain_once)
+            while True:
+                try:
+                    await asyncio.sleep(_interval_s)
+                except asyncio.CancelledError:
+                    return
+                await asyncio.get_event_loop().run_in_executor(None, _retrain_once)
+
+        _retrain_task = asyncio.create_task(_retrain_loop())
+        _startup_logger.info(
+            "auto_retrain: enabled (interval=%ds)", _interval_s,
+        )
+    else:
+        _startup_logger.info(
+            "auto_retrain: disabled (set MAHORAGA_AUTO_RETRAIN=1 to enable)"
+        )
+
     yield
-    try:
-        log_session_summary(notes="Mahoraga backend shutdown")
-    except Exception:
-        pass
+    # Cancel the retrain loop cleanly on shutdown so pytest event loops
+    # don't see a dangling task.
+    if _retrain_task is not None:
+        _retrain_task.cancel()
+        try:
+            await _retrain_task
+        except (asyncio.CancelledError, Exception):  # noqa: BLE001
+            pass
     await _store.close()
 
 
@@ -656,6 +571,20 @@ async def api_health(adapter_reg: AdapterRegistryDep):
     }
 
 
+@app.get("/api/health/routing")
+async def api_health_routing():
+    """R1.4 — full routing health snapshot.
+
+    Pulls from `routing_decisions.db` directly, so it works regardless
+    of in-process router state (and a separate `orch metrics live`
+    process sees the same data). Cheap (<100ms even at 10K rows).
+    """
+    from ..routing.observability import compute_health_snapshot
+    router = get_bandit_router()
+    snap = compute_health_snapshot(db_path=router.logger.db_path)
+    return snap.to_dict()
+
+
 @app.get("/api/agents/status")
 async def agents_status(registry: AdapterRegistryDep):
     """Return health status for all registered AgentAdapters."""
@@ -768,6 +697,47 @@ async def cost_summary(store: StoreDep, user_id: str = "web-user"):
 
 # ── In-memory session metrics (legacy — kept for chat SSE stream path) ────────
 _session_metrics = {"total_elapsed_s": 0.0, "total_tokens": 0, "task_count": 0}
+
+
+def _gateway_escalation(
+    router: "BanditRouter",
+    selected_agent: str,
+    adapter_registry: "AdapterRegistry",
+) -> tuple[str, dict]:
+    """A2 gateway hook: consume the composer's escalation_strategy and
+    return the (possibly-swapped) final agent + flags the executor /
+    verifier need.
+
+    Pure pass-through when:
+      - The composer didn't run (ComposedDecision is None).
+      - escalation_strategy is "none" (no escalate signal fired).
+      - The strategy's prerequisites aren't met (e.g. claude requested
+        but adapter isn't registered → falls through inside apply_strategy).
+
+    Returns (final_agent, flags_dict). flags can carry:
+      - "strict_verify": True when AGGRESSIVE_VERIFY fires.
+      - "double_run_alt": agent name for telemetry-only double-run hint.
+      - "swapped_from": original agent when CLAUDE swap happened.
+    """
+    composed = getattr(router, "_last_composed", None)
+    if composed is None:
+        return selected_agent, {}
+    strategy = getattr(composed, "escalation_strategy", EscalationStrategy.NONE.value)
+    if strategy == EscalationStrategy.NONE.value:
+        return selected_agent, {}
+    action = _apply_escalation_strategy(
+        strategy=strategy,
+        selected_agent=selected_agent,
+        bandit_pick=getattr(composed, "bandit_pick", None),
+        would_be_agent=getattr(composed, "would_be_agent", None),
+        adapter_registry=adapter_registry,
+    )
+    if action.final_agent != selected_agent or action.flags:
+        logging.getLogger(__name__).info(
+            "escalation gateway: %s (strategy=%s, flags=%s)",
+            action.reason, action.strategy, action.flags,
+        )
+    return action.final_agent, action.flags
 
 
 def _record_metrics(elapsed_s: float, tokens: int) -> None:
@@ -1296,7 +1266,7 @@ async def routing_agents(adapter_reg: AdapterRegistryDep):
 async def set_routing_strategy(body: dict):
     """Switch routing strategy at runtime."""
     router = get_bandit_router()
-    name = body.get("strategy", "linucb")
+    name = body.get("strategy", "linucb_per_bucket")
     if name not in STRATEGIES:
         raise HTTPException(status_code=400, detail=f"Unknown strategy: {name}. Options: {list(STRATEGIES)}")
     router.set_strategy(name)
@@ -1365,6 +1335,55 @@ async def routing_dry_run(body: dict):
             "selected_agent": selected,
             "scores": scores_list,
         },
+    }
+
+
+@app.get("/api/routing/spread")
+async def routing_spread():
+    """Per-bucket mean-reward spread between the two active arms (θᵀx, no UCB bonus).
+
+    Used by `orch benchmark v2-review` to evaluate the §13 item 6 learning criterion:
+    ≥3 buckets must show |θᵀx(qwen) - θᵀx(granite)| > 0.1 after 200 episodes.
+    Compute as (A⁻¹b)ᵀx at each bucket's representative context vector.
+    """
+    import numpy as np
+    from ..routing.warm_start import _BUCKET_VECTORS
+    from ..routing.vocab import BUCKETS, ENABLED_AGENTS
+
+    router = get_bandit_router()
+    strategy = router.strategy
+    if not hasattr(strategy, "A") or not hasattr(strategy, "get_theta"):
+        return {"error": "Strategy does not expose per-bucket theta", "strategy": strategy.name}
+
+    results: dict[str, dict] = {}
+    for bucket in BUCKETS:
+        x = np.array(_BUCKET_VECTORS[bucket], dtype=float)
+        bucket_result: dict[str, float] = {}
+        for agent in ENABLED_AGENTS:
+            try:
+                theta = strategy.get_theta(agent, bucket)
+                mean_reward = float(x @ theta)
+            except Exception:  # noqa: BLE001
+                mean_reward = float("nan")
+            bucket_result[agent] = round(mean_reward, 4)
+
+        agent_values = [v for v in bucket_result.values() if v == v]  # drop nan
+        spread = round(max(agent_values) - min(agent_values), 4) if len(agent_values) >= 2 else 0.0
+        results[bucket] = {
+            "mean_rewards": bucket_result,
+            "spread": spread,
+            "criterion_met": spread > 0.1,
+        }
+
+    buckets_meeting_criterion = sum(1 for r in results.values() if r["criterion_met"])
+    total_decisions = router.logger.count()
+    return {
+        "total_decisions": total_decisions,
+        "criterion_threshold": 0.1,
+        "criterion_required_buckets": 3,
+        "buckets_meeting_criterion": buckets_meeting_criterion,
+        "criterion_passed": buckets_meeting_criterion >= 3,
+        "buckets": results,
     }
 
 
@@ -1477,11 +1496,17 @@ async def run_api_task(
     # When agent_override is set, log a synthetic decision row with
     # strategy="override" so bench analytics can still join via bench_run_id.
     t_route_start = _time.monotonic()
+    escalation_flags: dict = {}
     if req.agent_override:
         selected_agent = req.agent_override
         router.log_override(task, selected_agent, bench_run_id=req.bench_run_id)
     else:
         selected_agent = router.route(task, bench_run_id=req.bench_run_id)
+        # A2 gateway hook: consume composer's escalation_strategy.
+        # No-op when escalation_strategy=="none" or composer didn't run.
+        selected_agent, escalation_flags = _gateway_escalation(
+            router, selected_agent, adapter_reg,
+        )
     routing_time_ms = (_time.monotonic() - t_route_start) * 1000
     scores = router.strategy.get_scores()  # populated by route() above
 
@@ -1501,15 +1526,79 @@ async def run_api_task(
     # Transition task to ready so executor can pick it up
     await store.tasks.update_status(task.id, TaskStatus.ready)
 
+    # F2.2: double-run — create alt task before the clock starts so both
+    # tasks can be saved and ready before asyncio.gather fires.
+    alt_agent: str | None = (
+        escalation_flags.get("double_run_alt") if not req.agent_override else None
+    )
+    alt_task = None
+    if alt_agent:
+        _alt_adapter = adapter_reg.get(alt_agent)
+        if _alt_adapter:
+            alt_task = Task.new(run_id=run.id, title=task.title, goal=task.goal)
+            alt_task = dataclasses.replace(
+                alt_task, preferred_worker_type=_alt_adapter.worker_id
+            )
+            await store.tasks.save(alt_task)
+            await store.tasks.update_status(alt_task.id, TaskStatus.ready)
+            router.log_override(alt_task, alt_agent)
+        else:
+            alt_agent = None
+
     t0 = _time.monotonic()
     _run_task_exc: Exception | None = None
-    try:
-        await _run_task(task.id, store, registry, verifier)
-    except Exception as exc:
-        _run_task_exc = exc
-        logging.getLogger(__name__).exception(
-            "/api/task: _run_task raised for %s", task.id
+    _alt_exc: Exception | None = None
+    # F2: route execution through the global ExecutionPool so concurrent
+    # /api/run/.../execute calls share the same concurrency cap as
+    # batch tasks. The pool also feeds queue_depth_norm into the next
+    # routing decision's context vector. asyncio.wait_for caps any
+    # individual task at MAHORAGA_TASK_TIMEOUT.
+    from ..routing.execution_pool import (
+        get_default_pool as _get_default_pool,
+        resolve_task_timeout as _resolve_task_timeout,
+    )
+    _pool = _get_default_pool()
+    _timeout = _resolve_task_timeout()
+
+    async def _exec_agent(task_id: str, agent: str) -> None:
+        async with _pool.acquire(agent):
+            await asyncio.wait_for(
+                _run_task(task_id, store, registry, verifier), timeout=_timeout
+            )
+
+    if alt_task is not None:
+        # Run primary + alt concurrently; collect exceptions without raising.
+        _dr = await asyncio.gather(
+            _exec_agent(task.id, selected_agent),
+            _exec_agent(alt_task.id, alt_agent),
+            return_exceptions=True,
         )
+        if isinstance(_dr[0], Exception):
+            _run_task_exc = _dr[0]
+            logging.getLogger(__name__).warning(
+                "/api/task: primary run failed in double_run for %s: %s",
+                task.id, _dr[0],
+            )
+        if isinstance(_dr[1], Exception):
+            _alt_exc = _dr[1]
+            logging.getLogger(__name__).warning(
+                "/api/task: alt run failed in double_run for %s: %s",
+                alt_task.id, _dr[1],
+            )
+    else:
+        try:
+            await _exec_agent(task.id, selected_agent)
+        except asyncio.TimeoutError as exc:
+            _run_task_exc = exc
+            logging.getLogger(__name__).warning(
+                "/api/task: _run_task timed out (>%ds) for %s",
+                int(_timeout), task.id,
+            )
+        except Exception as exc:
+            _run_task_exc = exc
+            logging.getLogger(__name__).exception(
+                "/api/task: _run_task raised for %s", task.id
+            )
     wall_time_ms = (_time.monotonic() - t0) * 1000
     elapsed = round(wall_time_ms / 1000, 2)
 
@@ -1539,10 +1628,72 @@ async def run_api_task(
 
     bucket = _classify_bucket(req.prompt, hint=req.capability_hint)
     from ..routing.quality import score_quality_detailed as _score_quality_detailed
+    from ..routing.escalation_strategies import STRICT_VERIFY_QUALITY_THRESHOLD
     if success:
         quality_score, quality_components = await _score_quality_detailed(req.prompt, output, bucket)
+        # A2 aggressive_verify: when the gateway flagged strict verification,
+        # treat sub-threshold quality as a failure so the bandit's update
+        # reflects the stricter bar. Retry-with-alternative is future work;
+        # this gives the learning signal the spec's intent calls for.
+        if escalation_flags.get("strict_verify") and quality_score < STRICT_VERIFY_QUALITY_THRESHOLD:
+            logging.getLogger(__name__).info(
+                "aggressive_verify: quality=%.3f < %.2f threshold; "
+                "marking outcome as failed for bandit update",
+                quality_score, STRICT_VERIFY_QUALITY_THRESHOLD,
+            )
+            success = False
+            status = "failed"
     else:
         quality_score, quality_components = 0.0, None
+
+    # F2.2: score alt output and pick the winner when double-run fired.
+    # Both outcomes are fed to the bandit so we learn from two agents per task.
+    _double_run_winner: str | None = None
+    if alt_task is not None and _alt_exc is None:
+        _alt_task_result = await store.tasks.get(alt_task.id)
+        _alt_artifacts = await store.artifacts.list_by_task(alt_task.id)
+        _alt_output = next(
+            (a.location.get("content", "") for a in _alt_artifacts if a.type == "text_output"),
+            "",
+        )
+        _alt_success = (
+            _alt_task_result is not None
+            and _alt_task_result.status == TaskStatus.completed
+        )
+        if _alt_success:
+            _alt_quality, _alt_components = await _score_quality_detailed(
+                req.prompt, _alt_output, bucket
+            )
+        else:
+            _alt_quality, _alt_components = 0.0, None
+        _alt_outcome = TaskOutcome(
+            success=_alt_success,
+            latency_s=elapsed,
+            cost_usd=0.0,
+            quality_score=_alt_quality,
+            agent_name=alt_agent,
+            bucket=bucket,
+            spawn_time_ms=0.0,
+        )
+        try:
+            router.observe(alt_task, _alt_outcome)
+        except Exception:
+            logging.getLogger(__name__).exception(
+                "double_run: alt observe failed for %s", alt_task.id
+            )
+        if _alt_success and _alt_quality > quality_score:
+            logging.getLogger(__name__).info(
+                "double_run winner: %s (%.3f) beat %s (%.3f)",
+                alt_agent, _alt_quality, selected_agent, quality_score,
+            )
+            output = _alt_output
+            quality_score = _alt_quality
+            quality_components = _alt_components
+            success = True
+            status = "success"
+            _double_run_winner = alt_agent
+        else:
+            _double_run_winner = selected_agent
 
     # Always update the bandit — even on failure — so the decision row gets a
     # reward and the selected agent is penalized for the failure.
@@ -1626,6 +1777,8 @@ async def run_api_task(
             "ucb_score": ucb_score,
             "exploration": exploration_flag,
             "runner_up": runner_up,
+            "double_run_alt": alt_agent,
+            "double_run_winner": _double_run_winner,
         },
     }
 
@@ -1681,9 +1834,13 @@ async def run_batch(
 
     # Pre-route all tasks through bandit
     assignments: dict[str, str] = {}
+    escalation_meta: dict[str, dict] = {}
     hints: dict[str, str | None] = {}
     for task, item in zip(created, req.tasks):
-        assignments[task.id] = router.route(task)
+        agent = router.route(task)
+        agent, flags = _gateway_escalation(router, agent, adapter_reg)
+        assignments[task.id] = agent
+        escalation_meta[task.id] = flags
         hints[task.id] = item.capability_hint
 
     sequential_s = 0.0
@@ -1701,8 +1858,23 @@ async def run_batch(
         task_index = next((i for i, t in enumerate(created) if t.id == task.id), -1)
         t0 = _time.time()
         _run_exc: Exception | None = None
+        # F2: same pool integration as /api/run/.../execute. WaveExecutor
+        # already enforces dependency + file-overlap constraints; the
+        # ExecutionPool adds the global concurrency cap that's shared
+        # across all execution sites and feeds queue_depth_norm.
+        from ..routing.execution_pool import (
+            get_default_pool as _get_default_pool,
+            resolve_task_timeout as _resolve_task_timeout,
+        )
+        _pool = _get_default_pool()
         try:
-            await _run_task(t_run.id, store, registry, verifier)
+            async with _pool.acquire(agent):
+                await asyncio.wait_for(
+                    _run_task(t_run.id, store, registry, verifier),
+                    timeout=_resolve_task_timeout(),
+                )
+        except asyncio.TimeoutError as exc:
+            _run_exc = exc
         except Exception as exc:
             _run_exc = exc
         finally:
@@ -1743,6 +1915,17 @@ async def run_batch(
         # Feed outcome back to bandit — same path as single-task endpoint
         if success:
             quality_score, quality_components = await _score_quality_detailed(task.goal, output, bucket)
+            # A2 aggressive_verify: stricter quality threshold flips
+            # success=False when below 0.70 (per spec). This gives the
+            # bandit a stronger negative signal on borderline outputs.
+            from ..routing.escalation_strategies import (
+                STRICT_VERIFY_QUALITY_THRESHOLD,
+            )
+            if escalation_meta.get(task.id, {}).get("strict_verify") and (
+                quality_score < STRICT_VERIFY_QUALITY_THRESHOLD
+            ):
+                success = False
+                status = "failed"
         else:
             quality_score, quality_components = 0.0, None
         outcome = TaskOutcome(

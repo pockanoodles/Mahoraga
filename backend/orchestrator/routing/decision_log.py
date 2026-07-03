@@ -14,7 +14,7 @@ from typing import Optional
 from .reward import TaskOutcome
 
 
-_DEFAULT_DB_PATH = Path.home() / ".mahoraga" / "routing_decisions.db"
+_DEFAULT_DB_PATH = Path.home() / ".mahoraga-v2" / "routing_decisions.db"
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS decisions (
@@ -62,6 +62,20 @@ CREATE TABLE IF NOT EXISTS bench_runs (
     notes TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_bench_runs_started ON bench_runs(started_at);
+CREATE TABLE IF NOT EXISTS drift_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp TEXT NOT NULL,
+    bucket TEXT NOT NULL,
+    agent TEXT NOT NULL,
+    window_mean REAL,
+    historical_mean REAL,
+    historical_std REAL,
+    deviation_sigmas REAL,
+    window_size INTEGER,
+    resolution TEXT          -- 'auto_released' | 'manual_released' | NULL while active
+);
+CREATE INDEX IF NOT EXISTS idx_drift_ts ON drift_events(timestamp);
+CREATE INDEX IF NOT EXISTS idx_drift_cell ON drift_events(bucket, agent);
 """
 
 _QUALITY_COMPONENT_COLUMNS = [
@@ -114,6 +128,59 @@ class DecisionLogger:
             self._conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_decisions_bench_run ON decisions(bench_run_id)"
             )
+        # A1 off-policy correction columns. `selected_agent` keeps its old
+        # meaning (the agent that actually ran). `bandit_pick` is what the
+        # bandit would have chosen without composer override; identical to
+        # selected_agent when no override occurred.
+        if "bandit_pick" not in existing:
+            self._conn.execute("ALTER TABLE decisions ADD COLUMN bandit_pick TEXT")
+        if "ucb_scores" not in existing:
+            self._conn.execute("ALTER TABLE decisions ADD COLUMN ucb_scores TEXT")
+        if "bandit_probs" not in existing:
+            self._conn.execute("ALTER TABLE decisions ADD COLUMN bandit_probs TEXT")
+        if "override_reason" not in existing:
+            self._conn.execute("ALTER TABLE decisions ADD COLUMN override_reason TEXT")
+        if "importance_weight" not in existing:
+            self._conn.execute(
+                "ALTER TABLE decisions ADD COLUMN importance_weight REAL"
+            )
+            # Backfill to the no-override default. Pre-A1 rows had no
+            # composer, so importance_weight = 1.0 is the correct value.
+            self._conn.execute(
+                "UPDATE decisions SET importance_weight = 1.0 "
+                "WHERE importance_weight IS NULL"
+            )
+        # A5 composer shadow telemetry. would_be_* captures what the
+        # composer would have decided IF enabled — so we can compute
+        # counterfactual cumulative reward offline before flipping the
+        # switch. a3_predictions / brain_hit_count / brain_top_sim
+        # capture the input signals at decision time.
+        if "composer_would_pick" not in existing:
+            self._conn.execute(
+                "ALTER TABLE decisions ADD COLUMN composer_would_pick TEXT"
+            )
+        if "composer_would_escalate" not in existing:
+            self._conn.execute(
+                "ALTER TABLE decisions ADD COLUMN composer_would_escalate INTEGER"
+            )
+        if "a3_predictions" not in existing:
+            self._conn.execute(
+                "ALTER TABLE decisions ADD COLUMN a3_predictions TEXT"
+            )
+        if "brain_hit_count" not in existing:
+            self._conn.execute(
+                "ALTER TABLE decisions ADD COLUMN brain_hit_count INTEGER"
+            )
+        if "brain_top_sim" not in existing:
+            self._conn.execute(
+                "ALTER TABLE decisions ADD COLUMN brain_top_sim REAL"
+            )
+        # A2: which escalation strategy the composer recommended for
+        # this decision (NONE if not escalating).
+        if "escalation_strategy" not in existing:
+            self._conn.execute(
+                "ALTER TABLE decisions ADD COLUMN escalation_strategy TEXT"
+            )
         self._conn.commit()
 
     # ------------------------------------------------------------------
@@ -129,8 +196,29 @@ class DecisionLogger:
         strategy: str,
         scores: Optional[dict] = None,
         bench_run_id: Optional[int] = None,
+        bandit_pick: Optional[str] = None,
+        ucb_scores: Optional[dict] = None,
+        bandit_probs: Optional[dict] = None,
+        override_reason: Optional[str] = None,
+        importance_weight: Optional[float] = None,
+        composer_would_pick: Optional[str] = None,
+        composer_would_escalate: Optional[bool] = None,
+        a3_predictions: Optional[dict] = None,
+        brain_hit_count: Optional[int] = None,
+        brain_top_sim: Optional[float] = None,
+        escalation_strategy: Optional[str] = None,
     ) -> int:
-        """Insert a routing decision row and return its row id."""
+        """Insert a routing decision row and return its row id.
+
+        A1 off-policy fields:
+          bandit_pick       — what the bandit would have picked pre-composer.
+          ucb_scores        — JSON dict {agent: ucb} at decision time.
+          bandit_probs      — JSON dict {agent: softmax(ucb/τ)}.
+          override_reason   — composer adjustment kind (None if no override).
+          importance_weight — w used for the bandit update (1.0 default).
+        Defaults: bandit_pick falls back to selected_agent (no override),
+        importance_weight to 1.0.
+        """
         with self._lock:
             ts = datetime.now(timezone.utc).isoformat()
             ctx_vec = None
@@ -141,8 +229,12 @@ class DecisionLogger:
                 """
                 INSERT INTO decisions
                     (timestamp, task_id, task_goal, strategy, selected_agent,
-                     available_agents, context_vector, scores, bench_run_id)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     available_agents, context_vector, scores, bench_run_id,
+                     bandit_pick, ucb_scores, bandit_probs, override_reason,
+                     importance_weight, composer_would_pick,
+                     composer_would_escalate, a3_predictions,
+                     brain_hit_count, brain_top_sim, escalation_strategy)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     ts,
@@ -154,6 +246,20 @@ class DecisionLogger:
                     ctx_vec,
                     json.dumps(scores) if scores else None,
                     bench_run_id,
+                    bandit_pick if bandit_pick is not None else selected_agent,
+                    json.dumps(ucb_scores) if ucb_scores else None,
+                    json.dumps(bandit_probs) if bandit_probs else None,
+                    override_reason,
+                    importance_weight if importance_weight is not None else 1.0,
+                    composer_would_pick,
+                    (
+                        None if composer_would_escalate is None
+                        else (1 if composer_would_escalate else 0)
+                    ),
+                    json.dumps(a3_predictions) if a3_predictions else None,
+                    brain_hit_count,
+                    brain_top_sim,
+                    escalation_strategy,
                 ),
             )
             self._conn.commit()
@@ -194,6 +300,107 @@ class DecisionLogger:
                 (ended_at, task_count_completed, run_id),
             )
             self._conn.commit()
+
+    def log_drift_event(self, alert) -> int:
+        """F5: append a drift_events row when DriftDetector fires.
+
+        `alert` is a `routing.drift_detector.DriftAlert` (kept un-typed
+        here to avoid a circular import). Returns the row id.
+
+        The `resolution` column starts NULL; future operator tooling
+        can update it to "auto_released" / "manual_released" when the
+        cell exits quarantine, giving us per-event resolution time.
+        """
+        with self._lock:
+            ts = datetime.now(timezone.utc).isoformat()
+            cur = self._conn.execute(
+                """
+                INSERT INTO drift_events (
+                    timestamp, bucket, agent,
+                    window_mean, historical_mean, historical_std,
+                    deviation_sigmas, window_size, resolution
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL)
+                """,
+                (
+                    ts,
+                    str(alert.bucket),
+                    str(alert.agent),
+                    float(alert.window_mean),
+                    float(alert.historical_mean),
+                    float(alert.historical_std),
+                    float(alert.deviation_sigmas),
+                    int(alert.window_size),
+                ),
+            )
+            self._conn.commit()
+            return cur.lastrowid
+
+    def mark_drift_resolved(
+        self, bucket: str, agent: str, resolution: str = "auto_released",
+    ) -> int:
+        """Mark every active drift event for (bucket, agent) as resolved.
+
+        Returns count of rows updated. Active = `resolution IS NULL`."""
+        with self._lock:
+            cur = self._conn.execute(
+                "UPDATE drift_events SET resolution = ? "
+                "WHERE bucket = ? AND agent = ? AND resolution IS NULL",
+                (resolution, bucket, agent),
+            )
+            self._conn.commit()
+            return cur.rowcount or 0
+
+    def log_implicit_outcome(
+        self,
+        task_id: Optional[str],
+        task_goal: str,
+        agent_name: str,
+        implicit_signal: float,
+    ) -> bool:
+        """Backfill outcome columns from an implicit retry/accept signal.
+
+        Implicit signals (5-min retry → 0.0, accept-without-change → 0.6)
+        carry less information than a full TaskOutcome, but they still
+        give A3 supervision data for free. We update only rows whose
+        success column is NULL — i.e. that haven't already been labelled
+        by an explicit log_outcome call. This is "first writer wins":
+        explicit observations always beat implicit ones.
+
+        Returns True if a row was updated, False if no matching unlabelled
+        decision was found.
+        """
+        with self._lock:
+            row = None
+            if task_id:
+                row = self._conn.execute(
+                    "SELECT id, selected_agent FROM decisions "
+                    "WHERE task_id = ? AND success IS NULL "
+                    "ORDER BY id DESC LIMIT 1",
+                    (task_id,),
+                ).fetchone()
+            if row is None:
+                row = self._conn.execute(
+                    "SELECT id, selected_agent FROM decisions "
+                    "WHERE task_goal = ? AND success IS NULL "
+                    "ORDER BY id DESC LIMIT 1",
+                    (task_goal,),
+                ).fetchone()
+            if row is None:
+                return False
+            # If the recorded agent doesn't match, don't bind the signal —
+            # the route() call may have picked a different agent than the
+            # one the implicit tracker is reporting on.
+            if row[1] and agent_name and row[1] != agent_name:
+                return False
+            success = 1 if implicit_signal >= 0.5 else 0
+            self._conn.execute(
+                "UPDATE decisions "
+                "SET success = ?, quality_score = ?, reward = ? "
+                "WHERE id = ?",
+                (success, float(implicit_signal), float(implicit_signal), row[0]),
+            )
+            self._conn.commit()
+            return True
 
     def log_outcome(self, task, outcome: TaskOutcome, reward: float) -> None:
         """Back-fill outcome columns on the most-recent decision for this task."""

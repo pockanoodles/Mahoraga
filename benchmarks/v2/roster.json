@@ -1,7 +1,7 @@
 {
-  "recorded_at": "2026-05-23T06:05:06.329176+00:00",
+  "recorded_at": "2026-05-23T06:08:43.674123+00:00",
   "platform": "macOS-26.4-arm64-arm-64bit-Mach-O",
-  "ollama_version": "unknown",
+  "ollama_version": "ollama version is 0.24.0\nWarning: client version is 0.18.2",
   "enabled_agents": [
     "ollama:qwen3.5",
     "ollama:granite4.1-8b"

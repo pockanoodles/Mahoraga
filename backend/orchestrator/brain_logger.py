@@ -36,8 +36,13 @@ from datetime import datetime, date
 # Default: brain/ directory in the Mahoraga project root
 # backend/orchestrator/brain_logger.py -> ../../.. -> project root
 _PROJECT_ROOT = Path(__file__).parent.parent.parent
-BRAIN_PATH = Path(os.environ.get("MAHORAGA_BRAIN_PATH", _PROJECT_ROOT / "brain"))
-JOURNAL_DIR = BRAIN_PATH / "journal"
+
+
+def _brain_path() -> Path:
+    # Resolved per call so MAHORAGA_BRAIN_PATH set after import (e.g. by the
+    # test suite) is honored — a frozen module constant sent test traffic
+    # into the repo's brain/journal/.
+    return Path(os.environ.get("MAHORAGA_BRAIN_PATH", _PROJECT_ROOT / "brain"))
 
 
 def log_task_completion(
@@ -56,14 +61,16 @@ def log_task_completion(
 
     Returns the file path written to, or None if brain/ doesn't exist.
     """
-    if not BRAIN_PATH.exists():
+    brain_path = _brain_path()
+    if not brain_path.exists():
         return None
 
-    JOURNAL_DIR.mkdir(parents=True, exist_ok=True)
+    journal_dir = brain_path / "journal"
+    journal_dir.mkdir(parents=True, exist_ok=True)
 
     today = date.today().isoformat()
     now = datetime.now().strftime("%H:%M")
-    filepath = JOURNAL_DIR / f"{today}-mahoraga-session.md"
+    filepath = journal_dir / f"{today}-mahoraga-session.md"
 
     if not filepath.exists():
         header = f"# Mahoraga session — {today}\n\nAuto-logged by Mahoraga.\n\n"
@@ -99,76 +106,6 @@ def log_task_completion(
     return str(filepath)
 
 
-def log_session_summary(
-    tasks_completed: int = 0,
-    total_cost: float = 0.0,
-    agents_used: list[str] | None = None,
-    notes: str = "",
-) -> str | None:
-    """
-    Log a session summary. Call this when the user closes the app
-    or after a period of inactivity.
-    """
-    if not BRAIN_PATH.exists():
-        return None
-
-    JOURNAL_DIR.mkdir(parents=True, exist_ok=True)
-
-    today = date.today().isoformat()
-    now = datetime.now().strftime("%H:%M")
-    filepath = JOURNAL_DIR / f"{today}-mahoraga-session.md"
-
-    if not filepath.exists():
-        filepath.write_text(f"# Mahoraga session — {today}\n\n", encoding="utf-8")
-
-    summary = f"\n---\n\n### {now} — Session summary\n\n"
-    summary += f"- **Tasks completed:** {tasks_completed}\n"
-    summary += f"- **Total cost:** ${total_cost:.4f}\n"
-
-    if agents_used:
-        summary += f"- **Agents used:** {', '.join(set(agents_used))}\n"
-
-    if notes:
-        summary += f"\n{notes}\n"
-
-    with open(filepath, "a", encoding="utf-8") as f:
-        f.write(summary)
-
-    return str(filepath)
-
-
-def log_decision(
-    decision: str,
-    reasoning: str = "",
-    context: str = "mahoraga",
-) -> str | None:
-    """
-    Log a routing or architecture decision to brain/decisions/log.md.
-    Call this when the orchestrator makes a significant decision worth remembering.
-    """
-    if not BRAIN_PATH.exists():
-        return None
-
-    decisions_dir = BRAIN_PATH / "decisions"
-    decisions_dir.mkdir(parents=True, exist_ok=True)
-    decisions_log = decisions_dir / "log.md"
-
-    today = date.today().isoformat()
-
-    if not decisions_log.exists():
-        decisions_log.write_text("# Decision Log\n\nAuto-appended by Mahoraga.\n", encoding="utf-8")
-
-    entry = f"\n\n---\n\n## {today} — {decision}\n\n"
-    if reasoning:
-        entry += f"**Reasoning:** {reasoning}\n\n"
-    entry += f"**Context:** {context}\n"
-
-    with open(decisions_log, "a", encoding="utf-8") as f:
-        f.write(entry)
-
-    return str(decisions_log)
-
-
 # Quick test
 if __name__ == "__main__":
     result = log_task_completion(
@@ -184,4 +121,4 @@ if __name__ == "__main__":
         with open(result, encoding="utf-8") as f:
             print(f.read())
     else:
-        print(f"Brain path not found at {BRAIN_PATH}")
+        print(f"Brain path not found at {_brain_path()}")

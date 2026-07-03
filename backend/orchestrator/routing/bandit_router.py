@@ -48,7 +48,6 @@ from .strategies import (
 from .strategies.static import classify_bucket
 from .warm_start import load_compatibility_matrix, warm_start_from_matrix
 from ..config import MahoragaConfig
-from ..brain_logger import log_decision as brain_log_decision
 
 if TYPE_CHECKING:
     from ..adapters.registry import AdapterRegistry
@@ -654,14 +653,6 @@ class BanditRouter:
                 composer.escalation_strategy if composer else None
             ),
         )
-        try:
-            brain_log_decision(
-                decision=f"Routed to {agent}",
-                reasoning=f"strategy={self.strategy.__class__.__name__}",
-                context="mahoraga-router",
-            )
-        except Exception:
-            pass
 
         return agent
 

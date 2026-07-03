@@ -39,7 +39,6 @@ from ..routing.escalation_strategies import (
     EscalationStrategy,
     apply_strategy as _apply_escalation_strategy,
 )
-from ..brain_logger import log_session_summary
 from ..routing.implicit_quality import ImplicitQualityTracker
 from ..store.eval_store import EvalStore
 from ..store.rankings_store import RankingsStore
@@ -298,10 +297,6 @@ async def lifespan(app: FastAPI):
             await _retrain_task
         except (asyncio.CancelledError, Exception):  # noqa: BLE001
             pass
-    try:
-        log_session_summary(notes="Mahoraga backend shutdown")
-    except Exception:
-        pass
     await _store.close()
 
 

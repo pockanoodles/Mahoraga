@@ -1,7 +1,7 @@
 """
 Mahoraga Full Ablation Study — orch benchmark ablation
 
-Runs 5 controlled experiments on the same 200-task oracle, each producing a
+Runs 6 controlled experiments on the same 200-task oracle, each producing a
 cumulative-regret chart. All charts share consistent styling and are saved
 to benchmark_results/ablation/.
 
@@ -12,6 +12,7 @@ Experiments
 3. episodic_memory      — dlinucb α=0.20 vs α=0.0 (memory disabled)
 4. swap_penalty         — dlinucb β_swap=0.10 vs β_swap=0.0
 5. bucket_granularity   — oracle with 7 categories vs 3 collapsed categories
+6. adaptive_gamma       — synthetic drift: global γ vs per-arm adaptive γ
 """
 from __future__ import annotations
 
@@ -137,6 +138,122 @@ class _LinUCB:
                 self.b[agent] += reward * x
 
 
+class _AdaptiveLinUCB(_LinUCB):
+    """dLinUCB with per-arm adaptive γ — sim mirror of the production math
+    in `strategies.linucb_per_bucket._adapt_gamma` (docs/specs/gamma-spec.md).
+    Kept in sync by hand; the production version is the source of truth.
+    """
+
+    def __init__(
+        self,
+        alpha: float = 1.0,
+        gamma: float = 0.98,
+        gamma_min: float = 0.93,
+        gamma_max: float = 0.995,
+        beta: float = 0.9,
+        tau: float = 0.5,
+        warmup: int = 10,
+        recovery_rate: float = 0.0,
+    ) -> None:
+        super().__init__(alpha=alpha, gamma=gamma)
+        self.gamma_min = gamma_min
+        self.gamma_max = gamma_max
+        self.beta = beta
+        self.tau = tau
+        self.warmup = warmup
+        self.recovery_rate = recovery_rate
+        self.gamma_per_arm: dict[str, float] = {}
+        self.pred_error_ema: dict[str, float] = {}
+        self.pulls: dict[str, int] = {}
+        self._r_mean: dict[str, float] = {}
+        self._r_var: dict[str, float] = {}
+
+    def update(self, task: Task, agent: str, reward: float) -> None:
+        x = task.context_vector(self.DIM)
+        self.pulls[agent] = self.pulls.get(agent, 0) + 1
+
+        if agent not in self._r_mean:
+            self._r_mean[agent] = reward
+            self._r_var[agent] = 0.0625
+        else:
+            delta = reward - self._r_mean[agent]
+            self._r_mean[agent] = self.beta * self._r_mean[agent] + (1 - self.beta) * reward
+            self._r_var[agent] = self.beta * self._r_var[agent] + (1 - self.beta) * delta**2
+
+        # Recovery: idle arms' drift memory fades (the applied gamma is
+        # recomputed from the EMA, so decaying the EMA is what recovers).
+        if self.recovery_rate > 0.0:
+            for a in self.pred_error_ema:
+                if a != agent:
+                    self.pred_error_ema[a] *= 1.0 - self.recovery_rate
+
+        if self.pulls[agent] < self.warmup:
+            g = self.gamma
+        else:
+            theta = np.linalg.inv(self.A[agent]) @ self.b[agent]
+            err_sq = (reward - float(x @ theta)) ** 2
+            # Variance floor + outlier cap, then EMA. E<=1 is the noise
+            # floor for a converged arm; only the excess reads as drift.
+            eps_norm = min(err_sq / max(self._r_var[agent], 1e-3), 25.0)
+            self.pred_error_ema[agent] = (
+                self.beta * self.pred_error_ema.get(agent, 0.0)
+                + (1 - self.beta) * eps_norm
+            )
+            excess = max(0.0, self.pred_error_ema[agent] - 1.0)
+            g = self.gamma_min + (self.gamma_max - self.gamma_min) * float(
+                np.exp(-excess / self.tau)
+            )
+        self.gamma_per_arm[agent] = g
+
+        self.A[agent] = g * self.A[agent] + np.outer(x, x)
+        self.b[agent] = g * self.b[agent] + reward * x
+
+
+class _DriftOracle:
+    """Wraps an Oracle; degrades one agent's reward inside a task-index
+    window [start, end) — the synthetic changepoint from gamma-spec.md's
+    ablation plan. optimal_* answer for the DEGRADED world, so regret is
+    measured against the dynamic oracle.
+    """
+
+    def __init__(
+        self,
+        base,
+        target: str,
+        delta: float = 0.15,
+        start: int = 80,
+        end: int = 150,
+    ) -> None:
+        self.base = base
+        self.target = target
+        self.delta = delta
+        self.start = start
+        self.end = end
+        self._i = 0  # tasks evaluated so far == current task index
+
+    def _degradation(self, agent: str) -> float:
+        if agent == self.target and self.start <= self._i < self.end:
+            return self.delta
+        return 0.0
+
+    def expected_reward(self, task: Task, agent: str) -> float:
+        return max(
+            0.0, self.base.expected_reward(task, agent) - self._degradation(agent)
+        )
+
+    def optimal_agent(self, task: Task) -> str:
+        return max(AGENTS, key=lambda a: self.expected_reward(task, a))
+
+    def optimal_reward(self, task: Task) -> float:
+        return max(self.expected_reward(task, a) for a in AGENTS)
+
+    def evaluate(self, task: Task, agent: str) -> dict:
+        outcome = dict(self.base.evaluate(task, agent))
+        outcome["reward"] = max(0.0, outcome["reward"] - self._degradation(agent))
+        self._i += 1
+        return outcome
+
+
 def _category_onehot(category: str) -> np.ndarray:
     """8-dim one-hot vector over TASK_CATEGORIES, used for warm-start injection."""
     vec = np.zeros(8)
@@ -228,6 +345,71 @@ def _run(
     return cumulative
 
 
+def _run_drift(
+    drift_oracle: "_DriftOracle",
+    strategy,
+    tasks: list[Task],
+) -> tuple[list[float], list[str]]:
+    """Like _run, but also records per-task picks for drift metrics."""
+    cumulative: list[float] = []
+    picks: list[str] = []
+    total_regret = 0.0
+    for task in tasks:
+        oracle_r = drift_oracle.optimal_reward(task)
+        agent = strategy.select(task)
+        outcome = drift_oracle.evaluate(task, agent)
+        strategy.update(task, agent, outcome["reward"])
+        total_regret += oracle_r - outcome["reward"]
+        cumulative.append(total_regret)
+        picks.append(agent)
+    return cumulative, picks
+
+
+def _drift_metrics(
+    curve: list[float],
+    picks: list[str],
+    tasks: list[Task],
+    base_oracle,
+    target: str,
+    start: int,
+    end: int,
+) -> dict:
+    """Detection latency, changepoint regret, recovery time (gamma-spec.md)."""
+    # Tasks where the pre-drift oracle would pick the degraded arm — the
+    # ones on which detection/recovery are observable.
+    affected = [
+        i for i, t in enumerate(tasks) if base_oracle.optimal_agent(t) == target
+    ]
+    detection = next(
+        (i - start for i in affected if start <= i < end and picks[i] != target),
+        None,
+    )
+    recovery = next(
+        (i - end for i in affected if i >= end and picks[i] == target),
+        None,
+    )
+
+    def _share(lo: int, hi: int) -> float:
+        window = [i for i in affected if lo <= i < hi]
+        if not window:
+            return 0.0
+        return round(sum(picks[i] == target for i in window) / len(window), 4)
+
+    return {
+        "detection_latency": detection,
+        "regret_after_changepoint": round(
+            curve[-1] - curve[start - 1] if start > 0 else curve[-1], 4
+        ),
+        "recovery_time": recovery,
+        # Share of affected tasks (pre-drift optimal == target) actually
+        # routed to the target — the robust drift-response signal; the
+        # first-index metrics above are noise when this is low pre-drift.
+        "target_share_pre": _share(0, start),
+        "target_share_during": _share(start, end),
+        "target_share_post": _share(end, len(tasks)),
+    }
+
+
 # ── Chart helper ─────────────────────────────────────────────────────────────
 
 _COLORS = ["#3b82f6", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6",
@@ -278,7 +460,7 @@ def _plot_regret(
 # ── 5 Experiments ───────────────────────────────────────────────────────────
 
 def _exp1_strategy_comparison(oracle, tasks, out, dpi) -> dict:
-    print("  [1/5] Strategy comparison...")
+    print("  [1/6] Strategy comparison...")
     strategies = {
         "static":   _Static(),
         "ucb1":     _UCB1(),
@@ -293,7 +475,7 @@ def _exp1_strategy_comparison(oracle, tasks, out, dpi) -> dict:
 
 
 def _exp2_warm_start(oracle, tasks, out, dpi) -> dict:
-    print("  [2/5] Warm-start vs cold-start...")
+    print("  [2/6] Warm-start vs cold-start...")
     cold = _LinUCB(alpha=1.0, gamma=0.98)
     warm = _LinUCB(alpha=1.0, gamma=0.98)
     warm.warm_start(_compatibility_as_matrix())
@@ -307,7 +489,7 @@ def _exp2_warm_start(oracle, tasks, out, dpi) -> dict:
 
 
 def _exp3_episodic_memory(oracle, tasks, out, dpi) -> dict:
-    print("  [3/5] Episodic memory on/off...")
+    print("  [3/6] Episodic memory on/off...")
     no_mem  = _LinUCB(alpha=1.0, gamma=0.98)
     with_mem = _LinUCB(alpha=1.0, gamma=0.98)
     mem_store: list = []
@@ -322,7 +504,7 @@ def _exp3_episodic_memory(oracle, tasks, out, dpi) -> dict:
 
 
 def _exp4_swap_penalty(oracle, tasks, out, dpi) -> dict:
-    print("  [4/5] Swap penalty on/off...")
+    print("  [4/6] Swap penalty on/off...")
     no_swap   = _LinUCB(alpha=1.0, gamma=0.98)
     with_swap = _LinUCB(alpha=1.0, gamma=0.98)
 
@@ -336,7 +518,7 @@ def _exp4_swap_penalty(oracle, tasks, out, dpi) -> dict:
 
 def _exp5_bucket_granularity(oracle, tasks, out, dpi) -> dict:
     """Simulate 3-bucket vs 7-bucket routing by collapsing oracle categories."""
-    print("  [5/5] Bucket granularity: 3 vs 7 categories...")
+    print("  [5/6] Bucket granularity: 3 vs 7 categories...")
 
     # 7-bucket: all categories except 'file_operations' merged into 'code'
     _7CAT = TASK_CATEGORIES  # 8 categories → treat as 7 by merging file_ops into code
@@ -401,6 +583,58 @@ def _exp5_bucket_granularity(oracle, tasks, out, dpi) -> dict:
     return {name: {"final_regret": c[-1], "curve": c} for name, c in curves.items()}
 
 
+def _exp6_adaptive_gamma(oracle, tasks, out, dpi, seed: int = 42) -> dict:
+    """Synthetic drift: degrade the most-picked-by-oracle arm mid-run and
+    compare global γ vs adaptive per-arm γ (gamma-spec.md §Ablation Plan).
+    """
+    print("  [6/6] Adaptive gamma under synthetic drift...")
+    n = len(tasks)
+    start, end = int(n * 0.4), int(n * 0.75)
+
+    # Degrade the arm the oracle relies on most — worst-case drift.
+    from collections import Counter
+    target = Counter(oracle.optimal_agent(t) for t in tasks).most_common(1)[0][0]
+
+    variants = {
+        "global γ=0.98": lambda: _LinUCB(alpha=1.0, gamma=0.98),
+        "adaptive γ": lambda: _AdaptiveLinUCB(alpha=1.0),
+        "adaptive γ + recovery": lambda: _AdaptiveLinUCB(
+            alpha=1.0, recovery_rate=0.01
+        ),
+    }
+
+    results: dict = {}
+    curves: dict[str, list[float]] = {}
+    for name, make in variants.items():
+        # Fresh same-seed oracle per variant → identical reward streams,
+        # so the curves differ only by strategy behavior.
+        base = Oracle(seed=seed, n_tasks=n)
+        base.generate_tasks()
+        drift = _DriftOracle(base, target=target, delta=0.15, start=start, end=end)
+        strategy = make()
+        # Warm-start so the bandit is near-converged BEFORE the changepoint —
+        # otherwise the experiment measures cold-start convergence, not
+        # drift response (pre-drift target share was ~0.17 without this).
+        strategy.warm_start(_compatibility_as_matrix())
+        curve, picks = _run_drift(drift, strategy, tasks)
+        curves[name] = curve
+        results[name] = {
+            "final_regret": curve[-1],
+            "curve": curve,
+            "drift_target": target,
+            "drift_window": [start, end],
+            **_drift_metrics(curve, picks, tasks, base, target, start, end),
+        }
+
+    _plot_regret(
+        curves,
+        f"Adaptive γ Under Drift ({target} degraded, tasks {start}–{end})",
+        str(out / "adaptive_gamma_drift.png"),
+        dpi=dpi,
+    )
+    return results
+
+
 # ── Summary writers ──────────────────────────────────────────────────────────
 
 def _write_summary(
@@ -411,8 +645,9 @@ def _write_summary(
     json_data: dict = {}
     for exp, variants in all_results.items():
         json_data[exp] = {
-            name: {"final_regret": v["final_regret"]}
-            for name, v in variants.items()
+            # Everything scalar (drift metrics etc.); curves stay out.
+            name: {k: v for k, v in variant.items() if k != "curve"}
+            for name, variant in variants.items()
         }
     (out / "ablation_summary.json").write_text(json.dumps(json_data, indent=2))
     print(f"  Saved: ablation_summary.json")
@@ -442,11 +677,11 @@ def run_ablation(
     output_dir: Optional[str] = None,
     dpi: int = 150,
 ) -> None:
-    """Run all 5 ablation experiments and write charts + summary."""
+    """Run all 6 ablation experiments and write charts + summary."""
     out = Path(output_dir) if output_dir else ABLATION_DIR
     out.mkdir(parents=True, exist_ok=True)
 
-    print(f"Ablation study: 5 experiments × {n_tasks} tasks (seed={seed})")
+    print(f"Ablation study: 6 experiments × {n_tasks} tasks (seed={seed})")
     print(f"Output: {out}\n")
 
     oracle = Oracle(seed=seed, n_tasks=n_tasks)
@@ -458,6 +693,7 @@ def run_ablation(
     all_results["episodic_memory"]     = _exp3_episodic_memory(oracle, tasks, out, dpi)
     all_results["swap_penalty"]        = _exp4_swap_penalty(oracle, tasks, out, dpi)
     all_results["bucket_granularity"]  = _exp5_bucket_granularity(oracle, tasks, out, dpi)
+    all_results["adaptive_gamma"]      = _exp6_adaptive_gamma(oracle, tasks, out, dpi, seed=seed)
 
     _write_summary(all_results, out)
 

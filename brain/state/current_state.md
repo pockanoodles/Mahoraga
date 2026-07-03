@@ -70,19 +70,15 @@ Send tasks of different types through the MCP and verify bucket classification:
 - plan/research task → `plan`/`research` buckets → granite should win (0.874 / 0.833)
 - debug task → `debugging` bucket → both compete
 
-### 4. Gamma (adaptive per-arm decay)
-Once arms have 20–50 pulls each, prediction error EMAs are meaningful.
-Gamma makes each arm's decay rate proportional to how wrong its predictions
-have been — fast-forgetting for mis-calibrated arms, slower for stable ones.
-
-**Spec:** `γ_a,t = γ_min + (γ_max − γ_min) · exp(−E_a,t / τ)`
-where `E_a,t` = prediction error EMA for arm `a` at time `t`.
-
-Implementation targets:
-- `backend/orchestrator/routing/strategies/linucb_per_bucket.py` `update()`
-- Add `pred_error_ema: dict[str, float]` and `gamma_per_arm: dict[str, float]`
-- Warmup guard: skip adaptive γ until arm has ≥10 pulls
-- Persist `pred_error_ema` and `gamma_per_arm` in `save_state`/`load_state`
+### ~~4. Gamma (adaptive per-arm decay)~~ ✅ shipped 2026-07-03
+Live in `linucb_per_bucket.py` with per-(bucket, arm) warmup, a
+noise-floor-centered mapping, variance floor + outlier cap, EMA-decay
+recovery, and w-weighted tracking — several deliberate deviations from
+`docs/specs/gamma-spec.md`, all forced by adversarially-verified defects.
+**Read `brain/decisions/2026-07-03-adaptive-gamma.md` before touching it.**
+Drift ablation (`orch benchmark ablation`, exp 6): adaptive+recovery beats
+global γ 11.64 vs 12.85 final regret. Remaining: full sweep grid with
+detection/recovery metrics; distance-weighted episodic α (separate spec).
 
 ### 5. Semantic retrieval validation
 Semantic episodic memory is wired as default (`MEMORY_MODE_SEMANTIC`) but

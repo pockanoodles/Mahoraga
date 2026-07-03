@@ -393,7 +393,7 @@ class TestBanditRouterIntegration:
         assert "research" in router.strategy.A
 
     def test_get_stats_includes_per_bucket_summary(
-        self, tmp_path: Path
+        self, tmp_path: Path, monkeypatch
     ) -> None:
         from backend.orchestrator.routing import BanditRouter, TaskOutcome
         from backend.orchestrator.routing.decision_log import DecisionLogger
@@ -401,6 +401,14 @@ class TestBanditRouterIntegration:
         class _Reg:
             def all(self):
                 return [type("A", (), {"name": n})() for n in ["ollama", "aider"]]
+
+        # A fresh bandit auto-warm-starts from ~/.mahoraga-v2/'s compatibility
+        # matrix when one exists, pre-seeding every bucket it mentions. Block
+        # that here so the summary reflects only the traffic this test sends.
+        monkeypatch.setattr(
+            "backend.orchestrator.routing.bandit_router.load_compatibility_matrix",
+            lambda: None,
+        )
 
         router = BanditRouter(
             strategy="linucb_per_bucket",

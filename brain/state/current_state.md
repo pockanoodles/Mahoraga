@@ -1,18 +1,17 @@
-# Current State — 2026-05-20
+# Current State — 2026-07-03
 
 ## What Mahoraga is right now
 
 A working local-first orchestrator with per-bucket bandit routing, episodic memory (semantic mode default), and a persistent background daemon. The full routing loop is verified: task → bucket classification → per-bucket UCB scoring → Ollama arm runs → reward → A/b matrix update → episode in DB.
 
-## Active roster (3 arms, all local)
+## Active roster (2 arms, all local)
 
 | Arm | Model | Strengths | Prior |
 |---|---|---|---|
 | `ollama:qwen3.5` | qwen3.5:latest (6.6 GB, Q4_K_M) | code, reasoning | 0.75 |
-| `ollama:gemma4-e4b` | gemma4:e4b (9.6 GB) | plan, research, general | 0.75 |
 | `ollama:granite4.1-8b` | granite4.1:8b (5.3 GB, IBM) | test, review, structured output | 0.75 |
 
-Cloud agents (claude, codex-cli, gemini-cli) are registered but effectively disabled — no API keys in env, gated by budget pacer.
+`ollama:gemma4-e4b` disabled 2026-05-23 — lowest reward in every bucket in the 2026-05-20 bench; granite covers the same capability space. Cloud agents (claude, codex-cli, gemini-cli) are registered but effectively disabled — no API keys in env, gated by budget pacer.
 
 ## Architecture shape
 
@@ -35,9 +34,8 @@ routing_decisions.db (SQLite, ~/.mahoraga-v2/)
 ## Bandit state
 
 - Strategy: `linucb_per_bucket` (per-bucket disjoint A/b matrices, γ=0.98 global decay)
-- State file: `~/.mahoraga-v2/bandit_state.json` — **clean reset as of 2026-05-20**
-- Decisions DB: `~/.mahoraga-v2/routing_decisions.db` — **clean reset as of 2026-05-20**
-- All three arms at equal cold-start priors (UCB=3.72, identical). Will diverge from real traffic.
+- State file: `~/.mahoraga-v2/bandit_state.json`
+- Decisions DB: `~/.mahoraga-v2/routing_decisions.db` — clean reset 2026-05-20, **207 real decisions since** (111 qwen3.5, 96 granite4.1-8b; last traffic 2026-07-02)
 - Backups of pre-reset state at `~/.mahoraga-v2/*.bak`
 
 ## Infrastructure
@@ -50,10 +48,10 @@ routing_decisions.db (SQLite, ~/.mahoraga-v2/)
 
 ```
 qwen3.5:latest       6.6 GB  ← arm 1
-gemma4:e4b           9.6 GB  ← arm 2
-granite4.1:8b        5.3 GB  ← arm 3
+granite4.1:8b        5.3 GB  ← arm 2
 nomic-embed-text     274 MB  ← semantic episodic memory
-qwen3:14b            9.3 GB  ← STALE, remove with: ollama rm qwen3:14b
+gemma4:e4b           9.6 GB  ← disabled arm, still on disk (rm if space needed)
+qwen3:14b            9.3 GB  ← unused by roster; on disk as of 2026-07-03
 ```
 
 ## Next steps (in order)
@@ -61,21 +59,16 @@ qwen3:14b            9.3 GB  ← STALE, remove with: ollama rm qwen3:14b
 ### 1. ~~Clean stale model~~ ✅ done
 ### 2. ~~`orch benchmark lab`~~ ✅ done (also found + fixed unexplored-arm UCB inflation bug)
 
-### Next: let real traffic train the bandit
-Forces all 3 arms through real Ollama calls with quality scoring.
-Without this, the bandit has 1 real data point and can't differentiate arms.
-Run from project root:
-```bash
-orch benchmark lab
-```
-Target: ~72 real observations (3 arms × 24 prompts). After this the
-exploit/explore scores will diverge from the cold-start uniform UCB=2.623.
+### ~~Let real traffic train the bandit~~ ✅ underway
+207 real decisions since the 2026-05-20 reset (111 qwen3.5, 96 granite).
+Both arms are past the 20–50 pull warmup threshold — adaptive gamma (§4)
+is now unblocked.
 
 ### 3. Cross-bucket routing check
 Send tasks of different types through the MCP and verify bucket classification:
-- research task → `research` bucket → gemma4-e4b should win
-- debug task → `debugging` bucket → granite should compete
-- plan task → `complex`/`plan` bucket → gemma4-e4b should win
+- code task → `code` bucket → qwen3.5 should edge out granite (0.782 vs 0.776 in bench)
+- plan/research task → `plan`/`research` buckets → granite should win (0.874 / 0.833)
+- debug task → `debugging` bucket → both compete
 
 ### 4. Gamma (adaptive per-arm decay)
 Once arms have 20–50 pulls each, prediction error EMAs are meaningful.
@@ -114,6 +107,7 @@ never verified against our 3-arm roster. After benchmark lab run:
 
 ## Known issues / lessons
 
+- **Auto-logging to the repo brain is off as of 2026-07-03.** The router was appending a content-free "Routed to X" entry to `brain/decisions/log.md` on every decision (2M lines), and the daemon wrote an empty journal stub on every shutdown. Both call sites removed; SQLite (`routing_decisions.db`) is the only decision log. See ADR `brain/decisions/2026-07-03-remove-brain-auto-append.md`.
 - **Never use `--mode force-explore` to seed the bandit.** Force-explore trains some arms and leaves others cold — creates UCB inflation asymmetry. If seeding is needed, use `inject_pseudo_obs` or run bandit mode.
 - Cross-bucket routing unverified with real traffic — only tested via routing probe
 - `_DEFAULT_PRIORS` equal across all 3 arms (by design, pure cold-start exploration) — will diverge naturally

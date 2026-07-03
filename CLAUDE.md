@@ -33,8 +33,9 @@ Agent-agnostic LLM orchestration framework with online bandit routing. FastAPI b
 - `orch benchmark lab` — forced round-robin with quality scoring (8 agents × 24 prompts)
 
 ## Agents
-Active (5 arms): ollama:qwen3.5 (9.7B Q4_K_M, local default), ollama:gemma4-e4b (local alt), gemini-cli (free cloud, research), codex-cli (free cloud, code), claude (escalation only)  
-Disabled in agents.yaml: aider, opencode, goose, deepseek-r1 (viable at 32GB+), lfm2 (superseded)
+Active (2 arms, local only): ollama:qwen3.5 (9.7B Q4_K_M, code/reasoning), ollama:granite4.1-8b (IBM, test/review/structured output)  
+Disabled in agents.yaml: gemma4-e4b (lowest reward in every bucket, bench 2026-05-20), claude, codex, gemini, aider, opencode, goose  
+Roster source of truth: `agents.yaml`; current snapshot in `brain/state/current_state.md`
 
 ## Hardware
 MacBook Pro (Nov 2024), M-series, 16 GB unified memory. Qwen3.5 9.7B Q4_K_M at ~30 t/s on Apple Silicon.

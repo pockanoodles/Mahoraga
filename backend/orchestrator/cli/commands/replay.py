@@ -29,6 +29,7 @@ from backend.orchestrator.routing.replay import (
     load_episodes,
     replay,
 )
+from backend.orchestrator.routing.reweight_replay import log_offline_run
 
 
 app = typer.Typer(
@@ -103,6 +104,9 @@ def run(
     ),
     db: Path = typer.Option(_DEFAULT_DB_PATH, "--db"),
     json_out: bool = typer.Option(False, "--json"),
+    notes: Optional[str] = typer.Option(
+        None, "--notes", help="Why this replay run — logged to bench_runs alongside live batches."
+    ),
 ) -> None:
     """Run replay and print cumulative reward + delta."""
     episodes = load_episodes(
@@ -133,6 +137,18 @@ def run(
         decay=decay,
         bucket_pooling_weight=bucket_pooling_weight,
     )
+
+    auto_summary = (
+        f"strategy={strategy} alpha={alpha} decay={decay} n_episodes={result.n_episodes} "
+        f"delta={result.delta:+.3f}"
+    )
+    log_offline_run(
+        db,
+        mode="replay",
+        task_count=result.n_episodes,
+        notes=f"{auto_summary} | {notes}" if notes else auto_summary,
+    )
+
     if json_out:
         typer.echo(json.dumps(result.to_dict(), indent=2))
         return

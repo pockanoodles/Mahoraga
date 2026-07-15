@@ -16,7 +16,7 @@ timeline
     2026-07-03 : Brain telemetry bug fixed (2M-line log) : adaptive per-arm gamma ships (-9.4% regret)
     2026-07-09 : Reward-weight tie ruled out : qwen3-14b added as 3rd arm : Q-diagnostic inconclusive : semantic memory confirmed healthy : service stop bug fixed
     2026-07-10 : Quality-scorer caps ruled out as the discriminability bottleneck : overnight run finds bucket-classifier bug (security 0/80), crosses Q6's 500-task threshold, blind-ranking sheet ready
-    2026-07-15 : Verifiable (execution-based) rewards shipped as an eval harness : heuristic quality proven NOT to track correctness (Spearman rho=0.4, 100%-correct arm ranked 3rd/4) : extract_code unclosed-fence bug fixed
+    2026-07-15 : Verifiable rewards eval harness + heuristic proven NOT to track correctness (rho=0.4) : scorer bake-off (execution r_pb=0.43 >> embed-sim 0.18 > heuristic 0.10) : live execution gate shipped : extract_code unclosed-fence bug fixed
 ```
 
 ## Era 1 — Simulation only (2026-04-14)
@@ -186,3 +186,27 @@ Method: same 42-prompt bank (`prompts_v1.jsonl`), real bandit-mode traffic, run 
 **Honest limitations.** n=18 (arm-vs-arm gaps are 1–2 prompts — the *scorer* conclusion is robust because it's a within-output comparison of two metrics and the granite inversion is stark, but arm rankings are low-confidence at this N). Python-only; execution measures model+harness together; and critically, **live organic traffic has no gold tests** — so a live execution gate (Piece A) can only check "does the extracted code parse and run without crashing," which catches broken/hallucinated code but does *not* measure correctness (a wrong-but-runnable answer still passes). The full correctness signal exists only in the benchmark.
 
 **Verdict / what this unlocks.** `orch bench report verify` is now a **reusable ground-truth evaluation harness** — arm ranking and reward-function sanity on demand, without human ranking (which Era 7 showed doesn't scale). The immediate open decision: whether to wire a live execution *gate* into the reward for code/test/debug (Piece A), and how hard it should gate — versus using the benchmark periodically to evaluate/calibrate rather than computing correctness live. Everything logged to `bench_runs #14-17`.
+
+## Era 10 — Scorer bake-off + live execution gate (2026-07-15, same session)
+
+Two follow-ons to Era 9, both taking the "both: gate + evaluate scorers" path Kaito chose.
+
+**(1) Scorer bake-off — which cheap scorer actually tracks correctness?** Using the benchmark's per-output pass/fail as ground truth (the scalable validation set Era 7 said we lacked), scored all 70 outputs with three candidate scorers and measured point-biserial correlation (r_pb) with the pass label at the **item** level (n=70, far more power than the 4-arm view):
+
+| Scorer | r_pb with pass/fail | mean&#124;pass | mean&#124;fail | separation |
+|---|---|---|---|---|
+| **executes** (code runs at all, binary) | **+0.434** | 1.000 | 0.800 | +0.200 |
+| embed_sim (cosine to a gold reference) | +0.183 | 0.920 | 0.876 | +0.043 |
+| heuristic (current live quality scorer) | **+0.095** | 0.784 | 0.750 | +0.034 |
+
+| Question | Method | Result | Verdict |
+|---|---|---|---|
+| Which cheap scorer best tracks correctness? | Item-level point-biserial vs pass/fail, 70 outputs | **Execution (+0.434) >> embedding-sim (+0.183) > heuristic (+0.095)** | Execution is the clear winner; the heuristic is ~uncorrelated with correctness at the item level (scores failing outputs 0.750 vs passing 0.784) |
+| Is reference-embedding-similarity a usable correctness scorer? | Same | Weak (r_pb=+0.183, separation +0.043) — many correct forms exist and wrong code stays textually similar to the reference | **Ruled out** — a useful negative result; don't build it into the reward |
+| Is a (better-prompted) LLM-judge worth trying? | Not run | Deferred — heaviest, and Era 7 showed LLM judges share the heuristic's elaboration bias. **But the benchmark now gives a cheap way to validate one against ground truth** if revisited | Open |
+
+Caveat: only 5/70 outputs failed (arms are strong on this bank), so the fail class is tiny and the r_pb estimates are noisy; `executes` also caps out because 4 of the 5 failures were *wrong-but-runnable* (execution can't see those — only gold tests can). A harder bank with more failures would sharpen this.
+
+**(2) Live execution gate shipped (Piece A).** `routing/execution_gate.py` + wired into the serving reward path (`app.py`, mirroring the existing `strict_verify` success-downgrade). For code/test/refactor/debug buckets, output that doesn't execute (syntax error, bad import, crash on load) flips the outcome to **failed** so reward short-circuits to 0 — because capping quality alone is toothless (success is ~0.60 of the code-bucket weight and reward only zeroes on `success=False`). Conservative by design: catches "doesn't run", not "wrong" (organic traffic has no gold tests). On by default, `MAHORAGA_EXEC_GATE=off` disables. Runs model code in an 8s-timeout subprocess (same posture as `tools/code_exec.py`, but now on every code-bucket task — a real security consideration, flagged in the module docstring). **Verified end-to-end live:** a valid code task passes (success), a code-bucket task forced to emit English prose is caught (`exec_gate: ... SyntaxError ...; marking failed`). On the 70 benchmark outputs the gate's "runs" rate (16/17, 18/18, 17/17, 18/18) is ≥ pass@1 as expected — strictly more lenient, catching only the "doesn't run" subset. 14 tests. Two smoke decisions hit the live bandit (1 success, 1 adversarial fail on qwen3.5/code), memory off so no episodic pollution.
+
+**Net for reward design:** live, execution is the right signal and it's now a shipped gate; embedding-sim and the heuristic are both poor correctness trackers, so don't build a graded live correctness scorer from them; use the offline `verify` harness to evaluate arms and the reward periodically. LLM-judge is the one remaining candidate, now cheaply validatable. Logged to `bench_runs`.

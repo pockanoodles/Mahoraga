@@ -1,17 +1,60 @@
-# Current State — 2026-07-03
+# Current State — 2026-07-10
+
+## Read this first — 2026-07-10
+
+Overnight run (~1:30am–3:00am) covered the fully-automatable half of the open backlog; morning session fixed the bug it found and started the blind-ranking exercise. Full detail in `brain/state/findings.md` (Era 6) and the journal. Top line:
+
+1. **Found and fixed a real bug**: the bucket classifier (`store/metrics.py:_classify_bucket`) was misrouting almost all real security-intent traffic to the `code` bucket instead of `security` — confirmed 0/80 real prompts classified as `security` in a sample that included 14 explicit security-audit prompts. Two compounding causes: the security keyword list checked singular `"vulnerability"` (missing the much more common plural `"vulnerabilities"`), and `code`'s generic keywords (`"implement"`, `"def "`, `"return"`) won first-match-in-dict-order against almost any prompt that quotes real code, which most security/review/refactor/debug prompts do. **Fixed 2026-07-10 morning**: reordered so intent-signaling buckets are checked before `code`, fixed the keyword gap, removed a colliding keyword the reorder exposed (`"check"` in `review`). Re-verified: 14/14 real security prompts now correct; `code`'s share of real traffic dropped from 62.5% to 8.75%. 9 new regression tests, full suite 1231 passed. This only ever affected unhinted (organic MCP) traffic — none of this project's own bench experiments were affected, since they always pass an explicit bucket hint.
+2. Re-ran the difficulty-tier diagnostic at much better power (9-bucket coverage, n=18/tier vs the original n=2) — confirms the earlier null result: hard tasks don't show a wider inter-agent quality gap than easy ones.
+3. Re-checked compat-matrix + leader-stability with qwen3-14b now at full sample size (14-29/bucket) — the tie/instability persists; adding a 3rd arm didn't resolve it.
+4. Crossed Q6's 500-task real-traffic threshold (517 unforced decisions now) — the data-volume blocker is gone, the actual retrieval-vs-vanilla A/B test still needs to be designed and run.
+5. Confirmed the 2026-04-24 "37% missing reward" bug does not reproduce on the current 3-arm roster (0 NULL rewards/success across 660 rows).
+6. Built `experiments/blind_ranking_sheet.md` — 7 real prompts × 3 agents, blind-labeled — the "stronger judge" calibration step recommended last session. In progress as of this morning.
+7. **Roster decision**: qwen3-14b judged "too large for this machine" but kept in the roster anyway — still generating useful comparative data for the reward-tie investigation.
+8. **Blind ranking done, scorer fix attempted and rejected on evidence.** Kaito's manual blind ranking (7 real prompts) agreed with the heuristic scorer's top pick only 3/7 (43%, barely above chance) — every disagreement traced to the scorer's flat +0.10 structure bonus rewarding elaboration Kaito explicitly called out as not earned. A diminishing-returns length-curve fix was built and tested against the same ground truth: didn't help (one variant made it worse, 2/6) — the curve doesn't touch the actual tie-breaker (the flat structure bonus). A local LLM judge (gemma4:e4b, not a roster arm) was tried as a scalable alternative to human ranking: 1/6 agreement, and its own stated reasoning showed the identical elaboration bias. **Decision: stop here, don't ship either fix** — documented in `brain/state/findings.md` Era 7, revisit only if a cheap way to get reliable volume ground truth turns up.
+9. **Q6's first real A/B data point: null result at n≈42/condition.** Ran the same 42-prompt bank through `MAHORAGA_MEMORY_MODE=off` vs default `semantic`, sequentially, via manually-started `orch serve` instances (persistent daemon restored after). Memory changed the routed agent on 6/41 (14.6%) matched prompts — a real effect on individual decisions — but aggregate reward barely moved (0.7963 vs 0.7839, diff/SE≈0.54) — not distinguishable from noise at this sample size. Not conclusive either way; would need several hundred/condition. Full detail in `brain/state/findings.md` Era 8.
+10. **Found + fixed a second `orch service stop` regression**, different mechanism than the 2026-07-09 fix. `launchctl stop` sends SIGTERM; the process is killed *by* the signal rather than exiting cleanly, so `LastExitStatus` records the signal number, which `KeepAlive: {SuccessfulExit: false}` treats as a crash and respawns anyway. **Fixed 2026-07-10**: `stop` now unloads the job (`launchctl unload`) instead of sending SIGTERM to a still-loaded job; `start` re-loads it. Verified: stop → `000`/unloaded and stays that way past 5s, start → `200` with a fresh `uptime_s` and full decision history intact.
+
+Everything above is logged to `bench_runs` (#7-#12) with notes.
 
 ## What Mahoraga is right now
 
 A working local-first orchestrator with per-bucket bandit routing, episodic memory (semantic mode default), and a persistent background daemon. The full routing loop is verified: task → bucket classification → per-bucket UCB scoring → Ollama arm runs → reward → A/b matrix update → episode in DB.
 
-## Active roster (2 arms, all local)
+## Active roster (3 arms, all local)
 
 | Arm | Model | Strengths | Prior |
 |---|---|---|---|
 | `ollama:qwen3.5` | qwen3.5:latest (6.6 GB, Q4_K_M) | code, reasoning | 0.75 |
 | `ollama:granite4.1-8b` | granite4.1:8b (5.3 GB, IBM) | test, review, structured output | 0.75 |
+| `ollama:qwen3-14b` | qwen3:14b (9.3 GB) | diagnostic arm, added 2026-07-09 — see finding below | 0.75 |
 
 `ollama:gemma4-e4b` disabled 2026-05-23 — lowest reward in every bucket in the 2026-05-20 bench; granite covers the same capability space. Cloud agents (claude, codex-cli, gemini-cli) are registered but effectively disabled — no API keys in env, gated by budget pacer.
+
+## 2026-07-09 finding: qwen3.5 vs granite4.1-8b tie in composite reward, and it's not the reward weights
+
+Real traffic (337 non-bench decisions as of today) shows both arms scoring 0.78–0.83 avg reward in nearly every bucket, with the "leading" agent flipping between the first and second half of each bucket's history in 7/9 buckets. Checked two hypotheses, both offline/zero-inference:
+
+1. **Reward-weight structure** — `orch bench report reweight` (new, `routing/reweight_replay.py`) recomputes logged decisions' reward under alternate weight vectors with no new inference. Pushing quality weight from ~0.20–0.45 up to 0.55 (successs down to 0.20) only widened the agent gap 1.3–2x in most buckets (max ratio 4.9x in `general`, but off a tiny 0.0026 base; `review` actually *shrank*). Conclusion: **the tie is not a reward-weight artifact** — these two models' logged quality scores are genuinely close on this task mix.
+2. **Model similarity** — registered `ollama:qwen3-14b` (already on disk, 9.3GB, unused since the May bench) as a 3rd arm to test whether a model with a real capability/speed gap breaks the tie. Live as of today; needs real traffic to accumulate before it says anything.
+
+**Next check:** once qwen3-14b has enough samples per bucket (rough target: 15-20+), re-run `orch bench report compat-matrix` and the same per-bucket leader-stability check. If qwen3-14b also ties, that's stronger evidence the composite reward formula structurally suppresses separation for any local-only, similarly-successful roster (success + cost together are 0.65 of the weight and both are ~constant across free local arms that mostly succeed) — worth revisiting `BUCKET_WEIGHTS` then, with evidence instead of a hunch.
+
+## 2026-07-09 (cont'd): difficulty-tier diagnostic (Q5) — no support, and semantic memory confirmed healthy
+
+Ran `experiments/prompts_difficulty.jsonl` (12 prompts, easy/hard × code/research/security) force-explore across all 3 arms (bench_run_id=4, 36 tasks, 100% pass). At n=2/cell — underpowered, directional only — the quality gap between agents did **not** widen on hard tasks (if anything, slightly narrower), and qwen3-14b showed no quality edge on hard tasks despite legitimate, appropriately-detailed responses (spot-checked raw outputs — not truncated, hard-task answers ran 67-330 tokens vs 5-23 for easy). Tentative read: Q5's hypothesis doesn't hold here, or the quality scorer itself may not be discriminative enough to detect a real gap even when the model outputs plausibly differ in depth — worth checking the scorer's behavior independent of which model answers before spending more compute on roster diversity as the fix.
+
+Also verified semantic episodic memory directly (not just "files exist"): queried `EpisodicMemory.query_semantic_with_confidence` live with a real prompt embedding and got back sensible, differentiated per-agent bias/confidence/count. 596 episodes stored, 100% with embeddings. Correction to the 2026-07-03 next-steps: the embedding model is `all-MiniLM-L6-v2` via `sentence-transformers` (see `routing/embeddings.py:37`), **not** nomic-embed-text — nomic-embed-text is on disk but unused, a leftover from an earlier design pass.
+
+Set up a 7-day trial recurring job (`CronCreate`, every 6h, 15-task un-forced bandit batches) to keep accumulating data without relying on remembering to trigger it. Session-scoped — dies if this Claude session ends, auto-expires in 7 days regardless. Making it a permanent launchd job is a separate, not-yet-made decision.
+
+## 2026-07-09 (cont'd): quality-scorer discriminability check — caps/plateaus are NOT the bottleneck
+
+Built `routing/quality_replay.py` + `orch bench report quality-replay` (bench_run_id=6): re-scores already-captured real (prompt, output, bucket, agent) rows under generous heuristic variants — higher length plateau (300→800 words), harder length-ratio target (2.5x), uncapped security keyword bonuses, continuous (not binary) not-plan — with zero new inference. To make this possible, added `prompt_full`/`output_full` fields to `bench.py`'s JSONL output (previously only 60/120-char previews were persisted; full text wasn't stored anywhere, including the DB), then re-ran the Q5 diagnostic batch (bench_run_id=5, 34/36 succeeded) to get real full-text captures.
+
+**Result: every generous variant, run on the exact same real text that showed no Q5 gap-widening, produced ~equal or *smaller* per-bucket agent gaps than baseline** (`max_variant_widening_ratio=1.0` — no variant widened at all; research bucket gap actually shrank 0.105→0.085 under the most generous config). Two of the suspected compression points turned out not to even be *engaged* by this data: security keyword hits topped out at 4/4 (mitigation/threat) across all 34 real answers — under, not at, the original caps of 5/4 — so uncapping changed nothing because the cap was never hit; the not-plan detector scored every single row 1.0 (not plan-shaped) so binary-vs-continuous was moot for the same reason. The length-plateau variants are the only ones that were genuinely tested and available data — and they *narrowed* the gap slightly, not widened it, because a higher plateau also dilutes the short easy-tier answers less asymmetrically than expected.
+
+**Read on this:** the heuristic scorer's caps aren't suppressing a real signal that's present in these outputs — on this data, there just isn't more separating signal to uncover by being more generous with existing heuristic knobs. This rules out "the formula's caps are hiding real differences" as the explanation for the qwen3.5/granite/qwen3-14b tie. What's left: either (a) genuinely similar model quality on this task mix, or (b) heuristic scoring (regex/keyword/length, no semantic understanding) is structurally incapable of detecting the kind of depth difference that exists in these outputs, no matter how the same knobs are tuned. Only a stronger judge (embedding-similarity-to-a-reference-answer, or an LLM-judge used offline-only for validation, never in the live reward loop) can distinguish between (a) and (b) — next step if this is revisited.
 
 ## Architecture shape
 
@@ -40,9 +83,12 @@ routing_decisions.db (SQLite, ~/.mahoraga-v2/)
 
 ## Infrastructure
 
-- `orch service install` — launchd daemon, login-persistent, KeepAlive, logs to `~/.mahoraga-v2/server.log`
+- `orch service install` — launchd daemon, login-persistent, logs to `~/.mahoraga-v2/server.log`
+- `orch service start` / `orch service stop` / `orch service status` — real on/off toggle. 2026-07-09: `KeepAlive: true` → `{SuccessfulExit: false}` (crash → auto-restart, deliberate stop → stays stopped). 2026-07-10: that alone wasn't enough — `stop` used `launchctl stop`, which sends SIGTERM to a job that stays *loaded*, so the signal-killed exit still tripped `KeepAlive`'s respawn. Fixed by having `stop` unload the job entirely (`launchctl unload`) and `start` reload it. Verified both ways.
 - `orch serve` — manual start at localhost:8000
 - `agents.yaml` — config-driven arm registration; `enabled: false` disables without losing bandit history
+- **Experiment ledger** — `orch bench report runs` lists every experiment (live batches AND offline analyses) with a `notes` field explaining why. Live batches: pass `--notes` to `orch bench run`. Offline (`orch replay run`, `orch bench report reweight`): auto-logs a summary + accepts `--notes` too. All write to the same `bench_runs` table via `routing/reweight_replay.py:log_offline_run`. Use this instead of relying on conversation history to remember what's been tested.
+- **MCP `run_task` vs `route_task`** — `run_task` always commits a real, reward-logged decision; `route_task` previews the pick with zero commit. Use `route_task` for probing/testing so casual checks don't pollute the real-traffic dataset used for convergence analysis (some early "what's up, 2+2" rows in the DB are exactly this kind of pollution).
 
 ## Ollama models (disk)
 
@@ -51,7 +97,7 @@ qwen3.5:latest       6.6 GB  ← arm 1
 granite4.1:8b        5.3 GB  ← arm 2
 nomic-embed-text     274 MB  ← semantic episodic memory
 gemma4:e4b           9.6 GB  ← disabled arm, still on disk (rm if space needed)
-qwen3:14b            9.3 GB  ← unused by roster; on disk as of 2026-07-03
+qwen3:14b            9.3 GB  ← arm 3, added 2026-07-09 as diagnostic third arm
 ```
 
 ## Next steps (in order)
@@ -64,11 +110,10 @@ qwen3:14b            9.3 GB  ← unused by roster; on disk as of 2026-07-03
 Both arms are past the 20–50 pull warmup threshold — adaptive gamma (§4)
 is now unblocked.
 
-### 3. Cross-bucket routing check
-Send tasks of different types through the MCP and verify bucket classification:
-- code task → `code` bucket → qwen3.5 should edge out granite (0.782 vs 0.776 in bench)
-- plan/research task → `plan`/`research` buckets → granite should win (0.874 / 0.833)
-- debug task → `debugging` bucket → both compete
+### ~~3. Cross-bucket routing check~~ ✅ done 2026-07-10
+Found + fixed the classifier bug in the process (see item 1 above,
+Era 6 in findings.md) — real security-intent traffic was being
+misclassified as `code`.
 
 ### ~~4. Gamma (adaptive per-arm decay)~~ ✅ shipped 2026-07-03
 Live in `linucb_per_bucket.py` with per-(bucket, arm) warmup, a
@@ -86,6 +131,13 @@ never verified against our 3-arm roster. After benchmark lab run:
 - Check `_retrieve_memory_biases_rich()` is calling nomic-embed-text
 - Verify episodic memory is growing (`.bin` file size increasing)
 - Compare routing quality with `MAHORAGA_MEMORY_MODE=keyword` vs default
+
+### 6. Q6 A/B at larger N — in progress 2026-07-10
+First real A/B (semantic vs off, n≈42/condition) came back an honest
+null — memory changes 14.6% of routing decisions but reward diff/SE≈0.54,
+indistinguishable from noise at this sample size (Era 8, findings.md).
+Re-running at several hundred prompts/condition to get a result that
+can actually resolve Q6 either way.
 
 ## Key files
 

@@ -83,6 +83,22 @@ After every execution, the validator checks:
 - **General outputs:** substance check — length and content, not padding
 - **Embedding similarity:** cosine between prompt and output embeddings via nomic-embed-text (catches off-topic or degenerate outputs)
 
+For a successful primary response in the `code`, `test`, `refactor`, or `debug`
+bucket, a second, live execution gate is enabled by default. It extracts the
+response's code, parses it, and runs it with `python3 -c` under an 8-second
+timeout. Empty code, syntax errors, missing imports, runtime errors, and timeouts
+mark the task as failed, which gives the bandit a reward of `0`. Set
+`MAHORAGA_EXEC_GATE=off` to disable the gate.
+
+The live gate checks only that code runs; it cannot tell whether runnable code is
+correct because organic requests have no gold tests. Use the offline
+[`orch bench report verify`](#verifiable-code-evaluation) workflow for correctness
+measurements against the committed test bank.
+
+> **Execution safety:** the gate runs model-generated Python in a subprocess with
+> a wall-clock timeout, not a filesystem, network, or resource sandbox. It is
+> intended for trusted, single-user local deployments.
+
 Outcomes: pass → stream response; retry → same worker with feedback context; escalate → next-best adapter.
 
 **Implicit quality signals** require no explicit feedback: a retry within 5 minutes signals failure (reward 0.0) and accepting an agent's output without change signals success (+0.6 bonus).
@@ -363,6 +379,8 @@ All commands are under `orch`:
 | `orch quarantine list` | Show quarantined agents |
 | `orch budget status` | Show budget pacer state |
 | `orch eval ...` | Run quality evaluation on an output |
+| `orch bench run` | Collect a repeatable prompt batch as JSONL |
+| `orch bench report ...` | Analyze compatibility, rewards, quality, and verifiable correctness |
 | `orch benchmark simulate` | Strategy comparison over synthetic tasks |
 
 Run any command with `--help` for options.
@@ -389,6 +407,39 @@ orch benchmark live-report       # analyse real routing decisions from SQLite
 
 Run `orch benchmark` with no arguments to see all subcommands.
 
+### Verifiable code evaluation
+
+The committed `experiments/prompts_verifiable.jsonl` bank contains Python
+`code` and `debug` prompts with assertions that are withheld from the model.
+Collect each model's full output, then replay the same outputs against those
+tests without making more inference calls:
+
+```bash
+# Requires `orch serve` and the named agents to be available.
+orch bench run \
+  --prompts experiments/prompts_verifiable.jsonl \
+  --mode force-explore \
+  --agents "ollama:qwen3.5,ollama:granite4.1-8b" \
+  --repeats 1 \
+  --output experiments/results_verifiable.jsonl
+
+orch bench report verify \
+  --input experiments/results_verifiable.jsonl
+```
+
+`verify` joins rows by exact prompt text, extracts each response's code, appends
+the bank's assertions, and runs the combined script under `python3` with a
+30-second timeout. It reports pass@1 per bucket and agent next to heuristic
+quality, plus their rank correlation. The input must come from `orch bench run
+--output` and contain `prompt_full`, `output_full`, and an agent identifier
+(`actual_agent` in current output); unmatched prompts are reported rather than
+scored. Generated JSONL results under `experiments/` are ignored by Git.
+
+Like the live gate, offline verification is not sandboxed beyond its timeout.
+Only evaluate trusted local model output. Each report is recorded as a `verify`
+row in the `bench_runs` ledger in
+`~/.mahoraga-v2/routing_decisions.db`.
+
 ---
 
 ## Known Limitations
@@ -401,7 +452,11 @@ Run `orch benchmark` with no arguments to see all subcommands.
 
 **DeepSeek-R1 latency on 16 GB.** The reasoning model averages 123.5s per task on this hardware tier. It's registered and routed to, but in practice the bandit learns to avoid it quickly due to the speed penalty in the reward function.
 
-**Quality scoring is heuristic-only.** No LLM-as-judge. The 4-layer scorer (novelty ratio, structural checks, embedding similarity, length-to-bucket fit) works well enough for routing decisions but can't catch subtle correctness issues. This is a deliberate cost tradeoff — zero API cost for quality signal.
+**Live correctness checking is limited.** There is no LLM-as-judge. The 4-layer
+quality scorer (novelty ratio, structural checks, embedding similarity,
+length-to-bucket fit) cannot catch subtle correctness issues. The execution gate
+rejects code that does not run, but wrong-yet-runnable code passes; test-based
+pass@1 is available only for the offline verifiable benchmark.
 
 **Counterfactual estimation not yet active.** The composer shadow telemetry is recorded and the infrastructure exists, but k-NN counterfactual reward estimation (F3) requires ~500 decisions to be meaningful. It activates automatically once the DB reaches that threshold.
 

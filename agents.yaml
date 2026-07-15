@@ -1,6 +1,7 @@
 # agents.yaml — Mahoraga agent pool configuration
 #
-# v2 active arms: ollama:qwen3.5, ollama:granite4.1-8b  (local only — no cloud)
+# Active arms: ollama:qwen3.5, ollama:granite4.1-8b, ollama:qwen3-14b
+# (local only — no cloud)
 # All other arms are disabled with explanatory comments below.
 #
 # Restart `orch serve` to apply changes.

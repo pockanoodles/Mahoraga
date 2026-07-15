@@ -17,8 +17,18 @@ from typing import Optional
 
 import typer
 
+from ...routing.reweight_replay import load_decisions, log_offline_run, summarize
+from ...routing.quality_replay import VARIANTS, load_rows as load_quality_rows, summarize as summarize_quality
+from ...routing.verify_replay import (
+    load_bank as load_verify_bank,
+    load_results as load_verify_results,
+    evaluate as evaluate_verify,
+    summarize as summarize_verify,
+)
+
 DEFAULT_METRICS_DB = Path.home() / ".mahoraga-v2" / "mahoraga.db"
 DEFAULT_DECISIONS_DB = Path.home() / ".mahoraga-v2" / "routing_decisions.db"
+DEFAULT_VERIFY_BANK = Path(__file__).resolve().parents[4] / "experiments" / "prompts_verifiable.jsonl"
 
 VALID_METRICS = ("quality", "reward", "pass_rate", "latency_s", "tokens", "tps")
 
@@ -358,3 +368,309 @@ def compat_matrix(
         return
 
     _render_table(agg, metric, min_samples)
+
+
+def _parse_weights(raw: str) -> tuple[float, float, float, float]:
+    parts = [p.strip() for p in raw.split(",")]
+    if len(parts) != 4:
+        raise typer.BadParameter(
+            f"expected 4 comma-separated weights (success,quality,speed,cost), got {len(parts)}"
+        )
+    try:
+        w = tuple(float(p) for p in parts)
+    except ValueError as exc:
+        raise typer.BadParameter(f"weights must be numeric: {exc}")
+    if any(v < 0.05 for v in w):
+        raise typer.BadParameter("each weight must be >= 0.05 (per BUCKET_WEIGHTS convention)")
+    return w  # type: ignore[return-value]
+
+
+@report_app.command("reweight")
+def reweight_cmd(
+    weights: str = typer.Option(
+        ..., "--weights", help="Alt weights as w_success,w_quality,w_speed,w_cost (e.g. 0.20,0.55,0.20,0.05)"
+    ),
+    decisions_db: Path = typer.Option(DEFAULT_DECISIONS_DB, "--decisions-db"),
+    limit: Optional[int] = typer.Option(None, "--limit", help="Only replay the most-recent N decisions"),
+    min_samples: int = typer.Option(3, "--min-samples", help="Suppress buckets with fewer than N tasks"),
+    output_json: bool = typer.Option(False, "--json"),
+    notes: Optional[str] = typer.Option(
+        None, "--notes", help="Why this reweight run — logged to bench_runs alongside live batches."
+    ),
+) -> None:
+    """Recompute logged decisions' reward under an alternate weight vector.
+
+    Zero new inference — re-scores decisions already in the DB using their
+    logged success/quality/latency/cost, under BUCKET_WEIGHTS (baseline) vs.
+    the given alt weights. Answers whether re-weighting opens agent
+    separation that the current weights suppress, without running anything.
+    """
+    alt = _parse_weights(weights)
+    rows = load_decisions(decisions_db, limit=limit)
+    if not rows:
+        typer.echo("No data")
+        raise typer.Exit(0)
+
+    result = summarize(rows, alt)
+
+    max_widening = max(
+        (c["alt_gap"] / c["baseline_gap"] for c in result.values() if c["baseline_gap"] > 0),
+        default=None,
+    )
+    auto_summary = (
+        f"weights={alt} n_decisions={len(rows)} max_widening_ratio="
+        f"{round(max_widening, 2) if max_widening is not None else 'n/a'}"
+    )
+    log_offline_run(
+        decisions_db,
+        mode="reweight",
+        task_count=len(rows),
+        notes=f"{auto_summary} | {notes}" if notes else auto_summary,
+    )
+
+    if output_json:
+        typer.echo(json.dumps(result, indent=2))
+        return
+
+    typer.echo(f"reweight — baseline BUCKET_WEIGHTS vs alt={alt}")
+    typer.echo("(gap = max-min avg reward across agents in that bucket; wider alt_gap = more separation)")
+    typer.echo("")
+    header = f"{'bucket':<12} {'n':>4} {'baseline_gap':>14} {'alt_gap':>10}  {'baseline_avg':<40} {'alt_avg'}"
+    typer.echo(header)
+    typer.echo("-" * len(header))
+    for bucket, cell in sorted(result.items()):
+        if cell["n"] < min_samples:
+            continue
+        typer.echo(
+            f"{bucket:<12} {cell['n']:>4} {cell['baseline_gap']:>14.4f} {cell['alt_gap']:>10.4f}  "
+            f"{cell['baseline_avg']!s:<40} {cell['alt_avg']!s}"
+        )
+
+
+@report_app.command("quality-replay")
+def quality_replay_cmd(
+    input_path: Path = typer.Option(
+        ..., "--input", "-i", help="Bench --output JSONL with prompt_full/output_full fields"
+    ),
+    decisions_db: Path = typer.Option(DEFAULT_DECISIONS_DB, "--decisions-db"),
+    output_json: bool = typer.Option(False, "--json"),
+    notes: Optional[str] = typer.Option(
+        None, "--notes", help="Why this quality-replay run — logged to bench_runs."
+    ),
+) -> None:
+    """Re-score already-captured (prompt, output, bucket, agent) rows under
+    generous quality-scorer variants (higher length plateaus, uncapped
+    security keyword bonuses, continuous not-plan) to test whether the
+    heuristic scorer's caps/plateaus — not the models — suppress agent
+    separation. Zero new inference; needs a bench JSONL produced with
+    `orch bench run --output ...` after the prompt_full/output_full fields
+    were added (2026-07-09).
+    """
+    rows = load_quality_rows(input_path)
+    if not rows:
+        typer.echo(
+            "No usable rows (need prompt_full + output_full fields — "
+            "re-run the bench batch if this file predates 2026-07-09).",
+            err=True,
+        )
+        raise typer.Exit(0)
+
+    result = summarize_quality(rows, VARIANTS)
+
+    baseline_gap = result["baseline"]["overall_gap_avg"]
+    max_widening = max(
+        (v["overall_gap_avg"] / baseline_gap for k, v in result.items() if k != "baseline" and baseline_gap > 0),
+        default=None,
+    )
+    auto_summary = (
+        f"input={input_path} n_rows={len(rows)} baseline_gap={baseline_gap} "
+        f"max_variant_widening_ratio={round(max_widening, 2) if max_widening is not None else 'n/a'}"
+    )
+    log_offline_run(
+        decisions_db,
+        mode="quality-replay",
+        task_count=len(rows),
+        notes=f"{auto_summary} | {notes}" if notes else auto_summary,
+    )
+
+    if output_json:
+        typer.echo(json.dumps(result, indent=2))
+        return
+
+    typer.echo(f"quality-replay — {len(rows)} real captured rows from {input_path}")
+    typer.echo("(gap = max-min avg score across agents in that bucket, per config)")
+    typer.echo("")
+    for cfg_name, cfg_result in result.items():
+        typer.echo(f"=== {cfg_name} === overall_gap_avg={cfg_result['overall_gap_avg']}  "
+                    f"score_vs_tokens_corr={cfg_result['score_vs_tokens_corr']}")
+        for bucket, cell in sorted(cfg_result["per_bucket"].items()):
+            typer.echo(f"  {bucket:<10} n={cell['n']:<4} gap={cell['gap']:<8} avg_by_agent={cell['avg_by_agent']}")
+        typer.echo("")
+
+
+@report_app.command("verify")
+def verify_cmd(
+    input_path: Path = typer.Option(
+        ..., "--input", "-i", help="Bench --output JSONL with prompt_full/output_full fields"
+    ),
+    bank: Path = typer.Option(
+        DEFAULT_VERIFY_BANK, "--bank", help="Gold benchmark bank (prompt + hidden tests) JSONL"
+    ),
+    decisions_db: Path = typer.Option(DEFAULT_DECISIONS_DB, "--decisions-db"),
+    output_json: bool = typer.Option(False, "--json"),
+    notes: Optional[str] = typer.Option(
+        None, "--notes", help="Why this verify run — logged to bench_runs."
+    ),
+) -> None:
+    """Execution-based ("verifiable") scoring for code/debug outputs.
+
+    Joins bench outputs to the gold bank's hidden tests, runs each extracted
+    solution under python3, and reports pass@1 per (bucket, agent) alongside
+    the heuristic quality score for the SAME outputs. The headline is whether
+    pass@1 ranks the arms differently than the heuristic does — include a
+    deliberately-weak canary arm to see whether execution ranks it last where
+    the heuristic can't. Zero new inference; needs a bench JSONL from
+    `orch bench run --output ...` over experiments/prompts_verifiable.jsonl.
+    """
+    if not bank.exists():
+        typer.echo(f"Gold bank not found: {bank}", err=True)
+        raise typer.Exit(1)
+    if not input_path.exists():
+        typer.echo(f"Results file not found: {input_path}", err=True)
+        raise typer.Exit(1)
+
+    bank_map = load_verify_bank(bank)
+    results = load_verify_results(input_path)
+    if not results:
+        typer.echo(
+            "No usable rows (need prompt_full + output_full + actual_agent — "
+            "re-run the bench batch with --output if this file is older).",
+            err=True,
+        )
+        raise typer.Exit(0)
+
+    cases, unmatched = evaluate_verify(bank_map, results)
+    if not cases:
+        typer.echo(
+            f"No results matched the gold bank ({unmatched} unmatched). "
+            f"Was --input generated from {bank.name}?",
+            err=True,
+        )
+        raise typer.Exit(0)
+
+    result = summarize_verify(cases, results)
+
+    # Auto-summary for the ledger: per-agent pass@1 and the rank correlation
+    # between execution and the heuristic quality score (the payoff signal).
+    overall = result["overall"]
+    rc = result["rank_comparison"]
+    pass_by_agent = {a: v["pass_rate"] for a, v in overall.items()}
+    auto_summary = (
+        f"input={input_path.name} bank={bank.name} n_cases={len(cases)} "
+        f"unmatched={unmatched} pass@1_by_agent={pass_by_agent} "
+        f"spearman_rho={rc.get('rho')} best_by_exec={rc.get('best_by_exec')} "
+        f"its_heuristic_rank={rc.get('best_by_exec_heuristic_rank')}/{rc.get('n_arms')} "
+        f"heuristic_top={rc.get('best_by_heuristic')} inverted={rc.get('inverted')}"
+    )
+    log_offline_run(
+        decisions_db,
+        mode="verify",
+        task_count=len(cases),
+        notes=f"{auto_summary} | {notes}" if notes else auto_summary,
+    )
+
+    if output_json:
+        typer.echo(json.dumps(result, indent=2))
+        return
+
+    typer.echo(f"verify — {len(cases)} scored cases from {input_path.name} "
+                f"({unmatched} unmatched vs {bank.name})")
+    typer.echo("(pass@1 = fraction whose extracted code passed the hidden tests; "
+                "q = mean heuristic quality on the same outputs)")
+    typer.echo("")
+    header = f"  {'bucket':<10}" + "".join(f"{a.split(':')[-1]:>22}" for a in result["agents"])
+    typer.echo(header)
+    for b in result["buckets"]:
+        cells = []
+        for a in result["agents"]:
+            c = result["by_bucket"][b].get(a)
+            if not c:
+                cells.append(f"{'—':>22}")
+            else:
+                q = c["heuristic_quality"]
+                cells.append(f"{c['pass_rate']:.2f}({c['passed']}/{c['n']}) q={q if q is not None else '—'!s:>5}".rjust(22))
+        typer.echo(f"  {b:<10}" + "".join(cells))
+    typer.echo("")
+    typer.echo("  overall:")
+    for a in result["agents"]:
+        o = overall[a]
+        typer.echo(f"    {a:<24} pass@1={o['pass_rate']:.3f} ({o['passed']}/{o['n']})  "
+                    f"heuristic_q={o['heuristic_quality']}")
+    typer.echo("")
+    if rc.get("rho") is not None:
+        typer.echo(f"  execution-vs-heuristic rank correlation (Spearman rho) = {rc['rho']} "
+                    f"across {rc['n_arms']} arms")
+    if rc.get("inverted"):
+        typer.echo(
+            f"  ** inversion: the most-correct arm ({rc['best_by_exec']}, "
+            f"pass@1={rc['best_by_exec_pass_rate']:.3f}) is only rank "
+            f"{rc['best_by_exec_heuristic_rank']}/{rc['n_arms']} by heuristic quality "
+            f"(heuristic's top pick is {rc['best_by_heuristic']}) — the heuristic does not "
+            f"track correctness."
+        )
+    elif rc.get("rho") is not None:
+        typer.echo(f"  the most-correct arm ({rc['best_by_exec']}) is also the heuristic's top pick.")
+
+
+@report_app.command("runs")
+def list_runs(
+    mode: Optional[str] = typer.Option(None, "--mode", help="Filter to one mode (bandit | force-explore | reweight | ...)"),
+    limit: int = typer.Option(30, "--limit", help="Most-recent N runs"),
+    decisions_db: Path = typer.Option(DEFAULT_DECISIONS_DB, "--decisions-db"),
+    output_json: bool = typer.Option(False, "--json"),
+) -> None:
+    """List every logged experiment — live batches and offline analyses alike.
+
+    The single ledger for "what have we actually tested": every `orch bench
+    run` batch and every `orch bench report reweight` call writes a
+    bench_runs row with a `notes` field explaining why. This just reads them
+    back, most-recent first.
+    """
+    if not decisions_db.exists():
+        typer.echo("No data")
+        raise typer.Exit(0)
+
+    conn = sqlite3.connect(str(decisions_db))
+    conn.row_factory = sqlite3.Row
+    try:
+        sql = (
+            "SELECT id, started_at, mode, agents, task_count_planned, "
+            "task_count_completed, notes FROM bench_runs"
+        )
+        params: list = []
+        if mode:
+            sql += " WHERE mode = ?"
+            params.append(mode)
+        sql += " ORDER BY id DESC LIMIT ?"
+        params.append(limit)
+        rows = [dict(r) for r in conn.execute(sql, params).fetchall()]
+    finally:
+        conn.close()
+
+    if not rows:
+        typer.echo("No data")
+        raise typer.Exit(0)
+
+    if output_json:
+        typer.echo(json.dumps(rows, indent=2))
+        return
+
+    for r in rows:
+        completed = r["task_count_completed"]
+        planned = r["task_count_planned"]
+        typer.echo(
+            f"#{r['id']:<4} {r['started_at'][:19]}  mode={r['mode']:<14} "
+            f"tasks={completed}/{planned}"
+        )
+        if r["notes"]:
+            typer.echo(f"      {r['notes']}")

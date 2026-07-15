@@ -5,6 +5,15 @@
 #
 # Restart `orch serve` to apply changes.
 #
+# ollama:qwen3-14b — added 2026-07-09 as a diagnostic 3rd arm. Real traffic
+# (211 decisions since 2026-05-20) shows qwen3.5 and granite4.1-8b tied in
+# composite reward across 7/9 buckets — likely because success and cost are
+# both ~identical for two free local models, leaving only quality (20%) and
+# speed (15%) able to separate them. 14b is genuinely slower/heavier; if it
+# STILL ties under current reward weights, that's evidence the weights (not
+# model similarity) are suppressing signal. Already on disk, zero download
+# cost.
+#
 # Capability confidence values are warm-start priors fed to the LinUCB bandit.
 # The bandit overwrites these from real routing data as it accumulates —
 # values here only matter for cold-start exploration (before 100 observations
@@ -54,6 +63,20 @@ ollama:
         refactor: 0.83
         review: 0.85
         debug: 0.80
+
+    # qwen3-14b: diagnostic 3rd arm (see header comment). Larger/slower than
+    # qwen3.5 and granite4.1-8b — testing whether capability spread produces
+    # reward separation that two similarly-sized free local models don't.
+    - id: qwen3-14b
+      model: qwen3:14b                # 9.3 GB, already on disk — unused until now
+      max_ctx: 131072
+      extra_payload: {think: false}
+      capabilities:
+        code: 0.85
+        research: 0.85
+        review: 0.85
+        security: 0.85
+        general: 0.80
 
     # ── Disabled arms ─────────────────────────────────────────────────────────
     # deepseek-r1: unblocks at 32GB (123s avg latency on 16GB)

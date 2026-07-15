@@ -429,45 +429,20 @@ class Oracle:
             "reward": round(reward, 4),
         }
 
-    def optimal_agent(self, task: Task) -> str:
-        """Return the agent with the highest expected reward for this task."""
-        best_agent = ""
-        best_expected = -1.0
-        for arm in AGENTS:
-            mean, _ = COMPATIBILITY[task.category][arm]
-            complexity_factor = 1.0 - (task.complexity - 1) * 0.08
-            adj_quality = mean * complexity_factor
-            success = 1.0 if adj_quality >= 0.40 else 0.0
+    def expected_reward(self, task: Task, agent: str) -> float:
+        """Deterministic expected composite reward for (task, agent).
 
-            lat_mean, _ = AGENT_LATENCY[arm]
-            latency = lat_mean * task.complexity
-            cost = AGENT_COST[arm] * task.complexity
-
-            speed_score = max(0.0, 1.0 - latency / 20.0)
-            cost_score = max(0.0, 1.0 - cost / 0.25)
-
-            expected = (
-                success * 0.50 +
-                adj_quality * 0.25 +
-                speed_score * 0.15 +
-                cost_score * 0.10
-            )
-            if expected > best_expected:
-                best_expected = expected
-                best_agent = arm
-        return best_agent
-
-    def optimal_reward(self, task: Task) -> float:
-        """Return the expected reward of the oracle-optimal agent."""
-        arm = self.optimal_agent(task)
-        mean, _ = COMPATIBILITY[task.category][arm]
+        Same composition as `evaluate` but with distribution means in
+        place of samples — the ground truth regret is measured against.
+        """
+        mean, _ = COMPATIBILITY[task.category][agent]
         complexity_factor = 1.0 - (task.complexity - 1) * 0.08
         adj_quality = mean * complexity_factor
         success = 1.0 if adj_quality >= 0.40 else 0.0
 
-        lat_mean, _ = AGENT_LATENCY[arm]
+        lat_mean, _ = AGENT_LATENCY[agent]
         latency = lat_mean * task.complexity
-        cost = AGENT_COST[arm] * task.complexity
+        cost = AGENT_COST[agent] * task.complexity
 
         speed_score = max(0.0, 1.0 - latency / 20.0)
         cost_score = max(0.0, 1.0 - cost / 0.25)
@@ -478,6 +453,14 @@ class Oracle:
             speed_score * 0.15 +
             cost_score * 0.10
         )
+
+    def optimal_agent(self, task: Task) -> str:
+        """Return the agent with the highest expected reward for this task."""
+        return max(AGENTS, key=lambda arm: self.expected_reward(task, arm))
+
+    def optimal_reward(self, task: Task) -> float:
+        """Return the expected reward of the oracle-optimal agent."""
+        return max(self.expected_reward(task, arm) for arm in AGENTS)
 
     def print_compatibility_summary(self) -> None:
         """Print best agent per category — useful for sanity checking."""

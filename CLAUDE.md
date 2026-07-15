@@ -4,7 +4,7 @@
 Agent-agnostic LLM orchestration framework with online bandit routing. FastAPI backend, Python 3.12, vanilla HTML/CSS/JS frontend. GitHub: pockanoodles/Mahoraga
 
 **Stack:** Python 3.12, FastAPI, aiosqlite, anthropic SDK, httpx  
-**Active branch:** `v2` (semantic-augmented routing — see `docs/specs/semantic-routing.md`). v1 is frozen on `main`.  
+**Trunk:** `main` — trunk-based flow: short-lived `feat/`/`fix/`/`chore/` branches → PR → CI (`pytest -m "not slow"`) → merge. Releases are tags (`v2.0`, …), not branches. Semantic-augmented routing spec: `docs/specs/semantic-routing.md`.  
 **Tests:** `pytest` from project root
 
 ## Repo Layout
@@ -33,7 +33,7 @@ Agent-agnostic LLM orchestration framework with online bandit routing. FastAPI b
 - `orch benchmark lab` — forced round-robin with quality scoring (8 agents × 24 prompts)
 
 ## Agents
-Active (2 arms, local only): ollama:qwen3.5 (9.7B Q4_K_M, code/reasoning), ollama:granite4.1-8b (IBM, test/review/structured output)  
+Active (3 arms, local only): ollama:qwen3.5 (9.7B Q4_K_M, code/reasoning), ollama:granite4.1-8b (IBM, test/review/structured output), ollama:qwen3-14b (added 2026-07-09 as a diagnostic arm — see current_state.md)  
 Disabled in agents.yaml: gemma4-e4b (lowest reward in every bucket, bench 2026-05-20), claude, codex, gemini, aider, opencode, goose  
 Roster source of truth: `agents.yaml`; current snapshot in `brain/state/current_state.md`
 

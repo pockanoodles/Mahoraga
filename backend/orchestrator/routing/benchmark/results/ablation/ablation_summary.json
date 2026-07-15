@@ -1,0 +1,95 @@
+{
+  "strategy_comparison": {
+    "static": {
+      "final_regret": 4.909799999999995
+    },
+    "ucb1": {
+      "final_regret": 26.448400000000014
+    },
+    "thompson": {
+      "final_regret": 12.504799999999996
+    },
+    "linucb": {
+      "final_regret": 14.360099999999989
+    },
+    "dlinucb": {
+      "final_regret": 17.248499999999993
+    }
+  },
+  "warm_start": {
+    "dlinucb (cold)": {
+      "final_regret": 14.128599999999997
+    },
+    "dlinucb (warm)": {
+      "final_regret": 13.325599999999993
+    }
+  },
+  "episodic_memory": {
+    "dlinucb (\u03b1=0.0)": {
+      "final_regret": 14.84489999999999
+    },
+    "dlinucb (\u03b1=0.20)": {
+      "final_regret": 15.547399999999993
+    }
+  },
+  "swap_penalty": {
+    "dlinucb (\u03b2=0.0)": {
+      "final_regret": 14.135499999999997
+    },
+    "dlinucb (\u03b2=0.10)": {
+      "final_regret": 14.542399999999997
+    }
+  },
+  "bucket_granularity": {
+    "dlinucb (7 buckets)": {
+      "final_regret": 13.526599999999997
+    },
+    "dlinucb (3 buckets)": {
+      "final_regret": 12.528299999999998
+    }
+  },
+  "adaptive_gamma": {
+    "global \u03b3=0.98": {
+      "final_regret": 12.848449999999993,
+      "drift_target": "codex-cli",
+      "drift_window": [
+        80,
+        150
+      ],
+      "detection_latency": 2,
+      "regret_after_changepoint": 6.6019,
+      "recovery_time": 18,
+      "target_share_pre": 0.2069,
+      "target_share_during": 0.15,
+      "target_share_post": 0.0952
+    },
+    "adaptive \u03b3": {
+      "final_regret": 11.73175,
+      "drift_target": "codex-cli",
+      "drift_window": [
+        80,
+        150
+      ],
+      "detection_latency": 0,
+      "regret_after_changepoint": 6.1498,
+      "recovery_time": null,
+      "target_share_pre": 0.2414,
+      "target_share_during": 0.1,
+      "target_share_post": 0.0
+    },
+    "adaptive \u03b3 + recovery": {
+      "final_regret": 11.639949999999997,
+      "drift_target": "codex-cli",
+      "drift_window": [
+        80,
+        150
+      ],
+      "detection_latency": 0,
+      "regret_after_changepoint": 5.5618,
+      "recovery_time": 32,
+      "target_share_pre": 0.2414,
+      "target_share_during": 0.1,
+      "target_share_post": 0.0952
+    }
+  }
+}

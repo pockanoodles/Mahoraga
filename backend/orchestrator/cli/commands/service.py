@@ -36,8 +36,15 @@ _PLIST_TEMPLATE = """\
     <key>RunAtLoad</key>
     <true/>
 
+    <!-- SuccessfulExit: false means "restart after a crash, not after a
+         deliberate stop." Plain `<true/>` respawns unconditionally, which
+         made `orch service stop` cosmetic — launchd relaunched the process
+         within ~1s of the SIGTERM regardless of why it exited. -->
     <key>KeepAlive</key>
-    <true/>
+    <dict>
+        <key>SuccessfulExit</key>
+        <false/>
+    </dict>
 
     <key>StandardOutPath</key>
     <string>{log}</string>
@@ -113,7 +120,13 @@ def start() -> None:
     if not _PLIST_PATH.exists():
         typer.echo("Service not installed. Run `orch service install` first.", err=True)
         raise typer.Exit(1)
-    result = _launchctl("start", _LABEL)
+    # `stop` below unloads the job entirely, so the common case here is
+    # "not loaded" — load it fresh (RunAtLoad + KeepAlive bring it up).
+    # Fall back to `launchctl start` only if it's somehow loaded-but-stopped.
+    if not _is_loaded():
+        result = _launchctl("load", str(_PLIST_PATH))
+    else:
+        result = _launchctl("start", _LABEL)
     if result.returncode != 0:
         typer.echo(f"Failed to start: {result.stderr.strip() or 'already running?'}", err=True)
         raise typer.Exit(1)
@@ -123,7 +136,16 @@ def start() -> None:
 @app.command("stop")
 def stop() -> None:
     """Stop the service without uninstalling it."""
-    result = _launchctl("stop", _LABEL)
+    # `launchctl stop` sends SIGTERM but leaves the job loaded — the process
+    # is killed BY the signal rather than exiting cleanly, so LastExitStatus
+    # is the signal number, which KeepAlive's SuccessfulExit:false treats as
+    # a crash and respawns. Unloading removes the job from launchd entirely,
+    # so KeepAlive never gets a chance to act. This is why `orch service
+    # stop` used to be immediately undone by launchd — see brain/state/findings.md Era 8.
+    if not _is_loaded():
+        typer.echo("Service already stopped.")
+        return
+    result = _launchctl("unload", str(_PLIST_PATH))
     if result.returncode != 0:
         typer.echo(f"Failed to stop: {result.stderr.strip() or 'not running?'}", err=True)
         raise typer.Exit(1)

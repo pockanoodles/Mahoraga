@@ -5,12 +5,37 @@ from unittest.mock import AsyncMock, patch, MagicMock
 
 @pytest.mark.asyncio
 async def test_handle_health_check():
+    """R1.1: health_check composes /api/health + routing + agent status."""
     from backend.mcp.server import _handle_health_check
     with patch("backend.mcp.server._get", new_callable=AsyncMock) as mock:
-        mock.return_value = {"status": "ok", "uptime_s": 120, "agents_online": 3}
+        mock.side_effect = [
+            {"status": "ok", "uptime_s": 120,
+             "agents_online": 2, "agents_registered": 2},
+            {"quarantine": {"entries": [], "n_drift_events_unresolved": 0},
+             "budget_pacer": {"avg_cost": 0.01, "ceiling": 0.5},
+             "execution_pool": {"depth_norm": 0.0}},
+            {"agents": []},
+        ]
+        result = await _handle_health_check({})
+        assert [c.args[0] for c in mock.call_args_list] == [
+            "/api/health", "/api/health/routing", "/api/agents/status",
+        ]
+        assert result["status"] == "ok"
+        assert result["degradation_level"] == 0
+        assert result["level_name"] == "ok"
+
+
+@pytest.mark.asyncio
+async def test_handle_health_check_fastapi_down():
+    """When /api/health errors, report level 3 without probing further."""
+    from backend.mcp.server import _handle_health_check
+    with patch("backend.mcp.server._get", new_callable=AsyncMock) as mock:
+        mock.return_value = {"error": "connection refused"}
         result = await _handle_health_check({})
         mock.assert_called_once_with("/api/health")
-        assert result["status"] == "ok"
+        assert result["status"] == "down"
+        assert result["degradation_level"] == 3
+        assert result["level_name"] == "fastapi_unreachable"
 
 
 @pytest.mark.asyncio

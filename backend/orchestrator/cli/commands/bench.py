@@ -164,6 +164,7 @@ async def _run_one(
         routing = data.get("routing", {}) or {}
         return {
             "prompt": prompt[:60],
+            "prompt_full": prompt,
             "bucket": bucket,
             "requested_agent": agent,
             "actual_agent": data.get("agent") or agent,
@@ -174,6 +175,7 @@ async def _run_one(
             "exploration": routing.get("exploration"),
             "ucb_score": routing.get("ucb_score"),
             "output_preview": (data.get("output") or "")[:120],
+            "output_full": data.get("output") or "",
         }
     except Exception as exc:
         return {
@@ -269,6 +271,9 @@ def bench_run(
     timeout: int = typer.Option(180, "--timeout", help="Per-task timeout in seconds"),
     output: Optional[Path] = typer.Option(None, "--output", "-o", help="Write raw results JSONL"),
     limit: Optional[int] = typer.Option(None, "--limit", help="Cap total tasks (smoke testing)"),
+    notes: Optional[str] = typer.Option(
+        None, "--notes", help="Why this run — stored on the bench_runs row for later review."
+    ),
 ) -> None:
     """Run a batch of prompts through Mahoraga for data collection."""
     if mode not in ("force-explore", "bandit"):
@@ -340,6 +345,8 @@ def bench_run(
                     bench_payload["bandit_seed"] = bandit_seed
                 if prompt_seed is not None:
                     bench_payload["prompt_seed"] = prompt_seed
+                if notes:
+                    bench_payload["notes"] = notes
                 resp = await client.post(f"{base_url}/api/bench_run", json=bench_payload)
                 if resp.status_code == 200:
                     bench_run_id = resp.json().get("bench_run_id")

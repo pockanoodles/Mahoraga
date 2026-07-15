@@ -5,14 +5,26 @@ from typing import Any
 import aiosqlite
 
 _BUCKET_KEYWORDS: dict[str, list[str]] = {
-    "code":     ["write", "implement", "function", "class", "script", "module", "def ", "return"],
+    # Order is significant: dict iteration below is first-match-wins, and
+    # real prompts routinely quote code as *context* for a non-code task
+    # (e.g. "audit this endpoint for vulnerabilities: def get_data(): ...").
+    # code's own keywords ("def ", "return", "implement", "function") are
+    # the most generic in this table and match almost any quoted snippet,
+    # so code is checked LAST — a prompt only falls into it if no more
+    # specific intent-bucket matched first. Found 2026-07-10: with code
+    # checked first (the old order), 0/80 real security-intent prompts in
+    # a sample landed in the security bucket; code absorbed 62.5% of all
+    # real traffic. See brain/state/findings.md Era 6.
+    "security": ["security", "vulnerab", "exploit", "auth", "injection", "secret"],
     "test":     ["test", "pytest", "unittest", "spec", "assert"],
     "refactor": ["refactor", "rename", "restructure", "clean up", "simplify"],
     "debug":    ["debug", "fix", "bug", "error", "traceback", "exception"],
     "research": ["search", "summarize", "find", "look up", "research", "what is"],
     "plan":     ["plan", "design", "architect", "outline", "steps", "approach"],
-    "review":   ["review", "audit", "check", "evaluate", "assess"],
-    "security": ["security", "vulnerability", "exploit", "auth", "injection"],
+    # "check" deliberately excluded from review's keywords — collides with
+    # ordinary code-task phrasing ("write a function that checks if...").
+    "review":   ["review", "audit", "evaluate", "assess"],
+    "code":     ["write", "implement", "function", "class", "script", "module", "def ", "return"],
 }
 
 

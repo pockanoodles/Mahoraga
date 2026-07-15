@@ -27,6 +27,7 @@ BUCKETS: tuple[str, ...] = (
 ENABLED_AGENTS: tuple[str, ...] = (
     "ollama:qwen3.5",
     "ollama:granite4.1-8b",
+    "ollama:qwen3-14b",
 )
 
 DISABLED_AGENTS: tuple[str, ...] = (

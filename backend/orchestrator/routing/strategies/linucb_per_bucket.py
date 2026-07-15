@@ -54,6 +54,7 @@ from ..vocab import ENABLED_AGENTS
 _DEFAULT_PRIORS: dict[str, float] = {
     "ollama:qwen3.5":        0.75,
     "ollama:granite4.1-8b":  0.75,
+    "ollama:qwen3-14b":      0.75,
 }
 assert set(_DEFAULT_PRIORS.keys()) <= set(ENABLED_AGENTS), (
     f"_DEFAULT_PRIORS references agents not in vocab.ENABLED_AGENTS: "

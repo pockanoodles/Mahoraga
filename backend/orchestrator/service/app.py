@@ -1629,6 +1629,7 @@ async def run_api_task(
     bucket = _classify_bucket(req.prompt, hint=req.capability_hint)
     from ..routing.quality import score_quality_detailed as _score_quality_detailed
     from ..routing.escalation_strategies import STRICT_VERIFY_QUALITY_THRESHOLD
+    from ..routing.execution_gate import EXEC_GATE_BUCKETS, check_executes, exec_gate_enabled
     if success:
         quality_score, quality_components = await _score_quality_detailed(req.prompt, output, bucket)
         # A2 aggressive_verify: when the gateway flagged strict verification,
@@ -1643,6 +1644,21 @@ async def run_api_task(
             )
             success = False
             status = "failed"
+        # Verifiable-reward execution gate: for code-producing buckets, output
+        # that doesn't even run is broken however "structured" it looks — the
+        # heuristic quality scorer can't see this (findings.md Era 9). Flip the
+        # outcome to failed so reward short-circuits to 0 (capping quality alone
+        # is toothless — success is the bulk of the code-bucket weight). Only
+        # catches "doesn't run", not "wrong"; opt out with MAHORAGA_EXEC_GATE=off.
+        if success and bucket in EXEC_GATE_BUCKETS and exec_gate_enabled():
+            _ran_ok, _exec_err = await check_executes(output)
+            if not _ran_ok:
+                logging.getLogger(__name__).info(
+                    "exec_gate: %s output did not execute (%s); marking failed",
+                    bucket, (_exec_err or "")[:80],
+                )
+                success = False
+                status = "failed"
     else:
         quality_score, quality_components = 0.0, None
 

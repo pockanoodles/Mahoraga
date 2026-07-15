@@ -1,4 +1,18 @@
-# Current State — 2026-07-10
+# Current State — 2026-07-15
+
+## Read this first — 2026-07-15
+
+Shifted from "run more A/Bs" to "fix the ruler." The core diagnosis (this session): the composite reward has **no variance axis** on a free, mostly-succeeding local roster — success + cost are ~constant (~0.65 of the weight, pinned), speed is weakly/wrongly correlated with "better," and quality is a heuristic that Era 7 showed rewards elaboration, not correctness. That's why every downstream A/B (memory on/off, +qwen3-14b) came back null: **you can't detect an intervention with a metric that can't tell good answers from mediocre ones.** Direction chosen (Kaito): **verifiable (execution-based) rewards** for code/debug, where correctness is checkable rather than judged.
+
+Done this session:
+1. **Committed the whole 07-10 working tree** (classifier fix, qwen3-14b arm, offline replay tools, service-stop fix, brain docs) — five clean commits, 1231 tests green.
+2. **Built a verifiable-reward eval harness** (Piece B): `experiments/prompts_verifiable.jsonl` (18 gold code/debug prompts with hidden Python tests, ground-truth self-validated) + `routing/verify_replay.py` + `orch bench report verify` (offline, zero-inference: extract code → run against hidden tests → pass@1 per arm, side-by-side with heuristic quality + Spearman rho). 22 new tests.
+3. **The finding (Era 9 in findings.md):** execution pass@1 spans **0.882–1.000** across the arms (a real signal) where the composite reward tied them at 0.78–0.83. And the heuristic quality score **does not track correctness** — Spearman rho=0.40, the *only* 100%-correct arm (granite) is ranked 3rd of 4 by the heuristic; in the code bucket it gets the *lowest* q despite a perfect pass rate. This resolves Era 5's open fork toward **(b): the heuristic is structurally blind to correctness** — the models aren't similar, the scorer just can't see the difference. Bonus: the "gemma4 is the weakest arm" belief (from the May heuristic bench) was **falsified** on execution (gemma4 is mid-pack) — likely itself a heuristic artifact.
+4. **Fixed a live-path bug:** `extract_code` returned raw output (incl. a literal ` ```python `) on truncated/unclosed fences, poisoning "code" for the coder role. Now tolerates unclosed fences.
+
+**Open decision (next session):** whether to wire a live execution *gate* into the reward for code/test/debug (**Piece A** — but note it can only check "runs without crashing" on organic traffic, since there are no gold tests live; it catches broken code, not incorrect-but-runnable code), vs. using the benchmark harness periodically to evaluate/calibrate. The verify harness itself is the durable win: ground-truth arm ranking on demand, no human ranking needed.
+
+State when leaving off: `gemma4:e4b` reverted to `enabled: false`; manual `orch serve` stopped (port 8000 closed); **the persistent launchd daemon is still OFF** (was intentionally stopped 07-10 — not restarted this session; decide whether to `orch service start` to resume organic MCP traffic). New verify tooling + brain docs committed; the `verifiable_results_20260715.jsonl` output stays local (gitignored).
 
 ## Read this first — 2026-07-10
 

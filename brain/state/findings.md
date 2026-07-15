@@ -16,6 +16,7 @@ timeline
     2026-07-03 : Brain telemetry bug fixed (2M-line log) : adaptive per-arm gamma ships (-9.4% regret)
     2026-07-09 : Reward-weight tie ruled out : qwen3-14b added as 3rd arm : Q-diagnostic inconclusive : semantic memory confirmed healthy : service stop bug fixed
     2026-07-10 : Quality-scorer caps ruled out as the discriminability bottleneck : overnight run finds bucket-classifier bug (security 0/80), crosses Q6's 500-task threshold, blind-ranking sheet ready
+    2026-07-15 : Verifiable (execution-based) rewards shipped as an eval harness : heuristic quality proven NOT to track correctness (Spearman rho=0.4, 100%-correct arm ranked 3rd/4) : extract_code unclosed-fence bug fixed
 ```
 
 ## Era 1 — Simulation only (2026-04-14)
@@ -155,3 +156,33 @@ Method: same 42-prompt bank (`prompts_v1.jsonl`), real bandit-mode traffic, run 
 - **Read**: this is Q6's first real data point (zero existed before today), and it's an honest null, not a confident "memory doesn't help" — n≈42/condition can't reliably detect an effect smaller than roughly the observed noise floor. If this matters enough to resolve properly, the next step is a much larger N (several hundred per condition), not a stronger claim from this run.
 
 **Also found: `orch service stop` is broken again**, differently from the 2026-07-09 fix. `launchctl stop` sends SIGTERM; the `orch serve` process is killed BY the signal rather than catching it and exiting with code 0 (`LastExitStatus = 15` = signal number, confirmed via `launchctl print`). `KeepAlive.SuccessfulExit: false` respawns on any *unsuccessful* exit, and a signal-kill counts as unsuccessful — so launchd relaunches it anyway, just like the original bug, via a different mechanism than the one already fixed. Worked around for tonight with `launchctl bootout` (full unload, guaranteed no respawn) + `launchctl bootstrap` to restore. **Not fixed properly** — needs either graceful SIGTERM handling in `orch serve` itself (catch the signal, call `sys.exit(0)`) or changing `orch service stop`'s implementation to use bootout/bootstrap instead of `launchctl stop`. Flagged as a fresh, small, well-understood bug for next time.
+
+## Era 9 — Verifiable (execution-based) rewards: the heuristic doesn't track correctness (2026-07-15)
+
+**The decision that led here.** The composite reward can't separate the local arms (Era 5's tie), and Era 7 showed *why the quality axis fails*: the heuristic rewards elaboration, and a separate LLM judge shared the same bias. Two sessions of downstream A/Bs (memory on/off, +qwen3-14b) all came back null — because **you can't measure whether an intervention helps when the outcome metric can't tell a good answer from a mediocre one.** Kaito's call (2026-07-15): stop running A/Bs on a saturated ruler; give the reward an *objective* axis via execution-based ("verifiable") scoring for code/debug, where correctness is checkable rather than judged.
+
+**What was built (all zero-new-inference offline tooling, mirroring reweight/quality-replay):**
+- `experiments/prompts_verifiable.jsonl` — 18 gold prompts (12 code, 6 debug), each with hidden Python `tests`. Ground truth **self-validated** by a builder that requires every test to pass on a correct reference *and* fail on a planted-broken one (a test a correct solution fails, or a broken solution passes, is not usable ground truth). Force-tracked despite `experiments/` being gitignored, like `prompts_v1.jsonl`.
+- `backend/orchestrator/routing/verify_replay.py` + `orch bench report verify` — joins bench outputs to the gold tests, extracts code, runs `solution + tests` under `python3` (pass@1 = exit 0), and reports pass@1 per (bucket, agent) alongside the heuristic quality score on the *same* outputs, plus a Spearman rank correlation between the two and an explicit top-inversion callout. 22 tests (`test_verify_replay.py`, `test_postprocess.py`).
+- **Live-path bug fixed:** `extract_code` returned the raw output verbatim (including a literal ` ```python `) when a model emitted an *opening* fence with no close (truncated output), poisoning "code" for the coder role. Now tolerates unclosed fences. Rescued 2 of qwen3.5's apparent failures (0.765→0.882) — a harness artifact, not model error.
+
+**Method.** Force-explore, 18 prompts × 4 arms (the 3 roster arms + `gemma4:e4b` temporarily enabled as a deliberately-weak canary), `MAHORAGA_MEMORY_MODE=off` to keep the canary out of episodic memory, `bench_run_id=14` (70/72; 2 client timeouts excluded). Scored offline: `bench_runs #15-17` (mode=verify).
+
+**Results (pass@1 = fraction of extracted solutions that passed the hidden tests; q = mean heuristic quality on the same outputs):**
+
+| Arm | code pass@1 | code q | debug pass@1 | debug q | **overall pass@1** | **overall q** |
+|---|---|---|---|---|---|---|
+| granite4.1-8b | 1.00 (11/11) | 0.6875 | 1.00 (6/6) | 0.833 | **1.000 (17/17)** | 0.7361 |
+| qwen3-14b | 0.92 (11/12) | 0.7417 | 1.00 (6/6) | 1.000 | **0.944 (17/18)** | 0.8278 |
+| gemma4-e4b (canary) | 0.92 (11/12) | 0.7417 | 0.83 (5/6) | 0.833 | **0.889 (16/18)** | 0.7722 |
+| qwen3.5 | 0.83 (10/12) | 0.7417 | 1.00 (5/5) | 0.625 | **0.882 (15/17)** | 0.7028 |
+
+| Question | Method | Result | Verdict |
+|---|---|---|---|
+| Does execution-based scoring produce a separating signal where the composite reward tied? | pass@1 over 18 gold prompts × 4 arms | pass@1 spans **0.882–1.000** — a real ordered axis, vs the composite-reward tie (all arms 0.78–0.83, Era 5) | **Confirmed** — execution is the missing discriminative axis on a free local roster |
+| Does the heuristic quality score track correctness? | Spearman rho between pass@1 and heuristic-q across the 4 arms; inspect top-of-ranking | **rho = 0.40** (weak). The *only* 100%-correct arm (granite) is ranked **3rd of 4** by the heuristic; in the code bucket granite gets the **lowest** q (0.6875) despite a perfect pass rate, and three arms with 0.83/0.92/0.92 correctness get an **identical** q=0.7417 | **Confirmed NO** — this resolves Era 5's open (a)-vs-(b) fork toward **(b): the heuristic is structurally blind to correctness.** The models are *not* similar on correctness (0.88 vs 1.00); the scorer just can't see it |
+| Is the roster's "weakest arm" (gemma4, per the May heuristic bench) actually weakest on correctness? | Canary pass@1 vs the roster | **No** — gemma4 is mid-pack on correctness (0.889); qwen3.5 is (barely) weakest (0.882). The "gemma4 lowest everywhere" belief was likely itself a heuristic artifact | Confirmed — the canary premise was falsified, which is itself evidence the old heuristic ranking was untrustworthy |
+
+**Honest limitations.** n=18 (arm-vs-arm gaps are 1–2 prompts — the *scorer* conclusion is robust because it's a within-output comparison of two metrics and the granite inversion is stark, but arm rankings are low-confidence at this N). Python-only; execution measures model+harness together; and critically, **live organic traffic has no gold tests** — so a live execution gate (Piece A) can only check "does the extracted code parse and run without crashing," which catches broken/hallucinated code but does *not* measure correctness (a wrong-but-runnable answer still passes). The full correctness signal exists only in the benchmark.
+
+**Verdict / what this unlocks.** `orch bench report verify` is now a **reusable ground-truth evaluation harness** — arm ranking and reward-function sanity on demand, without human ranking (which Era 7 showed doesn't scale). The immediate open decision: whether to wire a live execution *gate* into the reward for code/test/debug (Piece A), and how hard it should gate — versus using the benchmark periodically to evaluate/calibrate rather than computing correctness live. Everything logged to `bench_runs #14-17`.

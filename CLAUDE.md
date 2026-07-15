@@ -4,7 +4,7 @@
 Agent-agnostic LLM orchestration framework with online bandit routing. FastAPI backend, Python 3.12, vanilla HTML/CSS/JS frontend. GitHub: pockanoodles/Mahoraga
 
 **Stack:** Python 3.12, FastAPI, aiosqlite, anthropic SDK, httpx  
-**Active branch:** `v2` (semantic-augmented routing — see `docs/specs/semantic-routing.md`). v1 is frozen on `main`.  
+**Trunk:** `main` — trunk-based flow: short-lived `feat/`/`fix/`/`chore/` branches → PR → CI (`pytest -m "not slow"`) → merge. Releases are tags (`v2.0`, …), not branches. Semantic-augmented routing spec: `docs/specs/semantic-routing.md`.  
 **Tests:** `pytest` from project root
 
 ## Repo Layout

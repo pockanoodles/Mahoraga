@@ -677,28 +677,96 @@ orch bench run --prompts one_prompt.jsonl --mode force-explore \
 
 Flags: `--agents` (comma list, default all 9), `--repeats` (reps per pair), `--limit` (cap total tasks, for smoke tests), `--timeout` (per-task timeout seconds, default 180), `--output` (raw results JSONL). The CLI iterates **agent-major** — all prompts through agent A before swapping to agent B — to amortize Ollama cold-start across a block of tasks. In `force-explore` mode the bandit still observes outcomes and updates; the `agent_override` just pins the arm per task.
 
-### 6.3 Reporting CLI (planned)
+### 6.3 Reporting CLI
 
-Not yet built. Target subcommands (all under `orch bench report`):
+The following subcommands are implemented under `orch bench report`:
+
+| Command | Input | Purpose |
+|---------|-------|---------|
+| `compat-matrix` | `~/.mahoraga-v2/mahoraga.db` | Aggregate quality, reward, pass rate, latency, tokens, or throughput by bucket and agent |
+| `reweight` | `~/.mahoraga-v2/routing_decisions.db` | Recompute existing decisions under an alternate success/quality/speed/cost weight vector |
+| `quality-replay` | `orch bench run --output` JSONL | Re-score captured outputs under alternate heuristic-quality configurations |
+| `verify` | Bench JSONL plus a gold test bank | Execute captured code against tests and compare pass@1 with heuristic quality |
+| `runs` | `~/.mahoraga-v2/routing_decisions.db` | List live and offline experiments recorded in the `bench_runs` ledger |
+
+Examples:
 
 ```bash
-# Compatibility matrix from Phase 1 data
-orch bench report compat-matrix --since <iso-date>
+# Compatibility matrix from live or benchmark task metrics
+orch bench report compat-matrix --since 2026-07-01 --metric quality
 
-# Convergence analysis from Phase 2 data
-orch bench report convergence --window 50
+# Zero-inference reward and quality experiments over existing observations
+orch bench report reweight --weights 0.20,0.55,0.20,0.05
+orch bench report quality-replay --input experiments/results_phase1.jsonl
 
-# Counterfactual regret from Phase 3 data
-orch bench report regret
+# Execution-based correctness over the committed gold bank
+orch bench report verify --input experiments/results_verifiable.jsonl
 
-# Head-to-head: Mahoraga vs Claude Code from Phase 4 data
-orch bench report baseline-comparison
-
-# Ablation results from Phase 5 data
-orch bench report ablation
+# Audit what has already been run
+orch bench report runs --limit 20
 ```
 
-Data source: `~/.mahoraga/routing_decisions.db`. Each report is a read-only aggregation plus rendering (table by default, `--json` and `--csv` flags for downstream use).
+`quality-replay` and `verify` require JSONL emitted by `orch bench run --output`
+with full `prompt_full` and `output_full` values. `verify` additionally needs
+`actual_agent` (or one of its supported agent-name fallbacks) and exact prompt
+text matching the gold bank. `compat-matrix` supports `--json` and `--csv`;
+the other analysis commands support `--json`.
+
+`reweight`, `quality-replay`, and `verify` perform no new model inference, but
+they do append an experiment summary to `bench_runs`. The `runs` command reads
+that shared ledger so live batches and offline analyses can be reproduced and
+compared.
+
+The planned `convergence`, `regret`, `baseline-comparison`, and `ablation`
+report subcommands are not implemented.
+
+### 6.4 Verifiable rewards
+
+Verifiable rewards provide two deliberately different signals:
+
+1. **Live execution gate.** After a successful primary response in the `code`,
+   `test`, `refactor`, or `debug` bucket, Mahoraga extracts Python code, parses
+   it, and runs it with `python3 -c`. Empty output, syntax/import/runtime errors,
+   non-zero exit, or an 8-second timeout turns the outcome into a failure. Since
+   failed outcomes short-circuit the reward calculator, the bandit receives
+   reward `0`. The gate is on by default; set `MAHORAGA_EXEC_GATE=off` (also
+   accepts `0`, `false`, or `no`) to disable it.
+2. **Offline correctness replay.** The committed
+   `experiments/prompts_verifiable.jsonl` bank contains Python assertions for
+   `code` and `debug` prompts. `verify` joins captured outputs to the bank by
+   exact prompt text, appends the assertions to extracted code, executes the
+   script with a 30-second timeout, and reports pass@1 per `(bucket, agent)`.
+   The same outputs are scored by the heuristic so the report can show rank
+   inversions and Spearman correlation without another inference run.
+
+The layers are not interchangeable. Organic traffic has no hidden tests, so the
+live gate proves only "runs without crashing"; wrong-but-runnable code passes.
+The offline harness measures correctness only for behavior covered by its gold
+assertions. Unmatched prompts are counted as a join-health signal and excluded
+from pass@1.
+
+```bash
+# 1. Start the service separately: orch serve
+# 2. Capture full outputs; the runner sends only each row's `prompt` to the model.
+orch bench run \
+  --prompts experiments/prompts_verifiable.jsonl \
+  --mode force-explore \
+  --agents "ollama:qwen3.5,ollama:granite4.1-8b" \
+  --repeats 1 \
+  --output experiments/results_verifiable.jsonl
+
+# 3. Re-score locally. --bank defaults to experiments/prompts_verifiable.jsonl.
+orch bench report verify --input experiments/results_verifiable.jsonl
+```
+
+The committed bank is versioned, but newly generated `experiments/*.jsonl`
+results are ignored by Git. Keep raw outputs local unless there is a deliberate
+reason to publish them.
+
+> **Security constraint:** both layers execute model-generated Python directly
+> on the host. The subprocess timeout is the only isolation; filesystem,
+> network, process, memory, and CPU access are not sandboxed. Use this workflow
+> only with trusted local model outputs.
 
 ---
 

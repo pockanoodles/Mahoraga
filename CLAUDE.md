@@ -30,7 +30,7 @@ Agent-agnostic LLM orchestration framework with online bandit routing. FastAPI b
 - `orch serve` — backend at localhost:8000
 - `pytest` — run tests
 - `orch benchmark simulate` — strategy comparison (200 synthetic tasks)
-- `orch benchmark lab` — forced round-robin with quality scoring (8 agents × 24 prompts)
+- `orch bench run --mode force-explore --prompts <bank.jsonl> --agents <roster>` — forced round-robin live batch
 
 ## Agents
 Active (3 arms, local only): ollama:qwen3.5 (9.7B Q4_K_M, code/reasoning), ollama:granite4.1-8b (IBM, test/review/structured output), ollama:qwen3-14b (added 2026-07-09 as a diagnostic arm — see current_state.md)  

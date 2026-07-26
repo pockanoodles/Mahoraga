@@ -32,7 +32,12 @@ from ...routing.route_sim import (
     simulate as simulate_policies,
     infer_arms,
 )
-from ...routing.judge_gate import judge_one
+from ...routing.judge_gate import judge_one, GENERAL_RUBRIC
+from ...routing.nonverifiable_bank import (
+    load_bank as load_nv_bank,
+    load_refs as load_nv_refs,
+    score as score_nv,
+)
 from ...workers.ollama import OllamaWorker
 from ...workers.claude_cli import ClaudeCliWorker
 from ...tracking.pricing import PRICING, PRICING_AS_OF, calculate_cost
@@ -40,7 +45,10 @@ from ...tracking.pricing import PRICING, PRICING_AS_OF, calculate_cost
 DEFAULT_METRICS_DB = Path.home() / ".mahoraga-v2" / "mahoraga.db"
 DEFAULT_DECISIONS_DB = Path.home() / ".mahoraga-v2" / "routing_decisions.db"
 DEFAULT_VERIFY_BANK = Path(__file__).resolve().parents[4] / "experiments" / "prompts_verifiable.jsonl"
+DEFAULT_NV_BANK = Path(__file__).resolve().parents[4] / "experiments" / "prompts_nonverifiable.jsonl"
+DEFAULT_NV_REFS = Path(__file__).resolve().parents[4] / "experiments" / "prompts_nonverifiable_refs.jsonl"
 DEFAULT_JUDGE_CACHE = Path.home() / ".mahoraga-v2" / "judge_gate_cache.json"
+DEFAULT_JUDGE_BANK_CACHE = Path.home() / ".mahoraga-v2" / "judge_bank_cache.json"
 
 VALID_METRICS = ("quality", "reward", "pass_rate", "latency_s", "tokens", "tps")
 
@@ -1135,6 +1143,127 @@ def judge_gate_cmd(
     typer.echo("")
     if cost_cut is not None:
         typer.echo(f"  judge-gate vs always-cloud: {cost_cut:.1f}% cost cut at pass@1={routed.pass_rate:.3f}")
+
+
+@report_app.command("judge-bank")
+def judge_bank_cmd(
+    bank: Path = typer.Option(DEFAULT_NV_BANK, "--bank", help="Non-verifiable bank (id/prompt/bucket/tier)"),
+    refs: Path = typer.Option(DEFAULT_NV_REFS, "--refs", help="Reference+mutant labels keyed by id"),
+    judge_model: str = typer.Option("qwen3.5:latest", "--judge-model", help="Model that renders the correctness verdict"),
+    judge_egress: str = typer.Option("local", "--judge-egress", help="local = Ollama (free) | cli = claude-cli (spends $/call)"),
+    cache_path: Path = typer.Option(DEFAULT_JUDGE_BANK_CACHE, "--cache", help="Verdict cache (keyed by judge model) so re-runs never re-pay"),
+    limit: Optional[int] = typer.Option(None, "--limit", help="Judge only the first N rows (cheap smoke)"),
+    output_json: bool = typer.Option(False, "--json"),
+    notes: Optional[str] = typer.Option(None, "--notes"),
+    decisions_db: Path = typer.Option(DEFAULT_DECISIONS_DB, "--decisions-db"),
+) -> None:
+    """Judge-discrimination on NON-VERIFIABLE tasks — the judge's real proving
+    ground. 5c proved the cascade live on code, where a hidden-test oracle
+    exists; here there is none. Each bank row ships a correct `reference` and a
+    subtly-flawed `mutant` (labels by construction). The judge sees prompt +
+    answer ONLY and must accept the reference / reject the mutant. Reports
+    accuracy, reference-accept rate, and — the escalation-relevant number —
+    **mutant catch rate** (can it catch a bad answer with no oracle?), plus
+    per-bucket and per-defect breakdowns. `--judge-egress local` is free.
+    """
+    if not bank.exists():
+        typer.echo(f"Non-verifiable bank not found: {bank}", err=True)
+        raise typer.Exit(1)
+    if not refs.exists():
+        typer.echo(f"Refs not found: {refs}", err=True)
+        raise typer.Exit(1)
+    if judge_egress not in ("local", "cli"):
+        raise typer.BadParameter("--judge-egress must be 'local' or 'cli'")
+
+    bank_map = load_nv_bank(bank)
+    refs_map = load_nv_refs(refs)
+    ids = [i for i in bank_map if i in refs_map]
+    if limit:
+        ids = ids[:limit]
+    if not ids:
+        typer.echo("No rows to judge (bank/refs join is empty).", err=True)
+        raise typer.Exit(1)
+
+    if judge_egress == "local":
+        worker = OllamaWorker(model=judge_model, worker_id="ollama:judge", extra_payload={"think": False})
+    else:
+        worker = ClaudeCliWorker(model=judge_model, worker_id="claude-cli:judge")
+
+    cache = json.loads(cache_path.read_text()) if cache_path.exists() else {}
+    slot = cache.setdefault(judge_model, {})
+    verdict_ref: dict[str, Optional[bool]] = {}
+    verdict_mut: dict[str, Optional[bool]] = {}
+    costs: list[float] = []
+
+    async def _judge(cache_key: str, prompt: str, answer: str) -> Optional[bool]:
+        hit = slot.get(cache_key)
+        if hit and hit.get("verdict") is not None:
+            if hit.get("cost"):
+                costs.append(hit["cost"])
+            return hit["verdict"]
+        verdict, cost, _raw, _err = await judge_one(worker, prompt, answer, rubric=GENERAL_RUBRIC)
+        slot[cache_key] = {"verdict": verdict, "cost": cost}
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        cache_path.write_text(json.dumps(cache, indent=2))
+        if cost:
+            costs.append(cost)
+        return verdict
+
+    async def _judge_all() -> None:
+        for idx, i in enumerate(ids, 1):
+            prompt = bank_map[i]["prompt"]
+            verdict_ref[i] = await _judge(f"{i}:ref", prompt, refs_map[i]["reference"])
+            verdict_mut[i] = await _judge(f"{i}:mut", prompt, refs_map[i]["mutant"])
+            if not output_json:
+                ok_ref = "✓" if verdict_ref[i] is True else ("·" if verdict_ref[i] is False else "?")
+                ok_mut = "✓" if verdict_mut[i] is False else ("·" if verdict_mut[i] is True else "?")
+                typer.echo(f"  [{idx:>3}/{len(ids)}] {i:<28} ref={ok_ref} mutant={ok_mut}")
+
+    asyncio.run(_judge_all())
+
+    # Score only the rows actually judged (so --limit doesn't count the rest as
+    # unparsed); on a full run this is the whole bank.
+    judged_bank = {i: bank_map[i] for i in ids}
+    judged_refs = {i: refs_map[i] for i in ids}
+    sc = score_nv(judged_bank, judged_refs, verdict_ref, verdict_mut)
+    mean_cost = sum(costs) / len(costs) if costs else 0.0
+
+    auto_summary = (
+        f"bank={bank.name} judge={judge_model} egress={judge_egress} n={sc.n_rows} "
+        f"accuracy={sc.accuracy:.3f} ref_accept={sc.ref_accept_rate:.3f} "
+        f"mutant_catch={sc.mutant_catch_rate:.3f} paired={sc.paired_correct}/{sc.n_rows} "
+        f"unparsed={sc.unparsed} judge_$1k={mean_cost*1000:.2f}"
+    )
+    log_offline_run(decisions_db, mode="judge-bank", task_count=sc.n_rows,
+                    notes=f"{auto_summary} | {notes}" if notes else auto_summary)
+
+    if output_json:
+        typer.echo(json.dumps({
+            "judge_model": judge_model, "judge_egress": judge_egress,
+            "judge_cost_per_task": round(mean_cost, 6),
+            **sc.as_dict(),
+        }, indent=2))
+        return
+
+    typer.echo("")
+    typer.echo(f"judge-bank — judge={judge_model} ({judge_egress}), {sc.n_rows} labeled pairs")
+    typer.echo(f"  accuracy={sc.accuracy:.3f}  ref-accept={sc.ref_accept_rate:.3f}  "
+               f"mutant-catch={sc.mutant_catch_rate:.3f}  "
+               f"paired={sc.paired_correct}/{sc.n_rows}={sc.paired_rate:.3f}  unparsed={sc.unparsed}")
+    if mean_cost:
+        typer.echo(f"  judge cost = ${mean_cost:.4f}/call (${mean_cost*1000:.2f}/1k)")
+    typer.echo("")
+    typer.echo(f"  {'bucket':<14}{'accuracy':>12}{'(correct/parsed)':>20}")
+    typer.echo("  " + "-" * 44)
+    for bk, d in sc.by_bucket.items():
+        frac = f"({d['correct']}/{d['parsed']})"
+        typer.echo(f"  {bk:<14}{d['accuracy']:>12.3f}{frac:>20}")
+    typer.echo("")
+    typer.echo(f"  {'defect':<22}{'catch_rate':>12}{'(caught/parsed)':>18}")
+    typer.echo("  " + "-" * 52)
+    for df, d in sc.by_defect.items():
+        frac = f"({d['caught']}/{d['parsed']})"
+        typer.echo(f"  {df:<22}{d['catch_rate']:>12.3f}{frac:>18}")
 
 
 @report_app.command("runs")

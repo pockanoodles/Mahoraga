@@ -298,3 +298,25 @@ Era 11 left the routing economics as a **projection** ("~90% cost cut, NOT measu
 **Shipped:** `routing/live_route.py` (`route_one` live cascade + grading, `to_matrix` folds live cases into `route_sim.simulate`'s shape so 5b's aggregation runs unchanged on fresh data, `load_arms` builds arms faithfully from `agents.yaml`), `orch bench live-route` (preflight for the vanished-models gotcha, honest full baseline by default / `--escalate-only` to spend less, per-case JSONL, live cross-check). 9 tests; suite 1455 green. Experiment spend: \$2.38 total cloud (50 baseline calls); the routed policy itself would spend only \$0.53 (10 escalations, judge free). Logged to `bench_runs` (mode=live-route).
 
 **Caveats carried from 5b:** still a small fail class (6/50) and still **code** tasks with ground truth — `route_one` is worker/bucket-agnostic, but the judge's real proving ground is **non-verifiable** tasks, still untested. `route_one` is the exact primitive a serving-path productization (`executor.py` local-verdict seam) would call — the proof and the reusable component are the same code.
+
+## Era 15 — Phase 5d: the local judge on NON-VERIFIABLE tasks, no oracle (2026-07-26)
+
+The 5a–5c proof lived entirely on **code**, where hidden tests are the oracle. The open question: does a free local judge hold where there's **no oracle** (explain / reason / summarize / factual / instruct) — its real job? Built a 30-row bank (6/bucket, tier-skewed 5/10/15) whose ground truth is **by construction**: each row ships a hand-authored correct `reference` and a subtly-flawed `mutant` with one labeled `defect` (14 types), the mutant matched to the reference in length/fluency/confidence so the judge can't win on length (Era 7 bias). Labels hardened by three passes: subagent draft → full curation → an **independent adversarial blind audit** (labels hidden, A/B shuffled) that agreed 29/30; the 1 flagged (a mere-omission mutant) was rewritten to contradict its source. CI guard enforces structure + length parity.
+
+Free local qwen3.5 judge (`orch bench report judge-bank`, $0): **accuracy 0.867, ref-accept 1.000, mutant-catch 0.733, paired 22/30.** The catch rate splits sharply by the *kind* of error:
+
+| Error class | catch rate | reading |
+|---|---|---|
+| **Commission** (states a falsehood / contradicts source) | **17/17 = 1.00** | wrong-fact, inverted-causation, conflation, overstatement, unfaithful inversion/addition, constraint-violation, off-target, meaning-drift, wrong-conclusion — all caught |
+| Quantity (wrong number/magnitude) | 1/5 = 0.20 | can't catch a number it doesn't know / won't recompute (cheetah 70 vs ~110 km/h; Challenger 8,850 vs ~10,900 m; Olympus 13 vs ~22 km; P=5/16 vs 5/14) |
+| Omission / partial (drops a required part) | 0/3 = 0.00 | grades what's present; never flags the missing temple-etiquette half, the dropped "finish the course", the omitted drain pipe |
+| Flawed reasoning (subtle) | 3/4 = 0.75 | missed the sailing "push vs lift" mutant |
+
+| Question | Method | Result | Verdict |
+|---|---|---|---|
+| Does a free local judge discriminate correct/incorrect with no oracle? | qwen3.5 judges 30 authored reference/mutant pairs, prompt+answer only | **Partially, predictably.** Perfect on errors of *commission* (17/17), near-blind to *quantity* (1/5) and *omission* (0/3). Never falsely rejects a correct answer (ref-accept 1.0) | **Trust it for stated-falsehood failures; not for quantity/completeness** |
+| Which way does it fail as a gate? | ref-accept vs mutant-catch | ref-accept 1.0, mutant-catch 0.73 → it **under-escalates** (keeps some wrong answers), opposite of 5c's over-escalating code judge. On prose qwen3.5 is permissive | Routing implication: escalate quantity/completeness-critical tasks by default, or add a tool (calc/retrieval/coverage check) |
+
+**Shipped:** `experiments/prompts_nonverifiable.jsonl` (+`_refs`, force-added past the `experiments/` gitignore like the verifiable bank), `routing/nonverifiable_bank.py` (loader + pure `score()`), `judge_gate.GENERAL_RUBRIC` + `rubric=` param (code rubric stays default, callers unaffected), `orch bench report judge-bank`. 10 tests (guard + scorer); suite 1465 green. Detail: `brain/journal/2026-07-26-phase5d-nonverifiable-judge.md`.
+
+**Caveats:** n=30, one judge — the commission/blind-spot *shape* is stark enough to trust, exact rates want a bigger bank + a second local model. Scores judge *discrimination on authored pairs*, not the judge on a local arm's own fresh outputs (a live non-verifiable cascade is the follow-on). Obvious upgrade: give the judge a calculator/retrieval tool and re-measure the quantity blind spot.

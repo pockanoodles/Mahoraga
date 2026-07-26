@@ -38,13 +38,41 @@ JUDGE_RUBRIC = (
     '"reason": "<=15 words"}'
 )
 
+# General-purpose correctness rubric for NON-VERIFIABLE tasks (explain, reason,
+# summarize, factual, instruct) — no hidden tests exist, so the judge grades
+# substance from the response alone. Same anti-length framing as the code
+# rubric: the failure mode we're fighting (findings Era 7) is judges rewarding
+# fluency/elaboration instead of tracking whether the answer is actually right.
+GENERAL_RUBRIC = (
+    "You are a strict correctness judge. You are given a task and ONE candidate "
+    "response. Decide whether the response is CORRECT and adequate: is it "
+    "factually accurate, does its reasoning hold, and does it actually fulfill "
+    "everything the task asked — the whole task, not just part of it?\n\n"
+    "Judge substance ONLY. Do NOT reward length, fluency, confidence, hedging, "
+    "or formatting — a long, eloquent, confident answer that is wrong or misses "
+    "the point is INCORRECT, and a short plain answer that is right is CORRECT. "
+    "If ANY factual claim is false, ANY reasoning step is invalid, the final "
+    "conclusion is wrong, the response contradicts or invents information beyond "
+    "what the task provided, or it ignores an explicit requirement of the task, "
+    "it is INCORRECT.\n\n"
+    'Respond with ONLY a one-line JSON object: {"correct": true|false, '
+    '"reason": "<=15 words"}'
+)
 
-def build_judge_goal(task_prompt: str, candidate_output: str) -> str:
-    """Assemble the grading prompt (rubric + task + candidate) for the worker."""
+
+def build_judge_goal(
+    task_prompt: str, candidate_output: str, *, rubric: str = JUDGE_RUBRIC
+) -> str:
+    """Assemble the grading prompt (rubric + task + candidate) for the worker.
+
+    `rubric` defaults to the code rubric (`JUDGE_RUBRIC`); pass `GENERAL_RUBRIC`
+    for non-verifiable tasks. The section headers are rubric-neutral so the same
+    envelope works for both.
+    """
     return (
-        f"{JUDGE_RUBRIC}\n\n"
-        f"## Programming task\n{task_prompt}\n\n"
-        f"## Candidate solution\n{candidate_output}\n\n"
+        f"{rubric}\n\n"
+        f"## Task\n{task_prompt}\n\n"
+        f"## Candidate response\n{candidate_output}\n\n"
         "## Your verdict (JSON only)"
     )
 
@@ -109,16 +137,20 @@ def _make_attempt(task_id: str, worker_id: str) -> TaskAttempt:
     )
 
 
-async def judge_one(worker, task_prompt: str, candidate_output: str):
+async def judge_one(
+    worker, task_prompt: str, candidate_output: str, *, rubric: str = JUDGE_RUBRIC
+):
     """Judge one candidate through the worker.
 
-    Returns (verdict, cost_usd, raw_reply, error):
+    `rubric` selects the grading standard — `JUDGE_RUBRIC` (code, default) or
+    `GENERAL_RUBRIC` (non-verifiable tasks). Returns (verdict, cost_usd,
+    raw_reply, error):
       verdict   — True (correct) / False (incorrect) / None (unparseable)
       cost_usd  — the judge call's own cost (estimated under Max auth)
       raw_reply — the judge's text (for auditing)
       error     — non-None if the call itself failed
     """
-    task = _make_judge_task(build_judge_goal(task_prompt, candidate_output))
+    task = _make_judge_task(build_judge_goal(task_prompt, candidate_output, rubric=rubric))
     attempt = _make_attempt(task.id, getattr(worker, "id", "judge"))
     summary = ""
     cost = 0.0

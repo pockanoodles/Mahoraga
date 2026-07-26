@@ -1,6 +1,19 @@
 # Current State — 2026-07-26
 
-## Read this first — 2026-07-26 (latest): Phase 5c — the cascade run LIVE
+## Read this first — 2026-07-26 (latest): Phase 5d — the judge with NO oracle
+
+**The judge's real proving ground: non-verifiable tasks.** 5a–5c all lived on code, where hidden tests are the oracle. 5d asks whether a free local judge holds where there's none (explain/factual/reason/summarize/instruct). Built a 30-row bank (6/bucket, tier-skew 5/10/15) with ground truth **by construction** — each row a hand-authored correct `reference` + a subtly-flawed `mutant` (one labeled defect, 14 types), mutant length-matched to the reference so the judge can't win on length. Labels hardened by subagent-draft → my curation → an independent **adversarial blind audit** (agreed 29/30; the 1 borderline rewritten). Full detail: `brain/journal/2026-07-26-phase5d-nonverifiable-judge.md` + findings Era 15.
+
+- Free local qwen3.5 judge: **accuracy 0.867, ref-accept 1.000, mutant-catch 0.733.**
+- **The finding — catch rate splits by error kind:** errors of **commission** (states a falsehood / contradicts source) = **17/17 caught (1.00)**; **quantity** (wrong number) = 1/5; **omission/partial** (drops a required part) = 0/3; flawed-reasoning 3/4.
+- **Never falsely rejects a correct answer** (ref-accept 1.0) → as a gate it **under**-escalates (opposite of 5c's over-escalating code judge; qwen3.5 is permissive on prose).
+- **Routing implication:** trust a local judge to gate stated-falsehood failures; for quantity- or completeness-critical tasks, escalate by default or add a tool (calculator / retrieval / coverage check).
+
+**Shipped (branch `feat/nonverifiable-bank`, PR pending):** `experiments/prompts_nonverifiable.jsonl` (+`_refs`, force-added past the `experiments/` gitignore), `routing/nonverifiable_bank.py` (loader + pure `score()`), `judge_gate.GENERAL_RUBRIC` + `rubric=` param (code rubric stays default), `orch bench report judge-bank` (`--judge-egress local`, free). 10 tests (CI guard + scorer); suite 1465 green.
+
+**Next:** bigger bank + a 2nd local model to tighten the exact rates; a live non-verifiable cascade (5c-style) on the accepted discrimination profile; a tool-augmented judge to attack the quantity blind spot.
+
+## Read this first — 2026-07-26 (earlier): Phase 5c — the cascade run LIVE
 
 **Thesis A proven end-to-end on fresh inference.** 5a/5b were replays of the
 run-19 matrix; 5c runs the whole cascade live via `orch bench live-route`: each

@@ -1706,15 +1706,20 @@ async def run_api_task(
                 "double_run: alt observe failed for %s", alt_task.id
             )
         if _alt_cost_usd > 0 and _cost_ledger is not None:
-            await _cost_ledger.record(
-                user_id="web-user",
-                mission_id=mission.id,
-                model=_alt_m.get("model", "") or alt_agent,
-                input_tokens=int(_alt_m.get("prompt_tokens") or 0),
-                output_tokens=int(_alt_m.get("tokens") or 0),
-                cache_read_tokens=int(_alt_m.get("cache_read_tokens") or 0),
-                cost_usd=_alt_cost_usd,
-            )
+            try:
+                await _cost_ledger.record(
+                    user_id="web-user",
+                    mission_id=mission.id,
+                    model=_alt_m.get("model", "") or alt_agent,
+                    input_tokens=int(_alt_m.get("prompt_tokens") or 0),
+                    output_tokens=int(_alt_m.get("tokens") or 0),
+                    cache_read_tokens=int(_alt_m.get("cache_read_tokens") or 0),
+                    cost_usd=_alt_cost_usd,
+                )
+            except Exception as exc:
+                logging.getLogger(__name__).warning(
+                    "cost ledger record failed for alt task %s: %s", alt_task.id, exc
+                )
         if _alt_success and _alt_quality > quality_score:
             logging.getLogger(__name__).info(
                 "double_run winner: %s (%.3f) beat %s (%.3f)",
@@ -1776,15 +1781,20 @@ async def run_api_task(
 
     # Nonzero cost → also append to the cost ledger (feeds /cost/summary daily spend)
     if cost_usd > 0 and _cost_ledger is not None:
-        await _cost_ledger.record(
-            user_id="web-user",
-            mission_id=mission.id,
-            model=ollama_m.get("model", "") or used_worker,
-            input_tokens=int(prompt_tokens or 0),
-            output_tokens=int(tokens_generated or 0),
-            cache_read_tokens=int(ollama_m.get("cache_read_tokens") or 0),
-            cost_usd=cost_usd,
-        )
+        try:
+            await _cost_ledger.record(
+                user_id="web-user",
+                mission_id=mission.id,
+                model=ollama_m.get("model", "") or used_worker,
+                input_tokens=int(prompt_tokens or 0),
+                output_tokens=int(tokens_generated or 0),
+                cache_read_tokens=int(ollama_m.get("cache_read_tokens") or 0),
+                cost_usd=cost_usd,
+            )
+        except Exception as exc:
+            logging.getLogger(__name__).warning(
+                "cost ledger record failed for task %s: %s", task.id, exc
+            )
 
     # implicit quality tracking — only on actual completion, not failure
     if _implicit_tracker is not None and success:
@@ -1930,16 +1940,23 @@ async def run_batch(
         # Worker token/cost metrics from executor side-channel (real cost for cloud arms)
         worker_m = pop_task_metrics(t_run.id)
         task_cost_usd = resolve_cost(worker_m)
+        # Guarded: this fires before the bandit observe below — a ledger
+        # hiccup must not kill the learning update or abort the batch.
         if task_cost_usd > 0 and _cost_ledger is not None:
-            await _cost_ledger.record(
-                user_id="web-user",
-                mission_id=mission.id,
-                model=worker_m.get("model", "") or agent,
-                input_tokens=int(worker_m.get("prompt_tokens") or 0),
-                output_tokens=int(worker_m.get("tokens") or 0),
-                cache_read_tokens=int(worker_m.get("cache_read_tokens") or 0),
-                cost_usd=task_cost_usd,
-            )
+            try:
+                await _cost_ledger.record(
+                    user_id="web-user",
+                    mission_id=mission.id,
+                    model=worker_m.get("model", "") or agent,
+                    input_tokens=int(worker_m.get("prompt_tokens") or 0),
+                    output_tokens=int(worker_m.get("tokens") or 0),
+                    cache_read_tokens=int(worker_m.get("cache_read_tokens") or 0),
+                    cost_usd=task_cost_usd,
+                )
+            except Exception as exc:
+                logging.getLogger(__name__).warning(
+                    "cost ledger record failed for batch task %s: %s", t_run.id, exc
+                )
 
         if _run_exc is not None:
             outcome = TaskOutcome(

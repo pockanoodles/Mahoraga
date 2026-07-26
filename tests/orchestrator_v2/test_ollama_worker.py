@@ -247,3 +247,55 @@ async def test_health_unhealthy_on_connect_error():
 
     assert health.healthy is False
     assert "not running" in health.detail
+
+
+@pytest.mark.asyncio
+async def test_metrics_include_prompt_tokens_from_done_chunk():
+    """The done chunk's prompt_eval_count/_duration must land in the metrics
+    payload — without it, the input side of the cost counterfactual reads 0."""
+    worker = OllamaWorker(model="qwen2.5-coder:7b", worker_id="ollama:coder")
+    lines = [
+        json.dumps({"message": {"content": "def fib(n): ..."}, "done": False}),
+        json.dumps({
+            "message": {"content": ""},
+            "done": True,
+            "eval_count": 120,
+            "eval_duration": 2_000_000_000,          # 2s
+            "prompt_eval_count": 350,
+            "prompt_eval_duration": 500_000_000,     # 0.5s
+        }),
+    ]
+    mock_client = _make_stream_mock(lines)
+
+    with patch("backend.orchestrator.workers.ollama.httpx.AsyncClient", return_value=mock_client):
+        events = [ev async for ev in worker.execute(_attempt(), _task())]
+
+    metrics = [e for e in events if e.type == "metrics"]
+    assert len(metrics) == 1
+    m = metrics[0].payload
+    assert m["tokens"] == 120
+    assert m["prompt_tokens"] == 350
+    assert m["prompt_eval_rate"] == pytest.approx(700.0)  # 350 / 0.5s
+
+
+@pytest.mark.asyncio
+async def test_metrics_prompt_eval_rate_guards_zero_duration():
+    worker = OllamaWorker(model="qwen2.5-coder:7b", worker_id="ollama:coder")
+    lines = [
+        json.dumps({
+            "message": {"content": "answer"},
+            "done": True,
+            "eval_count": 10,
+            "eval_duration": 1_000_000_000,
+            "prompt_eval_count": 42,
+            "prompt_eval_duration": 0,
+        }),
+    ]
+    mock_client = _make_stream_mock(lines)
+
+    with patch("backend.orchestrator.workers.ollama.httpx.AsyncClient", return_value=mock_client):
+        events = [ev async for ev in worker.execute(_attempt(), _task())]
+
+    m = [e for e in events if e.type == "metrics"][0].payload
+    assert m["prompt_tokens"] == 42
+    assert m["prompt_eval_rate"] == 0.0

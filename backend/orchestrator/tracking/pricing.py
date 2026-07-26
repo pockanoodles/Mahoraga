@@ -1,5 +1,9 @@
 # Prices per 1M tokens (USD) as of PRICING_AS_OF (methodology frozen for Phase 4 bench;
 # claude-sonnet-5 has intro pricing of $2/$10 through 2026-08-31 — standard rates used here)
+import logging
+
+logger = logging.getLogger(__name__)
+
 PRICING_AS_OF = "2026-07-26"
 
 PRICING = {
@@ -12,18 +16,46 @@ PRICING = {
 }
 
 
+# Cache writes bill at a premium over the input rate: 1.25× for the 5-minute
+# TTL, 2× for the 1-hour TTL. The CLI uses the 5-minute cache, and 1.25× is
+# the conservative choice when the TTL is unknown.
+CACHE_CREATION_MULTIPLIER = 1.25
+
+
+def _lookup_prices(model: str) -> dict[str, float]:
+    """Resolve a model ID to its price row: exact → longest prefix → sonnet.
+
+    Dated IDs like `claude-sonnet-5-20260203` must resolve to `claude-sonnet-5`;
+    a genuinely unknown model warns instead of silently pricing at sonnet rates.
+    """
+    prices = PRICING.get(model)
+    if prices is not None:
+        return prices
+    prefix = max(
+        (known for known in PRICING if model.startswith(known)),
+        key=len,
+        default=None,
+    )
+    if prefix is not None:
+        return PRICING[prefix]
+    logger.warning("unknown model %r — pricing at claude-sonnet-4-6 rates", model)
+    return PRICING["claude-sonnet-4-6"]
+
+
 def calculate_cost(
     model: str,
     input_tokens: int,
     output_tokens: int,
     cache_read_tokens: int = 0,
+    cache_creation_tokens: int = 0,
 ) -> float:
     """Calculate cost in USD for a single API call."""
-    prices = PRICING.get(model, PRICING["claude-sonnet-4-6"])
+    prices = _lookup_prices(model)
     cost = (
         (input_tokens / 1_000_000) * prices["input"]
         + (output_tokens / 1_000_000) * prices["output"]
         + (cache_read_tokens / 1_000_000) * prices["cache_read"]
+        + (cache_creation_tokens / 1_000_000) * prices["input"] * CACHE_CREATION_MULTIPLIER
     )
     return round(cost, 6)
 

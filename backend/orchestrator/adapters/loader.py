@@ -141,7 +141,16 @@ def load_agent_pool(
         model = claude_cli_cfg.get("model", "claude-sonnet-4-6")
         worker_id = claude_cli_cfg.get("worker_id", "claude-cli:sonnet")
         cap_map = claude_cli_cfg.get("capabilities", {})
-        workers.append(ClaudeCliWorker(model=model, worker_id=worker_id, cwd=workdir))
+        # No cwd=workdir here: the worker defaults to a dedicated empty dir so
+        # the CLI never inherits a user project's pre-authorized tool allowlists.
+        cli_kwargs: dict[str, Any] = {"model": model, "worker_id": worker_id}
+        if cap_map:
+            cli_kwargs["capabilities"] = list(cap_map)
+        if claude_cli_cfg.get("binary_path"):
+            cli_kwargs["binary_path"] = claude_cli_cfg["binary_path"]
+        if claude_cli_cfg.get("timeout"):
+            cli_kwargs["timeout"] = float(claude_cli_cfg["timeout"])
+        workers.append(ClaudeCliWorker(**cli_kwargs))
         adapters.append(ClaudeCliAdapter(
             model=model,
             worker_id=worker_id,

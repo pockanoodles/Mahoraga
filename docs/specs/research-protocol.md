@@ -716,16 +716,26 @@ with full `prompt_full` and `output_full` values. `verify` additionally needs
 text matching the gold bank. `compat-matrix` and `cost` support `--json` and
 `--csv`; the other analysis commands support `--json`.
 
-`cost` prices every `task_metrics` row's tokens (prompt tokens × input rate +
-output tokens × output rate; no cache-read modeling) at the `--reference-model`
-rates (default `claude-sonnet-4-6`) from the frozen pricing table in
-`tracking/pricing.py` — the Phase 4 methodology — and compares against the
-recorded `cost_usd` (0.0 for local arms). It reports gross avoided spend (all
-local rows) and a success-only variant (`success=1` local rows) so failed local
-attempts cannot inflate the savings claim, plus avoided dollars per 1,000 tasks
-and a per-bucket breakdown. Rows with no token data are counted as unpriced
-rather than silently dropped. Zero new inference; supports `--since`,
-`--until`, and `--bench-run-id` like `compat-matrix`.
+`cost` builds the all-cloud counterfactual per row — the Phase 4 methodology.
+Cloud rows with a recorded `cost_usd > 0` contribute that actual cost: they
+already ran on the cloud, and their recorded bill includes cache-creation
+tokens that the stored token counters exclude, so token re-pricing would
+understate them (token pricing is used only as a fallback when the recorded
+cost is 0/NULL). Local rows are priced at the `--reference-model` rates
+(default `claude-sonnet-4-6`; prompt tokens × input rate + output tokens ×
+output rate; no cache-read modeling) from the frozen pricing table in
+`tracking/pricing.py` and compared against recorded `cost_usd` (0.0 for local
+arms). It reports gross avoided spend (all local rows) and a success-only
+variant (`success=1` local rows) so failed local attempts cannot inflate the
+savings claim, plus avoided dollars per 1,000 in-scope tasks (denominator
+includes cloud and unpriced rows) and a per-bucket breakdown. Rows with no
+token data and no recorded cost (written as 0, not NULL, by the live pipeline)
+are counted as unpriced rather than silently dropped, and local rows priced
+with generated tokens but no prompt-token data are disclosed as
+`n_missing_prompt` — their input side is missing, so avoided spend is
+understated (conservative) for them. Zero new inference; supports `--since`,
+`--until` (a date-only value means end of that day), and `--bench-run-id` like
+`compat-matrix`.
 
 `reweight`, `quality-replay`, and `verify` perform no new model inference, but
 they do append an experiment summary to `bench_runs`. The `runs` command reads

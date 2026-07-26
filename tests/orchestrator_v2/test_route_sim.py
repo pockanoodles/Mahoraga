@@ -108,6 +108,20 @@ def test_fallible_gate_wrong_escalate_costs_money():
     assert routed.cost_per_task == (0.01 + 0.02 + 0.03 + 0.10) / 4  # == always-cloud
 
 
+def test_gate_cost_charged_on_every_task():
+    # A judge gate costs a call per task, even ones it accepts. With a perfect
+    # gate (oracle) escalating only p4, cost = gate_cost*4 + p4 cloud cost.
+    matrix, prompts = _matrix()
+    gate_cost = 0.005
+    pol = simulate(matrix, prompts, _costs(), local_arms=[G, Q], cloud_arm=CLOUD,
+                   cascade=[G], gate_cost_per_task=gate_cost)
+    routed = _get(pol, "routed:")
+    expected = (gate_cost * 4 + 0.10) / 4  # 4 tasks judged, p4 escalated
+    assert abs(routed.cost_per_task - expected) < 1e-9
+    # baselines are unaffected by the gate cost
+    assert _get(pol, "always-cloud").cost_per_task == (0.01 + 0.02 + 0.03 + 0.10) / 4
+
+
 def test_infer_arms_picks_best_local():
     matrix, _ = _matrix()
     local_arms, best = infer_arms(matrix, CLOUD)

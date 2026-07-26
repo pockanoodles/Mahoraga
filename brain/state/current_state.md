@@ -1,5 +1,43 @@
 # Current State — 2026-07-26
 
+## Read this first — 2026-07-26 (latest): Phase 5c — the cascade run LIVE
+
+**Thesis A proven end-to-end on fresh inference.** 5a/5b were replays of the
+run-19 matrix; 5c runs the whole cascade live via `orch bench live-route`: each
+gold prompt goes granite → free local qwen3.5 judge → `claude-cli` on a fail
+verdict, every served answer graded against hidden tests, nothing read from disk.
+Full detail: `brain/journal/2026-07-26-phase5c-live-route.md` + findings Era 14.
+
+- **routed granite→judge→cloud = 1.000 pass@1 (50/50) at $10.54/1k vs
+  always-cloud $47.66/1k = 77.9% cost cut.** Live cross-check matched the
+  simulator's routed line exactly.
+- **Free local judge: accuracy 0.920, fail-recall 6/6 = 1.000** — caught every
+  real granite failure (fp=0, served no wrong answer), over-escalated 4 correct
+  answers (fn=4). 10 escalations.
+- **5c vs 5b:** 5b replay = 0.960 @ $6.10/1k (recall 3/5, under-escalated); 5c
+  live = 1.000 @ $10.54/1k (recall 6/6, over-escalated 4). Live judge is more
+  **conservative** — verification tax shows up as **money (~$0.19), not quality**.
+  100% pass@1 at 22% of always-cloud's cost. always-cloud $0.0477/task ≈ Phase-4's
+  $0.0491 (cost capture stable).
+
+**Shipped (branch `feat/live-route-5c`, PR pending):** `routing/live_route.py`
+(`route_one` live cascade + grading, `to_matrix` folds into `route_sim.simulate`
+so 5b's aggregation runs unchanged on live data, `load_arms` from agents.yaml);
+`orch bench live-route` (vanished-models preflight, honest full baseline default /
+`--escalate-only`, per-case JSONL, live cross-check). 9 tests; suite 1455 green.
+Experiment spend $2.38 cloud (50 baseline calls); routed policy alone = $0.53.
+`route_one` is the exact primitive an `executor.py` serving-path productization
+would call.
+
+**Also recovered:** PR #23 (5b judge-gate) was a phantom merge — showed "merged"
+but landed on the orphaned #22 branch, never on `main`. Restored via PR #24
+(merged). `main` now has `judge_gate.py`. Lesson: retarget a stacked child PR's
+base to `main` before merging the parent, or merge child-first.
+
+**Next:** harder/larger bank (6 failures/50 still small) · a **non-verifiable**
+bank (the judge's real, untested job) · productize `route_one` into `executor.py`
+so the gate is a live `/api/task` feature, not only a bench command.
+
 ## Read this first — 2026-07-26 (late night): Phase 4 RAN — first head-to-head
 
 **Q5 answered.** `bench_run_id=19`, force-explore, 3 local arms + `claude-cli`

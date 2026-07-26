@@ -34,7 +34,7 @@ Agent-agnostic LLM orchestration framework with online bandit routing. FastAPI b
 
 ## Agents
 Active (3 arms, local only): ollama:qwen3.5 (9.7B Q4_K_M, code/reasoning), ollama:granite4.1-8b (IBM, test/review/structured output), ollama:qwen3-14b (added 2026-07-09 as a diagnostic arm — see current_state.md)  
-Disabled in agents.yaml: gemma4-e4b (lowest reward in every bucket, bench 2026-05-20), claude, codex, gemini, aider, opencode, goose  
+Disabled in agents.yaml: gemma4-e4b (lowest reward in every bucket, bench 2026-05-20), claude, claude-cli (Phase 4 cost-bench arm — runs the `claude` CLI on Max-subscription auth, reports real cost; enable only for head-to-head bench runs), codex, gemini, aider, opencode, goose  
 Roster source of truth: `agents.yaml`; current snapshot in `brain/state/current_state.md`
 
 ## Hardware

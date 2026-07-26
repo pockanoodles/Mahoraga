@@ -1,4 +1,17 @@
-# Current State — 2026-07-15
+# Current State — 2026-07-26
+
+## Read this first — 2026-07-26
+
+**Cost accounting shipped** (`feat/cost-accounting`, PR #19, 1320 tests green). The dormant cost plumbing is now live end-to-end, unblocking Phase 4 ("Mahoraga vs raw Claude Code" with cost accounting):
+
+1. **New cloud arm `claude-cli`** (`workers/claude_cli.py`) — runs the `claude` CLI in print mode under the Max subscription (no `ANTHROPIC_API_KEY`; the var is stripped so a stale key can't shadow subscription auth). Captures per-task token usage + `total_cost_usd` from `--output-format json`. Sandboxed: prompt over stdin, `--disallowedTools Bash,Edit,Write,NotebookEdit,WebFetch,WebSearch`, isolated cwd (`~/.mahoraga-v2/claude-cli-cwd`) so user-derived prompts can't drive project-authorized tools. Disabled in agents.yaml; enable only for bench runs.
+2. **Real cost flows** — `resolve_cost()` threads worker-reported cost into `task_metrics.cost_usd`, `cost_ledger` (best-effort/guarded), `TaskOutcome` → decision log, so φ_cost finally sees real dollars. OllamaWorker now emits `prompt_tokens` (all 961 prior rows have 0 — input side of the counterfactual was missing); SDK claude arm emits usage+cost too so no arm is cost-invisible to the bandit.
+3. **`orch bench report cost`** — offline counterfactual: local rows priced at frozen cloud rates (`PRICING_AS_OF=2026-07-26`; the old table had Opus 4.6 at 3× its real price), cloud rows counted at recorded actual cost (token re-pricing underpriced them ~100× — cache-creation dominates a real CLI call: ~35K tokens ≈ $0.21 for a trivial task). Discloses rows lacking prompt-token data. Current live-DB reading: 961 tasks, 100% local, **$1.55 avoided at bare token rates — a floor** (953 rows predate prompt-token emission; and the honest alternative, a full Claude Code call, costs ~$0.21/task ≈ $210/1k tasks).
+4. **Known limitations (deferred, in PR body):** retried tasks record only the final attempt's spend (side-channel is last-write-wins; escalation can misattribute cost to the fallback arm); eval-path spend reaches the bandit but not the ledger; gateway-path spend reaches the ledger but not task_metrics; empty `agent_name` classifies as cloud in the report.
+
+**Next session — Phase 4 head-to-head:** `orch serve` in a tmux pane (not the daemon), then
+`orch bench run -p experiments/prompts_verifiable.jsonl --mode force-explore --agents ollama:qwen3.5,ollama:granite4.1-8b,ollama:qwen3-14b,claude-cli --repeats 2 --notes "Phase 4: local vs claude-cli, cost + pass@1"`,
+then `orch bench report cost --bench-run-id N` + `orch bench report verify --bench-run-id N`. One run produces both the measured cloud cost and the quality-retention pass@1 — the two halves of the portfolio claim ("N% local, X% cost cut, Z% of cloud pass@1 retained"). All cloud calls are Max-subscription (no marginal spend). Consider a bigger verifiable bank first (open thread (b) below — only 18 gold prompts).
 
 ## Read this first — 2026-07-15
 

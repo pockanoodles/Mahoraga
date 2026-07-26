@@ -116,6 +116,7 @@ def simulate(
     cloud_arm: str,
     cascade: list[str],
     local_solved: Optional[Callable[[str], bool]] = None,
+    gate_cost_per_task: float = 0.0,
 ) -> list[PolicyResult]:
     """Compute pass@1 + $/task for baselines and the routed cascade policy.
 
@@ -131,6 +132,12 @@ def simulate(
     judge) is injected here later; note that quality is always scored against
     the true matrix, so a wrong "accept" correctly costs quality and a wrong
     "escalate" correctly costs money — that gap is the verification tax.
+
+    `gate_cost_per_task` is the price of consulting the gate itself, charged on
+    every routed prompt (not just escalations). The oracle and heuristic gates
+    are free (0.0); an LLM-judge gate is NOT — it runs a model call per task, so
+    its own cost must be counted against the routing savings, else the judge
+    looks cheaper than it is.
     """
     mean_cloud = (sum(cloud_costs.values()) / len(cloud_costs)) if cloud_costs else 0.0
 
@@ -155,6 +162,7 @@ def simulate(
     escalations = 0
     total_cost = 0.0
     for p in prompts:
+        total_cost += gate_cost_per_task  # the gate is consulted on every task
         if gate(p):
             # Keep the local answer. True pass iff a cascade arm actually solved
             # it — under the oracle gate this is always true; under a fallible

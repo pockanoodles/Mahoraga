@@ -15,12 +15,13 @@ from .config import ENABLED_BACKENDS, MahoragaConfig
 from .domain.models import Mission, Plan, Run, RunMode, Task, TaskStatus
 from .planning.classifier import classify_tier
 from .planning.planner import PlannerError, generate_tasks
-from .service.executor import run_task
+from .service.executor import run_task, pop_task_metrics
 from .store.base import Store
 from .store.chat_log import ChatLogEntry
 from .adapters.registry import AdapterRegistry
 from .workers.registry import WorkerRegistry
 from .workers.router import TaskRouter, _CODE_KEYWORDS, _PLANNING_KEYWORDS
+from .tracking.pricing import resolve_cost
 from .verifier.verifier import Verifier
 from .brain_logger import log_task_completion
 from .routing import TaskOutcome
@@ -37,7 +38,7 @@ def _worker_id_to_caps(worker_id: str | None) -> list[str]:
     """
     if worker_id in ("aider:default", "codex:cli"):
         return ["code"]
-    if worker_id and worker_id.startswith("claude:"):
+    if worker_id and worker_id.startswith(("claude:", "claude-cli:")):
         return ["general"]
     if worker_id and worker_id.startswith("ollama:"):
         if ":coder" in worker_id:
@@ -165,6 +166,7 @@ class Gateway:
 
         # ── 6. Execute tasks + yield output ──────────────────────────────────
         response_chunks: list[str] = []
+        total_cost_usd = 0.0
 
         for task in saved_tasks:
             # Re-fetch task status — dependency resolution may have updated it
@@ -184,6 +186,26 @@ class Gateway:
                 chunk = f"[Task '{task.title}' failed: {exc}]"
                 response_chunks.append(chunk)
                 yield chunk
+
+            # Worker token/cost metrics from executor side-channel — real cost
+            # for cloud arms, 0.0 for local. Pop once; reused below for the
+            # brain log, bandit outcome, and cost ledger.
+            worker_m = pop_task_metrics(task.id)
+            task_cost_usd = resolve_cost(worker_m)
+            total_cost_usd += task_cost_usd
+            if task_cost_usd > 0 and self._cost_ledger is not None:
+                try:
+                    await self._cost_ledger.record(
+                        user_id=msg.user_id,
+                        mission_id=mission.id,
+                        model=worker_m.get("model", "") or (task.preferred_worker_type or ""),
+                        input_tokens=int(worker_m.get("prompt_tokens") or 0),
+                        output_tokens=int(worker_m.get("tokens") or 0),
+                        cache_read_tokens=int(worker_m.get("cache_read_tokens") or 0),
+                        cost_usd=task_cost_usd,
+                    )
+                except Exception as exc:
+                    logger.warning("cost ledger record failed for task %s: %s", task.id, exc)
 
             # Always fetch attempts so the bandit gets attribution even on
             # failure paths (preserves learning signal for the selected agent).
@@ -210,7 +232,7 @@ class Gateway:
                                 task_goal=task.goal or "",
                                 agent_used=attempt.worker_id or "unknown",
                                 output_preview=output[:500] if output else "",
-                                cost=0.0,
+                                cost=task_cost_usd,
                                 quality_score=_quality,
                                 duration_seconds=_duration,
                             )
@@ -223,7 +245,7 @@ class Gateway:
                     bandit_outcome = TaskOutcome(
                         success=(attempt.status.value == "completed"),
                         latency_s=0.0,
-                        cost_usd=0.0,
+                        cost_usd=task_cost_usd,
                         quality_score=1.0 if attempt.status.value == "completed" else 0.0,
                         agent_name=attempt.worker_id or "unknown",
                     )
@@ -235,7 +257,7 @@ class Gateway:
                     bandit_outcome = TaskOutcome(
                         success=False,
                         latency_s=0.0,
-                        cost_usd=0.0,
+                        cost_usd=task_cost_usd,
                         quality_score=0.0,
                         agent_name=fallback_agent or "unknown",
                     )
@@ -287,7 +309,7 @@ class Gateway:
                 user_message=msg.text,
                 assistant_response=full_response,
                 worker_id=last_worker_id,
-                cost_usd=0.0,
+                cost_usd=round(total_cost_usd, 6),
                 created_at=_time_log.time(),
             )
             await self._store.chat_log.save(log_entry)

@@ -25,6 +25,7 @@ from ...routing.verify_replay import (
     evaluate as evaluate_verify,
     summarize as summarize_verify,
 )
+from ...tracking.pricing import PRICING, PRICING_AS_OF, calculate_cost
 
 DEFAULT_METRICS_DB = Path.home() / ".mahoraga-v2" / "mahoraga.db"
 DEFAULT_DECISIONS_DB = Path.home() / ".mahoraga-v2" / "routing_decisions.db"
@@ -39,15 +40,32 @@ report_app = typer.Typer(
 )
 
 
-def _iso_to_epoch(iso: str) -> float:
-    """Parse an ISO-8601 date or datetime string into a UNIX epoch float."""
-    for fmt in ("%Y-%m-%dT%H:%M:%S", "%Y-%m-%d"):
-        try:
-            dt = datetime.strptime(iso, fmt).replace(tzinfo=timezone.utc)
-            return dt.timestamp()
-        except ValueError:
-            continue
-    raise ValueError(f"Cannot parse date: {iso!r}")
+def _iso_to_epoch(iso: str, *, end_of_day: bool = False) -> float:
+    """Parse an ISO-8601 date or datetime string into a UNIX epoch float.
+
+    Accepts date-only (2026-07-26), naive datetimes (assumed UTC), and
+    offset-aware forms (trailing Z or ±HH:MM). A date-only value with
+    end_of_day=True maps to the last instant of that day, so an --until
+    bound includes the whole day rather than silently excluding it.
+    """
+    raw = iso.strip()
+    # Date-only: choose start- or end-of-day depending on which bound this is.
+    try:
+        dt = datetime.strptime(raw, "%Y-%m-%d")
+    except ValueError:
+        pass
+    else:
+        if end_of_day:
+            dt = dt.replace(hour=23, minute=59, second=59, microsecond=999999)
+        return dt.replace(tzinfo=timezone.utc).timestamp()
+    # Full datetime: fromisoformat handles ±HH:MM; map trailing Z to UTC.
+    try:
+        dt = datetime.fromisoformat(raw[:-1] + "+00:00" if raw[-1:] in ("Z", "z") else raw)
+    except ValueError:
+        raise ValueError(f"Cannot parse date: {iso!r}") from None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.timestamp()
 
 
 def _fetch_rows(
@@ -64,68 +82,72 @@ def _fetch_rows(
         return []
 
     conn = sqlite3.connect(str(db_path))
-    conn.row_factory = sqlite3.Row
+    try:
+        conn.row_factory = sqlite3.Row
 
-    # Build WHERE clauses and params
-    wheres: list[str] = []
-    params: list = []
+        # Build WHERE clauses and params
+        wheres: list[str] = []
+        params: list = []
 
-    if since:
-        epoch = _iso_to_epoch(since)
-        wheres.append("CAST(m.timestamp AS REAL) >= ?")
-        params.append(epoch)
+        if since:
+            epoch = _iso_to_epoch(since)
+            wheres.append("CAST(m.timestamp AS REAL) >= ?")
+            params.append(epoch)
 
-    if until:
-        epoch = _iso_to_epoch(until)
-        wheres.append("CAST(m.timestamp AS REAL) <= ?")
-        params.append(epoch)
+        if until:
+            # Date-only --until means "through the end of that day".
+            epoch = _iso_to_epoch(until, end_of_day=True)
+            wheres.append("CAST(m.timestamp AS REAL) <= ?")
+            params.append(epoch)
 
-    if agents_filter:
-        placeholders = ",".join("?" * len(agents_filter))
-        wheres.append(f"m.agent_name IN ({placeholders})")
-        params.extend(agents_filter)
+        if agents_filter:
+            placeholders = ",".join("?" * len(agents_filter))
+            wheres.append(f"m.agent_name IN ({placeholders})")
+            params.extend(agents_filter)
 
-    if buckets_filter:
-        placeholders = ",".join("?" * len(buckets_filter))
-        wheres.append(f"m.capability_bucket IN ({placeholders})")
-        params.extend(buckets_filter)
+        if buckets_filter:
+            placeholders = ",".join("?" * len(buckets_filter))
+            wheres.append(f"m.capability_bucket IN ({placeholders})")
+            params.extend(buckets_filter)
 
-    # bench_run_id requires joining the decisions DB
-    if bench_run_id is not None:
-        resolved = decisions_db_path.resolve()
-        if not resolved.is_file():
-            raise typer.BadParameter(
-                f"--bench-run-id given but decisions DB not found at {resolved}. "
-                "Pass --decisions-db to override."
+        # bench_run_id requires joining the decisions DB
+        if bench_run_id is not None:
+            resolved = decisions_db_path.resolve()
+            if not resolved.is_file():
+                raise typer.BadParameter(
+                    f"--bench-run-id given but decisions DB not found at {resolved}. "
+                    "Pass --decisions-db to override."
+                )
+            # SQLite ATTACH doesn't accept parameter binding; canonicalize the path
+            # and sanity-check it's a real file to keep injection surface minimal.
+            conn.execute("ATTACH DATABASE ? AS ddb", (str(resolved),))
+            wheres.append(
+                "m.task_id IN (SELECT task_id FROM ddb.decisions WHERE bench_run_id = ?)"
             )
-        # SQLite ATTACH doesn't accept parameter binding; canonicalize the path
-        # and sanity-check it's a real file to keep injection surface minimal.
-        conn.execute("ATTACH DATABASE ? AS ddb", (str(resolved),))
-        wheres.append(
-            "m.task_id IN (SELECT task_id FROM ddb.decisions WHERE bench_run_id = ?)"
-        )
-        params.append(bench_run_id)
+            params.append(bench_run_id)
 
-    where_clause = ("WHERE " + " AND ".join(wheres)) if wheres else ""
+        where_clause = ("WHERE " + " AND ".join(wheres)) if wheres else ""
 
-    sql = f"""
-        SELECT
-            m.agent_name,
-            m.capability_bucket,
-            m.wall_time_ms,
-            m.tokens_generated,
-            m.tokens_per_second,
-            m.reward_score,
-            m.success,
-            m.quality_score
-        FROM task_metrics m
-        {where_clause}
-    """
+        sql = f"""
+            SELECT
+                m.agent_name,
+                m.capability_bucket,
+                m.wall_time_ms,
+                m.tokens_generated,
+                m.tokens_per_second,
+                m.prompt_tokens,
+                m.reward_score,
+                m.success,
+                m.quality_score,
+                m.cost_usd
+            FROM task_metrics m
+            {where_clause}
+        """
 
-    cur = conn.execute(sql, params)
-    rows = [dict(r) for r in cur.fetchall()]
-    conn.close()
-    return rows
+        cur = conn.execute(sql, params)
+        return [dict(r) for r in cur.fetchall()]
+    finally:
+        conn.close()
 
 
 _METRIC_TO_FIELD = {
@@ -368,6 +390,215 @@ def compat_matrix(
         return
 
     _render_table(agg, metric, min_samples)
+
+
+def _is_local_agent(agent_name: Optional[str]) -> bool:
+    """Local arms are ollama-served; everything else is a cloud arm."""
+    return (agent_name or "").startswith("ollama:")
+
+
+def _aggregate_cost(rows: list[dict], reference_model: str) -> dict:
+    """Compute actual vs counterfactual-cloud spend, overall and per bucket.
+
+    Counterfactual (all-cloud) is built per row:
+    - Cloud rows with a recorded cost_usd > 0 contribute their ACTUAL cost —
+      they already ran on the cloud, so the recorded bill (which includes
+      cache-creation tokens the token counters miss) is the ground truth.
+      Token re-pricing is the fallback only when actual is 0/NULL.
+    - Local rows are priced at reference_model rates (prompt tokens x input
+      rate + generated tokens x output rate; no cache modeling).
+    - Rows with no token data AND no cost (0 or NULL across the board) cannot
+      be priced; they are counted as unpriced so coverage stays visible.
+
+    Avoided = counterfactual minus actual, local rows only. Local rows priced
+    with tokens_generated > 0 but no prompt-token data are counted as
+    n_missing_prompt — their input side is missing, so avoided spend is
+    understated (conservative) for them.
+    """
+    def _empty_bucket() -> dict:
+        return {
+            "n": 0, "n_local": 0, "n_unpriced": 0, "n_missing_prompt": 0,
+            "actual_usd": 0.0, "counterfactual_usd": 0.0,
+            "avoided_usd": 0.0, "avoided_success_usd": 0.0,
+        }
+
+    totals = _empty_bucket()
+    per_bucket: dict[str, dict] = {}
+
+    for r in rows:
+        bucket = per_bucket.setdefault(r["capability_bucket"] or "", _empty_bucket())
+        local = _is_local_agent(r["agent_name"])
+        actual = r["cost_usd"] or 0.0
+        gen = r["tokens_generated"] or 0
+        prompt = r["prompt_tokens"] or 0
+        # Rows are written with 0 (not NULL) when data is absent — a row is
+        # unpriced when it has no tokens and no recorded cost at all.
+        unpriced = gen == 0 and prompt == 0 and actual == 0.0
+        missing_prompt = False
+        if unpriced:
+            counterfactual = 0.0
+        elif not local and actual > 0:
+            # Cloud row: its ground-truth all-cloud cost is what it actually cost.
+            counterfactual = actual
+        else:
+            counterfactual = calculate_cost(reference_model, prompt, gen)
+            missing_prompt = local and prompt == 0 and gen > 0
+        avoided = counterfactual - actual if local else 0.0
+        for agg in (totals, bucket):
+            agg["n"] += 1
+            agg["n_local"] += int(local)
+            agg["n_unpriced"] += int(unpriced)
+            agg["n_missing_prompt"] += int(missing_prompt)
+            agg["actual_usd"] += actual
+            agg["counterfactual_usd"] += counterfactual
+            agg["avoided_usd"] += avoided
+            agg["avoided_success_usd"] += avoided if r["success"] == 1 else 0.0
+
+    for agg in (totals, *per_bucket.values()):
+        agg["local_share"] = agg["n_local"] / agg["n"] if agg["n"] else None
+        for k in ("actual_usd", "counterfactual_usd", "avoided_usd", "avoided_success_usd"):
+            agg[k] = round(agg[k], 6)
+
+    totals["n_cloud"] = totals["n"] - totals["n_local"]
+    totals["savings_pct"] = (
+        round(totals["avoided_usd"] / totals["counterfactual_usd"] * 100, 2)
+        if totals["counterfactual_usd"] > 0 else None
+    )
+    totals["avoided_per_1k_tasks_usd"] = (
+        round(totals["avoided_usd"] / totals["n"] * 1000, 6) if totals["n"] else None
+    )
+
+    methodology = (
+        f"methodology (frozen): cloud rows use recorded actual cost; local rows priced "
+        f"at {reference_model} rates as of {PRICING_AS_OF} (prompt in + generated out, "
+        f"no cache modeling); rows with no token/cost data excluded"
+    )
+    if totals["n_missing_prompt"]:
+        methodology += (
+            f"; {totals['n_missing_prompt']} local rows lack prompt-token data "
+            f"(input side understated)"
+        )
+    return {
+        "reference_model": reference_model,
+        "pricing_as_of": PRICING_AS_OF,
+        "totals": totals,
+        "per_bucket": per_bucket,
+        "methodology": methodology,
+    }
+
+
+def _render_cost_table(agg: dict) -> None:
+    t = agg["totals"]
+    typer.echo(f"cost — actual spend vs counterfactual all-cloud at {agg['reference_model']} rates")
+    typer.echo("(avoided = what the locally-served rows would have cost at cloud rates; "
+                "cloud rows count at their recorded actual cost; "
+                "unpriced rows have no token or cost data and are excluded from the counterfactual)")
+    typer.echo("")
+    local_pct = f"{t['local_share']*100:.1f}%" if t["local_share"] is not None else "n/a"
+    typer.echo(f"  tasks:              {t['n']}  (local={t['n_local']} [{local_pct}], "
+                f"cloud={t['n_cloud']}, unpriced={t['n_unpriced']})")
+    typer.echo(f"  actual spend:       ${t['actual_usd']:.4f}")
+    typer.echo(f"  all-cloud spend:    ${t['counterfactual_usd']:.4f}  (counterfactual)")
+    typer.echo(f"  avoided (gross):    ${t['avoided_usd']:.4f}  — all local rows")
+    typer.echo(f"  avoided (success):  ${t['avoided_success_usd']:.4f}  — successful local rows only")
+    savings_str = f"{t['savings_pct']:.1f}%" if t["savings_pct"] is not None else "n/a"
+    typer.echo(f"  savings:            {savings_str} of the all-cloud bill (gross)")
+    per_1k = t["avoided_per_1k_tasks_usd"]
+    per_1k_str = f"${per_1k:.2f}" if per_1k is not None else "n/a"
+    typer.echo(f"  per 1,000 in-scope tasks:  {per_1k_str} avoided (gross)")
+    if t["n_missing_prompt"]:
+        typer.echo(
+            f"  input-side under-count: {t['n_missing_prompt']} local rows have no "
+            f"prompt-token data — avoided spend is understated for them"
+        )
+
+    typer.echo("")
+    typer.echo("Per-bucket:")
+    for bucket, pb in sorted(agg["per_bucket"].items()):
+        share = f"{pb['local_share']*100:.0f}%" if pb["local_share"] is not None else "n/a"
+        typer.echo(
+            f"  {bucket:<12}  N={pb['n']:<4}  local={share:<5}  avoided=${pb['avoided_usd']:.4f}"
+        )
+
+    typer.echo("")
+    typer.echo(agg["methodology"])
+
+
+@report_app.command("cost")
+def cost_report(
+    since: Optional[str] = typer.Option(None, "--since", help="Filter rows with timestamp >= ISO date (e.g. 2026-04-24)"),
+    until: Optional[str] = typer.Option(None, "--until", help="Upper bound ISO date"),
+    bench_run_id: Optional[int] = typer.Option(None, "--bench-run-id", help="Filter to tasks in a specific bench run"),
+    reference_model: str = typer.Option("claude-sonnet-4-6", "--reference-model", help="Cloud model whose rates price the counterfactual"),
+    output_json: bool = typer.Option(False, "--json", help="Output aggregates as JSON"),
+    output_csv: bool = typer.Option(False, "--csv", help="Output per-bucket breakdown as CSV"),
+    db: Path = typer.Option(DEFAULT_METRICS_DB, "--db", help="Override metrics DB path"),
+    decisions_db: Path = typer.Option(DEFAULT_DECISIONS_DB, "--decisions-db", help="Override decisions DB path"),
+) -> None:
+    """Counterfactual cost report: what locally-served tasks would have cost
+    at cloud API rates vs what was actually spent.
+
+    Cloud rows contribute their recorded actual cost_usd to the all-cloud
+    counterfactual (ground truth — token re-pricing would miss cache-creation
+    tokens); local rows are priced at the reference model's rates. Rows with
+    no token or cost data are counted as unpriced and excluded. Reports gross
+    avoided spend (all local rows) and a success-only variant (success=1 local
+    rows) so failed local attempts can't inflate the number, and discloses
+    how many local rows lack prompt-token data (avoided spend understated).
+    Zero new inference; reads the metrics DB offline.
+    """
+    if reference_model not in PRICING:
+        typer.echo(
+            f"Unknown reference model: {reference_model!r}. Choose from: {', '.join(sorted(PRICING))}",
+            err=True,
+        )
+        raise typer.Exit(1)
+
+    try:
+        rows = _fetch_rows(
+            db_path=db,
+            decisions_db_path=decisions_db,
+            since=since,
+            until=until,
+            bench_run_id=bench_run_id,
+            agents_filter=None,
+            buckets_filter=None,
+        )
+    except Exception as exc:
+        typer.echo(f"Error reading DB: {exc}", err=True)
+        raise typer.Exit(1)
+
+    if not rows:
+        typer.echo("No data")
+        raise typer.Exit(0)
+
+    agg = _aggregate_cost(rows, reference_model)
+
+    if output_json:
+        typer.echo(json.dumps(agg, indent=2))
+        return
+
+    if output_csv:
+        import csv
+        import sys
+        writer = csv.writer(sys.stdout)
+        writer.writerow(["bucket", "n", "n_local", "n_unpriced", "local_share",
+                         "actual_usd", "counterfactual_usd", "avoided_usd", "avoided_success_usd"])
+        for bucket, pb in sorted(agg["per_bucket"].items()):
+            writer.writerow([
+                bucket,
+                pb["n"],
+                pb["n_local"],
+                pb["n_unpriced"],
+                f"{pb['local_share']:.4f}" if pb["local_share"] is not None else "",
+                f"{pb['actual_usd']:.6f}",
+                f"{pb['counterfactual_usd']:.6f}",
+                f"{pb['avoided_usd']:.6f}",
+                f"{pb['avoided_success_usd']:.6f}",
+            ])
+        return
+
+    _render_cost_table(agg)
 
 
 def _parse_weights(raw: str) -> tuple[float, float, float, float]:

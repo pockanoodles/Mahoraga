@@ -190,3 +190,71 @@ async def test_health_returns_healthy():
     w = ClaudeWorker(api_key="fake")
     h = await w.health()
     assert h.healthy is True
+
+
+# ── metrics emission (SDK arm) ────────────────────────────────────────────────
+
+def _mock_response_with_usage(text: str, input_tokens: int, output_tokens: int,
+                              cache_read: int = 0) -> MagicMock:
+    resp = MagicMock()
+    resp.content = [MagicMock(text=text)]
+    resp.usage = MagicMock(
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+        cache_read_input_tokens=cache_read,
+    )
+    return resp
+
+
+async def test_execute_emits_metrics_with_cost_before_completed():
+    """The SDK arm must report real cost like claude-cli does — otherwise the
+    bandit's cost penalty prefers this arm for accounting reasons, not real ones."""
+    from backend.orchestrator.tracking.pricing import calculate_cost
+
+    resp = _mock_response_with_usage("I fixed the bug", input_tokens=1200,
+                                     output_tokens=400, cache_read=50)
+    with patch("backend.orchestrator.workers.claude.asyncio.to_thread",
+               new=AsyncMock(return_value=resp)):
+        w = ClaudeWorker(api_key="fake", model="claude-sonnet-4-6")
+        events = [ev async for ev in w.execute(make_attempt(), make_task())]
+
+    assert [e.type for e in events] == ["metrics", "attempt.completed"]
+    m = events[0].payload
+    assert m["tokens"] == 400
+    assert m["prompt_tokens"] == 1200
+    assert m["cache_read_tokens"] == 50
+    assert m["model"] == "claude-sonnet-4-6"
+    assert m["cost_usd"] == pytest.approx(
+        calculate_cost("claude-sonnet-4-6", 1200, 400, 50)
+    )
+    assert "elapsed_s" in m and "throughput_tps" in m
+
+
+async def test_execute_missing_cache_read_defaults_to_zero():
+    resp = MagicMock()
+    resp.content = [MagicMock(text="done")]
+    resp.usage = MagicMock(spec=["input_tokens", "output_tokens"])
+    resp.usage.input_tokens = 100
+    resp.usage.output_tokens = 20
+    with patch("backend.orchestrator.workers.claude.asyncio.to_thread",
+               new=AsyncMock(return_value=resp)):
+        w = ClaudeWorker(api_key="fake")
+        events = [ev async for ev in w.execute(make_attempt(), make_task())]
+
+    m = events[0].payload
+    assert m["cache_read_tokens"] == 0
+    assert m["prompt_tokens"] == 100
+
+
+async def test_execute_unusable_usage_skips_metrics_but_completes():
+    """A garbage usage object must not break the task — metrics are skipped."""
+    resp = MagicMock()
+    resp.content = [MagicMock(text="still done")]
+    resp.usage = MagicMock(output_tokens="garbage", input_tokens="nope")  # int() raises
+    with patch("backend.orchestrator.workers.claude.asyncio.to_thread",
+               new=AsyncMock(return_value=resp)):
+        w = ClaudeWorker(api_key="fake")
+        events = [ev async for ev in w.execute(make_attempt(), make_task())]
+
+    assert [e.type for e in events] == ["attempt.completed"]
+    assert "still done" in events[0].payload["summary"]

@@ -1,12 +1,17 @@
 # backend/orchestrator/workers/claude.py
 from __future__ import annotations
 import asyncio
+import logging
+import time
 from typing import AsyncGenerator
 
 import anthropic
 
 from ..domain.models import Task, TaskAttempt
+from ..tracking.pricing import calculate_cost
 from .base import WorkerAdapter, WorkerEvent, WorkerHealth, _build_prompt
+
+logger = logging.getLogger(__name__)
 
 
 class ClaudeWorker(WorkerAdapter):
@@ -53,6 +58,7 @@ class ClaudeWorker(WorkerAdapter):
             self._history[task_id].append({"role": "user", "content": feedback})
 
         messages = self._history[task_id]
+        t0 = time.monotonic()
         try:
             response = await asyncio.to_thread(
                 self._client.messages.create,
@@ -66,16 +72,49 @@ class ClaudeWorker(WorkerAdapter):
                 payload={"error_code": "api_error", "error": str(exc)},
             )
             return
+        elapsed_s = round(time.monotonic() - t0, 2)
 
         content = response.content[0].text if response.content else ""
         if content:
             self._last_output[task_id] = content
+            metrics = self._telemetry(response, elapsed_s)
+            if metrics is not None:
+                yield WorkerEvent(type="metrics", payload=metrics)
             yield WorkerEvent(type="attempt.completed", payload={"summary": content})
         else:
             yield WorkerEvent(
                 type="attempt.failed",
                 payload={"error_code": "empty_response", "error": "Claude returned empty content"},
             )
+
+    def _telemetry(self, response, elapsed_s: float) -> dict | None:
+        """Build a `metrics` payload (same shape as ClaudeCliWorker's).
+
+        Without this the SDK arm records $0 while claude-cli records real
+        cost, and the bandit's cost penalty would prefer this arm for
+        accounting reasons rather than real ones. Returns None (skips the
+        event) if the response carries no usable usage data.
+        """
+        try:
+            usage = getattr(response, "usage", None)
+            output_tokens = int(getattr(usage, "output_tokens", 0) or 0)
+            input_tokens = int(getattr(usage, "input_tokens", 0) or 0)
+            cache_read_tokens = int(getattr(usage, "cache_read_input_tokens", 0) or 0)
+        except Exception as exc:
+            logger.warning("claude: telemetry extraction failed (%s) — skipping metrics", exc)
+            return None
+        tps = round(output_tokens / elapsed_s, 1) if elapsed_s > 0 and output_tokens else 0.0
+        return {
+            "elapsed_s": elapsed_s,
+            "tokens": output_tokens,
+            "throughput_tps": tps,
+            "prompt_tokens": input_tokens,
+            "cache_read_tokens": cache_read_tokens,
+            "cost_usd": calculate_cost(
+                self._model, input_tokens, output_tokens, cache_read_tokens
+            ),
+            "model": self._model,
+        }
 
     def clear_history(self, task_id: str) -> None:
         """Clear conversation history for a task after it reaches terminal state."""

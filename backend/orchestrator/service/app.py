@@ -23,6 +23,7 @@ from ..gateway import Gateway
 from ..store.base import Store
 from ..store.chat_log import ChatLogStore
 from ..tracking.ledger import CostLedger
+from ..tracking.pricing import resolve_cost
 import anthropic
 
 from ..verifier.verifier import Verifier
@@ -1076,6 +1077,7 @@ async def eval_task(
     output_parts: list[str] = []
     success = False
 
+    worker_m: dict = {}
     try:
         async for event in worker.execute(attempt, task_obj, None):
             if ttft_ms is None:
@@ -1085,6 +1087,8 @@ async def eval_task(
                 output_parts.append(event.payload.get("summary", ""))
             elif event.type == "attempt.failed":
                 success = False
+            elif event.type == "metrics":
+                worker_m = event.payload
     except Exception:
         success = False
 
@@ -1099,7 +1103,7 @@ async def eval_task(
             _TaskOutcome(
                 success=success,
                 latency_s=latency_ms / 1000,
-                cost_usd=0.0,
+                cost_usd=resolve_cost(worker_m),
                 quality_score=reward,
                 agent_name=_bandit_adapter_name,
             ),
@@ -1618,13 +1622,15 @@ async def run_api_task(
         status = "success" if task.status == TaskStatus.completed else "failed"
         success = status == "success"
 
-    # Pull Ollama token metrics captured by executor side-channel
+    # Pull worker token metrics captured by executor side-channel
     ollama_m = pop_task_metrics(task.id)
     tokens_generated = ollama_m.get("tokens", 0)
     tokens_per_second = ollama_m.get("throughput_tps", 0.0)
     prompt_tokens = ollama_m.get("prompt_tokens", 0)
     prompt_eval_rate = ollama_m.get("prompt_eval_rate", 0.0)
     agent_spawn_ms = max(0.0, wall_time_ms - routing_time_ms - (ollama_m.get("elapsed_s", 0) * 1000))
+    # Real cost: worker-reported (cloud arms), else computed from tokens+model; 0.0 for local arms
+    cost_usd = resolve_cost(ollama_m)
 
     bucket = _classify_bucket(req.prompt, hint=req.capability_hint)
     from ..routing.quality import score_quality_detailed as _score_quality_detailed
@@ -1676,6 +1682,8 @@ async def run_api_task(
             _alt_task_result is not None
             and _alt_task_result.status == TaskStatus.completed
         )
+        _alt_m = pop_task_metrics(alt_task.id)
+        _alt_cost_usd = resolve_cost(_alt_m)
         if _alt_success:
             _alt_quality, _alt_components = await _score_quality_detailed(
                 req.prompt, _alt_output, bucket
@@ -1685,7 +1693,7 @@ async def run_api_task(
         _alt_outcome = TaskOutcome(
             success=_alt_success,
             latency_s=elapsed,
-            cost_usd=0.0,
+            cost_usd=_alt_cost_usd,
             quality_score=_alt_quality,
             agent_name=alt_agent,
             bucket=bucket,
@@ -1697,6 +1705,21 @@ async def run_api_task(
             logging.getLogger(__name__).exception(
                 "double_run: alt observe failed for %s", alt_task.id
             )
+        if _alt_cost_usd > 0 and _cost_ledger is not None:
+            try:
+                await _cost_ledger.record(
+                    user_id="web-user",
+                    mission_id=mission.id,
+                    model=_alt_m.get("model", "") or alt_agent,
+                    input_tokens=int(_alt_m.get("prompt_tokens") or 0),
+                    output_tokens=int(_alt_m.get("tokens") or 0),
+                    cache_read_tokens=int(_alt_m.get("cache_read_tokens") or 0),
+                    cost_usd=_alt_cost_usd,
+                )
+            except Exception as exc:
+                logging.getLogger(__name__).warning(
+                    "cost ledger record failed for alt task %s: %s", alt_task.id, exc
+                )
         if _alt_success and _alt_quality > quality_score:
             logging.getLogger(__name__).info(
                 "double_run winner: %s (%.3f) beat %s (%.3f)",
@@ -1716,7 +1739,7 @@ async def run_api_task(
     outcome = TaskOutcome(
         success=success,
         latency_s=elapsed,
-        cost_usd=0.0,
+        cost_usd=cost_usd,
         quality_score=quality_score,
         agent_name=selected_agent,
         bucket=bucket,
@@ -1753,8 +1776,25 @@ async def run_api_task(
         reward_score=reward,
         success=success,
         quality_score=quality_score,
-        cost_usd=0.0,
+        cost_usd=cost_usd,
     )
+
+    # Nonzero cost → also append to the cost ledger (feeds /cost/summary daily spend)
+    if cost_usd > 0 and _cost_ledger is not None:
+        try:
+            await _cost_ledger.record(
+                user_id="web-user",
+                mission_id=mission.id,
+                model=ollama_m.get("model", "") or used_worker,
+                input_tokens=int(prompt_tokens or 0),
+                output_tokens=int(tokens_generated or 0),
+                cache_read_tokens=int(ollama_m.get("cache_read_tokens") or 0),
+                cost_usd=cost_usd,
+            )
+        except Exception as exc:
+            logging.getLogger(__name__).warning(
+                "cost ledger record failed for task %s: %s", task.id, exc
+            )
 
     # implicit quality tracking — only on actual completion, not failure
     if _implicit_tracker is not None and success:
@@ -1897,11 +1937,32 @@ async def run_batch(
             elapsed = round(_time.time() - t0, 2)
             sequential_s += elapsed
 
+        # Worker token/cost metrics from executor side-channel (real cost for cloud arms)
+        worker_m = pop_task_metrics(t_run.id)
+        task_cost_usd = resolve_cost(worker_m)
+        # Guarded: this fires before the bandit observe below — a ledger
+        # hiccup must not kill the learning update or abort the batch.
+        if task_cost_usd > 0 and _cost_ledger is not None:
+            try:
+                await _cost_ledger.record(
+                    user_id="web-user",
+                    mission_id=mission.id,
+                    model=worker_m.get("model", "") or agent,
+                    input_tokens=int(worker_m.get("prompt_tokens") or 0),
+                    output_tokens=int(worker_m.get("tokens") or 0),
+                    cache_read_tokens=int(worker_m.get("cache_read_tokens") or 0),
+                    cost_usd=task_cost_usd,
+                )
+            except Exception as exc:
+                logging.getLogger(__name__).warning(
+                    "cost ledger record failed for batch task %s: %s", t_run.id, exc
+                )
+
         if _run_exc is not None:
             outcome = TaskOutcome(
                 success=False,
                 latency_s=elapsed,
-                cost_usd=0.0,
+                cost_usd=task_cost_usd,
                 quality_score=0.0,
                 agent_name=agent,
                 bucket=bucket,
@@ -1947,7 +2008,7 @@ async def run_batch(
         outcome = TaskOutcome(
             success=success,
             latency_s=elapsed,
-            cost_usd=0.0,
+            cost_usd=task_cost_usd,
             quality_score=quality_score,
             agent_name=agent,
             bucket=bucket,

@@ -133,6 +133,30 @@ def load_agent_pool(
         else:
             logger.info("claude: ANTHROPIC_API_KEY not set — skipping")
 
+    # ── Claude CLI ────────────────────────────────────────────────────────────
+    claude_cli_cfg = cfg.get("claude-cli", {})
+    if claude_cli_cfg.get("enabled", False):
+        from ..workers.claude_cli import ClaudeCliWorker
+        from .claude_cli_adapter import ClaudeCliAdapter
+        model = claude_cli_cfg.get("model", "claude-sonnet-4-6")
+        worker_id = claude_cli_cfg.get("worker_id", "claude-cli:sonnet")
+        cap_map = claude_cli_cfg.get("capabilities", {})
+        # No cwd=workdir here: the worker defaults to a dedicated empty dir so
+        # the CLI never inherits a user project's pre-authorized tool allowlists.
+        cli_kwargs: dict[str, Any] = {"model": model, "worker_id": worker_id}
+        if cap_map:
+            cli_kwargs["capabilities"] = list(cap_map)
+        if claude_cli_cfg.get("binary_path"):
+            cli_kwargs["binary_path"] = claude_cli_cfg["binary_path"]
+        if claude_cli_cfg.get("timeout"):
+            cli_kwargs["timeout"] = float(claude_cli_cfg["timeout"])
+        workers.append(ClaudeCliWorker(**cli_kwargs))
+        adapters.append(ClaudeCliAdapter(
+            model=model,
+            worker_id=worker_id,
+            capabilities=_caps(cap_map) if cap_map else None,
+        ))
+
     # ── Codex ─────────────────────────────────────────────────────────────────
     codex_cfg = cfg.get("codex", {})
     if codex_cfg.get("enabled", True):

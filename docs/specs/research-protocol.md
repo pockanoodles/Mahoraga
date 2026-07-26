@@ -688,6 +688,7 @@ The following subcommands are implemented under `orch bench report`:
 | `quality-replay` | `orch bench run --output` JSONL | Re-score captured outputs under alternate heuristic-quality configurations |
 | `verify` | Bench JSONL plus a gold test bank | Execute captured code against tests and compare pass@1 with heuristic quality |
 | `runs` | `~/.mahoraga-v2/routing_decisions.db` | List live and offline experiments recorded in the `bench_runs` ledger |
+| `cost` | `~/.mahoraga-v2/mahoraga.db` | Actual spend vs the counterfactual all-cloud cost of the same tasks at a reference model's API rates |
 
 Examples:
 
@@ -704,13 +705,37 @@ orch bench report verify --input experiments/results_verifiable.jsonl
 
 # Audit what has already been run
 orch bench report runs --limit 20
+
+# Counterfactual cost accounting for Phase 4
+orch bench report cost --since 2026-07-01 --reference-model claude-sonnet-4-6
 ```
 
 `quality-replay` and `verify` require JSONL emitted by `orch bench run --output`
 with full `prompt_full` and `output_full` values. `verify` additionally needs
 `actual_agent` (or one of its supported agent-name fallbacks) and exact prompt
-text matching the gold bank. `compat-matrix` supports `--json` and `--csv`;
-the other analysis commands support `--json`.
+text matching the gold bank. `compat-matrix` and `cost` support `--json` and
+`--csv`; the other analysis commands support `--json`.
+
+`cost` builds the all-cloud counterfactual per row — the Phase 4 methodology.
+Cloud rows with a recorded `cost_usd > 0` contribute that actual cost: they
+already ran on the cloud, and their recorded bill includes cache-creation
+tokens that the stored token counters exclude, so token re-pricing would
+understate them (token pricing is used only as a fallback when the recorded
+cost is 0/NULL). Local rows are priced at the `--reference-model` rates
+(default `claude-sonnet-4-6`; prompt tokens × input rate + output tokens ×
+output rate; no cache-read modeling) from the frozen pricing table in
+`tracking/pricing.py` and compared against recorded `cost_usd` (0.0 for local
+arms). It reports gross avoided spend (all local rows) and a success-only
+variant (`success=1` local rows) so failed local attempts cannot inflate the
+savings claim, plus avoided dollars per 1,000 in-scope tasks (denominator
+includes cloud and unpriced rows) and a per-bucket breakdown. Rows with no
+token data and no recorded cost (written as 0, not NULL, by the live pipeline)
+are counted as unpriced rather than silently dropped, and local rows priced
+with generated tokens but no prompt-token data are disclosed as
+`n_missing_prompt` — their input side is missing, so avoided spend is
+understated (conservative) for them. Zero new inference; supports `--since`,
+`--until` (a date-only value means end of that day), and `--bench-run-id` like
+`compat-matrix`.
 
 `reweight`, `quality-replay`, and `verify` perform no new model inference, but
 they do append an experiment summary to `bench_runs`. The `runs` command reads

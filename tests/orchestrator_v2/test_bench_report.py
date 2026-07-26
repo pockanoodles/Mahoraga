@@ -1,4 +1,4 @@
-"""Tests for bench report compat-matrix subcommand."""
+"""Tests for bench report compat-matrix and cost subcommands."""
 from __future__ import annotations
 
 import json
@@ -49,8 +49,8 @@ def _make_metrics_db(path: Path, rows: list[dict]) -> None:
             """INSERT INTO task_metrics
                (timestamp, task_id, agent_name, capability_bucket,
                 wall_time_ms, tokens_generated, tokens_per_second,
-                reward_score, success, quality_score)
-               VALUES (?,?,?,?,?,?,?,?,?,?)""",
+                prompt_tokens, reward_score, success, quality_score, cost_usd)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
             (
                 r.get("timestamp", "1777000000.0"),
                 r.get("task_id", "t1"),
@@ -59,9 +59,11 @@ def _make_metrics_db(path: Path, rows: list[dict]) -> None:
                 r.get("wall_time_ms", 1000.0),
                 r.get("tokens_generated", 100),
                 r.get("tokens_per_second", 50.0),
+                r.get("prompt_tokens"),
                 r.get("reward_score", 0.8),
                 r.get("success", 1),
                 r.get("quality_score", 0.75),
+                r.get("cost_usd"),
             ),
         )
     conn.commit()
@@ -279,3 +281,277 @@ def test_csv_output(tmp_path):
     assert "code" in lines[1]
     assert "agent-a" in lines[1]
     assert ",3," in lines[1]
+
+
+def _cost_rows() -> list[dict]:
+    """Mixed local/cloud/unpriced rows with hand-checkable sonnet-4-6 math.
+
+    At $3/M input + $15/M output (local rows priced at reference rates;
+    cloud rows count at their recorded actual cost):
+      t1 local ok      cf = 0.1*3 + 0.2*15 = 3.3
+      t2 local failed  cf = 0.1*3 + 0.1*15 = 1.8
+      t3 local ok      cf = 0.2*3 + 0.1*15 = 2.1  (plan bucket)
+      t4 cloud ok      cf = actual = 2.5 (recorded cost, cache-inclusive —
+                       token re-pricing would give only 1.8)
+      t5 local ok      unpriced (no token or cost data)
+    Totals: actual=2.5, counterfactual=9.7, avoided=7.2 (gross), 5.4 (success-only).
+    """
+    return [
+        {"task_id": "t1", "agent_name": "ollama:qwen3.5", "capability_bucket": "code",
+         "prompt_tokens": 100_000, "tokens_generated": 200_000, "cost_usd": 0.0, "success": 1},
+        {"task_id": "t2", "agent_name": "ollama:qwen3.5", "capability_bucket": "code",
+         "prompt_tokens": 100_000, "tokens_generated": 100_000, "cost_usd": 0.0, "success": 0},
+        {"task_id": "t3", "agent_name": "ollama:granite4.1-8b", "capability_bucket": "plan",
+         "prompt_tokens": 200_000, "tokens_generated": 100_000, "cost_usd": 0.0, "success": 1},
+        {"task_id": "t4", "agent_name": "claude", "capability_bucket": "code",
+         "prompt_tokens": 100_000, "tokens_generated": 100_000, "cost_usd": 2.5, "success": 1},
+        {"task_id": "t5", "agent_name": "ollama:qwen3.5", "capability_bucket": "code",
+         "prompt_tokens": None, "tokens_generated": None, "cost_usd": None, "success": 1},
+    ]
+
+
+def test_cost_totals_and_savings(tmp_path):
+    """Human-readable output carries the right totals, savings, and coverage counts."""
+    db = tmp_path / "metrics.db"
+    _make_metrics_db(db, _cost_rows())
+
+    result = runner.invoke(app, ["bench", "report", "cost", "--db", str(db)])
+    assert result.exit_code == 0
+    assert "local=4 [80.0%]" in result.output
+    assert "cloud=1" in result.output
+    assert "unpriced=1" in result.output
+    assert "$2.5000" in result.output    # actual spend
+    assert "$9.7000" in result.output    # all-cloud counterfactual
+    assert "$7.2000" in result.output    # avoided, gross
+    assert "$5.4000" in result.output    # avoided, success-only
+    # savings = 7.2 / 9.7 = 74.23% -> rendered at one decimal
+    assert "74.2% of the all-cloud bill" in result.output
+    assert "per 1,000 in-scope tasks" in result.output
+    assert "$1440.00" in result.output   # avoided per 1,000 in-scope tasks
+    # No local row is missing prompt-token data here -> disclosure line absent
+    assert "input-side under-count" not in result.output
+    assert "claude-sonnet-4-6" in result.output
+    assert "methodology (frozen)" in result.output
+    assert "cloud rows use recorded actual cost" in result.output
+
+
+def test_cost_json_shape(tmp_path):
+    """--json emits totals, per_bucket, and methodology with correct math."""
+    db = tmp_path / "metrics.db"
+    _make_metrics_db(db, _cost_rows())
+
+    result = runner.invoke(app, ["bench", "report", "cost", "--db", str(db), "--json"])
+    assert result.exit_code == 0
+    data = json.loads(result.output)
+    assert data["reference_model"] == "claude-sonnet-4-6"
+    assert data["pricing_as_of"]
+    assert "methodology" in data
+
+    t = data["totals"]
+    assert t["n"] == 5
+    assert t["n_local"] == 4
+    assert t["n_cloud"] == 1
+    assert t["n_unpriced"] == 1
+    assert t["n_missing_prompt"] == 0
+    assert abs(t["local_share"] - 0.8) < 1e-9
+    assert abs(t["actual_usd"] - 2.5) < 1e-6
+    # Cloud row contributes its actual cost (2.5), not token re-pricing (1.8)
+    assert abs(t["counterfactual_usd"] - 9.7) < 1e-6
+    assert abs(t["avoided_usd"] - 7.2) < 1e-6
+    # Success-only excludes the failed local row (t2, cf=1.8)
+    assert abs(t["avoided_success_usd"] - 5.4) < 1e-6
+    assert abs(t["savings_pct"] - 74.23) < 1e-6
+    assert abs(t["avoided_per_1k_tasks_usd"] - 1440.0) < 1e-6
+
+    pb = data["per_bucket"]
+    assert set(pb) == {"code", "plan"}
+    assert pb["code"]["n"] == 4
+    assert pb["code"]["n_local"] == 3
+    assert pb["code"]["n_unpriced"] == 1
+    assert pb["code"]["n_missing_prompt"] == 0
+    assert abs(pb["code"]["avoided_usd"] - 5.1) < 1e-6
+    assert abs(pb["plan"]["avoided_usd"] - 2.1) < 1e-6
+    assert abs(pb["plan"]["local_share"] - 1.0) < 1e-9
+
+
+def test_cost_reference_model_changes_counterfactual(tmp_path):
+    """--reference-model reprices local rows only (opus = 5/25 per M);
+    the cloud row keeps its recorded actual cost."""
+    db = tmp_path / "metrics.db"
+    _make_metrics_db(db, _cost_rows())
+
+    result = runner.invoke(app, [
+        "bench", "report", "cost", "--db", str(db), "--json",
+        "--reference-model", "claude-opus-4-6",
+    ])
+    assert result.exit_code == 0
+    data = json.loads(result.output)
+    # Local rows at opus rates: t1=0.1*5+0.2*25=5.5, t2=0.1*5+0.1*25=3.0,
+    # t3=0.2*5+0.1*25=3.5; cloud t4 stays at actual 2.5. Total = 14.5.
+    assert abs(data["totals"]["counterfactual_usd"] - 14.5) < 1e-6
+    assert data["reference_model"] == "claude-opus-4-6"
+
+
+def test_cost_unknown_reference_model_errors(tmp_path):
+    """An unknown reference model fails fast instead of silently repricing."""
+    db = tmp_path / "metrics.db"
+    _make_metrics_db(db, _cost_rows())
+
+    result = runner.invoke(app, [
+        "bench", "report", "cost", "--db", str(db),
+        "--reference-model", "not-a-model",
+    ])
+    assert result.exit_code == 1
+
+
+def test_cost_csv_output(tmp_path):
+    """--csv emits a header row followed by one row per bucket."""
+    db = tmp_path / "metrics.db"
+    _make_metrics_db(db, _cost_rows())
+
+    result = runner.invoke(app, ["bench", "report", "cost", "--db", str(db), "--csv"])
+    assert result.exit_code == 0
+    lines = result.output.strip().splitlines()
+    assert lines[0].startswith("bucket,n,n_local,n_unpriced,local_share,")
+    assert len(lines) == 3
+    code_line = next(ln for ln in lines[1:] if ln.startswith("code,"))
+    # actual=2.5, cf=3.3+1.8+2.5=7.6, avoided=5.1, success-only=3.3
+    assert code_line == "code,4,3,1,0.7500,2.500000,7.600000,5.100000,3.300000"
+
+
+def test_cost_empty_db_no_error(tmp_path):
+    """Empty DB returns exit 0 and 'No data' message."""
+    db = tmp_path / "empty.db"
+    _make_metrics_db(db, [])
+
+    result = runner.invoke(app, ["bench", "report", "cost", "--db", str(db)])
+    assert result.exit_code == 0
+    assert "No data" in result.output
+
+
+def test_cost_cloud_actual_beats_token_repricing(tmp_path):
+    """A cloud row with recorded cost contributes its ACTUAL cost to the
+    counterfactual (token re-pricing misses cache-creation tokens); a cloud
+    row with cost 0 falls back to token pricing."""
+    db = tmp_path / "metrics.db"
+    rows = [
+        # Tiny token counts would re-price at ~$0.018 — actual 2.0 must win.
+        {"task_id": "c1", "agent_name": "claude", "capability_bucket": "code",
+         "prompt_tokens": 1_000, "tokens_generated": 1_000, "cost_usd": 2.0, "success": 1},
+        # No recorded cost -> token-pricing fallback: 0.1*3 + 0.1*15 = 1.8
+        {"task_id": "c2", "agent_name": "claude", "capability_bucket": "code",
+         "prompt_tokens": 100_000, "tokens_generated": 100_000, "cost_usd": 0.0, "success": 1},
+    ]
+    _make_metrics_db(db, rows)
+
+    result = runner.invoke(app, ["bench", "report", "cost", "--db", str(db), "--json"])
+    assert result.exit_code == 0
+    t = json.loads(result.output)["totals"]
+    assert abs(t["counterfactual_usd"] - 3.8) < 1e-6
+    assert abs(t["actual_usd"] - 2.0) < 1e-6
+    # Cloud rows never count as avoided
+    assert abs(t["avoided_usd"] - 0.0) < 1e-9
+    assert t["n_unpriced"] == 0
+
+
+def test_cost_unpriced_detects_zeros(tmp_path):
+    """Rows written with 0 (not NULL) token/cost values count as unpriced —
+    the live DB writes 0, so a NULL-only guard would be dead code."""
+    db = tmp_path / "metrics.db"
+    rows = [
+        {"task_id": "z1", "agent_name": "ollama:qwen3.5", "capability_bucket": "code",
+         "prompt_tokens": 0, "tokens_generated": 0, "cost_usd": 0.0, "success": 1},
+        {"task_id": "z2", "agent_name": "ollama:qwen3.5", "capability_bucket": "code",
+         "prompt_tokens": None, "tokens_generated": None, "cost_usd": None, "success": 1},
+        {"task_id": "p1", "agent_name": "ollama:qwen3.5", "capability_bucket": "code",
+         "prompt_tokens": 100_000, "tokens_generated": 100_000, "cost_usd": 0.0, "success": 1},
+    ]
+    _make_metrics_db(db, rows)
+
+    result = runner.invoke(app, ["bench", "report", "cost", "--db", str(db), "--json"])
+    assert result.exit_code == 0
+    t = json.loads(result.output)["totals"]
+    assert t["n_unpriced"] == 2
+    # Unpriced rows contribute nothing; only p1 is priced: 0.1*3 + 0.1*15 = 1.8
+    assert abs(t["counterfactual_usd"] - 1.8) < 1e-6
+
+
+def test_cost_missing_prompt_counted_and_rendered(tmp_path):
+    """Local rows priced with generated tokens but no prompt-token data are
+    counted as n_missing_prompt and disclosed in the table."""
+    db = tmp_path / "metrics.db"
+    rows = [
+        # Local, gen tokens only -> priced (output side), missing prompt: counted
+        {"task_id": "m1", "agent_name": "ollama:qwen3.5", "capability_bucket": "code",
+         "prompt_tokens": 0, "tokens_generated": 200_000, "cost_usd": 0.0, "success": 1},
+        {"task_id": "m2", "agent_name": "ollama:qwen3.5", "capability_bucket": "plan",
+         "prompt_tokens": None, "tokens_generated": 100_000, "cost_usd": 0.0, "success": 1},
+        # Local with prompt data: not counted
+        {"task_id": "ok1", "agent_name": "ollama:qwen3.5", "capability_bucket": "code",
+         "prompt_tokens": 50_000, "tokens_generated": 100_000, "cost_usd": 0.0, "success": 1},
+        # Cloud row without prompt data: not counted (local-only metric)
+        {"task_id": "cl1", "agent_name": "claude", "capability_bucket": "code",
+         "prompt_tokens": 0, "tokens_generated": 100_000, "cost_usd": 0.0, "success": 1},
+    ]
+    _make_metrics_db(db, rows)
+
+    result = runner.invoke(app, ["bench", "report", "cost", "--db", str(db), "--json"])
+    assert result.exit_code == 0
+    data = json.loads(result.output)
+    assert data["totals"]["n_missing_prompt"] == 2
+    assert data["per_bucket"]["code"]["n_missing_prompt"] == 1
+    assert data["per_bucket"]["plan"]["n_missing_prompt"] == 1
+    assert "local rows lack prompt-token data" in data["methodology"]
+
+    table = runner.invoke(app, ["bench", "report", "cost", "--db", str(db)])
+    assert table.exit_code == 0
+    assert ("input-side under-count: 2 local rows have no prompt-token data"
+            in table.output)
+
+
+def test_until_includes_whole_day(tmp_path):
+    """A date-only --until means end of that day — rows timestamped during
+    the day are included, not silently excluded."""
+    db = tmp_path / "metrics.db"
+    noon_jan_1 = str(float(_EPOCH_2026_JAN) + 12 * 3600)  # 2026-01-01 12:00 UTC
+    rows = [
+        {"task_id": "d1", "timestamp": noon_jan_1, "agent_name": "ollama:qwen3.5",
+         "capability_bucket": "code", "prompt_tokens": 100_000,
+         "tokens_generated": 100_000, "cost_usd": 0.0, "success": 1},
+        # Next day: must be excluded
+        {"task_id": "d2", "timestamp": str(float(_EPOCH_2026_JAN) + 36 * 3600),
+         "agent_name": "ollama:qwen3.5", "capability_bucket": "code",
+         "prompt_tokens": 100_000, "tokens_generated": 100_000, "cost_usd": 0.0,
+         "success": 1},
+    ]
+    _make_metrics_db(db, rows)
+
+    result = runner.invoke(app, [
+        "bench", "report", "cost", "--db", str(db), "--json",
+        "--until", "2026-01-01",
+    ])
+    assert result.exit_code == 0
+    assert json.loads(result.output)["totals"]["n"] == 1
+
+
+def test_iso_to_epoch_offsets_and_day_bounds():
+    """The shared date parser accepts Z / ±HH:MM offsets and maps date-only
+    values to start- or end-of-day depending on the bound."""
+    from backend.orchestrator.cli.commands.bench_report import _iso_to_epoch
+
+    jan1 = float(_EPOCH_2026_JAN)
+    # Date-only: --since start-of-day, --until end-of-day
+    assert _iso_to_epoch("2026-01-01") == jan1
+    until = _iso_to_epoch("2026-01-01", end_of_day=True)
+    assert jan1 + 86399 <= until < jan1 + 86400
+    # Naive datetime = UTC (pre-existing behavior)
+    assert _iso_to_epoch("2026-01-01T06:00:00") == jan1 + 6 * 3600
+    # Trailing Z
+    assert _iso_to_epoch("2026-01-01T00:00:00Z") == jan1
+    # Explicit offsets
+    assert _iso_to_epoch("2026-01-01T05:00:00+05:00") == jan1
+    assert _iso_to_epoch("2025-12-31T19:00:00-05:00") == jan1
+    # Garbage still raises
+    import pytest
+    with pytest.raises(ValueError):
+        _iso_to_epoch("not-a-date")

@@ -162,6 +162,17 @@ class OllamaWorker(WorkerAdapter):
                                 "tokens": eval_count,
                                 "throughput_tps": tps,
                             }
+                            # Input side of the cost counterfactual: the done
+                            # chunk also carries prompt_eval_count/_duration.
+                            prompt_eval_count = chunk.get("prompt_eval_count", 0)
+                            if prompt_eval_count:
+                                prompt_eval_ns = chunk.get("prompt_eval_duration", 0)
+                                prompt_eval_s = prompt_eval_ns / 1e9 if prompt_eval_ns else 0.0
+                                _ollama_metrics["prompt_tokens"] = prompt_eval_count
+                                _ollama_metrics["prompt_eval_rate"] = (
+                                    round(prompt_eval_count / prompt_eval_s, 1)
+                                    if prompt_eval_s > 0 else 0.0
+                                )
                             break
         except httpx.ConnectError:
             yield WorkerEvent(

@@ -25,6 +25,12 @@ from ...routing.verify_replay import (
     evaluate as evaluate_verify,
     summarize as summarize_verify,
 )
+from ...routing.route_sim import (
+    grade_matrix,
+    load_cloud_costs,
+    simulate as simulate_policies,
+    infer_arms,
+)
 from ...tracking.pricing import PRICING, PRICING_AS_OF, calculate_cost
 
 DEFAULT_METRICS_DB = Path.home() / ".mahoraga-v2" / "mahoraga.db"
@@ -851,6 +857,118 @@ def verify_cmd(
         )
     elif rc.get("rho") is not None:
         typer.echo(f"  the most-correct arm ({rc['best_by_exec']}) is also the heuristic's top pick.")
+
+
+@report_app.command("route-sim")
+def route_sim_cmd(
+    input_path: Path = typer.Option(
+        ..., "--input", "-i", help="Force-explore bench JSONL (prompt_full/output_full/actual_agent)"
+    ),
+    bench_run_id: int = typer.Option(
+        ..., "--bench-run-id", help="Bench run whose cloud rows supply per-prompt cost"
+    ),
+    bank: Path = typer.Option(
+        DEFAULT_VERIFY_BANK, "--bank", help="Gold bank (prompt + hidden tests) for re-grading"
+    ),
+    metrics_db: Path = typer.Option(DEFAULT_METRICS_DB, "--metrics-db"),
+    decisions_db: Path = typer.Option(DEFAULT_DECISIONS_DB, "--decisions-db"),
+    cloud_arm: str = typer.Option("claude-cli", "--cloud-arm", help="Agent id treated as the cloud escalation target"),
+    local_first: Optional[str] = typer.Option(
+        None, "--local-first",
+        help="Comma-separated local arm cascade tried before escalating (default: best local arm)",
+    ),
+    output_json: bool = typer.Option(False, "--json"),
+    notes: Optional[str] = typer.Option(None, "--notes", help="Why this sim — logged to bench_runs."),
+) -> None:
+    """Counterfactual routing-vs-baseline Pareto from a force-explore matrix.
+
+    Re-grades every stored output against the hidden tests and joins the cloud
+    arm's per-prompt cost, then computes — with zero new inference — what each
+    policy WOULD have scored: always-cloud, always-local per arm, best-of-local,
+    and a routed cascade (local first, escalate failures to cloud). The routed
+    row uses an ORACLE escalation gate, so its cost is the achievable FLOOR /
+    quality is the CEILING; on verifiable tasks that oracle is real (run the
+    tests), on open-ended tasks it's the upper bound a fallible gate chases.
+    """
+    if not bank.exists():
+        typer.echo(f"Gold bank not found: {bank}", err=True)
+        raise typer.Exit(1)
+    if not input_path.exists():
+        typer.echo(f"Results file not found: {input_path}", err=True)
+        raise typer.Exit(1)
+
+    matrix, bank_prompts = grade_matrix(bank, input_path)
+    if not matrix:
+        typer.echo(
+            f"No results matched the gold bank. Was --input generated from {bank.name}?",
+            err=True,
+        )
+        raise typer.Exit(0)
+
+    local_arms, best_local = infer_arms(matrix, cloud_arm)
+    if not local_arms:
+        typer.echo("No local (ollama:) arms found in the matrix — nothing to route.", err=True)
+        raise typer.Exit(0)
+    cascade = [a.strip() for a in local_first.split(",")] if local_first else [best_local]
+
+    cloud_costs = load_cloud_costs(decisions_db, metrics_db, bench_run_id, cloud_arm)
+    matched_cost = sum(1 for p in bank_prompts if p in cloud_costs)
+
+    policies = simulate_policies(
+        matrix, bank_prompts, cloud_costs,
+        local_arms=local_arms, cloud_arm=cloud_arm, cascade=cascade,
+    )
+    by_name = {p.name: p for p in policies}
+    routed = next(p for p in policies if p.name.startswith("routed:"))
+    cloud = by_name.get("always-cloud")
+    cost_cut = (
+        100 * (1 - routed.cost_per_task / cloud.cost_per_task)
+        if cloud and cloud.cost_per_task else None
+    )
+
+    cloud_per_1k = cloud.cost_per_task * 1000 if cloud else 0.0
+    auto_summary = (
+        f"input={input_path.name} bench_run_id={bench_run_id} n_prompts={len(bank_prompts)} "
+        f"cloud_cost_matched={matched_cost}/{len(bank_prompts)} cascade={'->'.join(cascade)} "
+        f"routed_pass@1={routed.pass_rate:.4f} routed_$1k={routed.cost_per_task*1000:.2f} "
+        f"escalations={routed.escalations} "
+        f"cloud_$1k={cloud_per_1k:.2f} cost_cut_pct={cost_cut}"
+    )
+    log_offline_run(
+        decisions_db, mode="route-sim", task_count=len(bank_prompts),
+        notes=f"{auto_summary} | {notes}" if notes else auto_summary,
+    )
+
+    if output_json:
+        typer.echo(json.dumps({
+            "bench_run_id": bench_run_id,
+            "n_prompts": len(bank_prompts),
+            "cloud_cost_matched": matched_cost,
+            "local_arms": local_arms,
+            "cascade": cascade,
+            "cloud_arm": cloud_arm,
+            "cost_cut_pct": round(cost_cut, 2) if cost_cut is not None else None,
+            "policies": [p.as_dict() for p in policies],
+        }, indent=2))
+        return
+
+    typer.echo(f"route-sim — bench_run_id={bench_run_id}, {len(bank_prompts)} prompts, "
+               f"cloud cost matched {matched_cost}/{len(bank_prompts)}")
+    typer.echo(f"local arms: {', '.join(a.split(':')[-1] for a in local_arms)}   "
+               f"cascade: {' -> '.join(a.split(':')[-1] for a in cascade)} -> cloud")
+    typer.echo("")
+    typer.echo(f"  {'policy':<32}{'pass@1':>16}{'$/task':>12}{'$/1k':>10}")
+    typer.echo("  " + "-" * 68)
+    for p in policies:
+        tag = f"  (esc {p.escalations})" if p.escalations is not None else ""
+        typer.echo(f"  {p.name:<32}{f'{p.pass_rate:.3f} ({p.passed}/{p.n})':>16}"
+                   f"{f'${p.cost_per_task:.4f}':>12}{f'${p.cost_per_task*1000:.2f}':>10}{tag}")
+    typer.echo("")
+    if cost_cut is not None:
+        typer.echo(f"  routed vs always-cloud: {cost_cut:.1f}% cost cut at pass@1={routed.pass_rate:.3f} "
+                   f"(${routed.cost_per_task*1000:.2f} vs ${cloud.cost_per_task*1000:.2f} per 1k)")
+    typer.echo("  NOTE: routed uses an ORACLE escalation gate — achievable on verifiable tasks "
+               "(run the tests), an upper bound elsewhere until a real gate is measured.")
 
 
 @report_app.command("runs")

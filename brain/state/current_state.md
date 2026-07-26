@@ -1,6 +1,22 @@
 # Current State — 2026-07-26
 
-## Read this first — 2026-07-26
+## Read this first — 2026-07-26 (evening): bank 18→50, roster restored
+
+1. **PR #19 (cost accounting) merged to main.**
+2. **Verifiable bank expanded 18 → 50 rows** (`feat/verifiable-bank-50`) —
+   closes open thread (b). Medium/hard-skewed, precise-spec prompts (not
+   memorized classics); every row has a committed reference + failing mutant,
+   CI-enforced by `tests/orchestrator_v2/test_verifiable_bank.py` (106 tests)
+   against `experiments/prompts_verifiable_refs.jsonl`. 1426 tests green.
+3. **Roster models had vanished from Ollama** — only qwen3:14b remained;
+   `qwen3.5:latest` + `granite4.1:8b` re-pulled 2026-07-26 (~12 GB, disk has
+   headroom). Check `ollama list` before any bench run; the daemon is
+   currently stopped (fine — Phase 4 uses manual `orch serve`).
+4. **Phase 4 is now unblocked end-to-end**: merged cost accounting + 50-row
+   bank + whole roster. Runbook below (2026-07-26 morning section) — use the
+   50-row bank; expect ~400 tasks at --repeats 2 across 4 arms.
+
+## Read this first — 2026-07-26 (morning)
 
 **Cost accounting shipped** (`feat/cost-accounting`, PR #19, 1320 tests green). The dormant cost plumbing is now live end-to-end, unblocking Phase 4 ("Mahoraga vs raw Claude Code" with cost accounting):
 

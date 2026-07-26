@@ -15,7 +15,7 @@ from backend.orchestrator.tracking import CostLedger, calculate_cost, format_cos
 
 def test_calculate_cost_haiku():
     cost = calculate_cost("claude-haiku-4-5-20251001", input_tokens=1000, output_tokens=500)
-    expected = (1000 / 1_000_000) * 0.80 + (500 / 1_000_000) * 4.00
+    expected = (1000 / 1_000_000) * 1.00 + (500 / 1_000_000) * 5.00
     assert cost == pytest.approx(expected, abs=1e-6)
 
 
@@ -27,7 +27,7 @@ def test_calculate_cost_sonnet():
 
 def test_calculate_cost_opus():
     cost = calculate_cost("claude-opus-4-6", input_tokens=1000, output_tokens=1000)
-    expected = (1000 / 1_000_000) * 15.00 + (1000 / 1_000_000) * 75.00
+    expected = (1000 / 1_000_000) * 5.00 + (1000 / 1_000_000) * 25.00
     assert cost == pytest.approx(expected, abs=1e-6)
 
 

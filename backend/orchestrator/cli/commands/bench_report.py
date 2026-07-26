@@ -25,6 +25,7 @@ from ...routing.verify_replay import (
     evaluate as evaluate_verify,
     summarize as summarize_verify,
 )
+from ...tracking.pricing import PRICING, PRICING_AS_OF, calculate_cost
 
 DEFAULT_METRICS_DB = Path.home() / ".mahoraga-v2" / "mahoraga.db"
 DEFAULT_DECISIONS_DB = Path.home() / ".mahoraga-v2" / "routing_decisions.db"
@@ -115,9 +116,11 @@ def _fetch_rows(
             m.wall_time_ms,
             m.tokens_generated,
             m.tokens_per_second,
+            m.prompt_tokens,
             m.reward_score,
             m.success,
-            m.quality_score
+            m.quality_score,
+            m.cost_usd
         FROM task_metrics m
         {where_clause}
     """
@@ -368,6 +371,181 @@ def compat_matrix(
         return
 
     _render_table(agg, metric, min_samples)
+
+
+def _is_local_agent(agent_name: Optional[str]) -> bool:
+    """Local arms are ollama-served; everything else is a cloud arm."""
+    return (agent_name or "").startswith("ollama:")
+
+
+def _aggregate_cost(rows: list[dict], reference_model: str) -> dict:
+    """Compute actual vs counterfactual-cloud spend, overall and per bucket.
+
+    Counterfactual = every priced row's tokens billed at reference_model rates
+    (prompt tokens x input rate + generated tokens x output rate). Avoided =
+    counterfactual minus actual for local rows only. Rows with neither
+    prompt_tokens nor tokens_generated cannot be priced and are counted as
+    unpriced so coverage stays visible.
+    """
+    def _empty_bucket() -> dict:
+        return {
+            "n": 0, "n_local": 0, "n_unpriced": 0,
+            "actual_usd": 0.0, "counterfactual_usd": 0.0,
+            "avoided_usd": 0.0, "avoided_success_usd": 0.0,
+        }
+
+    totals = _empty_bucket()
+    per_bucket: dict[str, dict] = {}
+
+    for r in rows:
+        bucket = per_bucket.setdefault(r["capability_bucket"] or "", _empty_bucket())
+        local = _is_local_agent(r["agent_name"])
+        actual = r["cost_usd"] or 0.0
+        unpriced = r["tokens_generated"] is None and r["prompt_tokens"] is None
+        counterfactual = 0.0 if unpriced else calculate_cost(
+            reference_model, r["prompt_tokens"] or 0, r["tokens_generated"] or 0
+        )
+        avoided = counterfactual - actual if local else 0.0
+        for agg in (totals, bucket):
+            agg["n"] += 1
+            agg["n_local"] += int(local)
+            agg["n_unpriced"] += int(unpriced)
+            agg["actual_usd"] += actual
+            agg["counterfactual_usd"] += counterfactual
+            agg["avoided_usd"] += avoided
+            agg["avoided_success_usd"] += avoided if r["success"] == 1 else 0.0
+
+    for agg in (totals, *per_bucket.values()):
+        agg["local_share"] = agg["n_local"] / agg["n"] if agg["n"] else None
+        for k in ("actual_usd", "counterfactual_usd", "avoided_usd", "avoided_success_usd"):
+            agg[k] = round(agg[k], 6)
+
+    totals["n_cloud"] = totals["n"] - totals["n_local"]
+    totals["savings_pct"] = (
+        round(totals["avoided_usd"] / totals["counterfactual_usd"] * 100, 2)
+        if totals["counterfactual_usd"] > 0 else None
+    )
+    totals["avoided_per_1k_tasks_usd"] = (
+        round(totals["avoided_usd"] / totals["n"] * 1000, 6) if totals["n"] else None
+    )
+
+    methodology = (
+        f"methodology (frozen): counterfactual = {reference_model} rates as of "
+        f"{PRICING_AS_OF}; output tokens x output rate + prompt tokens x input rate; "
+        f"no cache-read modeling for local counterfactual"
+    )
+    return {
+        "reference_model": reference_model,
+        "pricing_as_of": PRICING_AS_OF,
+        "totals": totals,
+        "per_bucket": per_bucket,
+        "methodology": methodology,
+    }
+
+
+def _render_cost_table(agg: dict) -> None:
+    t = agg["totals"]
+    typer.echo(f"cost — actual spend vs counterfactual all-cloud at {agg['reference_model']} rates")
+    typer.echo("(avoided = what the locally-served rows would have cost at cloud rates; "
+                "unpriced rows have no token data and are excluded from the counterfactual)")
+    typer.echo("")
+    local_pct = f"{t['local_share']*100:.1f}%" if t["local_share"] is not None else "n/a"
+    typer.echo(f"  tasks:              {t['n']}  (local={t['n_local']} [{local_pct}], "
+                f"cloud={t['n_cloud']}, unpriced={t['n_unpriced']})")
+    typer.echo(f"  actual spend:       ${t['actual_usd']:.4f}")
+    typer.echo(f"  all-cloud spend:    ${t['counterfactual_usd']:.4f}  (counterfactual)")
+    typer.echo(f"  avoided (gross):    ${t['avoided_usd']:.4f}  — all local rows")
+    typer.echo(f"  avoided (success):  ${t['avoided_success_usd']:.4f}  — successful local rows only")
+    savings_str = f"{t['savings_pct']:.1f}%" if t["savings_pct"] is not None else "n/a"
+    typer.echo(f"  savings:            {savings_str} of the all-cloud bill (gross)")
+    per_1k = t["avoided_per_1k_tasks_usd"]
+    per_1k_str = f"${per_1k:.2f}" if per_1k is not None else "n/a"
+    typer.echo(f"  per 1,000 tasks:    {per_1k_str} avoided (gross)")
+
+    typer.echo("")
+    typer.echo("Per-bucket:")
+    for bucket, pb in sorted(agg["per_bucket"].items()):
+        share = f"{pb['local_share']*100:.0f}%" if pb["local_share"] is not None else "n/a"
+        typer.echo(
+            f"  {bucket:<12}  N={pb['n']:<4}  local={share:<5}  avoided=${pb['avoided_usd']:.4f}"
+        )
+
+    typer.echo("")
+    typer.echo(agg["methodology"])
+
+
+@report_app.command("cost")
+def cost_report(
+    since: Optional[str] = typer.Option(None, "--since", help="Filter rows with timestamp >= ISO date (e.g. 2026-04-24)"),
+    until: Optional[str] = typer.Option(None, "--until", help="Upper bound ISO date"),
+    bench_run_id: Optional[int] = typer.Option(None, "--bench-run-id", help="Filter to tasks in a specific bench run"),
+    reference_model: str = typer.Option("claude-sonnet-4-6", "--reference-model", help="Cloud model whose rates price the counterfactual"),
+    output_json: bool = typer.Option(False, "--json", help="Output aggregates as JSON"),
+    output_csv: bool = typer.Option(False, "--csv", help="Output per-bucket breakdown as CSV"),
+    db: Path = typer.Option(DEFAULT_METRICS_DB, "--db", help="Override metrics DB path"),
+    decisions_db: Path = typer.Option(DEFAULT_DECISIONS_DB, "--decisions-db", help="Override decisions DB path"),
+) -> None:
+    """Counterfactual cost report: what locally-served tasks would have cost
+    at cloud API rates vs what was actually spent.
+
+    Prices every task_metrics row's tokens at the reference model's rates and
+    compares against recorded cost_usd (0.0 for local arms). Reports gross
+    avoided spend (all local rows) and a success-only variant (success=1 local
+    rows) so failed local attempts can't inflate the number. Zero new
+    inference; reads the metrics DB offline.
+    """
+    if reference_model not in PRICING:
+        typer.echo(
+            f"Unknown reference model: {reference_model!r}. Choose from: {', '.join(sorted(PRICING))}",
+            err=True,
+        )
+        raise typer.Exit(1)
+
+    try:
+        rows = _fetch_rows(
+            db_path=db,
+            decisions_db_path=decisions_db,
+            since=since,
+            until=until,
+            bench_run_id=bench_run_id,
+            agents_filter=None,
+            buckets_filter=None,
+        )
+    except Exception as exc:
+        typer.echo(f"Error reading DB: {exc}", err=True)
+        raise typer.Exit(1)
+
+    if not rows:
+        typer.echo("No data")
+        raise typer.Exit(0)
+
+    agg = _aggregate_cost(rows, reference_model)
+
+    if output_json:
+        typer.echo(json.dumps(agg, indent=2))
+        return
+
+    if output_csv:
+        import csv
+        import sys
+        writer = csv.writer(sys.stdout)
+        writer.writerow(["bucket", "n", "n_local", "n_unpriced", "local_share",
+                         "actual_usd", "counterfactual_usd", "avoided_usd", "avoided_success_usd"])
+        for bucket, pb in sorted(agg["per_bucket"].items()):
+            writer.writerow([
+                bucket,
+                pb["n"],
+                pb["n_local"],
+                pb["n_unpriced"],
+                f"{pb['local_share']:.4f}" if pb["local_share"] is not None else "",
+                f"{pb['actual_usd']:.6f}",
+                f"{pb['counterfactual_usd']:.6f}",
+                f"{pb['avoided_usd']:.6f}",
+                f"{pb['avoided_success_usd']:.6f}",
+            ])
+        return
+
+    _render_cost_table(agg)
 
 
 def _parse_weights(raw: str) -> tuple[float, float, float, float]:

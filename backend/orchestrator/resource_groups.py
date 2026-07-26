@@ -26,7 +26,7 @@ RESOURCE_GROUPS: dict[str, dict] = {
         "description": "Google cloud API, rate-limited",
     },
     "anthropic_api": {
-        "agents": ["claude"],
+        "agents": ["claude", "claude-cli"],
         "max_concurrent": 2,
         "description": "Anthropic cloud API, rate-limited",
     },

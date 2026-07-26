@@ -688,6 +688,7 @@ The following subcommands are implemented under `orch bench report`:
 | `quality-replay` | `orch bench run --output` JSONL | Re-score captured outputs under alternate heuristic-quality configurations |
 | `verify` | Bench JSONL plus a gold test bank | Execute captured code against tests and compare pass@1 with heuristic quality |
 | `runs` | `~/.mahoraga-v2/routing_decisions.db` | List live and offline experiments recorded in the `bench_runs` ledger |
+| `cost` | `~/.mahoraga-v2/mahoraga.db` | Actual spend vs the counterfactual all-cloud cost of the same tasks at a reference model's API rates |
 
 Examples:
 
@@ -704,13 +705,27 @@ orch bench report verify --input experiments/results_verifiable.jsonl
 
 # Audit what has already been run
 orch bench report runs --limit 20
+
+# Counterfactual cost accounting for Phase 4
+orch bench report cost --since 2026-07-01 --reference-model claude-sonnet-4-6
 ```
 
 `quality-replay` and `verify` require JSONL emitted by `orch bench run --output`
 with full `prompt_full` and `output_full` values. `verify` additionally needs
 `actual_agent` (or one of its supported agent-name fallbacks) and exact prompt
-text matching the gold bank. `compat-matrix` supports `--json` and `--csv`;
-the other analysis commands support `--json`.
+text matching the gold bank. `compat-matrix` and `cost` support `--json` and
+`--csv`; the other analysis commands support `--json`.
+
+`cost` prices every `task_metrics` row's tokens (prompt tokens × input rate +
+output tokens × output rate; no cache-read modeling) at the `--reference-model`
+rates (default `claude-sonnet-4-6`) from the frozen pricing table in
+`tracking/pricing.py` — the Phase 4 methodology — and compares against the
+recorded `cost_usd` (0.0 for local arms). It reports gross avoided spend (all
+local rows) and a success-only variant (`success=1` local rows) so failed local
+attempts cannot inflate the savings claim, plus avoided dollars per 1,000 tasks
+and a per-bucket breakdown. Rows with no token data are counted as unpriced
+rather than silently dropped. Zero new inference; supports `--since`,
+`--until`, and `--bench-run-id` like `compat-matrix`.
 
 `reweight`, `quality-replay`, and `verify` perform no new model inference, but
 they do append an experiment summary to `bench_runs`. The `runs` command reads

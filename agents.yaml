@@ -118,6 +118,23 @@ claude:
     refactor: 0.90
     test: 0.90
 
+claude-cli:
+  enabled: false
+  model: claude-sonnet-4-6
+  worker_id: claude-cli:sonnet
+  # Cloud head-to-head arm for Phase 4 cost benchmarking — enable explicitly
+  # for bench runs only. Runs the `claude` CLI under the Max subscription
+  # (no ANTHROPIC_API_KEY); reports real token counts + total_cost_usd per
+  # task, which flow into task_metrics.cost_usd and the cost ledger.
+  # Kept disabled otherwise: unexplored arms inflate UCB and steal routes.
+  capabilities:
+    code: 0.95
+    general: 0.95
+    plan: 0.95
+    explain: 0.95
+    refactor: 0.90
+    test: 0.90
+
 codex:
   enabled: false
   # Re-enable when OPENAI_API_KEY is set and npm install -g @openai/codex is done.

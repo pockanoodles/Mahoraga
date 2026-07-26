@@ -43,6 +43,16 @@ app = typer.Typer(
 from .bench_report import report_app  # noqa: E402
 app.add_typer(report_app, name="report")
 
+from ...routing.live_route import route_one, load_arms, to_matrix  # noqa: E402
+from ...routing.route_sim import simulate  # noqa: E402
+from ...routing.verify_replay import load_bank as load_verify_bank  # noqa: E402
+from ...routing.reweight_replay import log_offline_run  # noqa: E402
+
+_PROJECT_ROOT = Path(__file__).resolve().parents[4]
+DEFAULT_VERIFY_BANK = _PROJECT_ROOT / "experiments" / "prompts_verifiable.jsonl"
+DEFAULT_AGENTS_YAML = _PROJECT_ROOT / "agents.yaml"
+DEFAULT_DECISIONS_DB = Path.home() / ".mahoraga-v2" / "routing_decisions.db"
+
 
 DEFAULT_AGENTS = [
     "ollama:qwen3-4b",
@@ -389,6 +399,210 @@ def bench_run(
     errors = sum(1 for r in results if "error" in r)
     if errors:
         typer.echo(f"\n{errors} error(s) out of {len(results)} — see --output for details.", err=True)
+
+
+def _preflight_ollama(base_url: str, models: list[str]) -> list[str]:
+    """Return a list of human-readable problems; empty = ready.
+
+    The known gotcha (2026-07-26): roster models silently vanish from disk, so
+    a live run must confirm the tags are actually present before spending time.
+    """
+    problems: list[str] = []
+    try:
+        r = httpx.get(f"{base_url.rstrip('/')}/api/tags", timeout=5.0)
+        r.raise_for_status()
+        present = {m["name"] for m in r.json().get("models", [])}
+    except Exception as exc:
+        return [f"Ollama unreachable at {base_url}: {exc}"]
+    for m in models:
+        if m not in present:
+            problems.append(f"model {m!r} not in `ollama list` (present: {sorted(present)})")
+    return problems
+
+
+@app.command("live-route")
+def live_route_cmd(
+    bank: Path = typer.Option(DEFAULT_VERIFY_BANK, "--bank", help="Gold bank with hidden `tests` (the routed-answer ground truth)"),
+    local_arm: str = typer.Option("granite4.1-8b", "--local-arm", help="Local arm id (agents.yaml ollama model id) that answers first"),
+    judge_model: str = typer.Option("qwen3.5:latest", "--judge-model", help="Local model that renders the correctness verdict (free)"),
+    cloud_arm: str = typer.Option("claude-cli", "--cloud-arm", help="agents.yaml key for the cloud escalation arm"),
+    config: Path = typer.Option(DEFAULT_AGENTS_YAML, "--config", help="agents.yaml the arms are built from"),
+    escalate_only: bool = typer.Option(False, "--escalate-only", help="Run cloud ONLY on escalation (cheaper; drops the measured always-cloud baseline)"),
+    limit: Optional[int] = typer.Option(None, "--limit", help="Run only the first N prompts (smoke)"),
+    output: Optional[Path] = typer.Option(None, "--output", "-o", help="Write per-case results JSONL"),
+    decisions_db: Path = typer.Option(DEFAULT_DECISIONS_DB, "--decisions-db"),
+    json_out: bool = typer.Option(False, "--json"),
+    notes: Optional[str] = typer.Option(None, "--notes"),
+) -> None:
+    """LIVE local→judge→cloud cascade — the end-to-end proof of Thesis A.
+
+    Runs each gold-bank prompt through the local arm, has a free local judge
+    decide correct/incorrect from prompt+output ALONE (no hidden tests — the
+    production posture), and escalates to the cloud arm only on a fail verdict.
+    Every served answer is graded against the hidden tests for the true routed
+    pass@1, and the cloud arm's real cost is measured live. Unlike 5a/5b this
+    reads nothing from disk — fresh inference end to end. By default the cloud
+    arm also runs on kept-local prompts to give an honest always-cloud baseline
+    (never charged to the routed policy); `--escalate-only` skips that spend.
+    """
+    if not bank.exists():
+        typer.echo(f"Gold bank not found: {bank}", err=True)
+        raise typer.Exit(1)
+    if not config.exists():
+        typer.echo(f"agents.yaml not found: {config}", err=True)
+        raise typer.Exit(1)
+
+    bank_map = load_verify_bank(bank)
+    prompts = list(bank_map.keys())
+    if limit:
+        prompts = prompts[:limit]
+    if not prompts:
+        typer.echo("Bank has no gradable prompts (need `prompt` + `tests`).", err=True)
+        raise typer.Exit(1)
+
+    try:
+        local_worker, judge_worker, cloud_worker = load_arms(
+            config, local_arm, judge_model, cloud_arm
+        )
+    except ValueError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(1)
+
+    problems = _preflight_ollama(
+        local_worker._base_url, [local_worker._model, judge_model]
+    )
+    if problems:
+        typer.echo("Preflight failed:", err=True)
+        for p in problems:
+            typer.echo(f"  - {p}", err=True)
+        raise typer.Exit(1)
+
+    run_cloud_always = not escalate_only
+    local_label = local_arm if local_arm.startswith("ollama:") else f"ollama:{local_arm}"
+    cloud_label = cloud_arm  # yaml key, e.g. "claude-cli" — matches 5a/5b matrix keys
+    typer.echo(
+        f"live-route — {len(prompts)} prompts | local={local_worker.id} "
+        f"judge={judge_model} cloud={cloud_worker.id} | "
+        f"cloud_baseline={'full' if run_cloud_always else 'escalate-only'}"
+    )
+
+    async def _run_all():
+        out = []
+        for i, p in enumerate(prompts, 1):
+            spec = bank_map[p]
+            case = await route_one(
+                local_worker, judge_worker, cloud_worker,
+                p, spec["tests"], bucket=spec.get("bucket", "code"),
+                run_cloud_always=run_cloud_always,
+                local_label=local_label, cloud_label=cloud_label,
+            )
+            flag = "↑cloud" if case.escalated else "·local"
+            grade = "✓" if case.final_passed else "✗"
+            typer.echo(
+                f"  [{i:>3}/{len(prompts)}] {flag} {grade} "
+                f"(local={'✓' if case.local_passed else '✗'} "
+                f"judge={case.judge_verdict}) ${case.total_cost:.4f}"
+                + (f"  ERR: {case.error}" if case.error else "")
+            )
+            out.append(case)
+        return out
+
+    cases = asyncio.run(_run_all())
+
+    if output:
+        with open(output, "w") as f:
+            for c in cases:
+                f.write(json.dumps(c.as_dict()) + "\n")
+        typer.echo(f"per-case results → {output}")
+
+    # ── Confusion of the judge gate vs hidden-test ground truth ────────────────
+    # positive = "judge says local is correct (accept, keep local)".
+    tp = fp = tn = fn = unparsed = 0
+    for c in cases:
+        v = c.judge_verdict
+        if v is None:
+            unparsed += 1
+            continue
+        if v and c.local_passed:
+            tp += 1
+        elif v and not c.local_passed:
+            fp += 1  # accepted a wrong local answer → quality leak
+        elif (not v) and (not c.local_passed):
+            tn += 1  # caught a real failure → good escalation
+        else:
+            fn += 1  # escalated a correct answer → wasted cloud $
+    n_fail = sum(1 for c in cases if not c.local_passed)
+    graded = tp + fp + tn + fn
+    accuracy = (tp + tn) / graded if graded else 0.0
+    fail_recall = tn / n_fail if n_fail else 0.0
+
+    # ── Aggregate via the same simulator 5a/5b use, on this live matrix ────────
+    matrix, mprompts, cloud_costs, verdicts, mean_judge_cost = to_matrix(cases)
+    local_id = cases[0].local_arm
+    cloud_id = cases[0].cloud_arm
+    solved = lambda p: verdicts.get(p) is True  # None/False → escalate
+    policies = simulate(
+        matrix, mprompts, cloud_costs,
+        local_arms=[local_id], cloud_arm=cloud_id, cascade=[local_id],
+        local_solved=solved, gate_cost_per_task=mean_judge_cost,
+    )
+    if escalate_only:
+        # always-cloud would be over escalated prompts only — misleading. Drop it.
+        policies = [p for p in policies if p.name != "always-cloud"]
+    routed = next(p for p in policies if p.name.startswith("routed:"))
+    cloud_pol = next((p for p in policies if p.name == "always-cloud"), None)
+    cost_cut = (100 * (1 - routed.cost_per_task / cloud_pol.cost_per_task)
+                if cloud_pol and cloud_pol.cost_per_task else None)
+
+    # Direct live measurement — must match the simulator's routed line.
+    n = len(cases)
+    live_pass = sum(1 for c in cases if c.final_passed)
+    live_cost = sum(c.total_cost for c in cases) / n if n else 0.0
+    escalations = sum(1 for c in cases if c.escalated)
+
+    auto_summary = (
+        f"bank={bank.name} local={local_id} judge={judge_model} cloud={cloud_id} "
+        f"n={n} escalations={escalations} judge_$1k={mean_judge_cost*1000:.2f} "
+        f"acc={accuracy:.3f} fail_recall={tn}/{n_fail} "
+        f"routed_pass@1={routed.pass_rate:.4f} routed_$1k={routed.cost_per_task*1000:.2f} "
+        f"live_pass@1={live_pass}/{n} live_$1k={live_cost*1000:.2f} cost_cut_pct={cost_cut} "
+        f"cloud_baseline={'full' if run_cloud_always else 'escalate-only'}"
+    )
+    log_offline_run(decisions_db, mode="live-route", task_count=n,
+                    notes=f"{auto_summary} | {notes}" if notes else auto_summary)
+
+    if json_out:
+        typer.echo(json.dumps({
+            "bank": bank.name, "n": n, "local_arm": local_id, "judge_model": judge_model,
+            "cloud_arm": cloud_id, "run_cloud_always": run_cloud_always,
+            "escalations": escalations, "unparsed": unparsed,
+            "accuracy": round(accuracy, 4), "fail_recall": round(fail_recall, 4),
+            "confusion": {"tp": tp, "fp": fp, "tn": tn, "fn": fn, "n_fail": n_fail},
+            "judge_cost_per_task": round(mean_judge_cost, 6),
+            "cost_cut_pct": round(cost_cut, 2) if cost_cut is not None else None,
+            "live_pass_at_1": round(live_pass / n, 4) if n else 0.0,
+            "live_cost_per_task": round(live_cost, 6),
+            "policies": [p.as_dict() for p in policies],
+        }, indent=2))
+        return
+
+    typer.echo("")
+    typer.echo(f"live-route — local={local_id}, judge={judge_model} (local/free), cloud={cloud_id}")
+    typer.echo(f"  judge accuracy={accuracy:.3f}  fail-recall={tn}/{n_fail}={fail_recall:.3f}  "
+               f"(caught {tn} / missed {fp} failures; over-escalated {fn}; {unparsed} unparsed)")
+    typer.echo(f"  escalations={escalations}/{n}  judge cost=${mean_judge_cost:.4f}/call")
+    typer.echo("")
+    typer.echo(f"  {'policy':<32}{'pass@1':>16}{'$/task':>12}{'$/1k':>10}")
+    typer.echo("  " + "-" * 68)
+    for p in policies:
+        tag = f"  (esc {p.escalations})" if p.escalations is not None else ""
+        typer.echo(f"  {p.name:<32}{f'{p.pass_rate:.3f} ({p.passed}/{p.n})':>16}"
+                   f"{f'${p.cost_per_task:.4f}':>12}{f'${p.cost_per_task*1000:.2f}':>10}{tag}")
+    typer.echo("")
+    typer.echo(f"  live cross-check: routed pass@1={live_pass}/{n}={live_pass/n:.3f}, "
+               f"${live_cost*1000:.2f}/1k (matches simulator's routed line)")
+    if cost_cut is not None:
+        typer.echo(f"  live-route vs always-cloud: {cost_cut:.1f}% cost cut at pass@1={routed.pass_rate:.3f}")
 
 
 @app.command("validate")

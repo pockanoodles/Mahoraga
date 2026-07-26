@@ -276,3 +276,25 @@ Era 11 left the routing economics as a **projection** ("~90% cost cut, NOT measu
 **Productized:** `routing/judge_gate.py` (worker-agnostic `judge_one` + anti-length rubric + verdict parse), `route_sim.simulate` gained `gate_cost_per_task`, and `orch bench report judge-gate` (default `--judge-egress local`, verdict cache so re-runs never re-pay). 8 tests; suite 1446 green.
 
 **Caveats:** (1) n=50 with only **5** granite failures — the fail class is tiny, so recall (3/5, 4/5) is noisy; a harder bank with more failures is needed to trust the exact recall. (2) The local judge leaks 2 wrong answers (0.96 not 1.0) — quality tax of a weak judge. (3) Judged **code** outputs against ground truth; on verifiable tasks you'd just run the tests (oracle) — the judge's real job is **non-verifiable** tasks, which this run did not test. (4) Judge cost is a per-task cost that must be counted, or the gate looks cheaper than it is. Logged to `bench_runs` (mode=judge-gate).
+
+## Era 14 — Phase 5c: the cascade run LIVE end-to-end, no replay (2026-07-26)
+
+5a/5b were **replays** of the run-19 matrix — stored outputs re-graded, stored cloud costs re-joined, zero new inference. 5c removes that assumption: it runs the whole cascade on **fresh inference**. For each of the 50 gold prompts, `orch bench live-route` runs granite live → has the free local qwen3.5 judge decide correct/incorrect from prompt+output alone → escalates to `claude-cli` live only on a fail verdict → grades the served answer against the hidden tests. The cloud arm also runs on every prompt (never charged to the routed policy) so always-cloud is measured on the *same* fresh inference. Nothing is read from disk.
+
+| Policy (LIVE, fresh) | pass@1 | \$/1k |
+|---|---|---|
+| always-cloud (claude-cli) | 1.000 (50/50) | \$47.66 |
+| always-local (granite) | 0.880 (44/50) | \$0.00 |
+| **routed: granite→judge→cloud** | **1.000 (50/50)** | **\$10.54 (77.9% cut)** |
+
+| Question | Method | Result | Verdict |
+|---|---|---|---|
+| Does the cascade hold end-to-end on fresh inference (not replay)? | 50 prompts run live: granite → qwen3.5 judge → claude-cli, graded live | **Yes.** routed **1.000 pass@1 at \$10.54/1k vs \$47.66 always-cloud = 77.9% cut.** Live cross-check (sum of served grades / charged costs) matched the simulator's routed line exactly | **Thesis A proven live** — the stored-matrix assumption is gone |
+| Did the free local judge catch real local failures live? | Judge verdict vs hidden-test truth on fresh granite outputs | accuracy **0.920**, **fail-recall 6/6 = 1.000** — caught *every* real failure (fp=0, no wrong answer served); over-escalated 4 correct answers (fn=4) | **Better than 5b's replay** (which leaked 2). Live judge is *conservative* |
+| What's the live verification tax? | The 4 over-escalations × their real cloud cost | ~\$0.19 wasted on 4 needless cloud calls (all also passed) — **money tax only, zero quality loss**. That's the whole gap from the \$6.30 oracle to \$10.54 live | **Acceptable** — buys 100% pass@1 |
+
+**5c vs 5b, the honest difference.** 5b (replay) got routed **0.960 @ \$6.10/1k** (judge recall 3/5 → leaked 2 wrong answers, cheaper because it under-escalated). 5c (live) got **1.000 @ \$10.54/1k** (judge recall 6/6, over-escalated 4 → perfect quality, more spend). The live judge sat at a **more conservative operating point** — different because it judged *fresh* granite outputs, not run-19's stored ones. The live point is arguably the better one: it retains **100%** of cloud's verified pass@1 at **22%** of the cost. always-cloud measured \$0.0477/task live, matching Phase-4's \$0.0491 (cost capture is stable).
+
+**Shipped:** `routing/live_route.py` (`route_one` live cascade + grading, `to_matrix` folds live cases into `route_sim.simulate`'s shape so 5b's aggregation runs unchanged on fresh data, `load_arms` builds arms faithfully from `agents.yaml`), `orch bench live-route` (preflight for the vanished-models gotcha, honest full baseline by default / `--escalate-only` to spend less, per-case JSONL, live cross-check). 9 tests; suite 1455 green. Experiment spend: \$2.38 total cloud (50 baseline calls); the routed policy itself would spend only \$0.53 (10 escalations, judge free). Logged to `bench_runs` (mode=live-route).
+
+**Caveats carried from 5b:** still a small fail class (6/50) and still **code** tasks with ground truth — `route_one` is worker/bucket-agnostic, but the judge's real proving ground is **non-verifiable** tasks, still untested. `route_one` is the exact primitive a serving-path productization (`executor.py` local-verdict seam) would call — the proof and the reusable component are the same code.

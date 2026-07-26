@@ -1,5 +1,6 @@
 # backend/orchestrator/workers/ollama.py
 from __future__ import annotations
+import asyncio
 import json
 import logging
 import re
@@ -44,6 +45,16 @@ ROLE_PROMPTS: dict[str, str] = {
 _SYSTEM_PROMPTS: dict[str, str] = {f"ollama:{role}": prompt for role, prompt in ROLE_PROMPTS.items()}
 
 _DEFAULT_OPTIONS = {"num_ctx": 4096}
+
+# Cold-load resilience: an Ollama model that is still loading (or being swapped
+# in on a memory-tight machine) can return HTTP 5xx or drop the stream with a
+# ReadError before emitting any tokens. These are transient — the request is
+# fully buffered and nothing is yielded until the stream completes, so it's safe
+# to retry the whole call with backoff. Observed in Phase 4 (2026-07-26): 6/50
+# qwen3.5 tasks failed exactly this way, all clustered at the first task after a
+# model swap. 4xx and "Ollama not running" are NOT transient and fail fast.
+_MAX_TRANSIENT_RETRIES = 2   # 3 attempts total
+_RETRY_BASE_DELAY_S = 2.0    # 2s → 4s exponential backoff, covers a cold load
 
 
 def _role_of(worker_id: str) -> str:
@@ -127,67 +138,98 @@ class OllamaWorker(WorkerAdapter):
 
         full_response: list[str] = []
         _ollama_metrics: dict | None = None
-        try:
-            async with httpx.AsyncClient(timeout=120.0) as client:
-                async with client.stream(
-                    "POST", f"{self._base_url}/api/chat", json=payload,
-                ) as response:
-                    if response.status_code != 200:
-                        yield WorkerEvent(
-                            type="attempt.failed",
-                            payload={
-                                "error_code": "http_error",
-                                "error": f"Ollama returned HTTP {response.status_code} for {self._model}",
-                            },
-                        )
-                        return
-                    async for line in response.aiter_lines():
-                        if not line:
-                            continue
-                        try:
-                            chunk = json.loads(line)
-                        except json.JSONDecodeError:
-                            continue
-                        msg = chunk.get("message", {})
-                        content = msg.get("content", "")
-                        if content:
-                            full_response.append(content)
-                        if chunk.get("done"):
-                            eval_count = chunk.get("eval_count", 0)
-                            eval_duration_ns = chunk.get("eval_duration", 0)
-                            eval_duration_s = eval_duration_ns / 1e9 if eval_duration_ns else 0.0
-                            tps = round(eval_count / eval_duration_s, 1) if eval_duration_s > 0 else 0.0
-                            _ollama_metrics = {
-                                "elapsed_s": round(eval_duration_s, 2),
-                                "tokens": eval_count,
-                                "throughput_tps": tps,
-                            }
-                            # Input side of the cost counterfactual: the done
-                            # chunk also carries prompt_eval_count/_duration.
-                            prompt_eval_count = chunk.get("prompt_eval_count", 0)
-                            if prompt_eval_count:
-                                prompt_eval_ns = chunk.get("prompt_eval_duration", 0)
-                                prompt_eval_s = prompt_eval_ns / 1e9 if prompt_eval_ns else 0.0
-                                _ollama_metrics["prompt_tokens"] = prompt_eval_count
-                                _ollama_metrics["prompt_eval_rate"] = (
-                                    round(prompt_eval_count / prompt_eval_s, 1)
-                                    if prompt_eval_s > 0 else 0.0
-                                )
-                            break
-        except httpx.ConnectError:
-            yield WorkerEvent(
-                type="attempt.failed",
-                payload={
-                    "error_code": "ollama_unreachable",
-                    "error": f"Ollama is not running at {self._base_url}",
-                },
-            )
-            return
-        except Exception as exc:
-            yield WorkerEvent(
-                type="attempt.failed",
-                payload={"error_code": "stream_error", "error": f"[ERROR] {exc}"},
-            )
+        fail_event: WorkerEvent | None = None
+        for attempt_no in range(_MAX_TRANSIENT_RETRIES + 1):
+            full_response = []
+            _ollama_metrics = None
+            fail_event = None
+            transient = False
+            try:
+                async with httpx.AsyncClient(timeout=120.0) as client:
+                    async with client.stream(
+                        "POST", f"{self._base_url}/api/chat", json=payload,
+                    ) as response:
+                        if response.status_code != 200:
+                            fail_event = WorkerEvent(
+                                type="attempt.failed",
+                                payload={
+                                    "error_code": "http_error",
+                                    "error": f"Ollama returned HTTP {response.status_code} for {self._model}",
+                                },
+                            )
+                            transient = response.status_code >= 500  # 5xx = still loading
+                        else:
+                            async for line in response.aiter_lines():
+                                if not line:
+                                    continue
+                                try:
+                                    chunk = json.loads(line)
+                                except json.JSONDecodeError:
+                                    continue
+                                msg = chunk.get("message", {})
+                                content = msg.get("content", "")
+                                if content:
+                                    full_response.append(content)
+                                if chunk.get("done"):
+                                    eval_count = chunk.get("eval_count", 0)
+                                    eval_duration_ns = chunk.get("eval_duration", 0)
+                                    eval_duration_s = eval_duration_ns / 1e9 if eval_duration_ns else 0.0
+                                    tps = round(eval_count / eval_duration_s, 1) if eval_duration_s > 0 else 0.0
+                                    _ollama_metrics = {
+                                        "elapsed_s": round(eval_duration_s, 2),
+                                        "tokens": eval_count,
+                                        "throughput_tps": tps,
+                                    }
+                                    # Input side of the cost counterfactual: the done
+                                    # chunk also carries prompt_eval_count/_duration.
+                                    prompt_eval_count = chunk.get("prompt_eval_count", 0)
+                                    if prompt_eval_count:
+                                        prompt_eval_ns = chunk.get("prompt_eval_duration", 0)
+                                        prompt_eval_s = prompt_eval_ns / 1e9 if prompt_eval_ns else 0.0
+                                        _ollama_metrics["prompt_tokens"] = prompt_eval_count
+                                        _ollama_metrics["prompt_eval_rate"] = (
+                                            round(prompt_eval_count / prompt_eval_s, 1)
+                                            if prompt_eval_s > 0 else 0.0
+                                        )
+                                    break
+            except httpx.ConnectError:
+                # Server not running — retrying won't help quickly; fail fast so
+                # the "Ollama is down" signal isn't masked by backoff.
+                yield WorkerEvent(
+                    type="attempt.failed",
+                    payload={
+                        "error_code": "ollama_unreachable",
+                        "error": f"Ollama is not running at {self._base_url}",
+                    },
+                )
+                return
+            except (httpx.ReadError, httpx.ReadTimeout, httpx.RemoteProtocolError) as exc:
+                # Stream dropped mid-flight — classic cold-load / model-swap flake.
+                fail_event = WorkerEvent(
+                    type="attempt.failed",
+                    payload={"error_code": "stream_error", "error": f"[ERROR] {exc}"},
+                )
+                transient = True
+            except Exception as exc:
+                yield WorkerEvent(
+                    type="attempt.failed",
+                    payload={"error_code": "stream_error", "error": f"[ERROR] {exc}"},
+                )
+                return
+
+            if fail_event is None:
+                break  # success — response fully buffered
+            if transient and attempt_no < _MAX_TRANSIENT_RETRIES:
+                delay = _RETRY_BASE_DELAY_S * (2 ** attempt_no)
+                logger.warning(
+                    "ollama %s transient failure (%s) — retry %d/%d in %.1fs",
+                    self._model, fail_event.payload.get("error"),
+                    attempt_no + 1, _MAX_TRANSIENT_RETRIES, delay,
+                )
+                await asyncio.sleep(delay)
+                continue
+            # non-transient (4xx), or retries exhausted
+            yield fail_event
             return
 
         # Strip any <think>...</think> reasoning chain. Applies regardless of

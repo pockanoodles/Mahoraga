@@ -1,7 +1,9 @@
 # agents.yaml — Mahoraga agent pool configuration
 #
-# Active arms: ollama:qwen3.5, ollama:granite4.1-8b, ollama:qwen3-14b
-# (local only — no cloud)
+# Active arms: ollama:qwen3.5, ollama:granite4.1-8b  (local only — no cloud)
+# ollama:qwen3-14b disabled 2026-07-26 after Phase 4 (bench_run_id=19): on the
+# 50-row verifiable bank it landed mid-pack (pass@1 0.880), beaten by the 5.3 GB
+# granite (0.900) — no correctness edge for ~2x the RAM on a 16 GB machine.
 # All other arms are disabled with explanatory comments below.
 #
 # Restart `orch serve` to apply changes.
@@ -65,12 +67,15 @@ ollama:
         review: 0.85
         debug: 0.80
 
-    # qwen3-14b: diagnostic 3rd arm (see header comment). Larger/slower than
-    # qwen3.5 and granite4.1-8b — testing whether capability spread produces
-    # reward separation that two similarly-sized free local models don't.
+    # qwen3-14b: diagnostic 3rd arm (2026-07-09 → 2026-07-26). Retained to test
+    # whether capability spread breaks the qwen3.5/granite reward tie; it didn't,
+    # and Phase 4 (bench_run_id=19) showed no correctness edge over the smaller
+    # granite (pass@1 0.880 vs 0.900) for ~2x the RAM. Disabled 2026-07-26.
+    # Bandit history preserved in routing_decisions.db.
     - id: qwen3-14b
-      model: qwen3:14b                # 9.3 GB, already on disk — unused until now
+      model: qwen3:14b                # 9.3 GB, already on disk
       max_ctx: 131072
+      enabled: false
       extra_payload: {think: false}
       capabilities:
         code: 0.85

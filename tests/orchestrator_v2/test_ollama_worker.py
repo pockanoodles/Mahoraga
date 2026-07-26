@@ -41,6 +41,30 @@ def _make_stream_mock(lines: list[str], status_code: int = 200):
     return mock_client
 
 
+def _make_response(lines: list[str], status_code: int = 200):
+    """A single mock stream response (one call to client.stream())."""
+    async def fake_aiter_lines():
+        for line in lines:
+            yield line
+
+    mock_response = MagicMock()
+    mock_response.__aenter__ = AsyncMock(return_value=mock_response)
+    mock_response.__aexit__ = AsyncMock(return_value=False)
+    mock_response.status_code = status_code
+    mock_response.aiter_lines = fake_aiter_lines
+    return mock_response
+
+
+def _client_returning(*responses):
+    """AsyncClient mock whose .stream() yields each response on successive calls
+    (or raises, if the item is an exception) — for exercising the retry loop."""
+    mock_client = MagicMock()
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=False)
+    mock_client.stream = MagicMock(side_effect=list(responses))
+    return mock_client
+
+
 @pytest.mark.asyncio
 async def test_execute_completed_on_success():
     worker = OllamaWorker(model="qwen2.5-coder:7b", worker_id="ollama:coder")
@@ -90,14 +114,81 @@ async def test_execute_failed_on_empty_response():
 
 @pytest.mark.asyncio
 async def test_execute_failed_on_http_error():
+    # A persistent 5xx is transient → retried _MAX_TRANSIENT_RETRIES times, then
+    # surfaces as http_error. asyncio.sleep is patched so the backoff is instant.
     worker = OllamaWorker(model="qwen2.5-coder:7b", worker_id="ollama:coder")
     mock_client = _make_stream_mock([], status_code=500)
 
-    with patch("backend.orchestrator.workers.ollama.httpx.AsyncClient", return_value=mock_client):
+    with patch("backend.orchestrator.workers.ollama.httpx.AsyncClient", return_value=mock_client), \
+         patch("backend.orchestrator.workers.ollama.asyncio.sleep", new=AsyncMock()):
         events = [ev async for ev in worker.execute(_attempt(), _task())]
 
     assert events[0].type == "attempt.failed"
     assert events[0].payload["error_code"] == "http_error"
+    assert mock_client.stream.call_count == 3  # 1 initial + 2 retries
+
+
+@pytest.mark.asyncio
+async def test_execute_retries_transient_5xx_then_succeeds():
+    """Cold-load 5xx on the first call, success on the retry — the Phase 4 flake."""
+    worker = OllamaWorker(model="qwen2.5-coder:7b", worker_id="ollama:coder")
+    good = _make_response([json.dumps({"message": {"content": "def fib(n): ..."}, "done": True})])
+    client = _client_returning(_make_response([], status_code=503), good)
+
+    with patch("backend.orchestrator.workers.ollama.httpx.AsyncClient", return_value=client), \
+         patch("backend.orchestrator.workers.ollama.asyncio.sleep", new=AsyncMock()):
+        events = [ev async for ev in worker.execute(_attempt(), _task())]
+
+    completed = [e for e in events if e.type == "attempt.completed"]
+    assert len(completed) == 1
+    assert completed[0].payload["summary"] == "def fib(n): ..."
+    assert client.stream.call_count == 2  # one retry
+
+
+@pytest.mark.asyncio
+async def test_execute_retries_read_error_then_succeeds():
+    """A dropped stream (ReadError) mid-batch is retried, not surfaced as failure."""
+    import httpx
+    worker = OllamaWorker(model="qwen2.5-coder:7b", worker_id="ollama:coder")
+    good = _make_response([json.dumps({"message": {"content": "ok"}, "done": True})])
+    client = _client_returning(httpx.ReadError("stream dropped"), good)
+
+    with patch("backend.orchestrator.workers.ollama.httpx.AsyncClient", return_value=client), \
+         patch("backend.orchestrator.workers.ollama.asyncio.sleep", new=AsyncMock()):
+        events = [ev async for ev in worker.execute(_attempt(), _task())]
+
+    assert [e for e in events if e.type == "attempt.completed"]
+    assert client.stream.call_count == 2
+
+
+@pytest.mark.asyncio
+async def test_execute_does_not_retry_4xx():
+    """Client errors (4xx) are not transient — fail fast, no retry, no backoff."""
+    worker = OllamaWorker(model="qwen2.5-coder:7b", worker_id="ollama:coder")
+    client = _client_returning(_make_response([], status_code=400))
+
+    with patch("backend.orchestrator.workers.ollama.httpx.AsyncClient", return_value=client), \
+         patch("backend.orchestrator.workers.ollama.asyncio.sleep", new=AsyncMock()):
+        events = [ev async for ev in worker.execute(_attempt(), _task())]
+
+    assert events[0].type == "attempt.failed"
+    assert events[0].payload["error_code"] == "http_error"
+    assert client.stream.call_count == 1  # no retry
+
+
+@pytest.mark.asyncio
+async def test_execute_does_not_retry_connect_error():
+    """ConnectError = server down; fail fast so the signal isn't masked by backoff."""
+    import httpx
+    worker = OllamaWorker(model="qwen2.5-coder:7b", worker_id="ollama:coder")
+    client = _client_returning(httpx.ConnectError("refused"), httpx.ConnectError("refused"))
+
+    with patch("backend.orchestrator.workers.ollama.httpx.AsyncClient", return_value=client), \
+         patch("backend.orchestrator.workers.ollama.asyncio.sleep", new=AsyncMock()):
+        events = [ev async for ev in worker.execute(_attempt(), _task())]
+
+    assert events[0].payload["error_code"] == "ollama_unreachable"
+    assert client.stream.call_count == 1  # no retry
 
 
 @pytest.mark.asyncio

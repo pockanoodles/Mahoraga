@@ -233,3 +233,22 @@ First-ever run of Q5 ("is Mahoraga faster/cheaper than raw Claude Code, and how 
 **Honest portfolio framing (measured):** best local arm retains 90% of Claude's verified pass@1 at $0 vs $0.0491/task. **Projected (NOT measured — this run was round-robin, not routed):** granite-first + verify-gate + escalate ~10% failures to cloud ≈ ~$4.9/1k vs $49/1k all-cloud ≈ 90% cost cut at ~cloud quality.
 
 **Caveats:** (1) force-explore measured per-arm quality+cost, not the bandit's routing — the "74.9% local" in the cost report is just 3/4 arms being local. (2) qwen3.5's 6 non-passes were infra (`HTTP 500`/`ReadError`, empty output, cold-load flakiness on 16 GB at run start), not model error — model pass@1 0.818 over 44 completed. Add warmup+retry to future benches. (3) n=50/repeats=1 — claude-vs-local gap robust, 1-prompt gaps among local arms are noise. Logged to `bench_runs #19` (run) + verify/cost report rows.
+
+## Era 12 — Phase 5a: counterfactual routing-vs-baseline, computed not projected (2026-07-26)
+
+Era 11 left the routing economics as a **projection** ("~90% cost cut, NOT measured — the run was round-robin, not routed"). Because Phase 4 was force-explore, every arm attempted every prompt, so we hold a full `{arm × prompt}` matrix and can compute — *exactly, zero new inference* — what any static routing policy WOULD have scored. Shipped `orch bench report route-sim`: re-grades the 200 stored outputs against the hidden tests (reusing `verify_replay.run_case`), joins the cloud arm's **real per-prompt cost** (`decisions.task_goal` → `task_id` → `task_metrics.cost_usd`, ATTACH across the two DBs), and simulates each policy. Logic in `routing/route_sim.py` with an **injectable escalation gate** (default = oracle); 5b swaps in a fallible heuristic/judge gate on the same seam. 8 tests; suite 1438 green.
+
+| Policy (bench_run_id=19, 50 prompts) | pass@1 | $/1k | escalations |
+|---|---|---|---|
+| always-cloud | 1.000 (50/50) | $49.05 | — |
+| always-local: granite | 0.900 (45/50) | $0 | — |
+| best-of-local (any of 3) | 0.940 (47/50) | $0 | — |
+| **routed: granite→cloud (oracle gate)** | **1.000 (50/50)** | **$6.30** | 5 |
+| **routed: granite→qwen3.5→cloud (oracle)** | **1.000 (50/50)** | **$5.33** | 4 |
+
+| Question | Method | Result | Verdict |
+|---|---|---|---|
+| Is the routing cost win real, not projected? | Exact policy simulation over the run-19 matrix, real per-prompt cloud cost | Single-arm cascade **87.2% cost cut at pass@1 1.000**; two-stage **89.1%** (qwen3.5 recovers 1 of granite's 5 misses free) | **Computed** — replaces Era 11's projection. The 5 escalated prompts were pricier than the mean, so it's 87% not the round 90% |
+| Is this the ceiling or the achievable number? | The routed row uses an ORACLE gate (escalate iff local truly failed the hidden tests) | It's the **ceiling** in general — assumes perfect knowledge of local failure | **But on verifiable (code) tasks the oracle is achievable** — you can run the tests as the live gate. So 87–89% is shippable *today* for code; the ceiling-vs-reality gap only bites on open-ended tasks |
+
+**What 5a proves:** the opportunity is large and exact, not hand-waved — local-first + escalation recovers 100% of cloud quality at ~11–13% of cloud cost on this bank. **What it does NOT prove:** (a) that a *fallible* gate (heuristic/judge) captures this on non-verifiable tasks → 5b measures the "verification tax" on the same seam; (b) that the *bandit's* per-bucket arm selection adds value over a static "granite first" — on a Python-only, 2-local-arm bank the **escalation** does the work, not arm selection; showing the bandit's value needs a more diverse bank; (c) live end-to-end → 5c (a real routed run), gated behind 5b confirming the gate works. Logged to `bench_runs` (mode=route-sim).

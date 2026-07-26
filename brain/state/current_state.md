@@ -121,6 +121,12 @@ A working local-first orchestrator with per-bucket bandit routing, episodic memo
 
 `ollama:gemma4-e4b` disabled 2026-05-23 — lowest reward in every bucket in the 2026-05-20 bench; granite covers the same capability space. Cloud agents (claude, codex-cli, gemini-cli) are registered but effectively disabled — no API keys in env, gated by budget pacer.
 
+## Candidate arms blocked on hardware (do not re-research)
+
+- **North Mini Code 1.0** (Cohere, released 2026-06-09) — 30B-total / **3B-active** MoE (128 experts, 8/token), **Apache 2.0** (clean commercial license), on Ollama as `north-mini-code-1.0`. Genuinely SOTA-for-size on coding (SWE-bench Verified 80.2% pass@10; beats Qwen3.5-35B-A3B on the AA coding index) and would be an ideal *fast* arm — 3B active ≈ 3B-dense inference speed. **Blocker: does not fit 16 GB.** Smallest published quant (`q4_K_M`) is **19 GB** — MoE stores all 30B total params regardless of active count, so the weights alone exceed total unified memory before OS + KV cache. Target it if Mahoraga ever runs on ≥32 GB hardware or gains a remote/cloud arm tier. (Researched 2026-07-26.)
+- Also evaluated + rejected same date: **Laguna S 2.1** (Poolside) — 118B-A8B, smallest quant 33.8 GB, needs ~128 GB (DGX Spark class). Not a laptop model.
+- **The structural lesson:** the mid-2026 MoE trend buys quality with *total* params (memory) while keeping *active* params (compute) low — the opposite of what a 16 GB memory-bound box wants. "3B active" markets like a small model but costs like a 30B one to hold in RAM. Fittable local arms stay ≤ ~14B total.
+
 ## 2026-07-09 finding: qwen3.5 vs granite4.1-8b tie in composite reward, and it's not the reward weights
 
 Real traffic (337 non-bench decisions as of today) shows both arms scoring 0.78–0.83 avg reward in nearly every bucket, with the "leading" agent flipping between the first and second half of each bucket's history in 7/9 buckets. Checked two hypotheses, both offline/zero-inference:

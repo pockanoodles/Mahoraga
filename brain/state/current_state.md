@@ -1,5 +1,48 @@
 # Current State — 2026-07-26
 
+## Read this first — 2026-07-26 (late night): Phase 4 RAN — first head-to-head
+
+**Q5 answered.** `bench_run_id=19`, force-explore, 3 local arms + `claude-cli`
+(Sonnet 4.6, Max sub) × 50-row verifiable bank × repeats=1 = 200 tasks, memory
+off, ~35 min. Full detail: `brain/journal/2026-07-26-phase4-head-to-head.md`
+and findings.md Era 11.
+
+- **pass@1:** claude-cli **1.000** (50/50) · granite4.1-8b **0.900** (45/50) ·
+  qwen3-14b **0.880** (44/50) · qwen3.5 **0.818** (36/44).
+- **Cost:** claude-cli measured **$0.0491/task** ($2.4526/50, cache-dominated);
+  local $0. Best local arm (granite) retains **90% of Claude's verified pass@1
+  at $0**.
+- **DO NOT quote the cost report's 9.9% headline** — it's the documented floor
+  (bare-token pricing of counterfactual local rows, ~27× under the measured
+  cloud rate). Honest denominator = measured $0.0491/task.
+- **Heuristic inversion replicated** (rho=0.2; perfect arm ranks 3/4 by
+  heuristic) — Era 9 holds against a 100%-correct arm.
+
+**DONE (same session):** Kaito's call — **qwen3-14b dropped**, roster is now
+the lean 2 local arms (granite + qwen3.5). Disabled in agents.yaml
+(`enabled: false`, bandit history preserved). On Phase 4 the 9.3 GB arm was
+mid-pack (0.880), beaten by the 5.3 GB granite — no correctness edge for ~2× RAM.
+
+**DONE (same session): the qwen3.5 infra flake is FIXED.** Root cause was
+Ollama cold-load transients (`HTTP 5xx` while loading / `ReadError` on a model
+swap) surfacing with empty output — 6/50 qwen3.5 tasks at the first task after a
+swap. Fix in `workers/ollama.py`: the buffered request now retries transient
+failures (HTTP 5xx, ReadError/ReadTimeout/RemoteProtocolError) up to 2× with
+2s→4s backoff; 4xx and ConnectError still fail fast. Safe because nothing is
+yielded until the stream completes. 5 regression tests; 1430 pass. Benefits live
+traffic too (idle-eviction cold loads), not just benches.
+
+**Caveats on the Phase 4 numbers:** force-explore ≠ routing (the "74.9% local"
+is just 3/4 arms local, not a learned fraction; escalation economics are
+projections). n=50/repeats=1.
+
+**State on exit:** `claude-cli` reverted to `enabled: false`; qwen3-14b disabled;
+ollama retry shipped + tested; manual `orch serve` stopped; daemon left stopped
+(`orch service start` to restore live routing). **Uncommitted on `main`** — needs
+a feat branch + PR. Next: LLM-judge validation (now cheap vs this run's 50-row
+ground truth) · Q6 re-run on the fixed ruler · optional repeats=2 to tighten
+local-arm error bars.
+
 ## Read this first — 2026-07-26 (evening): bank 18→50, roster restored
 
 1. **PR #19 (cost accounting) merged to main.**
@@ -77,6 +120,12 @@ A working local-first orchestrator with per-bucket bandit routing, episodic memo
 | `ollama:qwen3-14b` | qwen3:14b (9.3 GB) | diagnostic arm, added 2026-07-09 — see finding below | 0.75 |
 
 `ollama:gemma4-e4b` disabled 2026-05-23 — lowest reward in every bucket in the 2026-05-20 bench; granite covers the same capability space. Cloud agents (claude, codex-cli, gemini-cli) are registered but effectively disabled — no API keys in env, gated by budget pacer.
+
+## Candidate arms blocked on hardware (do not re-research)
+
+- **North Mini Code 1.0** (Cohere, released 2026-06-09) — 30B-total / **3B-active** MoE (128 experts, 8/token), **Apache 2.0** (clean commercial license), on Ollama as `north-mini-code-1.0`. Genuinely SOTA-for-size on coding (SWE-bench Verified 80.2% pass@10; beats Qwen3.5-35B-A3B on the AA coding index) and would be an ideal *fast* arm — 3B active ≈ 3B-dense inference speed. **Blocker: does not fit 16 GB.** Smallest published quant (`q4_K_M`) is **19 GB** — MoE stores all 30B total params regardless of active count, so the weights alone exceed total unified memory before OS + KV cache. Target it if Mahoraga ever runs on ≥32 GB hardware or gains a remote/cloud arm tier. (Researched 2026-07-26.)
+- Also evaluated + rejected same date: **Laguna S 2.1** (Poolside) — 118B-A8B, smallest quant 33.8 GB, needs ~128 GB (DGX Spark class). Not a laptop model.
+- **The structural lesson:** the mid-2026 MoE trend buys quality with *total* params (memory) while keeping *active* params (compute) low — the opposite of what a 16 GB memory-bound box wants. "3B active" markets like a small model but costs like a 30B one to hold in RAM. Fittable local arms stay ≤ ~14B total.
 
 ## 2026-07-09 finding: qwen3.5 vs granite4.1-8b tie in composite reward, and it's not the reward weights
 

@@ -210,3 +210,26 @@ Caveat: only 5/70 outputs failed (arms are strong on this bank), so the fail cla
 **(2) Live execution gate shipped (Piece A).** `routing/execution_gate.py` + wired into the serving reward path (`app.py`, mirroring the existing `strict_verify` success-downgrade). For code/test/refactor/debug buckets, output that doesn't execute (syntax error, bad import, crash on load) flips the outcome to **failed** so reward short-circuits to 0 — because capping quality alone is toothless (success is ~0.60 of the code-bucket weight and reward only zeroes on `success=False`). Conservative by design: catches "doesn't run", not "wrong" (organic traffic has no gold tests). On by default, `MAHORAGA_EXEC_GATE=off` disables. Runs model code in an 8s-timeout subprocess (same posture as `tools/code_exec.py`, but now on every code-bucket task — a real security consideration, flagged in the module docstring). **Verified end-to-end live:** a valid code task passes (success), a code-bucket task forced to emit English prose is caught (`exec_gate: ... SyntaxError ...; marking failed`). On the 70 benchmark outputs the gate's "runs" rate (16/17, 18/18, 17/17, 18/18) is ≥ pass@1 as expected — strictly more lenient, catching only the "doesn't run" subset. 14 tests. Two smoke decisions hit the live bandit (1 success, 1 adversarial fail on qwen3.5/code), memory off so no episodic pollution.
 
 **Net for reward design:** live, execution is the right signal and it's now a shipped gate; embedding-sim and the heuristic are both poor correctness trackers, so don't build a graded live correctness scorer from them; use the offline `verify` harness to evaluate arms and the reward periodically. LLM-judge is the one remaining candidate, now cheaply validatable. Logged to `bench_runs`.
+
+## Era 11 — Phase 4: local roster vs Claude Code, first head-to-head (2026-07-26)
+
+First-ever run of Q5 ("is Mahoraga faster/cheaper than raw Claude Code, and how much quality does it retain"). `bench_run_id=19`, force-explore, 4 arms (3 local + `claude-cli` on Sonnet 4.6 under Max subscription) × 50-row verifiable bank × repeats=1 = 200 tasks, memory off, ~35 min. Preflight verified the cloud arm records cost end-to-end (`task_metrics` + `cost_ledger`) before committing.
+
+| Arm | pass@1 | cost/task |
+|---|---|---|
+| claude-cli (Sonnet 4.6) | **1.000** (50/50) | **$0.0491** measured |
+| granite4.1-8b (5.3 GB) | 0.900 (45/50) | $0 |
+| qwen3-14b (9.3 GB) | 0.880 (44/50) | $0 |
+| qwen3.5 (6.6 GB) | 0.818 (36/44) | $0 |
+
+| Question | Method | Result | Verdict |
+|---|---|---|---|
+| How much verified quality does the best local arm retain vs cloud? | pass@1 over 50 gold prompts, granite vs claude-cli | granite **0.900 vs 1.000** — retains 90% of Claude's verified pass@1 at $0 | **Answered** — a real, quotable retention number |
+| What does the cloud arm actually cost per task? | Measured `total_cost_usd` over 50 claude-cli tasks | **$0.0491/task** (min $0.0066, max $0.077), cache-creation-dominated | Confirmed — real dollars, not token estimate |
+| Does the `orch bench report cost` headline reflect real savings? | Read the report | Headlines **9.9% / $1.36 per 1k** — the documented **floor**: prices hypothetical-cloud local rows at bare token rates (no cache), ~27× under the measured cloud rate | **Do not quote the floor** — use measured $0.0491/task as the denominator |
+| Does the heuristic track correctness against a strong arm? | Spearman rho(pass@1, heuristic-q) across 4 arms | rho=**0.2**; the perfect arm (claude) ranks **3/4** by heuristic (top pick qwen3-14b) | **Confirmed NO** — replicates Era 9 on independent data + a 100%-correct arm |
+| Does qwen3-14b (9.3 GB) earn a permanent roster seat on the correctness axis? | Its 50-row pass@1 vs the smaller local arms | **No** — 0.880, middle of pack, beaten by the 5.3 GB granite (0.900); no correctness edge for ~2× RAM | Recommendation: drop → lean 2-local-arm roster (granite + qwen3.5). Scope decision, left to Kaito |
+
+**Honest portfolio framing (measured):** best local arm retains 90% of Claude's verified pass@1 at $0 vs $0.0491/task. **Projected (NOT measured — this run was round-robin, not routed):** granite-first + verify-gate + escalate ~10% failures to cloud ≈ ~$4.9/1k vs $49/1k all-cloud ≈ 90% cost cut at ~cloud quality.
+
+**Caveats:** (1) force-explore measured per-arm quality+cost, not the bandit's routing — the "74.9% local" in the cost report is just 3/4 arms being local. (2) qwen3.5's 6 non-passes were infra (`HTTP 500`/`ReadError`, empty output, cold-load flakiness on 16 GB at run start), not model error — model pass@1 0.818 over 44 completed. Add warmup+retry to future benches. (3) n=50/repeats=1 — claude-vs-local gap robust, 1-prompt gaps among local arms are noise. Logged to `bench_runs #19` (run) + verify/cost report rows.

@@ -9,6 +9,7 @@ Usage:
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import sqlite3
 from datetime import datetime, timezone
@@ -31,11 +32,15 @@ from ...routing.route_sim import (
     simulate as simulate_policies,
     infer_arms,
 )
+from ...routing.judge_gate import judge_one
+from ...workers.ollama import OllamaWorker
+from ...workers.claude_cli import ClaudeCliWorker
 from ...tracking.pricing import PRICING, PRICING_AS_OF, calculate_cost
 
 DEFAULT_METRICS_DB = Path.home() / ".mahoraga-v2" / "mahoraga.db"
 DEFAULT_DECISIONS_DB = Path.home() / ".mahoraga-v2" / "routing_decisions.db"
 DEFAULT_VERIFY_BANK = Path(__file__).resolve().parents[4] / "experiments" / "prompts_verifiable.jsonl"
+DEFAULT_JUDGE_CACHE = Path.home() / ".mahoraga-v2" / "judge_gate_cache.json"
 
 VALID_METRICS = ("quality", "reward", "pass_rate", "latency_s", "tokens", "tps")
 
@@ -969,6 +974,167 @@ def route_sim_cmd(
                    f"(${routed.cost_per_task*1000:.2f} vs ${cloud.cost_per_task*1000:.2f} per 1k)")
     typer.echo("  NOTE: routed uses an ORACLE escalation gate — achievable on verifiable tasks "
                "(run the tests), an upper bound elsewhere until a real gate is measured.")
+
+
+@report_app.command("judge-gate")
+def judge_gate_cmd(
+    input_path: Path = typer.Option(
+        ..., "--input", "-i", help="Force-explore bench JSONL (prompt_full/output_full/actual_agent)"
+    ),
+    bench_run_id: int = typer.Option(..., "--bench-run-id", help="Bench run for per-prompt cloud cost"),
+    bank: Path = typer.Option(DEFAULT_VERIFY_BANK, "--bank", help="Gold bank — hidden tests give the ground truth the judge is scored against"),
+    metrics_db: Path = typer.Option(DEFAULT_METRICS_DB, "--metrics-db"),
+    decisions_db: Path = typer.Option(DEFAULT_DECISIONS_DB, "--decisions-db"),
+    primary_local: Optional[str] = typer.Option(None, "--primary-local", help="Local arm whose output the judge gates (default: best local)"),
+    cloud_arm: str = typer.Option("claude-cli", "--cloud-arm"),
+    judge_model: str = typer.Option("qwen3.5:latest", "--judge-model", help="Model that renders the correctness verdict"),
+    judge_egress: str = typer.Option("local", "--judge-egress", help="local = Ollama (free) | cli = claude-cli (spends cloud $ per call)"),
+    cache_path: Path = typer.Option(DEFAULT_JUDGE_CACHE, "--cache", help="Verdict cache (keyed by judge model) so re-runs never re-pay"),
+    limit: Optional[int] = typer.Option(None, "--limit", help="Judge only the first N prompts (cheap smoke)"),
+    output_json: bool = typer.Option(False, "--json"),
+    notes: Optional[str] = typer.Option(None, "--notes"),
+) -> None:
+    """LLM-judge escalation gate: does a judge, seeing prompt+output ONLY (no
+    hidden tests — the production posture), correctly decide when to escalate?
+
+    Judges the primary local arm's stored outputs, scores the verdicts against
+    the gold bank's hidden tests (the ground truth), and runs route-sim with the
+    judge as the escalation gate — charging the judge's own per-call cost on
+    every task. `--judge-egress local` is free (Ollama) and is the on-thesis
+    path; `cli` uses claude-cli and spends per call. Verdicts are cached, so a
+    second run (or `--json`) costs nothing.
+    """
+    if not bank.exists():
+        typer.echo(f"Gold bank not found: {bank}", err=True)
+        raise typer.Exit(1)
+    if not input_path.exists():
+        typer.echo(f"Results file not found: {input_path}", err=True)
+        raise typer.Exit(1)
+    if judge_egress not in ("local", "cli"):
+        raise typer.BadParameter("--judge-egress must be 'local' or 'cli'")
+
+    matrix, bank_prompts = grade_matrix(bank, input_path)
+    if not matrix:
+        typer.echo(f"No results matched the gold bank. Was --input generated from {bank.name}?", err=True)
+        raise typer.Exit(0)
+    local_arms, best_local = infer_arms(matrix, cloud_arm)
+    primary = primary_local or best_local
+    if not primary:
+        typer.echo("No local arm found to gate.", err=True)
+        raise typer.Exit(0)
+
+    bank_map = load_verify_bank(bank)
+    primary_out = {
+        r["prompt"]: r["output"]
+        for r in load_verify_results(input_path)
+        if r["agent"] == primary and r["prompt"] in bank_map
+    }
+    if not primary_out:
+        typer.echo(f"No stored outputs for primary arm {primary!r} in {input_path.name}.", err=True)
+        raise typer.Exit(0)
+
+    if judge_egress == "local":
+        worker = OllamaWorker(model=judge_model, worker_id="ollama:judge", extra_payload={"think": False})
+    else:
+        worker = ClaudeCliWorker(model=judge_model, worker_id="claude-cli:judge")
+
+    cache = json.loads(cache_path.read_text()) if cache_path.exists() else {}
+    slot = cache.setdefault(judge_model, {})
+    verdicts: dict[str, Optional[bool]] = {}
+    costs: list[float] = []
+
+    async def _judge_all() -> None:
+        items = [p for p in bank_prompts if p in primary_out]
+        if limit:
+            items = items[:limit]
+        for p in items:
+            hit = slot.get(p)
+            if hit and hit.get("verdict") is not None:
+                verdict, cost = hit["verdict"], hit.get("cost", 0.0) or 0.0
+            else:
+                verdict, cost, _raw, _err = await judge_one(worker, p, primary_out[p])
+                slot[p] = {"verdict": verdict, "cost": cost}
+                cache_path.parent.mkdir(parents=True, exist_ok=True)
+                cache_path.write_text(json.dumps(cache, indent=2))
+            verdicts[p] = verdict
+            if cost:
+                costs.append(cost)
+
+    asyncio.run(_judge_all())
+
+    mean_cost = sum(costs) / len(costs) if costs else 0.0
+    scored_prompts = [p for p in verdicts if p in primary_out]
+    # Confusion vs ground truth. positive = "judge says local is correct (accept)".
+    tp = fp = tn = fn = 0
+    unparsed = 0
+    for p in scored_prompts:
+        v = verdicts[p]
+        if v is None:
+            unparsed += 1
+            continue
+        true_pass = matrix.get(p, {}).get(primary)
+        if v and true_pass:
+            tp += 1
+        elif v and not true_pass:
+            fp += 1  # accepted a wrong answer -> quality leak
+        elif (not v) and (not true_pass):
+            tn += 1  # caught a real failure -> good escalation
+        else:
+            fn += 1  # escalated a correct answer -> wasted cloud $
+    n_fail = sum(1 for p in bank_prompts if primary in matrix.get(p, {}) and not matrix[p][primary])
+    graded = tp + fp + tn + fn
+    accuracy = (tp + tn) / graded if graded else 0.0
+    fail_recall = tn / n_fail if n_fail else 0.0
+
+    cloud_costs = load_cloud_costs(decisions_db, metrics_db, bench_run_id, cloud_arm)
+    solved = lambda p: bool(verdicts.get(p, False))  # None/False -> escalate
+    policies = simulate_policies(
+        matrix, bank_prompts, cloud_costs,
+        local_arms=local_arms, cloud_arm=cloud_arm, cascade=[primary],
+        local_solved=solved, gate_cost_per_task=mean_cost,
+    )
+    routed = next(p for p in policies if p.name.startswith("routed:"))
+    cloud = next((p for p in policies if p.name == "always-cloud"), None)
+    cost_cut = (100 * (1 - routed.cost_per_task / cloud.cost_per_task)
+                if cloud and cloud.cost_per_task else None)
+
+    auto_summary = (
+        f"input={input_path.name} judge={judge_model} egress={judge_egress} "
+        f"primary={primary} judged={graded} unparsed={unparsed} "
+        f"acc={accuracy:.3f} fail_recall={tn}/{n_fail} judge_$1k={mean_cost*1000:.2f} "
+        f"routed_pass@1={routed.pass_rate:.4f} routed_$1k={routed.cost_per_task*1000:.2f} "
+        f"escalations={routed.escalations} cost_cut_pct={cost_cut}"
+    )
+    log_offline_run(decisions_db, mode="judge-gate", task_count=graded,
+                    notes=f"{auto_summary} | {notes}" if notes else auto_summary)
+
+    if output_json:
+        typer.echo(json.dumps({
+            "judge_model": judge_model, "judge_egress": judge_egress, "primary": primary,
+            "judged": graded, "unparsed": unparsed,
+            "accuracy": round(accuracy, 4), "fail_recall": round(fail_recall, 4),
+            "confusion": {"tp": tp, "fp": fp, "tn": tn, "fn": fn, "n_fail": n_fail},
+            "judge_cost_per_task": round(mean_cost, 6),
+            "cost_cut_pct": round(cost_cut, 2) if cost_cut is not None else None,
+            "policies": [p.as_dict() for p in policies],
+        }, indent=2))
+        return
+
+    typer.echo(f"judge-gate — judge={judge_model} ({judge_egress}), primary={primary}, "
+               f"{graded} judged ({unparsed} unparsed)")
+    typer.echo(f"  accuracy={accuracy:.3f}  fail-recall={tn}/{n_fail}={fail_recall:.3f}  "
+               f"(caught {tn} / missed {fp} failures; over-escalated {fn})")
+    typer.echo(f"  judge cost = ${mean_cost:.4f}/call (${mean_cost*1000:.2f}/1k, charged on every task)")
+    typer.echo("")
+    typer.echo(f"  {'policy':<32}{'pass@1':>16}{'$/task':>12}{'$/1k':>10}")
+    typer.echo("  " + "-" * 68)
+    for p in policies:
+        tag = f"  (esc {p.escalations})" if p.escalations is not None else ""
+        typer.echo(f"  {p.name:<32}{f'{p.pass_rate:.3f} ({p.passed}/{p.n})':>16}"
+                   f"{f'${p.cost_per_task:.4f}':>12}{f'${p.cost_per_task*1000:.2f}':>10}{tag}")
+    typer.echo("")
+    if cost_cut is not None:
+        typer.echo(f"  judge-gate vs always-cloud: {cost_cut:.1f}% cost cut at pass@1={routed.pass_rate:.3f}")
 
 
 @report_app.command("runs")

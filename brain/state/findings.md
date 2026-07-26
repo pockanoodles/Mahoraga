@@ -252,3 +252,27 @@ Era 11 left the routing economics as a **projection** ("~90% cost cut, NOT measu
 | Is this the ceiling or the achievable number? | The routed row uses an ORACLE gate (escalate iff local truly failed the hidden tests) | It's the **ceiling** in general — assumes perfect knowledge of local failure | **But on verifiable (code) tasks the oracle is achievable** — you can run the tests as the live gate. So 87–89% is shippable *today* for code; the ceiling-vs-reality gap only bites on open-ended tasks |
 
 **What 5a proves:** the opportunity is large and exact, not hand-waved — local-first + escalation recovers 100% of cloud quality at ~11–13% of cloud cost on this bank. **What it does NOT prove:** (a) that a *fallible* gate (heuristic/judge) captures this on non-verifiable tasks → 5b measures the "verification tax" on the same seam; (b) that the *bandit's* per-bucket arm selection adds value over a static "granite first" — on a Python-only, 2-local-arm bank the **escalation** does the work, not arm selection; showing the bandit's value needs a more diverse bank; (c) live end-to-end → 5c (a real routed run), gated behind 5b confirming the gate works. Logged to `bench_runs` (mode=route-sim).
+
+## Era 13 — Phase 5b: the verification tax, and a FREE local judge that captures the ceiling (2026-07-26)
+
+5a proved an 87–89% ceiling *with an oracle gate*. 5b asks: can a **fallible** gate — one that decides escalation from prompt+output alone, no hidden tests (the production posture) — capture it? Three gates, all simulated through `route_sim.simulate(local_solved=..., gate_cost_per_task=...)` (the judge's own per-call cost is charged on every task, since unlike the heuristic an LLM judge isn't free to run). Primary arm = granite (5 true failures out of 50).
+
+| Gate | pass@1 | \$/1k | notes |
+|---|---|---|---|
+| oracle (5a ceiling) | 1.000 | \$6.30 | achievable on verifiable tasks (run the tests) |
+| heuristic quality | 1.000* | \$42.51 | *only by escalating **43/50** — see below |
+| LLM judge — sonnet via `claude-cli` | 0.980 | **\$54.97** | accurate but egress-dead |
+| **LLM judge — qwen3.5 LOCAL (free)** | **0.960** | **\$6.10** | **87.6% cut, all-local** |
+
+| Question | Method | Result | Verdict |
+|---|---|---|---|
+| Can the heuristic gate escalate well? | Threshold sweep of granite's heuristic-q as the accept/reject signal | **No.** granite's 5 failures scored [0.65, 0.75×4]; its successes mean **0.782**. To catch the 0.75 failures it must escalate 43/50 → \$42.51/1k for 1.000. Captures ~15% of savings; **tax \$36.21/1k** | **Dead** — confirms Era 10 on the escalation task |
+| Can a capable LLM judge track correctness? | sonnet judges granite's 50 outputs (prompt+output only) vs hidden-test truth | **Yes — first time.** accuracy **0.960**, caught **4/5** true failures. Anti-length rubric + single-output framing beat Era 7's length-biased judges | **Idea validated** |
+| Is the judge affordable through the audited CLI egress? | Measured cost/call | **No.** \$0.0487/call (cache-creation-dominated; the CLI can't reuse cache across calls) → \$48.70/1k just to judge → judge-gate \$54.97/1k, **worse than always-cloud** | **Egress-dead** — needs a cache-amortizing or free egress |
+| Does a FREE local judge work? | qwen3.5 (Ollama, \$0) judges granite's 50 outputs, same rubric | accuracy **0.920**, recall **3/5** (missed 2 → 0.96 not 1.0). Gate free → routed **0.960 @ \$6.10/1k = 87.6% cut**, near-oracle economics, entirely local | **The answer.** A local judge is the on-thesis cheap egress |
+
+**Cheap-egress map (scout):** `ClaudeWorker` (anthropic SDK) exists but sends no `cache_control`; adding ephemeral cache blocks → cache-read is 0.1× input (`pricing.py`), ~\$0.002/call haiku (~\$2/1k, but real API \$ + key). Local Ollama judge = \$0, no new egress, WorkerAdapter-compatible. **Ranking: local (free, best fit) > API+caching (cheap, real spend) > CLI (dead).**
+
+**Productized:** `routing/judge_gate.py` (worker-agnostic `judge_one` + anti-length rubric + verdict parse), `route_sim.simulate` gained `gate_cost_per_task`, and `orch bench report judge-gate` (default `--judge-egress local`, verdict cache so re-runs never re-pay). 8 tests; suite 1446 green.
+
+**Caveats:** (1) n=50 with only **5** granite failures — the fail class is tiny, so recall (3/5, 4/5) is noisy; a harder bank with more failures is needed to trust the exact recall. (2) The local judge leaks 2 wrong answers (0.96 not 1.0) — quality tax of a weak judge. (3) Judged **code** outputs against ground truth; on verifiable tasks you'd just run the tests (oracle) — the judge's real job is **non-verifiable** tasks, which this run did not test. (4) Judge cost is a per-task cost that must be counted, or the gate looks cheaper than it is. Logged to `bench_runs` (mode=judge-gate).

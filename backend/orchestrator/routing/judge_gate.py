@@ -137,20 +137,15 @@ def _make_attempt(task_id: str, worker_id: str) -> TaskAttempt:
     )
 
 
-async def judge_one(
-    worker, task_prompt: str, candidate_output: str, *, rubric: str = JUDGE_RUBRIC
-):
-    """Judge one candidate through the worker.
+async def run_text(worker, goal: str):
+    """Run one arbitrary `goal` through the worker and return (text, cost, error).
 
-    `rubric` selects the grading standard — `JUDGE_RUBRIC` (code, default) or
-    `GENERAL_RUBRIC` (non-verifiable tasks). Returns (verdict, cost_usd,
-    raw_reply, error):
-      verdict   — True (correct) / False (incorrect) / None (unparseable)
-      cost_usd  — the judge call's own cost (estimated under Max auth)
-      raw_reply — the judge's text (for auditing)
-      error     — non-None if the call itself failed
+    The shared plumbing behind `judge_one` — a single request/response turn with
+    history cleaned up afterward. Reused by tool-augmented judging
+    (`tool_judge.py`), which needs the raw generation (a solver program) rather
+    than only a parsed verdict.
     """
-    task = _make_judge_task(build_judge_goal(task_prompt, candidate_output, rubric=rubric))
+    task = _make_judge_task(goal)
     attempt = _make_attempt(task.id, getattr(worker, "id", "judge"))
     summary = ""
     cost = 0.0
@@ -164,5 +159,23 @@ async def judge_one(
             error = ev.payload.get("error", "judge call failed")
     if hasattr(worker, "clear_history"):
         worker.clear_history(task.id)
+    return summary, cost, error
+
+
+async def judge_one(
+    worker, task_prompt: str, candidate_output: str, *, rubric: str = JUDGE_RUBRIC
+):
+    """Judge one candidate through the worker.
+
+    `rubric` selects the grading standard — `JUDGE_RUBRIC` (code, default) or
+    `GENERAL_RUBRIC` (non-verifiable tasks). Returns (verdict, cost_usd,
+    raw_reply, error):
+      verdict   — True (correct) / False (incorrect) / None (unparseable)
+      cost_usd  — the judge call's own cost (estimated under Max auth)
+      raw_reply — the judge's text (for auditing)
+      error     — non-None if the call itself failed
+    """
+    goal = build_judge_goal(task_prompt, candidate_output, rubric=rubric)
+    summary, cost, error = await run_text(worker, goal)
     verdict = parse_verdict(summary) if summary else None
     return verdict, cost, summary, error

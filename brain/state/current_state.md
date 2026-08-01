@@ -1,4 +1,87 @@
-# Current State — 2026-07-26
+# Current State — 2026-07-27
+
+## Read this first — 2026-07-27 (latest): Phase 5d — the TOOL-augmented judge
+
+**Era 17 said the quantity/omission blind spot is structural (no ensemble closes
+it) → build a tool. Done.** `routing/tool_judge.py` — a compute-check: the judge
+model emits a self-contained Python solver, it runs in the `execution_gate`
+sandbox, and the executed number is checked against the candidate. Override is
+**recall-only** (accept→reject only; never softens a reject; abstains otherwise)
+to protect ref-accept. Full detail: `brain/journal/2026-07-27-phase5d-tool-judge.md`
++ findings Era 18.
+
+**Result (v3, full 30-row bank, `orch bench report judge-bank --tool`, local/free):**
+accuracy 0.867 → **0.900**, mutant-catch 0.733 → **0.800**, wrong-quantity 1/5 →
+**2/5**, **ref-accept 1.000** this run. Caught the *computable* errors the plain
+judge AND the granite ensemble missed (two-red-marbles: 4/8 not 4/7; pipes-tank:
+dropped the drain); the 3 *factual-lookup* quantities correctly still escalate.
+
+**The build took 3 live iterations — the lesson:** the bottleneck walked down the
+chain. v1 (LLM "do they agree?" call) broke ref-accept (pedantic: rejected exact
+0.357 for "lacks precision"); v2 (LLM "extract the number") broke on the same row
+(misread 0.357→0.3); **v3 removed the LLM from BOTH sides** — solver
+**self-consistency** (≥2 of 5 runs agree, else abstain) + deterministic **last-K**
+number compare (an intermediate "3/12" spuriously contains a final "3", so
+all-number membership under-catches). Every LLM in the compare gap reintroduced
+the judgment noise the tool exists to remove.
+
+**Caveat + reframe:** the focused run showed the solver can be *consistently
+wrong* (pipes-tank → −12 passed consensus, false-rejecting a correct ref) —
+self-consistency stops *random* flakiness, not a *systematically* buggy 8B solver.
+**Reframe (5c economics):** in the live gate a false-reject is an **over-escalation
+(money, zero quality loss)**, not a wrong answer served — so the tool nets +2 real
+catches for a rare needless escalation, a win. **Solver correctness is the limiter,
+not the compare design.**
+
+**Shipped:** `routing/tool_judge.py`, `judge_gate.run_text()` (factored,
+behavior-preserving), `orch bench report judge-bank --tool` (opt-in,
+local-egress-only, own cache slot). 16 tests; suite **1481 green**. Uncommitted on
+`main` — needs a feat branch + PR.
+
+**Next:** (1) corroborate the solver before overriding (2nd framing / stronger
+model) OR make disagreement an escalate-signal not a hard reject; (2) a live
+non-verifiable cascade (5c-style) with the tool-judge as gate; (3) the omission
+blind spot (subtle-omission still 0.5) → a coverage/checklist tool; (4) productize
+`route_one` into `executor.py`.
+
+## Read this first — 2026-07-27 (earlier): Phase 5d deconfound — a SECOND local judge
+
+**Broke the single-judge confound in Era 15.** That profile ("catches stated
+falsehoods, blind to quantity/omission, never false-rejects") came from one judge
+(qwen3.5) — couldn't tell if it described the *task* or the *model*. Re-judged the
+identical 30-row bank with `granite4.1:8b` (IBM lineage, distinct from Qwen, on
+disk, free) — pure `--judge-model` swap, no code change, ~5 min, $0. Full detail:
+`brain/journal/2026-07-27-phase5d-second-judge.md` + findings Era 16.
+
+granite: **accuracy 0.750, ref-accept 1.000, mutant-catch 0.500** vs qwen3.5's
+0.867 / 1.000 / 0.733. **The deconfound split Era 15 in two:**
+- **Structural (reproduced across families):** `ref-accept = 1.000` on both →
+  both **under-escalate** on prose; **quantity blindness = 1/5 on both, exact.**
+  → the **tool-augmented judge** (calc/coverage) for quantity/completeness is now
+  *confirmed necessary*, not optional.
+- **Model-specific (diverged):** Era-15's "stated falsehoods 17/17" is a
+  **qwen3.5 property** — granite catches only ~9/16 there and is the weaker judge
+  overall (0.50 vs 0.73). → "trust the local judge for falsehoods" must name its
+  judge; **qwen3.5 stays the best single local judge, granite is not a swap-in.**
+- **Open — ensemble:** granite is weaker overall, but if its catches cover any of
+  qwen3.5's *misses*, a "both-accept-else-escalate" gate could raise recall. Needs
+  a case-level overlap join (not done). Caveat: n=30, per-defect cells 1–5, so
+  divergence is directional; the two exact matches are the strong evidence.
+
+**Ensemble join DONE (Era 17, 2026-07-27):** ran the overlap. **Answer: no
+ensemble.** Union "both-accept-else-escalate" = 0.767 catch vs qwen3.5 alone 0.733
+(ref-accept stays 1.0 → free but pointless). granite covers exactly **1** qwen3.5
+miss; qwen3.5 covers **8** granite misses — granite is ≈ a strict subset (14/15).
+**qwen3.5 is *the* sole local judge.** The 7 mutants neither family catches = 4
+quantity + 2 omission + 1 reasoning → the quantity/omission blind spot is
+**structural across families**, so the **tool-augmented judge is the only remaining
+lever** (calc for quantity, coverage-check for omission), now proven not asserted.
+Detail: findings Era 17 + `brain/journal/2026-07-27-phase5d-ensemble-overlap.md`.
+
+**Next:** (1) **tool-augmented judge** — the confirmed next build (calculator +
+coverage/checklist check; re-measure the 4 quantity + 2 omission residuals);
+(2) bigger non-verifiable bank to firm exact rates (n=30); (3) live non-verifiable
+cascade (5c-style); (4) productize `route_one` into `executor.py`.
 
 ## Read this first — 2026-07-26 (latest): Phase 5d — the judge with NO oracle
 

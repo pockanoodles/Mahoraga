@@ -33,6 +33,7 @@ from ...routing.route_sim import (
     infer_arms,
 )
 from ...routing.judge_gate import judge_one, GENERAL_RUBRIC
+from ...routing.tool_judge import tool_augmented_judge
 from ...routing.nonverifiable_bank import (
     load_bank as load_nv_bank,
     load_refs as load_nv_refs,
@@ -1151,6 +1152,7 @@ def judge_bank_cmd(
     refs: Path = typer.Option(DEFAULT_NV_REFS, "--refs", help="Reference+mutant labels keyed by id"),
     judge_model: str = typer.Option("qwen3.5:latest", "--judge-model", help="Model that renders the correctness verdict"),
     judge_egress: str = typer.Option("local", "--judge-egress", help="local = Ollama (free) | cli = claude-cli (spends $/call)"),
+    tool: bool = typer.Option(False, "--tool", help="Compute-augmented judge (tool_judge): a self-consistent sandboxed solver catches wrong NUMBERS the plain judge misses. Recall-only. Local egress only."),
     cache_path: Path = typer.Option(DEFAULT_JUDGE_BANK_CACHE, "--cache", help="Verdict cache (keyed by judge model) so re-runs never re-pay"),
     limit: Optional[int] = typer.Option(None, "--limit", help="Judge only the first N rows (cheap smoke)"),
     output_json: bool = typer.Option(False, "--json"),
@@ -1184,13 +1186,18 @@ def judge_bank_cmd(
         typer.echo("No rows to judge (bank/refs join is empty).", err=True)
         raise typer.Exit(1)
 
+    if tool and judge_egress != "local":
+        raise typer.BadParameter("--tool runs a sandboxed solver and is local-egress only")
+
     if judge_egress == "local":
         worker = OllamaWorker(model=judge_model, worker_id="ollama:judge", extra_payload={"think": False})
     else:
         worker = ClaudeCliWorker(model=judge_model, worker_id="claude-cli:judge")
 
     cache = json.loads(cache_path.read_text()) if cache_path.exists() else {}
-    slot = cache.setdefault(judge_model, {})
+    # Tool verdicts differ from the plain judge's, so they get their own cache
+    # slot rather than clobbering the base-judge results for the same model.
+    slot = cache.setdefault(f"{judge_model}::tool" if tool else judge_model, {})
     verdict_ref: dict[str, Optional[bool]] = {}
     verdict_mut: dict[str, Optional[bool]] = {}
     costs: list[float] = []
@@ -1201,7 +1208,10 @@ def judge_bank_cmd(
             if hit.get("cost"):
                 costs.append(hit["cost"])
             return hit["verdict"]
-        verdict, cost, _raw, _err = await judge_one(worker, prompt, answer, rubric=GENERAL_RUBRIC)
+        if tool:
+            verdict, cost, _detail = await tool_augmented_judge(worker, prompt, answer)
+        else:
+            verdict, cost, _raw, _err = await judge_one(worker, prompt, answer, rubric=GENERAL_RUBRIC)
         slot[cache_key] = {"verdict": verdict, "cost": cost}
         cache_path.parent.mkdir(parents=True, exist_ok=True)
         cache_path.write_text(json.dumps(cache, indent=2))
@@ -1246,7 +1256,7 @@ def judge_bank_cmd(
         return
 
     typer.echo("")
-    typer.echo(f"judge-bank — judge={judge_model} ({judge_egress}), {sc.n_rows} labeled pairs")
+    typer.echo(f"judge-bank — judge={judge_model} ({judge_egress}){' +tool' if tool else ''}, {sc.n_rows} labeled pairs")
     typer.echo(f"  accuracy={sc.accuracy:.3f}  ref-accept={sc.ref_accept_rate:.3f}  "
                f"mutant-catch={sc.mutant_catch_rate:.3f}  "
                f"paired={sc.paired_correct}/{sc.n_rows}={sc.paired_rate:.3f}  unparsed={sc.unparsed}")

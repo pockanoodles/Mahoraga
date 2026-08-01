@@ -320,3 +320,132 @@ Free local qwen3.5 judge (`orch bench report judge-bank`, $0): **accuracy 0.867,
 **Shipped:** `experiments/prompts_nonverifiable.jsonl` (+`_refs`, force-added past the `experiments/` gitignore like the verifiable bank), `routing/nonverifiable_bank.py` (loader + pure `score()`), `judge_gate.GENERAL_RUBRIC` + `rubric=` param (code rubric stays default, callers unaffected), `orch bench report judge-bank`. 10 tests (guard + scorer); suite 1465 green. Detail: `brain/journal/2026-07-26-phase5d-nonverifiable-judge.md`.
 
 **Caveats:** n=30, one judge — the commission/blind-spot *shape* is stark enough to trust, exact rates want a bigger bank + a second local model. Scores judge *discrimination on authored pairs*, not the judge on a local arm's own fresh outputs (a live non-verifiable cascade is the follow-on). Obvious upgrade: give the judge a calculator/retrieval tool and re-measure the quantity blind spot.
+
+## Era 16 — Phase 5d deconfound: a SECOND local judge (granite, IBM lineage) (2026-07-27)
+
+Era 15's non-verifiable profile rested on **one** judge (qwen3.5), so its conclusions were confounded: is "catches falsehoods, blind to quantity/omission, never false-rejects" a property of the *task/error-kind* or of *qwen3.5*? Ran the same 30-row bank, same `GENERAL_RUBRIC`, same `orch bench report judge-bank`, changing only `--judge-model granite4.1:8b` — an independent model family (IBM Granite vs Alibaba Qwen), free/local, already on disk. Verdicts cache per-model so qwen3.5's Era-15 results are untouched.
+
+Free local granite judge: **accuracy 0.750, ref-accept 1.000, mutant-catch 0.500 (15/30).**
+
+| metric | qwen3.5 (Era 15) | granite4.1:8b (Era 16) | reads as |
+|---|---|---|---|
+| ref-accept | 1.000 | **1.000** | **structural** — neither judge ever false-rejects a correct answer |
+| quantity (wrong number) | 1/5 | **1/5** | **structural** — small local judges are blind to wrong-numbers |
+| mutant-catch (overall) | 0.733 | 0.500 | model-specific — granite is the weaker judge |
+| stated-falsehood / commission | 17/17 = 1.00 | ~9/16 ≈ 0.56 | **model-specific** — qwen3.5's perfect falsehood-catch does NOT generalize (granite misses wrong-fact 3/4, inverted-causation 2/2, conflation 1/1, off-target 1/1) |
+| omission/partial | 0/3 | 1/3 | both weak |
+| flawed-reasoning | 3/4 | 2/4 | both mid |
+
+| Question | Method | Result | Verdict |
+|---|---|---|---|
+| Is Era 15's "under-escalates / never false-rejects" a qwen quirk or structural? | Second independent-family judge, same bank/rubric | ref-accept **1.000 on both** | **Structural.** Under-escalation on prose reproduces across families |
+| Is the quantity blind spot structural? | same | **1/5 on both, exact** | **Structural.** Confirms the tool-augmented judge (calc/coverage) is *necessary*, not optional |
+| Does "trust a local judge for stated falsehoods" (Era 15) generalize? | compare commission-zone catch | qwen3.5 17/17 vs granite ~9/16 | **No — model-specific.** Scope that routing rule to *the specific judge*, not "any local judge." qwen3.5 remains the best single local judge; granite is not a swap-in |
+
+**Read on this:** the deconfound worked — it split Era 15 into a **structural** half (never-false-reject → under-escalation; quantity blindness — both reproduced exactly) and a **model-specific** half (overall catch rate and, critically, the falsehood-catch headline, which is a qwen3.5 property). Two consequences: (1) the tool-augmented judge for quantity/completeness is now confirmed necessary; (2) the "local judge gates falsehoods" claim must name its judge. **Open — the ensemble question:** granite is strictly weaker overall, but if its catches cover any of qwen3.5's *misses*, a "both-accept-else-escalate" ensemble could raise recall at an escalation-cost. That needs a case-level overlap join (not done tonight).
+
+**Caveats:** n=30, per-defect cells 1–5 items — the two *exact matches* (ref-accept, quantity) are the strong evidence; the divergence claims are directional. No code shipped (pure `--judge-model` swap on existing tooling); logged to `bench_runs` (mode=judge-bank, granite). Detail: `brain/journal/2026-07-27-phase5d-second-judge.md`.
+
+## Era 17 — Phase 5d: the two-judge ensemble overlap join (2026-07-27)
+
+Era 16 left one question open: granite is the weaker judge overall, but if its
+catches cover any of qwen3.5's *misses*, a "both-accept-else-escalate" ensemble
+could raise recall for free (both have ref-accept 1.0, so a union gate adds no
+false-escalation). Answered it with a pure offline join on the cached per-case
+verdicts (`~/.mahoraga-v2/judge_bank_cache.json`, both judges present) — zero new
+inference. A mutant is caught by the ensemble if *either* judge rejects it; a
+reference is falsely escalated if *either* rejects it.
+
+| gate | mutant-catch | ref-accept |
+|---|---|---|
+| qwen3.5 alone | 22/30 = 0.733 | 1.000 |
+| granite alone | 15/30 = 0.500 | 1.000 |
+| **ensemble (union / both-accept-else-escalate)** | **23/30 = 0.767** | **1.000** |
+| intersection (both-reject-to-escalate) | 14/30 = 0.467 | — |
+
+**The ensemble is not worth building.** The hoped-for diversity isn't there:
+- **granite covers exactly ONE qwen3.5 miss** (`instruct-kyoto-two-part`,
+  partial-answer) → the entire upside is +1 mutant, 0.733→0.767.
+- **qwen3.5 covers EIGHT granite misses.** granite is almost a strict subset —
+  14 of its 15 catches are also qwen3.5's. No complementary blind-spot structure.
+- Union false-escalation = **0** (neither false-rejects), so the ensemble is
+  "free but pointless": a doubled (free, local) judge pass for +3.3pp recall.
+
+**The payoff is the residual blind-spot map — the 7 mutants NEITHER independent
+family catches:** 4× wrong-quantity (deepest ocean, fastest land animal, Olympus
+Mons, two-red-marbles), 2× subtle-omission (antibiotic handling, pipes-tank),
+1× flawed-reasoning (sailing upwind).
+
+| Question | Method | Result | Verdict |
+|---|---|---|---|
+| Do two independent local judges catch *different* mutants (is an ensemble worth it)? | Union/intersection join on cached verdicts | granite covers 1 qwen miss; qwen covers 8 granite misses; ensemble 0.767 vs 0.733 alone | **No.** granite ≈ subset of qwen3.5. Don't build the ensemble; qwen3.5 is *the* single local judge |
+| Is the quantity+omission blind spot closable by adding local judges? | The neither-caught residual set by defect | 7 residual = 4 quantity + 2 omission + 1 reasoning; both families miss ALL 4 quantity, 2/3 omission | **No — structural across families.** The **tool-augmented judge** (calc for quantity, coverage-check for omission) is the *only* remaining lever, now proven, not just asserted |
+
+**Read on this:** Era 16 said the tool-judge was "confirmed necessary"; Era 17
+upgrades that to "the only path" — a second independent family cannot close the
+quantity/omission gap, so no local-judge ensembling will. Design consequence: skip
+the ensemble entirely, keep qwen3.5 as the sole local judge, and invest the next
+build in a tool-augmented judge. **Caveats:** n=30, residual cells small (4/2/1),
+but the direction is unambiguous (0 of 4 quantity caught by *either* of two
+families). No code shipped — pure analysis over the Era-15/16 caches.
+
+## Era 18 — Phase 5d: the tool-augmented judge (compute-check) (2026-07-27)
+
+Era 17 proved the quantity/omission blind spot is structural across local judge
+families (an ensemble can't close it), leaving one lever: give the judge a TOOL.
+Built `routing/tool_judge.py` — a compute-check for computable-answer tasks: the
+judge model emits a self-contained Python solver, it runs in the `execution_gate`
+sandbox, and the executed number is checked against the candidate's answer. The
+override is RECALL-ONLY (accept→reject only; never softens a reject; abstains
+otherwise) to protect Era-16's ref-accept = 1.0.
+
+**Getting there took three live iterations, and the bottleneck walked down the
+chain each time — the real lesson:**
+
+| ver | candidate-side compare | broke on | why |
+|---|---|---|---|
+| v1 | LLM "do they agree?" call | ref-accept 0.933 | comparator pedantic — rejected an exact-correct 0.357 for "lacks precision" |
+| v2 | LLM "extract the number" call | ref-accept ~0.92 | extractor misread the candidate's 0.357 as 0.3 |
+| v3 | **deterministic**: parse numbers, check computed vs the candidate's LAST-K (rtol 2%) | (see caveat) | designed offline against real texts — no LLM on the candidate side |
+
+Every LLM placed between the executed answer and the candidate's prose reintroduced
+the judgment noise the tool exists to remove. v3 removes it from BOTH sides:
+solver via **self-consistency** (≥2 of 5 runs must agree, else abstain — a single
+shot was ~1/3 reliable), candidate via deterministic **last-K** parsing (an
+intermediate like "3/12" spuriously contains a final answer of 3, so *all*-number
+membership under-catches; the conclusion's last few numbers don't).
+
+**Result — v3, full 30-row non-verifiable bank, `orch bench report judge-bank --tool` (local, free):**
+
+| metric | base qwen3.5 (Era 15) | +tool (Era 18) |
+|---|---|---|
+| accuracy | 0.867 | **0.900** |
+| ref-accept | 1.000 | **1.000** (this run) |
+| mutant-catch | 0.733 (22/30) | **0.800 (24/30)** |
+| wrong-quantity | 1/5 (0.20) | **2/5 (0.40)** |
+
+The tool caught the **computable** quantity/reasoning errors the plain judge AND
+the granite ensemble (Era 17) both missed — `reason-two-red-marbles` (used 4/8 not
+4/7) and `reason-pipes-tank` (dropped the drain term) — while the 3 **factual**
+quantities (cheetah speed, ocean depth, Olympus height) correctly still escalate
+(a calculator can't know a looked-up fact; that's the cloud's job).
+
+| Question | Method | Result | Verdict |
+|---|---|---|---|
+| Can a free local tool-judge close the computable slice of the quantity blind spot? | self-consistent sandboxed solver + deterministic compare, full bank | wrong-quantity 1/5→2/5, catch 0.733→0.800, acc 0.867→0.900, ref-accept 1.000 this run | **Yes for computable errors** — the reasoning-bucket numbers; factual-lookup quantities stay an escalation class |
+| Is the invariant (never false-reject) safe? | focused reason+instruct run | one ref false-rejected when the solver was *consistently wrong* (pipes-tank→−12 passed consensus) | **Not guaranteed run-to-run.** Self-consistency stops *random* flakiness, not a *systematically* buggy 8B solver |
+
+**The reframe that resolves the caveat (5c economics):** ref-accept = 1.0 is a
+*bank-discriminator* metric. In the live routing gate a tool false-reject is not a
+wrong answer served — it's an **over-escalation to cloud** (which returns the right
+answer), i.e. 5c's accepted "verification tax = money, zero quality loss." As a
+gate the tool nets **+2 real computable catches for a rare needless escalation** —
+a clear win. **The real limiter is solver correctness, not the compare design;**
+next levers: corroborate the solver (second framing / stronger model) before
+overriding, or treat disagreement as escalate-signal rather than hard-reject.
+
+**Shipped:** `routing/tool_judge.py` (solver self-consistency, deterministic
+last-K compare, recall-only `tool_augmented_judge`), `judge_gate.run_text()`
+(factored worker-call plumbing, behavior-preserving), `orch bench report
+judge-bank --tool` (opt-in, local-egress-only, own cache slot). 16 tests; suite
+1481 green. Detail: `brain/journal/2026-07-27-phase5d-tool-judge.md`.

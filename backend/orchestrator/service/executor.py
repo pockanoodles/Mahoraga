@@ -16,6 +16,12 @@ from ..workers.base import WorkerEvent
 from ..workers.registry import WorkerRegistry
 from ..routing.router import assign_worker, NoCapableWorker
 from ..routing.escalation import should_escalate
+from ..routing.judge_escalation import (
+    judge_gate_enabled,
+    select_judge_worker,
+    should_escalate_by_judge,
+)
+from ..store.metrics import _classify_bucket
 from . import approvals
 
 logger = logging.getLogger(__name__)
@@ -31,6 +37,66 @@ _task_metrics_cache: dict[str, dict] = {}
 def pop_task_metrics(task_id: str) -> dict:
     """Pop and return cached Ollama metrics for a completed task. Returns {} if none."""
     return _task_metrics_cache.pop(task_id, {})
+
+
+# Side-channel for the judge gate, same pattern as _task_metrics_cache. The
+# routed agent's answer being judge-rejected has to reach the reward path or
+# enabling the gate would quietly corrupt learning: the task can still complete
+# (an escalation target answered), and the bandit attributes that completion to
+# the ROUTED agent — so without this the gate would reinforce exactly the output
+# it just rejected. See app.py's use.
+_judge_gate_cache: dict[str, dict] = {}
+
+
+def pop_judge_gate(task_id: str) -> dict:
+    """Pop the judge gate's record for a task. Returns {} if the gate didn't fire."""
+    return _judge_gate_cache.pop(task_id, {})
+
+
+@dataclasses.dataclass(frozen=True)
+class _JudgeFallback:
+    """An answer the judge gate escalated away from, kept in case the escalation fails.
+
+    The gate's invariant is that a judge mistake costs money and latency, never
+    quality (see routing/judge_escalation.py). This is what enforces the second
+    half: the escalated-from answer had already passed validation, so if the
+    escalation target then fails outright we serve this instead of blocking a
+    task we had a usable answer for.
+    """
+    summary: str
+    worker_id: str
+    attempt_id: str
+
+
+async def _serve_judge_fallback(
+    task: Task, fallback: _JudgeFallback, store: Store, reason: str,
+) -> None:
+    """Complete `task` with a judge-escalated answer instead of blocking it.
+
+    Reached when the judge gate escalated away from an answer that had already
+    passed validation and the escalation then went nowhere — the target failed,
+    or there turned out to be no other capable worker. Serving the original is
+    strictly better than blocking a task we had something usable for, and it is
+    what keeps a judge false-reject costing only the wasted escalation.
+    """
+    logger.warning(
+        "judge_gate: escalation went nowhere (%s); serving the judge-rejected "
+        "answer from %s rather than blocking task %s",
+        reason[:80], fallback.worker_id, task.id,
+    )
+    if task.status != TaskStatus.in_progress:
+        task = transition_task(task, TaskStatus.in_progress)
+        await store.tasks.update_status(task.id, task.status)
+    task = transition_task(task, TaskStatus.completed)
+    await store.tasks.update_status(task.id, task.status)
+    await store.artifacts.save(Artifact.new(
+        run_id=task.run_id, task_id=task.id, attempt_id=fallback.attempt_id,
+        type="text_output", location={"content": fallback.summary},
+    ))
+    await store.events.append(
+        ev_types.make_event(task.run_id, ev_types.TASK_COMPLETED, task_id=task.id)
+    )
+    await _unlock_downstream(task, store)
 
 
 async def run_task(
@@ -51,6 +117,7 @@ async def run_task(
     soft_retry_count: dict[str, int] = {}
     _retry_worker_id: str | None = None   # set on soft retry to force same worker
     _retry_feedback: str | None = None    # verifier feedback to inject on retry
+    _judge_fallback: _JudgeFallback | None = None  # judge-escalated answer, kept as a floor
 
     while True:
         # ── ASSIGN ──────────────────────────────────────────────────────────
@@ -60,6 +127,13 @@ async def run_task(
             try:
                 worker_id = assign_worker(task, registry, exclude=attempted)
             except NoCapableWorker:
+                # The judge escalated but every capable worker is now exhausted.
+                # Serve what we escalated away from rather than block.
+                if _judge_fallback is not None:
+                    await _serve_judge_fallback(
+                        task, _judge_fallback, store, "no capable worker left",
+                    )
+                    return
                 if task.status == TaskStatus.ready:
                     task = transition_task(task, TaskStatus.in_progress)
                     await store.tasks.update_status(task.id, task.status)
@@ -152,6 +226,57 @@ async def run_task(
 
             logger.info("verifier action=%s task=%s attempt=%s", result_action, task.id, attempt.id)
 
+            # ── JUDGE GATE ──────────────────────────────────────────────────
+            # The validators above are cheap and shallow — they catch "didn't
+            # produce anything usable", not "produced a wrong answer". The 5c
+            # cascade (findings Era 14) closes that gap with a free local judge
+            # that re-reads (prompt, output) and votes correct/incorrect.
+            #
+            # It is consulted ONLY on an otherwise-passing answer and ONLY when
+            # there is somewhere to escalate to: a reject with nowhere to go
+            # could do nothing but block a task the validator already passed,
+            # which would violate the gate's costs-money-never-quality
+            # invariant. Skipping it there saves the call's latency too.
+            # Off by default; MAHORAGA_JUDGE_GATE=on enables.
+            _fail_code = "verification_failed"
+            if (
+                result_action == "pass"
+                and judge_gate_enabled()
+                and should_escalate(task, registry, attempted | {worker_id})
+            ):
+                judge_worker = select_judge_worker(registry, producer_worker_id=worker_id)
+                if judge_worker is not None:
+                    _escalate_by_judge, _verdict, _judge_reason = await should_escalate_by_judge(
+                        judge_worker, task.goal, summary, _classify_bucket(task.goal),
+                    )
+                    if _escalate_by_judge:
+                        # The first rejection is the routed agent's — the one the
+                        # bandit will attribute this task to. Tell the reward path
+                        # so it doesn't score a rejected answer as that agent's win.
+                        if _judge_fallback is None:
+                            _judge_gate_cache[task_id] = {
+                                "routed_output_rejected": True,
+                                "rejected_worker_id": worker_id,
+                                "verdict": _verdict,
+                                "reason": _judge_reason,
+                            }
+                        # Keep the answer we are escalating away from: it passed
+                        # validation, so it is the quality floor this gate must
+                        # never drop below.
+                        _judge_fallback = _JudgeFallback(
+                            summary=summary, worker_id=worker_id, attempt_id=attempt.id,
+                        )
+                        logger.info(
+                            "judge_gate: escalating task %s away from %s (%s)",
+                            task.id, worker_id, _judge_reason,
+                        )
+                        # Route through the escalation path below, never the
+                        # failure path — the verdict is a routing signal, not a
+                        # judgement that the task itself failed.
+                        result_action = "judge_escalate"
+                        result_feedback = _judge_reason
+                        _fail_code = "judge_rejected"
+
             if result_action == "pass":
                 await store.tasks.update_attempt_result(
                     attempt.id, AttemptStatus.completed, summary=summary, output=summary,
@@ -186,12 +311,14 @@ async def run_task(
                 )
                 continue  # loop back — same worker, feedback injected via history
 
-            # Verification failed (score 0-3 or retries exhausted) → treat as attempt.failed
+            # Verification failed (score 0-3 or retries exhausted), or the judge
+            # gate voted escalate → treat as attempt.failed so the escalation
+            # block below routes it to the next worker.
             worker.clear_history(task.id)
             soft_retry_count = {}
             outcome = WorkerEvent(
                 type="attempt.failed",
-                payload={"error_code": "verification_failed", "error": result_feedback},
+                payload={"error_code": _fail_code, "error": result_feedback},
             )
 
         # ── ESCALATE or BLOCK ────────────────────────────────────────────────
@@ -233,6 +360,12 @@ async def run_task(
             )
             logger.warning("escalating task %s from %s", task.id, worker_id)
             continue
+
+        # The judge escalated away from a validated answer and the escalation
+        # target then failed outright — serve the original instead of blocking.
+        if _judge_fallback is not None:
+            await _serve_judge_fallback(task, _judge_fallback, store, blocking_reason)
+            return
 
         task = transition_task(task, TaskStatus.blocked)
         await store.tasks.update_status(task.id, task.status)

@@ -1,6 +1,21 @@
-# Current State — 2026-07-27
+# Current State — 2026-08-01
 
-## Read this first — 2026-07-27 (latest): Phase 5d — the TOOL-augmented judge
+## Read this first — 2026-08-01 (latest): the judge gate is now a SERVING-PATH feature
+
+**The proof shipped into the product.** 5a–5d proved Thesis A four ways, but all of it lived in `routing/live_route.py`, reachable only from `orch bench live-route` — no `/api/task` caller could invoke the cascade we'd proven. This session closes that gap. Full detail: `brain/journal/2026-08-01-judge-gate-productization.md` + ADR `brain/decisions/2026-08-01-judge-gate-escalate-signal.md`.
+
+- **Merged PR #27 first** — it had been green, clean, and unmerged for 5 days (Eras 16–18, `tool_judge.py`). Until it landed, `main`'s brain claimed Era 15 was the frontier.
+- **Shipped `routing/judge_escalation.py` + `service/executor.py` wiring.** Output clears the cheap validator → a free local judge re-reads (prompt, output) → an "incorrect" vote routes the task to the next capable worker. Rubric follows the bucket (code rubric for code/test/refactor/debug/security, Era-15 `GENERAL_RUBRIC` otherwise).
+- **The design is all about making a fallible judge safe live.** Three test-pinned invariants: a reject **escalates, never fails**; the judge is **not consulted when escalation is impossible** (a reject could only block a task the validator already passed — and skipping saves the latency); the escalated-from answer is a **floor**, served if the escalation target dies. Worst case = Era 14's verification tax, no quality downside.
+- **Off by default** (`MAHORAGA_JUDGE_GATE=on`, `MAHORAGA_JUDGE_MODEL=qwen3.5`) — opposite the exec gate, because this changes *which answer the caller gets*, not just the bandit's reward.
+- **The wiring caught a hazard no bench could.** The bandit attributes every task to `selected_agent`, and a judge-rejected task usually still completes via the escalation target — so `success=True` would have been credited to the arm whose answer the judge just rejected. The gate would have *reinforced exactly the output it was built to catch*. Fixed with a `pop_judge_gate` side-channel and a split in `app.py` between `success` (what the caller got) and `bandit_success` (what the arm earned).
+- Suite 1481 → **1526 green**; 45 new tests. No live inference — behavior is 5c/5d-measured, what's new is plumbing + safety properties.
+
+**Caveats:** the **77.9% cost-cut headline does not apply to the current roster** — local-only means escalation is local→local, not local→cloud. Nothing here has run on organic traffic yet. The tool judge (Era 18) is deliberately NOT wired in (5-sample solver consensus too slow inline); the escalate-signal framing is what makes adding it safe later.
+
+**Next:** run the daemon with the gate on for real hours and read the decision log — does Era 14's conservative operating point (8% needless escalation) hold on organic prompts? That's the first thing about this gate that a bench genuinely cannot tell us.
+
+## Read this first — 2026-07-27: Phase 5d — the TOOL-augmented judge
 
 **Era 17 said the quantity/omission blind spot is structural (no ensemble closes
 it) → build a tool. Done.** `routing/tool_judge.py` — a compute-check: the judge

@@ -115,6 +115,8 @@ embedding check, which uses `nomic-embed-text`.
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `MAHORAGA_EXEC_GATE` | `on` | Execute code-like outputs before rewarding success |
+| `MAHORAGA_JUDGE_GATE` | `off` | Let a free local judge escalate answers it reads as incorrect |
+| `MAHORAGA_JUDGE_MODEL` | `qwen3.5` | Which local arm judges when the gate is on |
 | `MAHORAGA_DRIFT_ENABLED` | `true` | Enable reward drift detection |
 | `MAHORAGA_DRIFT_WINDOW` | `50` | Rolling observations for drift checks |
 | `MAHORAGA_DRIFT_SIGMA` | `2.0` | Drift threshold in standard deviations |
@@ -134,6 +136,26 @@ MAHORAGA_EXEC_GATE=off orch serve
 
 The gate and offline verifier execute generated Python locally. Do not use
 untrusted prompts or outputs without a stronger sandbox.
+
+#### Judge gate
+
+`MAHORAGA_JUDGE_GATE=on` turns on the local→judge→escalate cascade that Phase 5c
+measured (1.000 pass@1 at 22% of always-cloud's cost on the verifiable bank).
+After a worker's output clears the cheap validator, the arm named by
+`MAHORAGA_JUDGE_MODEL` re-reads the prompt and the answer and votes correct or
+incorrect; an "incorrect" vote routes the task to the next capable worker.
+
+```bash
+MAHORAGA_JUDGE_GATE=on MAHORAGA_JUDGE_MODEL=qwen3.5 orch serve
+```
+
+It is **off by default**, unlike the execution gate. The execution gate only
+rewrites the bandit's reward, while this one changes which answer you get back
+and adds a judge call to every task. A rejected answer is escalated, never
+failed: if there is nowhere to escalate the judge is not consulted at all, and
+if the escalation target dies the original answer is served rather than the task
+blocked. So a judge mistake costs latency and (with a cloud arm enabled) money —
+not the answer. See `routing/judge_escalation.py` for the full invariant.
 
 ### Budget and escalation
 

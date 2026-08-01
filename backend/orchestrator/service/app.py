@@ -32,7 +32,7 @@ from ..workers.claude import ClaudeWorker
 from ..workers.registry import WorkerRegistry
 from ..adapters.registry import AdapterRegistry
 from .approvals import grant_approval, reject_approval
-from .executor import run_task as _run_task, pop_task_metrics
+from .executor import run_task as _run_task, pop_judge_gate, pop_task_metrics
 from .run_executor import run_run as _run_run
 from ..planning.planner import generate_tasks, PlannerError
 from ..routing import BanditRouter, STRATEGIES, TaskOutcome
@@ -1668,6 +1668,24 @@ async def run_api_task(
     else:
         quality_score, quality_components = 0.0, None
 
+    # Judge gate (routing/judge_escalation.py): the local judge read the ROUTED
+    # agent's own output and voted it incorrect, so the executor escalated. The
+    # task may well have completed anyway — an escalation target answered, or we
+    # fell back to the rejected answer rather than block — and `status` stays
+    # honest about that, because the caller did get served. But the bandit
+    # attributes every task to `selected_agent`, so scoring this as that agent's
+    # success would reinforce the exact output the gate just rejected. Split the
+    # two: the user sees what happened, the bandit sees the verdict.
+    bandit_success = success
+    _judge_gate = pop_judge_gate(task.id)
+    if bandit_success and _judge_gate.get("routed_output_rejected"):
+        logging.getLogger(__name__).info(
+            "judge_gate: routed agent %s was judge-rejected (%s); scoring the "
+            "bandit update as a failure for that agent",
+            selected_agent, _judge_gate.get("reason", ""),
+        )
+        bandit_success = False
+
     # F2.2: score alt output and pick the winner when double-run fired.
     # Both outcomes are fed to the bandit so we learn from two agents per task.
     _double_run_winner: str | None = None
@@ -1737,7 +1755,7 @@ async def run_api_task(
     # Always update the bandit — even on failure — so the decision row gets a
     # reward and the selected agent is penalized for the failure.
     outcome = TaskOutcome(
-        success=success,
+        success=bandit_success,
         latency_s=elapsed,
         cost_usd=cost_usd,
         quality_score=quality_score,
@@ -1774,7 +1792,7 @@ async def run_api_task(
         bandit_ucb_score=ucb_score,
         bandit_exploration_flag=exploration_flag,
         reward_score=reward,
-        success=success,
+        success=bandit_success,
         quality_score=quality_score,
         cost_usd=cost_usd,
     )

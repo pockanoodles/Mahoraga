@@ -1686,6 +1686,29 @@ async def run_api_task(
         )
         bandit_success = False
 
+    # Persist the consultation (accept or reject) so the gate's live operating
+    # point is measurable — 5c/5d measured it on curated banks, and this is the
+    # only record of what it does on organic prompts. See
+    # `orch bench report judge-live`.
+    if _judge_gate:
+        try:
+            router.logger.log_judge_gate(
+                task_id=task.id,
+                bucket=bucket,
+                judged_agent=selected_agent,
+                judge_worker_id=_judge_gate.get("judge_worker_id", ""),
+                verdict=_judge_gate.get("verdict"),
+                escalated=bool(_judge_gate.get("routed_output_rejected")),
+                served_fallback=bool(_judge_gate.get("served_fallback")),
+                final_agent=used_worker,
+                judge_ms=_judge_gate.get("judge_ms"),
+                reason=_judge_gate.get("reason", ""),
+            )
+        except Exception:
+            logging.getLogger(__name__).exception(
+                "judge_gate: failed to log gate event for %s", task.id
+            )
+
     # F2.2: score alt output and pick the winner when double-run fired.
     # Both outcomes are fed to the bandit so we learn from two agents per task.
     _double_run_winner: str | None = None

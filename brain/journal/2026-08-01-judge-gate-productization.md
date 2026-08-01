@@ -72,12 +72,47 @@ the serving path** — in a bench, the judge's verdict *is* the routing decision
 and there's no learner downstream to mislead. Four phases of bench work couldn't
 have surfaced it.
 
+## Part 2 — instrumentation, so the gate is measurable on organic traffic
+
+Shipping the gate without instrumentation would have left the interesting
+question unanswerable, so the same session added the read-back path:
+
+- `judge_gate_events` table on the decision log (+ `log_judge_gate`), one row per
+  consultation — **accept or reject**. Rejects alone give no escalation *rate*;
+  the denominator needs the accepts.
+- `routing/judge_live_report.py` + `orch bench report judge-live`.
+
+**What it reports, and what it refuses to report.** Escalation rate (overall,
+per bucket, per judged agent), the verdict mix, judge latency (mean/p90 — on a
+serving path the tax is *time*, paid whether or not the gate fires), and the
+fallback rate: how often an escalation went nowhere, i.e. how often invariant 3
+saved a task a hard-reject design would have blocked.
+
+It deliberately does **not** report accuracy or recall. Era 14's "4 of 50
+needless" came from grading against hidden tests; organic traffic has no oracle,
+which is the entire reason the banks exist. The report says so in its own output
+and in `as_dict`'s `caveat` field, and a test asserts `accuracy` never appears in
+the overall cell — because the failure mode here is a future me reading a
+20%-matches-20% line as "the gate is correct." **Divergence is the finding;
+agreement is weak confirmation.**
+
+Two aggregation decisions worth writing down, both test-pinned:
+
+- **An abstain is not a "correct" vote.** A judge whose call errored keeps the
+  local answer, same *action* as a "correct" verdict — but collapsing them would
+  hide an Ollama outage as a run of clean accepts. Four verdict classes
+  (correct / incorrect / unparseable / abstained), kept apart.
+- **A NULL latency is skipped, not zeroed.** Otherwise abstains (which cost 0 ms
+  by construction) would drag the mean down and understate the real tax.
+
 ## Numbers
 
-Suite 1481 → **1526 green** (`pytest -m "not slow"`); 45 new tests. No live
-inference this session — the gate's behavior is measured by 5c/5d, and what's
-new here is plumbing plus safety properties, which are exactly what unit tests
-can pin.
+Suite 1481 → **1550 green** (`pytest -m "not slow"`); 69 new tests across the
+gate (48) and the report (21). No live inference this session — the gate's
+behavior is measured by 5c/5d, and what's new is plumbing, safety properties, and
+aggregation, all of which unit tests pin precisely. The report was smoke-run
+against a seeded DB to confirm the rendering, the `--json` path, and the
+no-data path.
 
 ## Caveats & next
 
@@ -85,11 +120,16 @@ can pin.
   roster local-only, escalation goes local→local, not local→cloud. Still worth
   something (5a: qwen3.5 recovers 1 of granite's 5 misses free) but it is not
   the cloud number and must not be quoted as one.
-- **Not yet run on organic traffic.** Everything here is bank-measured. The open
-  question the gate can now finally answer: does Era 14's conservative operating
-  point (8% needless escalation) hold on real prompts, or does organic traffic
-  escalate far more? That needs hours with `MAHORAGA_JUDGE_GATE=on`, then a read
-  of the decision log.
+- **Not yet run on organic traffic.** Everything here is bank-measured. The gate
+  and its report are now both in place, so the open question is finally
+  answerable — does Era 14's 20% escalation rate hold on real prompts? — but it
+  needs hours with `MAHORAGA_JUDGE_GATE=on` before `orch bench report judge-live`
+  says anything. **That run is the next session's work**, and it is the first
+  thing about this gate a bench genuinely cannot tell us.
+- **Era 15 predicts a specific per-bucket shape**: the same judge was permissive
+  on prose and conservative on code, so code buckets should escalate more than
+  general ones. The report splits per bucket precisely so that prediction is
+  checkable rather than assumed.
 - **Tool judge deliberately not wired in.** 5-sample solver consensus is too
   slow inline. The escalate-signal framing is what makes adding it safe later —
   a solver bug becomes a needless escalation, not a rejected correct answer

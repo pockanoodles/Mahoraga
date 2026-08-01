@@ -55,8 +55,10 @@ served. Enable with MAHORAGA_JUDGE_GATE=on.
 """
 from __future__ import annotations
 
+import dataclasses
 import logging
 import os
+import time
 from typing import Optional
 
 from .judge_gate import GENERAL_RUBRIC, JUDGE_RUBRIC, judge_one
@@ -154,33 +156,50 @@ def _arm_of(worker_id: str) -> str:
     return _normalize_arm(worker_id)
 
 
+@dataclasses.dataclass(frozen=True)
+class JudgeDecision:
+    """One judge consultation's outcome.
+
+    `escalate` is the routing decision. `verdict` is the raw vote (True correct
+    / False incorrect / None unparseable-or-unavailable) kept separately because
+    they come apart: an errored call abstains but is not a "correct" vote, and
+    conflating the two would make the live escalation-rate report unreadable.
+    `judge_ms` is the latency the caller paid, which on a serving path is the
+    real per-task tax whether the gate escalates or not.
+    """
+    escalate: bool
+    verdict: Optional[bool]
+    reason: str
+    judge_ms: float
+
+
 async def should_escalate_by_judge(
     judge_worker, prompt: str, output: str, bucket: str,
-) -> tuple[bool, Optional[bool], str]:
+) -> JudgeDecision:
     """Ask the judge whether `output` answers `prompt`; decide escalation.
-
-    Returns (escalate, verdict, reason):
-      escalate — True to route the task on to the next capable worker
-      verdict  — the raw judge vote (True correct / False incorrect / None
-                 unparseable), for logging and audit
-      reason   — short human-readable explanation
 
     Escalates on an explicit "incorrect" and on an unparseable reply (5c's safe
     default). Abstains — keeps the local answer — when the judge call itself
     errored, which is infrastructure failing, not evidence about the answer.
     """
     if not output.strip():
-        return False, None, "empty output: nothing for the judge to grade"
+        return JudgeDecision(
+            False, None, "empty output: nothing for the judge to grade", 0.0,
+        )
 
+    t0 = time.monotonic()
     verdict, _cost, _raw, error = await judge_one(
         judge_worker, prompt, output, rubric=rubric_for_bucket(bucket),
     )
+    judge_ms = (time.monotonic() - t0) * 1000
 
     if error:
         logger.warning("judge_gate: judge call failed (%s); keeping local answer", error)
-        return False, None, f"judge unavailable: {error}"
+        return JudgeDecision(False, None, f"judge unavailable: {error}", judge_ms)
     if verdict is True:
-        return False, True, "judge: correct"
+        return JudgeDecision(False, True, "judge: correct", judge_ms)
     if verdict is False:
-        return True, False, "judge: incorrect"
-    return True, None, "judge verdict unparseable; escalating (5c default)"
+        return JudgeDecision(True, False, "judge: incorrect", judge_ms)
+    return JudgeDecision(
+        True, None, "judge verdict unparseable; escalating (5c default)", judge_ms,
+    )

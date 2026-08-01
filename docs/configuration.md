@@ -157,6 +157,21 @@ if the escalation target dies the original answer is served rather than the task
 blocked. So a judge mistake costs latency and (with a cloud arm enabled) money —
 not the answer. See `routing/judge_escalation.py` for the full invariant.
 
+Every consultation is logged to `judge_gate_events` in the decisions DB. Read the
+gate's live behaviour back with:
+
+```bash
+orch bench report judge-live               # operating point vs the Era-14 bank
+orch bench report judge-live --json        # same, machine-readable
+```
+
+That report gives escalation rate (overall, per bucket, per agent), judge latency
+— the per-task tax, paid whether or not the gate escalates — and how often an
+escalation went nowhere and fell back. It deliberately does **not** report
+accuracy: organic traffic has no ground truth, which is exactly what the 5c/5d
+banks exist to provide. Divergence from the bank's 20% escalation rate is the
+finding; agreement is only weak confirmation.
+
 ### Budget and escalation
 
 | Variable | Default | Purpose |

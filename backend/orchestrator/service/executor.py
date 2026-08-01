@@ -84,6 +84,8 @@ async def _serve_judge_fallback(
         "answer from %s rather than blocking task %s",
         reason[:80], fallback.worker_id, task.id,
     )
+    if task.id in _judge_gate_cache:
+        _judge_gate_cache[task.id]["served_fallback"] = True
     if task.status != TaskStatus.in_progress:
         task = transition_task(task, TaskStatus.in_progress)
         await store.tasks.update_status(task.id, task.status)
@@ -246,20 +248,22 @@ async def run_task(
             ):
                 judge_worker = select_judge_worker(registry, producer_worker_id=worker_id)
                 if judge_worker is not None:
-                    _escalate_by_judge, _verdict, _judge_reason = await should_escalate_by_judge(
+                    _decision = await should_escalate_by_judge(
                         judge_worker, task.goal, summary, _classify_bucket(task.goal),
                     )
-                    if _escalate_by_judge:
-                        # The first rejection is the routed agent's — the one the
-                        # bandit will attribute this task to. Tell the reward path
-                        # so it doesn't score a rejected answer as that agent's win.
-                        if _judge_fallback is None:
-                            _judge_gate_cache[task_id] = {
-                                "routed_output_rejected": True,
-                                "rejected_worker_id": worker_id,
-                                "verdict": _verdict,
-                                "reason": _judge_reason,
-                            }
+                    # Record every consultation, accept or reject. The rejects
+                    # alone can't give an escalation *rate* — that needs the
+                    # denominator — and the latency is paid either way.
+                    if _judge_fallback is None:
+                        _judge_gate_cache[task_id] = {
+                            "routed_output_rejected": _decision.escalate,
+                            "judged_worker_id": worker_id,
+                            "judge_worker_id": judge_worker.id,
+                            "verdict": _decision.verdict,
+                            "reason": _decision.reason,
+                            "judge_ms": _decision.judge_ms,
+                        }
+                    if _decision.escalate:
                         # Keep the answer we are escalating away from: it passed
                         # validation, so it is the quality floor this gate must
                         # never drop below.
@@ -268,13 +272,13 @@ async def run_task(
                         )
                         logger.info(
                             "judge_gate: escalating task %s away from %s (%s)",
-                            task.id, worker_id, _judge_reason,
+                            task.id, worker_id, _decision.reason,
                         )
                         # Route through the escalation path below, never the
                         # failure path — the verdict is a routing signal, not a
                         # judgement that the task itself failed.
                         result_action = "judge_escalate"
-                        result_feedback = _judge_reason
+                        result_feedback = _decision.reason
                         _fail_code = "judge_rejected"
 
             if result_action == "pass":

@@ -210,25 +210,21 @@ def test_select_judge_still_returns_a_self_judge(monkeypatch, caplog):
 # ── verdict → decision ───────────────────────────────────────────────────────
 
 async def test_correct_verdict_keeps_local():
-    escalate, verdict, _ = await should_escalate_by_judge(
-        _judge(_SAYS_CORRECT), "task", "answer", "general",
-    )
-    assert (escalate, verdict) == (False, True)
+    d = await should_escalate_by_judge(_judge(_SAYS_CORRECT), "task", "answer", "general")
+    assert (d.escalate, d.verdict) == (False, True)
 
 
 async def test_incorrect_verdict_escalates():
-    escalate, verdict, _ = await should_escalate_by_judge(
-        _judge(_SAYS_INCORRECT), "task", "answer", "general",
-    )
-    assert (escalate, verdict) == (True, False)
+    d = await should_escalate_by_judge(_judge(_SAYS_INCORRECT), "task", "answer", "general")
+    assert (d.escalate, d.verdict) == (True, False)
 
 
 async def test_unparseable_verdict_escalates():
     """5c's safe default: a judge that replied but made no sense → escalate."""
-    escalate, verdict, _ = await should_escalate_by_judge(
+    d = await should_escalate_by_judge(
         _judge("I am not sure, could be true or false"), "task", "answer", "general",
     )
-    assert (escalate, verdict) == (True, None)
+    assert (d.escalate, d.verdict) == (True, None)
 
 
 async def test_failed_judge_call_abstains():
@@ -237,18 +233,27 @@ async def test_failed_judge_call_abstains():
         "ollama:qwen3.5:general", [],
         [WorkerEvent("attempt.failed", {"error": "connection refused"})],
     )
-    escalate, verdict, reason = await should_escalate_by_judge(broken, "task", "answer", "general")
-    assert escalate is False
-    assert verdict is None
-    assert "unavailable" in reason
+    d = await should_escalate_by_judge(broken, "task", "answer", "general")
+    assert d.escalate is False
+    assert d.verdict is None
+    assert "unavailable" in d.reason
 
 
 async def test_empty_output_abstains():
-    escalate, _, reason = await should_escalate_by_judge(
-        _judge(_SAYS_INCORRECT), "task", "   ", "general",
-    )
-    assert escalate is False
-    assert "nothing for the judge" in reason
+    d = await should_escalate_by_judge(_judge(_SAYS_INCORRECT), "task", "   ", "general")
+    assert d.escalate is False
+    assert "nothing for the judge" in d.reason
+
+
+async def test_judge_latency_is_measured():
+    """The per-task tax on a serving path is time; it has to be recorded."""
+    d = await should_escalate_by_judge(_judge(_SAYS_CORRECT), "task", "answer", "general")
+    assert d.judge_ms >= 0.0
+
+
+async def test_abstain_on_empty_output_costs_nothing():
+    d = await should_escalate_by_judge(_judge(_SAYS_CORRECT), "task", "", "general")
+    assert d.judge_ms == 0.0
 
 
 # ── executor wiring ──────────────────────────────────────────────────────────
@@ -401,13 +406,34 @@ async def test_reject_is_reported_to_the_reward_path(store, gate_on):
 
     record = pop_judge_gate(task_id)
     assert record["routed_output_rejected"] is True
-    assert record["rejected_worker_id"] == local.id
+    assert record["judged_worker_id"] == local.id
+    assert record["judge_worker_id"] == "ollama:qwen3.5:general"
     assert record["verdict"] is False
+    assert record["judge_ms"] >= 0.0
     # popped exactly once — no leak into the next task with the same id
     assert pop_judge_gate(task_id) == {}
 
 
-async def test_accepted_answer_reports_nothing(store, gate_on):
+async def test_accepted_answer_is_still_recorded(store, gate_on):
+    """Rejects alone give no escalation *rate* — the denominator needs accepts too."""
+    local = MockWorker("ollama:granite4.1-8b:general", ["file_editing"], [
+        WorkerEvent("attempt.completed", {"summary": "the local answer"}),
+    ])
+    cloud = MockWorker("claude-cli:sonnet", ["file_editing"], [
+        WorkerEvent("attempt.completed", {"summary": "unused"}),
+    ])
+    task_id = await _setup(store)
+
+    await run_task(task_id, store, _reg(local, _judge(_SAYS_CORRECT), cloud), _pass_verifier())
+
+    record = pop_judge_gate(task_id)
+    assert record["routed_output_rejected"] is False
+    assert record["verdict"] is True
+
+
+async def test_unjudged_task_records_nothing(store, monkeypatch):
+    """Gate off → no consultation → no row, so it can't dilute the denominator."""
+    monkeypatch.delenv("MAHORAGA_JUDGE_GATE", raising=False)
     local = MockWorker("ollama:granite4.1-8b:general", ["file_editing"], [
         WorkerEvent("attempt.completed", {"summary": "the local answer"}),
     ])
@@ -435,7 +461,9 @@ async def test_reject_reported_even_when_fallback_is_served(store, gate_on):
     await run_task(task_id, store, _reg(local, _judge(_SAYS_INCORRECT), cloud), _pass_verifier())
 
     assert await _output_of(store, task_id) == "the local answer"
-    assert pop_judge_gate(task_id)["routed_output_rejected"] is True
+    record = pop_judge_gate(task_id)
+    assert record["routed_output_rejected"] is True
+    assert record["served_fallback"] is True
 
 
 async def test_code_task_judged_under_the_code_rubric(store, gate_on):

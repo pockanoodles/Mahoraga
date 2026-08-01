@@ -33,6 +33,14 @@ from ...routing.route_sim import (
     infer_arms,
 )
 from ...routing.judge_gate import judge_one, GENERAL_RUBRIC
+from ...routing.judge_live_report import (
+    ERA14_ESCALATION_RATE,
+    ERA14_LABEL,
+    ERA14_NEEDLESS_RATE,
+    as_dict as live_judge_as_dict,
+    load_events as load_live_judge_events,
+    summarize as summarize_live_judge,
+)
 from ...routing.tool_judge import tool_augmented_judge
 from ...routing.nonverifiable_bank import (
     load_bank as load_nv_bank,
@@ -1274,6 +1282,97 @@ def judge_bank_cmd(
     for df, d in sc.by_defect.items():
         frac = f"({d['caught']}/{d['parsed']})"
         typer.echo(f"  {df:<22}{d['catch_rate']:>12.3f}{frac:>18}")
+
+
+@report_app.command("judge-live")
+def judge_live_cmd(
+    since: Optional[str] = typer.Option(None, "--since", help="ISO date/timestamp lower bound (e.g. 2026-08-01)"),
+    bucket: Optional[str] = typer.Option(None, "--bucket", help="Restrict to one capability bucket"),
+    min_samples: int = typer.Option(3, "--min-samples", help="Hide per-bucket/agent rows thinner than this"),
+    decisions_db: Path = typer.Option(DEFAULT_DECISIONS_DB, "--decisions-db"),
+    output_json: bool = typer.Option(False, "--json"),
+) -> None:
+    """What the LIVE judge gate does on organic traffic, vs the Era-14 bank.
+
+    5c/5d measured the judge where ground truth existed (hidden tests, authored
+    mutants). Real `/api/task` traffic has none, so this reports the gate's
+    **operating point** — how often it escalates, on which buckets, at what
+    latency, and how often the escalate-signal invariant saved a task that a
+    hard-reject design would have blocked. It deliberately does NOT report
+    accuracy or recall: those need an oracle, which is precisely what organic
+    traffic lacks. Divergence from Era 14's 20% escalation rate is the finding;
+    agreement is weak confirmation.
+
+    Requires MAHORAGA_JUDGE_GATE=on to have been set while serving.
+    """
+    rows = load_live_judge_events(decisions_db, since=since, bucket=bucket)
+    if not rows:
+        typer.echo("No judge-gate events logged.")
+        typer.echo(
+            "  The gate is off by default — serve with MAHORAGA_JUDGE_GATE=on, "
+            "then re-run this report."
+        )
+        raise typer.Exit(0)
+
+    summary = summarize_live_judge(rows)
+    if output_json:
+        typer.echo(json.dumps(live_judge_as_dict(summary), indent=2))
+        return
+
+    o = summary.overall
+    typer.echo("")
+    typer.echo("Live judge gate — operating point on organic traffic")
+    typer.echo(f"  window        {summary.first_seen[:19]} → {summary.last_seen[:19]}")
+    typer.echo(f"  judged        {o.judged} tasks")
+    typer.echo(f"  escalated     {o.escalated}  ({o.escalation_rate:.1%})")
+    typer.echo(
+        f"  verdicts      correct={o.verdict_correct} incorrect={o.verdict_incorrect} "
+        f"unparseable={o.verdict_unparseable} abstained={o.abstained}"
+    )
+    typer.echo(
+        f"  judge latency mean {o.mean_judge_ms:.0f} ms · p90 {o.p90_judge_ms():.0f} ms "
+        f"(paid on every judged task)"
+    )
+    if o.escalated:
+        typer.echo(
+            f"  fallbacks     {o.served_fallback}/{o.escalated} escalations went nowhere "
+            f"({o.fallback_rate:.1%}) — served the original instead of blocking"
+        )
+
+    typer.echo("")
+    typer.echo(f"vs {ERA14_LABEL}")
+    typer.echo(f"  bank escalation rate   {ERA14_ESCALATION_RATE:.1%}")
+    typer.echo(f"  live escalation rate   {o.escalation_rate:.1%}")
+    delta = summary.escalation_delta
+    direction = "more" if delta > 0 else "less"
+    typer.echo(f"  delta                  {delta:+.1%} ({direction} escalation than the bank)")
+    typer.echo(
+        f"  bank needless rate     {ERA14_NEEDLESS_RATE:.1%} "
+        "(not computable live — no oracle)"
+    )
+
+    def _table(title: str, cells: dict) -> None:
+        shown = {k: c for k, c in sorted(cells.items()) if c.judged >= min_samples}
+        if not shown:
+            return
+        typer.echo("")
+        typer.echo(title)
+        typer.echo(f"  {'':<12} {'judged':>7} {'escal':>7} {'rate':>7} {'mean ms':>9}")
+        for name, c in shown.items():
+            typer.echo(
+                f"  {name[:12]:<12} {c.judged:>7} {c.escalated:>7} "
+                f"{c.escalation_rate:>6.1%} {c.mean_judge_ms:>9.0f}"
+            )
+
+    _table("Per bucket", summary.per_bucket)
+    _table("Per judged agent", summary.per_agent)
+
+    typer.echo("")
+    typer.echo(
+        "NOTE: operating point only. Whether an escalation was *right* needs "
+        "ground truth\n      (the 5c/5d banks). Do not read a matching rate as "
+        "the gate being correct."
+    )
 
 
 @report_app.command("runs")

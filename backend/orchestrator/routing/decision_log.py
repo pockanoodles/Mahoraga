@@ -76,6 +76,27 @@ CREATE TABLE IF NOT EXISTS drift_events (
 );
 CREATE INDEX IF NOT EXISTS idx_drift_ts ON drift_events(timestamp);
 CREATE INDEX IF NOT EXISTS idx_drift_cell ON drift_events(bucket, agent);
+-- One row per task the live judge gate actually graded (routing/judge_escalation.py).
+-- Phases 5c/5d measured the judge on curated banks; this is the only record of
+-- what it does on organic traffic, where there is no ground truth to score it
+-- against. `escalated` is the operating point; `judge_ms` is the tax the caller
+-- pays on every judged task whether it escalates or not.
+CREATE TABLE IF NOT EXISTS judge_gate_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp TEXT NOT NULL,
+    task_id TEXT,
+    bucket TEXT NOT NULL DEFAULT '',
+    judged_agent TEXT NOT NULL DEFAULT '',   -- the arm whose output was graded
+    judge_worker_id TEXT NOT NULL DEFAULT '',
+    verdict INTEGER,                          -- 1 correct / 0 incorrect / NULL unparseable
+    escalated INTEGER NOT NULL DEFAULT 0,
+    served_fallback INTEGER NOT NULL DEFAULT 0,  -- escalation died; original served
+    final_agent TEXT NOT NULL DEFAULT '',     -- whose answer the caller actually got
+    judge_ms REAL,
+    reason TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_judge_gate_ts ON judge_gate_events(timestamp);
+CREATE INDEX IF NOT EXISTS idx_judge_gate_bucket ON judge_gate_events(bucket);
 """
 
 _QUALITY_COMPONENT_COLUMNS = [
@@ -330,6 +351,53 @@ class DecisionLogger:
                     float(alert.historical_std),
                     float(alert.deviation_sigmas),
                     int(alert.window_size),
+                ),
+            )
+            self._conn.commit()
+            return cur.lastrowid
+
+    def log_judge_gate(
+        self,
+        *,
+        task_id: Optional[str],
+        bucket: str,
+        judged_agent: str,
+        judge_worker_id: str,
+        verdict: Optional[bool],
+        escalated: bool,
+        served_fallback: bool,
+        final_agent: str,
+        judge_ms: Optional[float],
+        reason: str,
+    ) -> int:
+        """Append one row per task the live judge gate graded. Returns the row id.
+
+        Organic traffic has no hidden tests, so this deliberately records the
+        gate's *operating point* (how often it fires, on which buckets, at what
+        latency) and NOT its accuracy — which is unmeasurable without ground
+        truth, and is exactly what the 5c/5d banks exist to supply.
+        """
+        with self._lock:
+            ts = datetime.now(timezone.utc).isoformat()
+            cur = self._conn.execute(
+                """
+                INSERT INTO judge_gate_events (
+                    timestamp, task_id, bucket, judged_agent, judge_worker_id,
+                    verdict, escalated, served_fallback, final_agent, judge_ms, reason
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    ts,
+                    task_id,
+                    str(bucket),
+                    str(judged_agent),
+                    str(judge_worker_id),
+                    None if verdict is None else int(bool(verdict)),
+                    int(bool(escalated)),
+                    int(bool(served_fallback)),
+                    str(final_agent),
+                    None if judge_ms is None else float(judge_ms),
+                    str(reason),
                 ),
             )
             self._conn.commit()

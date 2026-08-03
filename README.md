@@ -9,16 +9,22 @@ routing decisions.
 ![License: MIT](https://img.shields.io/badge/license-MIT-green)
 ![Last commit](https://img.shields.io/github/last-commit/pockanoodles/Mahoraga)
 
-Mahoraga currently runs three local Ollama arms:
+In a live 50-task benchmark, Mahoraga's local → judge → cloud escalation
+cascade matched an always-cloud policy's verified pass@1 (1.000) at 22% of its
+cost — $10.54 vs $47.66 per 1,000 tasks — with a free local model serving as
+the escalation judge.
+
+Mahoraga currently runs two local Ollama arms:
 
 | Arm | Model | Role |
 | --- | --- | --- |
-| `ollama:qwen3.5` | `qwen3.5:latest` | Code, planning, and general work |
+| `ollama:qwen3.5` | `qwen3.5:latest` | Code, planning, general work, and judge duty |
 | `ollama:granite4.1-8b` | `granite4.1:8b` | Tests, reviews, and structured output |
-| `ollama:qwen3-14b` | `qwen3:14b` | Diagnostic larger-model arm |
 
 The roster is controlled by [`agents.yaml`](agents.yaml). Cloud and CLI
-adapters remain available but are disabled in the committed configuration.
+adapters — including a `claude-cli` arm that captures real per-task cost for
+benchmarks — remain available but are disabled in the committed
+configuration.
 
 ## How it works
 
@@ -72,7 +78,6 @@ pip install -e .
 
 ollama pull qwen3.5:latest
 ollama pull granite4.1:8b
-ollama pull qwen3:14b
 
 orch serve
 ```
@@ -131,15 +136,59 @@ Weights are bucket-specific and can be learned from observed outcomes. A budget
 pacer, drift detector, and quarantine state protect the live policy. All
 routing state is local under `~/.mahoraga-v2/`.
 
-Mahoraga also supports execution-based offline evaluation:
+Cost is real, not estimated: the `claude-cli` worker records the CLI's
+authoritative per-task dollar figure, local workers record token counts, and
+`orch bench report cost` computes the dollars avoided by local routing against
+a cloud reference model — offline, with zero new inference.
+
+## Evaluation and the escalation cascade
+
+Two committed prompt banks ground the benchmarks:
+
+- [`experiments/prompts_verifiable.jsonl`](experiments/prompts_verifiable.jsonl)
+  — 50 code/debug tasks with hidden tests. A CI guard executes every reference
+  solution and every labeled mutant on each run, so the bank cannot rot
+  silently.
+- [`experiments/prompts_nonverifiable.jsonl`](experiments/prompts_nonverifiable.jsonl)
+  — 30 prose tasks (explain, factual, reason, summarize, instruct) with no
+  oracle. Ground truth is built in: each row pairs a hand-authored correct
+  reference with a subtly flawed, length-matched mutant carrying one labeled
+  defect.
+
+On top of the banks sits an escalation cascade: a free local arm answers
+first, a local LLM judge — seeing only the prompt and the output, never the
+hidden tests — votes on the answer, and only judged failures escalate to the
+cloud arm. Run live end to end on the verifiable bank:
+
+| Policy | pass@1 | $/1k tasks |
+| --- | --- | --- |
+| Always cloud (`claude-cli`) | 1.000 | $47.66 |
+| Always local (`granite4.1-8b`) | 0.880 | $0.00 |
+| Routed: local → judge → cloud | **1.000** | **$10.54** |
+
+The free local judge caught all six true local failures (accuracy 0.920), so
+the routed policy kept 100% of cloud quality at 22% of cloud cost. Its only
+errors were four needless escalations costing about $0.19 in total — a
+verification tax paid in money, never in quality.
+
+On the non-verifiable bank the same judge scores 0.867 accuracy while
+accepting every correct reference. A tool-augmented mode has the judge write
+and execute a sandboxed Python solver for computable claims, manufacturing
+the hidden test the task lacks; it is recall-only (it can flip an accept to a
+reject, never the reverse) and raises accuracy to 0.900 without rejecting a
+single correct answer.
 
 ```bash
-orch bench report verify --input results.jsonl --bank prompts_verifiable.jsonl
+orch bench live-route --bank experiments/prompts_verifiable.jsonl  # live cascade
+orch bench report route-sim -i results.jsonl   # counterfactual policies, zero new inference
+orch bench report judge-gate                   # judge accuracy against the oracle
+orch bench report judge-bank --tool            # judge on the non-verifiable bank
+orch bench report cost                         # dollars avoided vs a cloud reference
+orch bench report verify --input results.jsonl --bank experiments/prompts_verifiable.jsonl
 ```
 
-This extracts Python from captured model outputs, runs hidden tests, and reports
-pass@1 alongside heuristic quality. Only run trusted evaluation data: both the
-live execution gate and offline verifier execute generated code locally.
+Only run trusted evaluation data: the live execution gate, the offline
+verifier, and the tool-augmented judge all execute generated code locally.
 
 ## Monitoring
 
@@ -188,6 +237,12 @@ branches, validated in CI, and merged through pull requests.
 - State is global to one local user; there is no multi-tenant isolation.
 - Quality scoring is useful for routing but remains heuristic outside the
   execution-verified code/debug paths.
+- The judge-gated escalation cascade currently runs through
+  `orch bench live-route`; it is not yet wired into the live `/api/task`
+  routing path.
+- The judge has a structural blind spot on prose tasks: it reliably catches
+  stated falsehoods but misses omissions and most wrong quantities unless the
+  tool-augmented solver can compute the answer.
 - The CLI has a legacy port split: `orch serve`, MCP, and live bench commands
   default to port 8000, while mission/run/task and several older HTTP clients
   currently target port 8001. The [CLI reference](docs/cli-reference.md)
@@ -221,7 +276,7 @@ Mahoraga extends the trained-router category in three ways: online feedback rath
 - **C2MAB-V** (Dai et al., 2024) — combinatorial contextual volatile MAB; online feedback, no preference tuning.
 
 **Cost-aware cascading:**
-- **FrugalGPT** (Chen et al., 2023) — LLM cascade: try cheap first, escalate on failure. Sequential rather than learned. Mahoraga's escalation path (Ollama → cloud) implements the same intuition with a bandit replacing the fixed threshold.
+- **FrugalGPT** (Chen et al., 2023) — LLM cascade: try cheap first, escalate on failure. Sequential rather than learned. Mahoraga's escalation path (local → judge → cloud) implements the same intuition with a free local LLM judge replacing the fixed threshold.
 - **AutoMix** (2024) — routes to larger LMs based on approximate correctness of smaller LM output. Complementary; Mahoraga could use AutoMix-style correctness detection as a reward signal.
 
 **Warm start and non-stationarity:**

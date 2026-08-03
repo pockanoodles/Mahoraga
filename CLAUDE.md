@@ -33,8 +33,8 @@ Agent-agnostic LLM orchestration framework with online bandit routing. FastAPI b
 - `orch bench run --mode force-explore --prompts <bank.jsonl> --agents <roster>` — forced round-robin live batch
 
 ## Agents
-Active (3 arms, local only): ollama:qwen3.5 (9.7B Q4_K_M, code/reasoning), ollama:granite4.1-8b (IBM, test/review/structured output), ollama:qwen3-14b (added 2026-07-09 as a diagnostic arm — see current_state.md)  
-Disabled in agents.yaml: gemma4-e4b (lowest reward in every bucket, bench 2026-05-20), claude, claude-cli (Phase 4 cost-bench arm — runs the `claude` CLI on Max-subscription auth, reports real cost; enable only for head-to-head bench runs), codex, gemini, aider, opencode, goose  
+Active (2 arms, local only): ollama:qwen3.5 (9.7B Q4_K_M, code/reasoning; also the escalation judge), ollama:granite4.1-8b (IBM, test/review/structured output)  
+Disabled in agents.yaml: qwen3-14b (dropped 2026-07-26 — Phase 4 bench put it mid-pack behind granite at ~2× the RAM), gemma4-e4b (lowest reward in every bucket, bench 2026-05-20), deepseek-r1 (unblocks at 32 GB), lfm2, claude, claude-cli (Phase 4 cost-bench arm — runs the `claude` CLI on Max-subscription auth, reports real cost; enable only for head-to-head bench runs), codex, gemini, aider, opencode, goose  
 Roster source of truth: `agents.yaml`; current snapshot in `brain/state/current_state.md`
 
 ## Hardware

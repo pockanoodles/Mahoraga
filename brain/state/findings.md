@@ -449,3 +449,40 @@ last-K compare, recall-only `tool_augmented_judge`), `judge_gate.run_text()`
 (factored worker-call plumbing, behavior-preserving), `orch bench report
 judge-bank --tool` (opt-in, local-egress-only, own cache slot). 16 tests; suite
 1481 green. Detail: `brain/journal/2026-07-27-phase5d-tool-judge.md`.
+
+## Era 19 — P0: the cascade on HumanEval+, 164 external tasks (2026-08-03)
+
+Every cascade number through Era 14 rested on the 50-task homemade bank —
+falsifiable by construction, but self-authored: the exact claim a skeptic
+punctures first. Era 19 re-runs the identical live cascade (`orch bench
+live-route`, zero code changes) on **HumanEval+** (EvalPlus v0.1.10, all 164
+problems), converted offline into the verifiable-bank schema
+(`experiments/build_humaneval_bank.py`: contract-filtered inputs, oracle outputs
+from the canonical solution, atol-aware comparison, every reference verified
+through the real `run_case` path; 93d05f7).
+
+| Policy (LIVE, n=164) | pass@1 | $/1k |
+|---|---|---|
+| always-cloud (claude-cli/sonnet) | 0.976 (160/164) | $35.97 |
+| always-local (granite4.1-8b) | 0.805 (132/164) | $0.00 |
+| **routed: granite→judge→cloud** | **0.921 (151/164)** | **$8.47 (76.5% cut)** |
+
+| Question | Method | Result | Verdict |
+|---|---|---|---|
+| Does the cascade survive an external benchmark? | full live run, always-cloud baseline in-run | routed 0.921 vs cloud 0.976 at 23.5% of cost; +11.6 pts over local-only | **Yes, restated:** ~94% of cloud quality at ~24% of cloud cost — no longer parity, and no longer self-authored |
+| Does 5c's perfect judge recall generalize? | same judge/prompt/posture, n_fail=32 (vs 6) | fail-recall **0.688** (22/32), 10 wrong answers served, 15 over-escalations | **No.** The operating point tracks the failure class: homemade failures were structurally broken; granite's HumanEval+ failures are plausible, subtly-wrong code — judgment-by-reading saturates |
+
+Tier gradient monotone (easy/medium/hard: routed 0.964/0.945/0.852, cloud
+1.000/0.982/0.944 — sonnet is not a 1.000 oracle here either; it also lost 3 of
+37 escalations). Misses: HumanEval/10, 22, 25, 93, 125, 126, 127, 134, 145, 154.
+
+**The code-domain twin of Era 18:** the reading-judge ceiling reappears exactly
+where failures get subtle, and the fix is again a tool — for code, the judge
+*generates its own tests* (it never sees the bank's hidden tests) and executes
+the candidate in the `execution_gate` sandbox. One failing generated input per
+miss converts fp→escalation: money, not quality — 5c economics. Queued behind P1.
+
+**Headline for the outside world (README/resume):** cut inference cost 76% while
+retaining 94% of cloud pass@1 on HumanEval+ (164 problems), execution-verified,
+$8.47 vs $35.97 per 1k tasks. Detail:
+`brain/journal/2026-08-03-humaneval-plus-cascade.md`.

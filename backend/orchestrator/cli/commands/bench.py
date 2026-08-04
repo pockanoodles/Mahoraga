@@ -471,6 +471,7 @@ def live_route_cmd(
     cloud_arm: str = typer.Option("claude-cli", "--cloud-arm", help="agents.yaml key for the cloud escalation arm"),
     config: Path = typer.Option(DEFAULT_AGENTS_YAML, "--config", help="agents.yaml the arms are built from"),
     escalate_only: bool = typer.Option(False, "--escalate-only", help="Run cloud ONLY on escalation (cheaper; drops the measured always-cloud baseline)"),
+    code_judge: bool = typer.Option(False, "--code-judge", help="Add the recall-only generated-test check on judge accepts (K local generations per accept; can only add escalations)"),
     limit: Optional[int] = typer.Option(None, "--limit", help="Run only the first N prompts (smoke)"),
     output: Optional[Path] = typer.Option(None, "--output", "-o", help="Write per-case results JSONL"),
     decisions_db: Path = typer.Option(DEFAULT_DECISIONS_DB, "--decisions-db"),
@@ -538,6 +539,7 @@ def live_route_cmd(
                 p, spec["tests"], bucket=spec.get("bucket", "code"),
                 run_cloud_always=run_cloud_always,
                 local_label=local_label, cloud_label=cloud_label,
+                code_judge=code_judge,
             )
             flag = "↑cloud" if case.escalated else "·local"
             grade = "✓" if case.final_passed else "✗"
@@ -604,7 +606,8 @@ def live_route_cmd(
     escalations = sum(1 for c in cases if c.escalated)
 
     auto_summary = (
-        f"bank={bank.name} local={local_id} judge={judge_model} cloud={cloud_id} "
+        f"bank={bank.name} local={local_id} judge={judge_model}"
+        f"{'+code-judge' if code_judge else ''} cloud={cloud_id} "
         f"n={n} escalations={escalations} judge_$1k={mean_judge_cost*1000:.2f} "
         f"acc={accuracy:.3f} fail_recall={tn}/{n_fail} "
         f"routed_pass@1={routed.pass_rate:.4f} routed_$1k={routed.cost_per_task*1000:.2f} "
@@ -652,6 +655,7 @@ def live_route_cmd(
 def bench_repro(
     bank: Path = typer.Option(DEFAULT_HUMANEVAL_BANK, "--bank", help="Bank to reproduce on (default: the committed 164-task HumanEval+ bank)"),
     smoke: bool = typer.Option(False, "--smoke", help="Quick end-to-end check: first 5 prompts only (~5 min)"),
+    code_judge: bool = typer.Option(False, "--code-judge", help="Add the recall-only generated-test check on judge accepts (slower; can only add escalations)"),
     local_only: bool = typer.Option(False, "--local-only", help="Skip the always-cloud baseline — cloud runs only on judged escalations (cheaper; drops the always-cloud row from the table)"),
     preflight_only: bool = typer.Option(False, "--preflight-only", help="Run the environment checks and exit — no inference, no spend"),
     output: Optional[Path] = typer.Option(None, "--output", "-o", help="Per-case results JSONL (default: experiments/repro_<date>.jsonl)"),
@@ -703,11 +707,14 @@ def bench_repro(
         cloud_arm=cloud_arm,
         config=config,
         escalate_only=local_only,
+        code_judge=code_judge,
         limit=limit,
         output=output,
         decisions_db=DEFAULT_DECISIONS_DB,
         json_out=json_out,
-        notes="orch bench repro" + (" --smoke" if smoke else ""),
+        notes="orch bench repro"
+        + (" --smoke" if smoke else "")
+        + (" --code-judge" if code_judge else ""),
     )
 
 

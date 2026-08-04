@@ -517,3 +517,19 @@ generated-test judge) already is.
 Resume consequence: no honest bandit-beats-X number exists; the learning line
 stays architectural. The cascade (Era 19) and the eval harness carry the
 numbers. Detail: `brain/journal/2026-08-03-p1-bandit-ab.md`.
+
+## Era 21 — P3: one-command reproduction + CI badge (2026-08-03)
+
+The resume-push closer: the headline claim is now something a skeptic can run.
+`orch bench repro` preflights the environment (Ollama daemon, both models,
+`claude` CLI, bank present — fix inline in every error), then invokes the exact
+`bench live-route` code path with the published configuration pinned.
+`--preflight-only` = zero inference; `--smoke` = 5 tasks ~5 min; `--local-only`
+maps to `--escalate-only`. README: CI badge + "Reproduce the benchmark" section;
+headline table = HumanEval+ 164 with fail-recall 0.688 stated plainly; the
+50-task homemade table kept, labeled as the earlier run. Smoke-verified live
+end-to-end (5/5, 0 escalations, cloud baseline $41.77/1k captured). 10 fast-lane
+tests; suite 1509 green. PR #30 merged. With Eras 19–21, all three resume-push
+items (P0/P1/P3) landed in one day: external-benchmark cascade numbers, a
+diagnosed-null routing A/B with the oracle gap quantified, and one-command
+reproducibility.

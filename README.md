@@ -5,14 +5,16 @@ each task. It classifies the task, selects an agent with a contextual bandit,
 executes the work, scores the result, and uses the outcome to improve later
 routing decisions.
 
+[![CI](https://github.com/pockanoodles/Mahoraga/actions/workflows/ci.yml/badge.svg)](https://github.com/pockanoodles/Mahoraga/actions/workflows/ci.yml)
 ![Python 3.12](https://img.shields.io/badge/python-3.12-blue)
 ![License: MIT](https://img.shields.io/badge/license-MIT-green)
 ![Last commit](https://img.shields.io/github/last-commit/pockanoodles/Mahoraga)
 
-In a live 50-task benchmark, Mahoraga's local → judge → cloud escalation
-cascade matched an always-cloud policy's verified pass@1 (1.000) at 22% of its
-cost — $10.54 vs $47.66 per 1,000 tasks — with a free local model serving as
-the escalation judge.
+On the 164-task HumanEval+ benchmark, run live end to end, Mahoraga's
+local → judge → cloud escalation cascade reached a verified pass@1 of 0.921 at
+23.5% of an always-cloud policy's cost — $8.47 vs $35.97 per 1,000 tasks, a
+76.5% cost cut — with a free local model serving as the escalation judge.
+Reproduce it with one command: [`orch bench repro`](#reproduce-the-benchmark).
 
 Mahoraga currently runs two local Ollama arms:
 
@@ -143,8 +145,14 @@ a cloud reference model — offline, with zero new inference.
 
 ## Evaluation and the escalation cascade
 
-Two committed prompt banks ground the benchmarks:
+Three committed prompt banks ground the benchmarks:
 
+- [`experiments/prompts_humaneval_plus.jsonl`](experiments/prompts_humaneval_plus.jsonl)
+  — the 164-task HumanEval+ suite converted to the verifiable-bank schema:
+  hidden tests with expected outputs precomputed from the canonical solutions.
+  Regenerable from the EvalPlus release with
+  [`experiments/build_humaneval_bank.py`](experiments/build_humaneval_bank.py);
+  a CI test guards the committed bank against rot.
 - [`experiments/prompts_verifiable.jsonl`](experiments/prompts_verifiable.jsonl)
   — 50 code/debug tasks with hidden tests. A CI guard executes every reference
   solution and every labeled mutant on each run, so the bank cannot rot
@@ -158,18 +166,30 @@ Two committed prompt banks ground the benchmarks:
 On top of the banks sits an escalation cascade: a free local arm answers
 first, a local LLM judge — seeing only the prompt and the output, never the
 hidden tests — votes on the answer, and only judged failures escalate to the
-cloud arm. Run live end to end on the verifiable bank:
+cloud arm. The headline result is the full HumanEval+ bank, run live end to
+end (per-case results committed at
+[`experiments/live_route_humaneval_164.jsonl`](experiments/live_route_humaneval_164.jsonl)):
 
 | Policy | pass@1 | $/1k tasks |
+| --- | --- | --- |
+| Always cloud (`claude-cli`, Sonnet) | 0.976 | $35.97 |
+| Always local (`granite4.1-8b`) | 0.805 | $0.00 |
+| Routed: local → judge → cloud | **0.921** | **$8.47** |
+
+The routed cascade recovers about two-thirds of the quality gap between the
+free local arm and the cloud arm at a 76.5% cost cut. The judge's fail-recall
+is 0.688: it catches roughly seven in ten true local failures and escalates
+them; the rest are served wrong — the quality price of the cost cut.
+
+An earlier 50-task run on the smaller homemade verifiable bank was friendlier
+to the judge — it caught all six true local failures (accuracy 0.920), so the
+cascade matched cloud quality outright:
+
+| Policy (50-task homemade bank) | pass@1 | $/1k tasks |
 | --- | --- | --- |
 | Always cloud (`claude-cli`) | 1.000 | $47.66 |
 | Always local (`granite4.1-8b`) | 0.880 | $0.00 |
 | Routed: local → judge → cloud | **1.000** | **$10.54** |
-
-The free local judge caught all six true local failures (accuracy 0.920), so
-the routed policy kept 100% of cloud quality at 22% of cloud cost. Its only
-errors were four needless escalations costing about $0.19 in total — a
-verification tax paid in money, never in quality.
 
 On the non-verifiable bank the same judge scores 0.867 accuracy while
 accepting every correct reference. A tool-augmented mode has the judge write
@@ -179,7 +199,8 @@ reject, never the reverse) and raises accuracy to 0.900 without rejecting a
 single correct answer.
 
 ```bash
-orch bench live-route --bank experiments/prompts_verifiable.jsonl  # live cascade
+orch bench repro                               # reproduce the headline HumanEval+ run
+orch bench live-route --bank experiments/prompts_verifiable.jsonl  # live cascade, any bank
 orch bench report route-sim -i results.jsonl   # counterfactual policies, zero new inference
 orch bench report judge-gate                   # judge accuracy against the oracle
 orch bench report judge-bank --tool            # judge on the non-verifiable bank
@@ -189,6 +210,51 @@ orch bench report verify --input results.jsonl --bank experiments/prompts_verifi
 
 Only run trusted evaluation data: the live execution gate, the offline
 verifier, and the tool-augmented judge all execute generated code locally.
+
+## Reproduce the benchmark
+
+The headline HumanEval+ table above reproduces with one command on a fresh
+clone. Prerequisites:
+
+- A 16 GB Apple Silicon Mac (the hardware behind the published numbers), or
+  comparable.
+- Ollama running, with both models pulled:
+
+  ```bash
+  ollama pull granite4.1:8b    # local arm
+  ollama pull qwen3.5:latest   # escalation judge
+  ```
+
+- The `claude` CLI installed (`npm install -g @anthropic-ai/claude-code`) and
+  authenticated — the cloud arm bills through that auth and records real
+  per-task cost.
+- The repo installed per the quick start (`pip install -e .`). The API server
+  does not need to be running; the benchmark drives the workers directly.
+
+```bash
+orch bench repro --preflight-only   # check the environment; no inference, no spend
+orch bench repro --smoke            # first 5 tasks end to end, ~5 minutes
+orch bench repro                    # full 164 tasks, ~3.5 hours
+```
+
+`orch bench repro` first preflights the environment (Ollama daemon, both
+models, `claude` binary, bank file) and fails in seconds with the fix if
+anything is missing. It then runs the exact published configuration through
+`orch bench live-route`: granite4.1-8b answers, qwen3.5 judges, judged
+failures escalate to `claude-cli`. Per-case results land in
+`experiments/repro_<date>.jsonl`, and the policy comparison table prints at
+the end (`--json` for machine-readable output). By default the cloud arm also
+runs on kept-local tasks to measure the always-cloud baseline; `--local-only`
+skips that spend and drops the baseline row.
+
+Expect small run-to-run variance in pass@1: local decoding is not
+seed-pinned, and the judge is itself an LLM. The bank is committed, and
+regenerable from the EvalPlus v0.1.10 release:
+
+```bash
+python experiments/build_humaneval_bank.py fetch
+python experiments/build_humaneval_bank.py build
+```
 
 ## Monitoring
 

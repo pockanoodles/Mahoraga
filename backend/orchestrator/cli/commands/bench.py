@@ -19,6 +19,7 @@ import asyncio
 import json
 import os
 import random
+import shutil
 import socket
 import subprocess
 import sys
@@ -50,6 +51,7 @@ from ...routing.reweight_replay import log_offline_run  # noqa: E402
 
 _PROJECT_ROOT = Path(__file__).resolve().parents[4]
 DEFAULT_VERIFY_BANK = _PROJECT_ROOT / "experiments" / "prompts_verifiable.jsonl"
+DEFAULT_HUMANEVAL_BANK = _PROJECT_ROOT / "experiments" / "prompts_humaneval_plus.jsonl"
 DEFAULT_AGENTS_YAML = _PROJECT_ROOT / "agents.yaml"
 DEFAULT_DECISIONS_DB = Path.home() / ".mahoraga-v2" / "routing_decisions.db"
 
@@ -413,10 +415,51 @@ def _preflight_ollama(base_url: str, models: list[str]) -> list[str]:
         r.raise_for_status()
         present = {m["name"] for m in r.json().get("models", [])}
     except Exception as exc:
-        return [f"Ollama unreachable at {base_url}: {exc}"]
+        return [
+            f"Ollama unreachable at {base_url}: {exc} — start the daemon "
+            "(`ollama serve`, or open the Ollama app)"
+        ]
     for m in models:
         if m not in present:
-            problems.append(f"model {m!r} not in `ollama list` (present: {sorted(present)})")
+            problems.append(
+                f"model {m!r} not in `ollama list` (present: {sorted(present)}) "
+                f"— fix: ollama pull {m}"
+            )
+    return problems
+
+
+def _preflight_repro(
+    bank: Path, config: Path, local_arm: str, judge_model: str, cloud_arm: str
+) -> list[str]:
+    """Environment checks for `bench repro`. Returns human-readable problems
+    with the fix inline; empty = ready to run. No inference, no spend."""
+    problems: list[str] = []
+    if not bank.exists():
+        problems.append(
+            f"bank not found: {bank} — the committed bank is "
+            "experiments/prompts_humaneval_plus.jsonl; regenerate it with "
+            "`python experiments/build_humaneval_bank.py fetch` then "
+            "`python experiments/build_humaneval_bank.py build`"
+        )
+    if not config.exists():
+        problems.append(f"agents.yaml not found: {config} — run from the repo root")
+        return problems
+    try:
+        local_worker, _judge, cloud_worker = load_arms(
+            config, local_arm, judge_model, cloud_arm
+        )
+    except ValueError as exc:
+        problems.append(str(exc))
+        return problems
+    problems += _preflight_ollama(
+        local_worker._base_url, [local_worker._model, judge_model]
+    )
+    if shutil.which(cloud_worker._binary) is None:
+        problems.append(
+            f"`{cloud_worker._binary}` CLI not found on PATH — install with "
+            "`npm install -g @anthropic-ai/claude-code`, then run `claude` once "
+            "interactively to authenticate (the cloud arm bills through that auth)"
+        )
     return problems
 
 
@@ -603,6 +646,69 @@ def live_route_cmd(
                f"${live_cost*1000:.2f}/1k (matches simulator's routed line)")
     if cost_cut is not None:
         typer.echo(f"  live-route vs always-cloud: {cost_cut:.1f}% cost cut at pass@1={routed.pass_rate:.3f}")
+
+
+@app.command("repro")
+def bench_repro(
+    bank: Path = typer.Option(DEFAULT_HUMANEVAL_BANK, "--bank", help="Bank to reproduce on (default: the committed 164-task HumanEval+ bank)"),
+    smoke: bool = typer.Option(False, "--smoke", help="Quick end-to-end check: first 5 prompts only (~5 min)"),
+    local_only: bool = typer.Option(False, "--local-only", help="Skip the always-cloud baseline — cloud runs only on judged escalations (cheaper; drops the always-cloud row from the table)"),
+    preflight_only: bool = typer.Option(False, "--preflight-only", help="Run the environment checks and exit — no inference, no spend"),
+    output: Optional[Path] = typer.Option(None, "--output", "-o", help="Per-case results JSONL (default: experiments/repro_<date>.jsonl)"),
+    json_out: bool = typer.Option(False, "--json", help="Emit the summary as JSON instead of the readable policy table"),
+    config: Path = typer.Option(DEFAULT_AGENTS_YAML, "--config", help="agents.yaml the arms are built from"),
+) -> None:
+    """One-command reproduction of the headline HumanEval+ cascade benchmark.
+
+    Thin wrapper over `bench live-route` with the published configuration
+    pinned: local=granite4.1-8b, judge=qwen3.5:latest, cloud=claude-cli, bank=
+    the committed HumanEval+ 164. Preflights the environment first (Ollama up,
+    both models pulled, `claude` CLI on PATH, bank present) so a fresh clone
+    fails in seconds with the fix, not hours in. Full run is ~3.5 h on a 16 GB
+    M-series Mac; `--smoke` is a ~5 min wiring check. To vary arms or judge,
+    use `bench live-route` directly.
+    """
+    local_arm, judge_model, cloud_arm = "granite4.1-8b", "qwen3.5:latest", "claude-cli"
+
+    problems = _preflight_repro(bank, config, local_arm, judge_model, cloud_arm)
+    if problems:
+        typer.echo("Preflight failed — fix these and re-run:", err=True)
+        for p in problems:
+            typer.echo(f"  - {p}", err=True)
+        raise typer.Exit(1)
+    typer.echo(
+        "Preflight OK — Ollama up, granite4.1:8b + qwen3.5:latest present, "
+        "`claude` CLI found, bank readable."
+    )
+    if preflight_only:
+        return
+
+    if output is None:
+        stamp = time.strftime("%Y-%m-%d")
+        output = _PROJECT_ROOT / "experiments" / (
+            f"repro_{stamp}_smoke.jsonl" if smoke else f"repro_{stamp}.jsonl"
+        )
+    limit = 5 if smoke else None
+    typer.echo(
+        f"Reproducing on {bank.name}"
+        + (f" — smoke: first {limit} prompts, ~5 min."
+           if smoke else " — full run, ~3.5 h on a 16 GB M-series Mac.")
+    )
+    typer.echo("")
+
+    live_route_cmd(
+        bank=bank,
+        local_arm=local_arm,
+        judge_model=judge_model,
+        cloud_arm=cloud_arm,
+        config=config,
+        escalate_only=local_only,
+        limit=limit,
+        output=output,
+        decisions_db=DEFAULT_DECISIONS_DB,
+        json_out=json_out,
+        notes="orch bench repro" + (" --smoke" if smoke else ""),
+    )
 
 
 @app.command("validate")

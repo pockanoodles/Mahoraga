@@ -1,6 +1,33 @@
 # Current State — 2026-08-03
 
-## Read this first — 2026-08-03 (latest): P0 — the cascade on HumanEval+ (164 external tasks)
+## Read this first — 2026-08-03 (latest): P1 — the routing A/B (bandit vs baselines)
+
+**The "learns" claim got its experiment and the answer is a diagnosed null.**
+Per bank: force-explore cross (round-robin/statics/per-prompt oracle derived
+exactly) + cold-start LinUCB through the real `/api/task` path, isolated scratch
+`HOME` per policy, execution-verified pass@1 only. **Bandit never beat
+round-robin** (HumanEval+: 0.744 vs 0.771, statics 0.768/0.774, oracle 0.890;
+50-bank: 0.920 vs 0.940, statics 0.960/0.920, oracle 0.980). Coin-flip (42%) on
+arm-discriminating prompts; no learning curve.
+
+**Why (from the decisions DB, the actual finding):** the reward's success term
+= execution-gate "ran without crashing" → saturated at 1.000/0.987 while true
+pass@1 was 0.774/0.768 → only latency had gradient → the bandit correctly
+chased the faster arm (granite) on both banks, even where it was the worse arm.
+**Reward saturation, not learner failure — Era 10 one level up.** Also: Phase-4
+arm ranking flipped in 8 days (granite 0.900>qwen 0.818 → qwen 0.960>granite
+0.920, same bank) — static assignment rots; online routing needs a
+correctness-faithful reward (the judge is exactly that signal). And the oracle
+gap (+11.6 pts over best static, arms complementary 19/20) is the quantified
+motivation for semantic routing. Detail: findings Era 20 +
+`brain/journal/2026-08-03-p1-bandit-ab.md`.
+
+**Resume consequence:** learning line stays architectural (no honest
+bandit-beats-X number); the cascade (Era 19) + eval harness carry the numbers.
+**Next:** P3 one-command repro + CI badge; then reward-fidelity fix (judge
+verdict as success term) and re-run this A/B with the now-standing protocol.
+
+## Read this first — 2026-08-03 (earlier): P0 — the cascade on HumanEval+ (164 external tasks)
 
 **The resume-push bench: the identical live cascade re-run on an external
 benchmark, killing the "self-authored 50 tasks" vulnerability.** HumanEval+

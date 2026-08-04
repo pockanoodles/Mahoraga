@@ -486,3 +486,34 @@ miss converts fp→escalation: money, not quality — 5c economics. Queued behin
 retaining 94% of cloud pass@1 on HumanEval+ (164 problems), execution-verified,
 $8.47 vs $35.97 per 1k tasks. Detail:
 `brain/journal/2026-08-03-humaneval-plus-cascade.md`.
+
+## Era 20 — P1: the routing A/B — bandit vs round-robin vs static vs oracle (2026-08-03)
+
+The "learns" claim finally got its experiment: per bank, a force-explore cross
+(round-robin/statics/oracle derived exactly, zero extra inference) + a
+cold-start LinUCB run through the real `/api/task` path, every policy under its
+own scratch `HOME`, graded by execution-verified pass@1 only.
+
+| Policy | HumanEval+ (164) | 50-bank |
+|---|---|---|
+| LinUCB bandit (cold) | 0.744 | 0.920 |
+| round-robin (derived) | 0.771 | 0.940 |
+| static qwen3.5 | 0.768 | 0.960 |
+| static granite | 0.774 | 0.920 |
+| **oracle per-prompt** | **0.890** | **0.980** |
+
+| Question | Method | Result | Verdict |
+|---|---|---|---|
+| Does the bandit beat unlearned assignment? | derived RR vs live bandit, both banks | never — deficits within noise, no learning curve, 42% on discriminating prompts (coin flip) | **No.** And the decisions DB says why |
+| Why not? | per-arm reward decomposition from decisions log | `AVG(success)` 1.000/0.987 (gate verdict: "ran without crashing") vs true pass@1 0.774/0.768 → only latency had gradient → bandit drifted to the faster arm on both banks, even where it was the worse arm | **Reward saturation, not learner failure.** Era 10 reproduced one level up: LinUCB is bounded by reward fidelity |
+| Is per-task routing winnable at all? | cross union | arms complementary (19 only-qwen, 20 only-granite) → oracle +11.6 pts over best static; lexical 9-dim context provably can't see it | **Yes — but the signal is semantic.** This is the committed, quantified motivation for `docs/specs/semantic-routing.md` |
+
+Bonus finding: **static rankings rot** — Phase 4's granite 0.900 > qwen 0.818
+(same 50-bank, 8 days ago) flipped to qwen 0.960 > granite 0.920 today. The
+argument for online routing is drift-tracking, and it only cashes out once the
+reward consumes a correctness signal — which the cascade's judge (and the Era-19
+generated-test judge) already is.
+
+Resume consequence: no honest bandit-beats-X number exists; the learning line
+stays architectural. The cascade (Era 19) and the eval harness carry the
+numbers. Detail: `brain/journal/2026-08-03-p1-bandit-ab.md`.

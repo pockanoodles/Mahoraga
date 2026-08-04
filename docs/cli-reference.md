@@ -122,6 +122,17 @@ batch.
 The default agent list in this command predates the current `agents.yaml`.
 Pass `--agents` explicitly for reproducible runs.
 
+### Benchmark reproduction
+
+`orch bench repro` reproduces the headline HumanEval+ cascade benchmark with
+the published configuration pinned (local=granite4.1-8b, judge=qwen3.5:latest,
+cloud=claude-cli). It preflights the environment first; `--preflight-only`
+checks without inference, `--smoke` runs the first 5 tasks, `--local-only`
+skips the always-cloud baseline. See the README's
+[Reproduce the benchmark](../README.md#reproduce-the-benchmark) section.
+Unlike `bench run`, it does not need the FastAPI service — it drives the
+workers directly through `bench live-route`.
+
 ### Batch reports
 
 | Command | Purpose |

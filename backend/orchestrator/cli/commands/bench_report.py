@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
@@ -34,6 +35,7 @@ from ...routing.route_sim import (
 )
 from ...routing.judge_gate import judge_one, GENERAL_RUBRIC
 from ...routing.tool_judge import tool_augmented_judge
+from ...routing.code_judge import MIN_DISAGREEMENTS, differential_check
 from ...routing.nonverifiable_bank import (
     load_bank as load_nv_bank,
     load_refs as load_nv_refs,
@@ -1328,3 +1330,226 @@ def list_runs(
         )
         if r["notes"]:
             typer.echo(f"      {r['notes']}")
+
+
+def _load_routed_cases(path: Path) -> list[dict]:
+    """RoutedCase rows from a `bench live-route` per-case JSONL."""
+    rows: list[dict] = []
+    for line in path.read_text().splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        row = json.loads(line)
+        if "local_output" in row and "judge_verdict" in row:
+            rows.append(row)
+    return rows
+
+
+@report_app.command("code-judge")
+def code_judge_cmd(
+    input_path: Path = typer.Option(
+        ..., "--input", "-i",
+        help="live-route per-case JSONL (must carry local_output/judge_verdict/cloud_passed)",
+    ),
+    judge_model: str = typer.Option("qwen3.5:latest", "--judge-model"),
+    gen_samples: int = typer.Option(3, "--gen-samples", help="Reference generations per task (K)"),
+    min_disagree: int = typer.Option(
+        MIN_DISAGREEMENTS, "--min-disagree",
+        help="Reject only on >= this many disagreeing consensus inputs "
+             "(cached verdicts are re-derived, so sweeping this is free)",
+    ),
+    cache_path: Path = typer.Option(
+        DEFAULT_JUDGE_CACHE, "--cache",
+        help="Verdict cache (own ::code slot) so re-runs never re-generate",
+    ),
+    limit: Optional[int] = typer.Option(None, "--limit", help="Tool-check only the first N accepted rows"),
+    misses_only: bool = typer.Option(
+        False, "--misses-only",
+        help="Smoke: tool-check only the recorded false-accepts (peeks at ground truth — "
+             "measures catch potential, not the honest operating point)",
+    ),
+    decisions_db: Path = typer.Option(DEFAULT_DECISIONS_DB, "--decisions-db"),
+    output_json: bool = typer.Option(False, "--json"),
+    notes: Optional[str] = typer.Option(None, "--notes"),
+) -> None:
+    """Replay the generated-test code judge over a recorded live-route run.
+
+    Recall-only counterfactual: the recorded verdict is the base judge, and the
+    differential check runs ONLY on rows the base judge ACCEPTED (a recorded
+    reject already escalated; the tool cannot soften it). Because live-route
+    records the always-cloud baseline per row (`run_cloud_always`), the routed
+    pass@1 and $/1k under the new gate are computed EXACTLY from recorded
+    outcomes — no local arm or cloud inference is spent, only local judge
+    generations. Local egress only by construction.
+    """
+    if not input_path.exists():
+        typer.echo(f"Results file not found: {input_path}", err=True)
+        raise typer.Exit(1)
+    rows = _load_routed_cases(input_path)
+    if not rows:
+        typer.echo(f"No RoutedCase rows in {input_path.name} — is this a live-route output?", err=True)
+        raise typer.Exit(1)
+    incomplete = sum(1 for r in rows if r.get("cloud_passed") is None)
+    if incomplete:
+        typer.echo(
+            f"warning: {incomplete}/{len(rows)} rows lack a cloud baseline "
+            "(run without run_cloud_always?) — projection treats their escalations as failed",
+            err=True,
+        )
+
+    worker = OllamaWorker(model=judge_model, worker_id="ollama:judge", extra_payload={"think": False})
+    cache = json.loads(cache_path.read_text()) if cache_path.exists() else {}
+    slot = cache.setdefault(f"{judge_model}::code", {})
+
+    accepted = [r for r in rows if r.get("judge_verdict") is True]
+    targets = accepted
+    if misses_only:
+        targets = [r for r in accepted if not r.get("local_passed")]
+    if limit:
+        targets = targets[:limit]
+    target_prompts = {r["prompt_full"] for r in targets}
+
+    tool_verdicts: dict[str, Optional[bool]] = {}
+    tool_details: dict[str, str] = {}
+
+    def _apply_threshold(verdict: Optional[bool], detail: str) -> Optional[bool]:
+        """Re-derive a cached reject under --min-disagree (the detail carries
+        the true mismatch count, so the threshold is sweepable for free)."""
+        if verdict is not False:
+            return verdict
+        m = re.match(r"(\d+)/\d+ consensus inputs disagree", detail)
+        if m and int(m.group(1)) < min_disagree:
+            return None
+        return verdict
+
+    async def _check_all() -> None:
+        for idx, row in enumerate(targets, 1):
+            prompt = row["prompt_full"]
+            hit = slot.get(prompt)
+            if hit is not None:
+                tool_verdicts[prompt] = _apply_threshold(hit.get("verdict"), hit.get("detail", ""))
+                tool_details[prompt] = hit.get("detail", "")
+                continue
+            # fresh checks record the raw (threshold-1) verdict so the cache
+            # stays sweepable; the effective verdict is derived above
+            verdict, _cost, detail = await differential_check(
+                worker, prompt, row["local_output"], k=gen_samples, min_disagreements=1
+            )
+            tool_verdicts[prompt] = verdict_effective
+            tool_details[prompt] = detail
+            slot[prompt] = {"verdict": verdict, "detail": detail}
+            cache_path.parent.mkdir(parents=True, exist_ok=True)
+            cache_path.write_text(json.dumps(cache, indent=2))
+            typer.echo(
+                f"  [{idx}/{len(targets)}] tool={'REJECT' if verdict_effective is False else 'abstain'} "
+                f"local_passed={row.get('local_passed')} — {detail[:100]}",
+                err=True,
+            )
+
+    asyncio.run(_check_all())
+
+    def _confusion(new_gate: bool) -> tuple[int, int, int, int]:
+        tp = fp = tn = fn = 0
+        for r in rows:
+            v = r.get("judge_verdict")
+            if new_gate and v is True and tool_verdicts.get(r["prompt_full"]) is False:
+                v = False
+            accept = v is True  # None already escalates in the live gate
+            if accept and r["local_passed"]:
+                tp += 1
+            elif accept and not r["local_passed"]:
+                fp += 1
+            elif not accept and not r["local_passed"]:
+                tn += 1
+            else:
+                fn += 1
+        return tp, fp, tn, fn
+
+    def _project(new_gate: bool) -> tuple[float, float, int]:
+        passed = 0
+        cost = 0.0
+        escalations = 0
+        for r in rows:
+            v = r.get("judge_verdict")
+            if new_gate and v is True and tool_verdicts.get(r["prompt_full"]) is False:
+                v = False
+            escalate = v is not True
+            cost += float(r.get("judge_cost") or 0.0)
+            if escalate:
+                escalations += 1
+                cost += float(r.get("cloud_cost") or 0.0)
+                passed += 1 if r.get("cloud_passed") else 0
+            else:
+                passed += 1 if r.get("local_passed") else 0
+        return passed / len(rows), cost / len(rows), escalations
+
+    n = len(rows)
+    n_fail = sum(1 for r in rows if not r["local_passed"])
+    old_tp, old_fp, old_tn, old_fn = _confusion(new_gate=False)
+    new_tp, new_fp, new_tn, new_fn = _confusion(new_gate=True)
+    old_pass, old_cost, old_esc = _project(new_gate=False)
+    new_pass, new_cost, new_esc = _project(new_gate=True)
+    cloud_pass = sum(1 for r in rows if r.get("cloud_passed")) / n
+    cloud_cost = sum(float(r.get("cloud_cost") or 0.0) for r in rows) / n
+    converted = [
+        r for r in rows
+        if r.get("judge_verdict") is True and not r["local_passed"]
+        and tool_verdicts.get(r["prompt_full"]) is False
+    ]
+    added_over = [
+        r for r in rows
+        if r.get("judge_verdict") is True and r["local_passed"]
+        and tool_verdicts.get(r["prompt_full"]) is False
+    ]
+    checked = sum(1 for p in tool_verdicts if p in target_prompts)
+    abstained = sum(1 for p, v in tool_verdicts.items() if v is None)
+
+    scope = "misses-only (ground-truth-peeking smoke)" if misses_only else "all recorded accepts"
+    auto_summary = (
+        f"input={input_path.name} judge={judge_model} k={gen_samples} "
+        f"min_disagree={min_disagree} scope={scope} "
+        f"checked={checked} abstained={abstained} "
+        f"recall {old_tn}/{n_fail}->{new_tn}/{n_fail} fp {old_fp}->{new_fp} "
+        f"over-esc {old_fn}->{new_fn} "
+        f"routed {old_pass:.4f}@${old_cost*1000:.2f}/1k -> {new_pass:.4f}@${new_cost*1000:.2f}/1k "
+        f"(cloud {cloud_pass:.4f}@${cloud_cost*1000:.2f}/1k)"
+    )
+    log_offline_run(decisions_db, mode="code-judge", task_count=checked,
+                    notes=f"{auto_summary} | {notes}" if notes else auto_summary)
+
+    if output_json:
+        typer.echo(json.dumps({
+            "judge_model": judge_model, "gen_samples": gen_samples,
+            "min_disagree": min_disagree, "scope": scope,
+            "n": n, "checked": checked, "abstained": abstained,
+            "old": {"confusion": {"tp": old_tp, "fp": old_fp, "tn": old_tn, "fn": old_fn},
+                    "pass_rate": round(old_pass, 4), "cost_per_1k": round(old_cost * 1000, 2),
+                    "escalations": old_esc},
+            "new": {"confusion": {"tp": new_tp, "fp": new_fp, "tn": new_tn, "fn": new_fn},
+                    "pass_rate": round(new_pass, 4), "cost_per_1k": round(new_cost * 1000, 2),
+                    "escalations": new_esc},
+            "always_cloud": {"pass_rate": round(cloud_pass, 4),
+                             "cost_per_1k": round(cloud_cost * 1000, 2)},
+            "converted_misses": [r["prompt_full"][:80] for r in converted],
+            "added_over_escalations": [r["prompt_full"][:80] for r in added_over],
+        }, indent=2))
+        return
+
+    typer.echo(f"code-judge replay — judge={judge_model} k={gen_samples}, {scope}")
+    typer.echo(f"  tool-checked {checked} accepts ({abstained} abstained)")
+    typer.echo(f"  fail-recall  {old_tn}/{n_fail} -> {new_tn}/{n_fail}   "
+               f"wrong-answers-served {old_fp} -> {new_fp}   over-escalations {old_fn} -> {new_fn}")
+    typer.echo("")
+    typer.echo(f"  {'policy':<36}{'pass@1':>10}{'$/1k':>10}{'esc':>6}")
+    typer.echo("  " + "-" * 62)
+    typer.echo(f"  {'routed (recorded gate)':<36}{old_pass:>10.4f}{f'${old_cost*1000:.2f}':>10}{old_esc:>6}")
+    typer.echo(f"  {'routed (+code-judge, projected)':<36}{new_pass:>10.4f}{f'${new_cost*1000:.2f}':>10}{new_esc:>6}")
+    typer.echo(f"  {'always-cloud (recorded)':<36}{cloud_pass:>10.4f}{f'${cloud_cost*1000:.2f}':>10}{'':>6}")
+    if cloud_cost:
+        typer.echo("")
+        typer.echo(f"  projected: {100 * (1 - new_cost / cloud_cost):.1f}% cost cut at "
+                   f"{100 * new_pass / cloud_pass:.1f}% of cloud pass@1")
+    for r in converted:
+        typer.echo(f"  converted miss: {r['prompt_full'][:76]}…")
+    for r in added_over:
+        typer.echo(f"  added over-escalation: {r['prompt_full'][:76]}…")

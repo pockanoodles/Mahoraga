@@ -43,6 +43,7 @@ import yaml
 from ..domain.models import Task, TaskAttempt
 from ..workers.claude_cli import ClaudeCliWorker
 from ..workers.ollama import OllamaWorker
+from .code_judge import differential_check
 from .judge_gate import judge_one
 from .verify_replay import run_case
 
@@ -71,6 +72,7 @@ class RoutedCase:
     final_passed: bool
     total_cost: float
     error: str = ""  # non-empty if a worker call itself failed
+    judge_detail: str = ""  # gate provenance, e.g. a code-judge override reason
 
     def as_dict(self) -> dict:
         return {
@@ -91,6 +93,7 @@ class RoutedCase:
             "final_passed": self.final_passed,
             "total_cost": round(self.total_cost, 6),
             "error": self.error,
+            "judge_detail": self.judge_detail,
         }
 
 
@@ -128,6 +131,7 @@ async def route_one(
     run_cloud_always: bool = True,
     local_label: Optional[str] = None,
     cloud_label: Optional[str] = None,
+    code_judge: bool = False,
 ) -> RoutedCase:
     """Run one prompt through local → judge → (maybe) cloud, grading each step.
 
@@ -135,6 +139,11 @@ async def route_one(
     verdict alone decides escalation. A None (unparseable) verdict is treated as
     "escalate", the safe default (spend cloud $ rather than serve a maybe-wrong
     local answer). Grading uses the hidden `tests` purely for measurement.
+
+    `code_judge=True` adds the recall-only generated-test check on a base
+    ACCEPT: `differential_check` gets only (prompt, local_output) — its
+    signature cannot receive the hidden tests — and may flip the verdict to
+    escalate, never the reverse.
 
     `local_label` / `cloud_label` set the arm ids recorded on the case (and thus
     the report labels); they default to the workers' own ids. The CLI passes
@@ -145,6 +154,17 @@ async def route_one(
     local_passed, _ = run_case(local_output, tests)
 
     verdict, judge_cost, _raw, judge_err = await judge_one(judge_worker, prompt, local_output)
+    judge_detail = ""
+    if code_judge and verdict is True:
+        tool_verdict, tool_cost, detail = await differential_check(
+            judge_worker, prompt, local_output
+        )
+        judge_cost += tool_cost
+        if tool_verdict is False:
+            verdict = False
+            judge_detail = f"code-judge override: {detail}"
+        else:
+            judge_detail = f"code-judge {'abstain' if tool_verdict is None else 'confirm'}: {detail}"
     escalate = verdict is not True  # False or None → escalate
 
     cloud_output: Optional[str] = None
@@ -181,6 +201,7 @@ async def route_one(
         final_passed=final_passed,
         total_cost=total_cost,
         error="; ".join(errs),
+        judge_detail=judge_detail,
     )
 
 

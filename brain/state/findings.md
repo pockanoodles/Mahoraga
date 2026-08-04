@@ -449,3 +449,71 @@ last-K compare, recall-only `tool_augmented_judge`), `judge_gate.run_text()`
 (factored worker-call plumbing, behavior-preserving), `orch bench report
 judge-bank --tool` (opt-in, local-egress-only, own cache slot). 16 tests; suite
 1481 green. Detail: `brain/journal/2026-07-27-phase5d-tool-judge.md`.
+
+## Era 19 — P0: the cascade on HumanEval+, 164 external tasks (2026-08-03)
+
+Every cascade number through Era 14 rested on the 50-task homemade bank —
+falsifiable by construction, but self-authored: the exact claim a skeptic
+punctures first. Era 19 re-runs the identical live cascade (`orch bench
+live-route`, zero code changes) on **HumanEval+** (EvalPlus v0.1.10, all 164
+problems), converted offline into the verifiable-bank schema
+(`experiments/build_humaneval_bank.py`: contract-filtered inputs, oracle outputs
+from the canonical solution, atol-aware comparison, every reference verified
+through the real `run_case` path; 93d05f7).
+
+| Policy (LIVE, n=164) | pass@1 | $/1k |
+|---|---|---|
+| always-cloud (claude-cli/sonnet) | 0.976 (160/164) | $35.97 |
+| always-local (granite4.1-8b) | 0.805 (132/164) | $0.00 |
+| **routed: granite→judge→cloud** | **0.921 (151/164)** | **$8.47 (76.5% cut)** |
+
+| Question | Method | Result | Verdict |
+|---|---|---|---|
+| Does the cascade survive an external benchmark? | full live run, always-cloud baseline in-run | routed 0.921 vs cloud 0.976 at 23.5% of cost; +11.6 pts over local-only | **Yes, restated:** ~94% of cloud quality at ~24% of cloud cost — no longer parity, and no longer self-authored |
+| Does 5c's perfect judge recall generalize? | same judge/prompt/posture, n_fail=32 (vs 6) | fail-recall **0.688** (22/32), 10 wrong answers served, 15 over-escalations | **No.** The operating point tracks the failure class: homemade failures were structurally broken; granite's HumanEval+ failures are plausible, subtly-wrong code — judgment-by-reading saturates |
+
+Tier gradient monotone (easy/medium/hard: routed 0.964/0.945/0.852, cloud
+1.000/0.982/0.944 — sonnet is not a 1.000 oracle here either; it also lost 3 of
+37 escalations). Misses: HumanEval/10, 22, 25, 93, 125, 126, 127, 134, 145, 154.
+
+**The code-domain twin of Era 18:** the reading-judge ceiling reappears exactly
+where failures get subtle, and the fix is again a tool — for code, the judge
+*generates its own tests* (it never sees the bank's hidden tests) and executes
+the candidate in the `execution_gate` sandbox. One failing generated input per
+miss converts fp→escalation: money, not quality — 5c economics. Queued behind P1.
+
+**Headline for the outside world (README/resume):** cut inference cost 76% while
+retaining 94% of cloud pass@1 on HumanEval+ (164 problems), execution-verified,
+$8.47 vs $35.97 per 1k tasks. Detail:
+`brain/journal/2026-08-03-humaneval-plus-cascade.md`.
+
+## Era 20 — P1: the routing A/B — bandit vs round-robin vs static vs oracle (2026-08-03)
+
+The "learns" claim finally got its experiment: per bank, a force-explore cross
+(round-robin/statics/oracle derived exactly, zero extra inference) + a
+cold-start LinUCB run through the real `/api/task` path, every policy under its
+own scratch `HOME`, graded by execution-verified pass@1 only.
+
+| Policy | HumanEval+ (164) | 50-bank |
+|---|---|---|
+| LinUCB bandit (cold) | 0.744 | 0.920 |
+| round-robin (derived) | 0.771 | 0.940 |
+| static qwen3.5 | 0.768 | 0.960 |
+| static granite | 0.774 | 0.920 |
+| **oracle per-prompt** | **0.890** | **0.980** |
+
+| Question | Method | Result | Verdict |
+|---|---|---|---|
+| Does the bandit beat unlearned assignment? | derived RR vs live bandit, both banks | never — deficits within noise, no learning curve, 42% on discriminating prompts (coin flip) | **No.** And the decisions DB says why |
+| Why not? | per-arm reward decomposition from decisions log | `AVG(success)` 1.000/0.987 (gate verdict: "ran without crashing") vs true pass@1 0.774/0.768 → only latency had gradient → bandit drifted to the faster arm on both banks, even where it was the worse arm | **Reward saturation, not learner failure.** Era 10 reproduced one level up: LinUCB is bounded by reward fidelity |
+| Is per-task routing winnable at all? | cross union | arms complementary (19 only-qwen, 20 only-granite) → oracle +11.6 pts over best static; lexical 9-dim context provably can't see it | **Yes — but the signal is semantic.** This is the committed, quantified motivation for `docs/specs/semantic-routing.md` |
+
+Bonus finding: **static rankings rot** — Phase 4's granite 0.900 > qwen 0.818
+(same 50-bank, 8 days ago) flipped to qwen 0.960 > granite 0.920 today. The
+argument for online routing is drift-tracking, and it only cashes out once the
+reward consumes a correctness signal — which the cascade's judge (and the Era-19
+generated-test judge) already is.
+
+Resume consequence: no honest bandit-beats-X number exists; the learning line
+stays architectural. The cascade (Era 19) and the eval harness carry the
+numbers. Detail: `brain/journal/2026-08-03-p1-bandit-ab.md`.

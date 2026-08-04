@@ -1,6 +1,67 @@
-# Current State — 2026-07-27
+# Current State — 2026-08-03
 
-## Read this first — 2026-07-27 (latest): Phase 5d — the TOOL-augmented judge
+## Read this first — 2026-08-03 (latest): P1 — the routing A/B (bandit vs baselines)
+
+**The "learns" claim got its experiment and the answer is a diagnosed null.**
+Per bank: force-explore cross (round-robin/statics/per-prompt oracle derived
+exactly) + cold-start LinUCB through the real `/api/task` path, isolated scratch
+`HOME` per policy, execution-verified pass@1 only. **Bandit never beat
+round-robin** (HumanEval+: 0.744 vs 0.771, statics 0.768/0.774, oracle 0.890;
+50-bank: 0.920 vs 0.940, statics 0.960/0.920, oracle 0.980). Coin-flip (42%) on
+arm-discriminating prompts; no learning curve.
+
+**Why (from the decisions DB, the actual finding):** the reward's success term
+= execution-gate "ran without crashing" → saturated at 1.000/0.987 while true
+pass@1 was 0.774/0.768 → only latency had gradient → the bandit correctly
+chased the faster arm (granite) on both banks, even where it was the worse arm.
+**Reward saturation, not learner failure — Era 10 one level up.** Also: Phase-4
+arm ranking flipped in 8 days (granite 0.900>qwen 0.818 → qwen 0.960>granite
+0.920, same bank) — static assignment rots; online routing needs a
+correctness-faithful reward (the judge is exactly that signal). And the oracle
+gap (+11.6 pts over best static, arms complementary 19/20) is the quantified
+motivation for semantic routing. Detail: findings Era 20 +
+`brain/journal/2026-08-03-p1-bandit-ab.md`.
+
+**Resume consequence:** learning line stays architectural (no honest
+bandit-beats-X number); the cascade (Era 19) + eval harness carry the numbers.
+**Next:** P3 one-command repro + CI badge; then reward-fidelity fix (judge
+verdict as success term) and re-run this A/B with the now-standing protocol.
+
+## Read this first — 2026-08-03 (earlier): P0 — the cascade on HumanEval+ (164 external tasks)
+
+**The resume-push bench: the identical live cascade re-run on an external
+benchmark, killing the "self-authored 50 tasks" vulnerability.** HumanEval+
+(EvalPlus v0.1.10, all 164 problems) converted offline into the verifiable-bank
+schema (`experiments/build_humaneval_bank.py` — contract-filtered inputs, oracle
+outputs from the canonical solution, atol-aware compare, references verified
+through the real `run_case` path; bank + refs + tests in 93d05f7 on
+`feat/humaneval-bench`). Full detail:
+`brain/journal/2026-08-03-humaneval-plus-cascade.md` + findings Era 19.
+
+**Result (LIVE, n=164, ~3.4 h wall):** always-cloud (claude-cli/sonnet) **0.976**
+@ $35.97/1k · always-local (granite) **0.805** @ $0 · **routed cascade 0.921 @
+$8.47/1k — 76.5% cost cut, 94.4% of cloud quality, +11.6 pts over local-only.**
+Judge (qwen3.5, prompt+output only): accuracy 0.848, **fail-recall 0.688**
+(22/32; 5c's 6/6 did NOT generalize), 10 wrong answers served, 15
+over-escalations, 37 escalations (22.6%). Tier-monotone; cloud itself lost 4
+baseline tasks + 3 of 37 escalations — not a 1.000 oracle here.
+
+**The Era-18 lesson reappeared in code form:** judgment-by-reading saturates
+exactly where failures get subtle (plausible, compiling, subtly-wrong granite
+code). Next lever on recall: a **code-mode tool-judge** — the judge generates
+its *own* tests (never sees the bank's hidden ones) and executes the candidate
+in the `execution_gate` sandbox; each converted miss is fp→escalation, money not
+quality. Queued behind P1.
+
+**Headline (resume/README, cite this not 5c):** cut LLM inference cost 76%
+retaining 94% of cloud pass@1 on HumanEval+ (164), execution-verified, $8.47 vs
+$35.97 per 1k tasks.
+
+**Now running / next:** P1 bandit-vs-baselines A/B on the 164 bank (isolated
+`HOME` per policy, pass@1 the only cross-policy metric, winnability precheck
+from the Phase-4 cross first), then P3 one-command repro + CI badge.
+
+## Read this first — 2026-07-27 (later): Phase 5d — the TOOL-augmented judge
 
 **Era 17 said the quantity/omission blind spot is structural (no ensemble closes
 it) → build a tool. Done.** `routing/tool_judge.py` — a compute-check: the judge
@@ -35,8 +96,8 @@ not the compare design.**
 
 **Shipped:** `routing/tool_judge.py`, `judge_gate.run_text()` (factored,
 behavior-preserving), `orch bench report judge-bank --tool` (opt-in,
-local-egress-only, own cache slot). 16 tests; suite **1481 green**. Uncommitted on
-`main` — needs a feat branch + PR.
+local-egress-only, own cache slot). 16 tests; suite **1481 green**. (Since merged
+to `main` via PR #27, 2026-08-01.)
 
 **Next:** (1) corroborate the solver before overriding (2nd framing / stronger
 model) OR make disagreement an escalate-signal not a hard reject; (2) a live

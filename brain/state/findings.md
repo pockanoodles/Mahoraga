@@ -533,3 +533,43 @@ tests; suite 1509 green. PR #30 merged. With Eras 19–21, all three resume-push
 items (P0/P1/P3) landed in one day: external-benchmark cascade numbers, a
 diagnosed-null routing A/B with the oracle gap quantified, and one-command
 reproducibility.
+
+## Era 22 — the code-mode tool-judge: recall 0.688 → 0.781, judged by execution (2026-08-04)
+
+Era 19's queued lever, built and measured. `routing/code_judge.py` — the
+differential generated-test gate: the judge model writes K=3 independent
+reference implementations + test inputs from the prompt ALONE (its signature
+cannot receive the hidden tests); references and candidate execute in the
+sandbox; expected output per input = executed reference consensus (≥2, strict
+majority); deterministic float-tolerant compare. No LLM in the compare path
+(the Era-18 v1/v2 lesson applied at design time, zero live iterations burned
+on it). Recall-only, enforced structurally.
+
+**Measured on the recorded P0 run (offline counterfactual, exact because
+run_cloud_always recorded every cloud baseline; only ~381 free local
+generations spent):** fail-recall 22/32 → **25/32 (0.781)**, wrong answers
+served 10 → **7**, over-escalations 15 → 19 (all four added ones on cloud-pass
+rows — money, not quality), **routed 0.921 → 0.939 @ $8.47 → $10.04/1k** vs
+cloud 0.976 @ $35.97. Headline: **94.4% → 96.2% of cloud quality at a 72.1%
+cost cut.**
+
+Two findings with legs:
+1. **Tool-judge recall is bounded by the judge model's own solve rate** —
+   qwen3.5 solves only 5/10 of the missed tasks (graded its P1 cross outputs,
+   zero inference), and the 3 catches came from tasks where fresh references
+   could be right. Era 18's "solver correctness is the limiter," quantified.
+   A stronger local reference-writer is the recall lever at ≥32 GB.
+2. **One disagreeing generated input is noise; two are signal.** The raw gate's
+   12 rejects = 3 catches + 9 false alarms; 6/9 false alarms had exactly one
+   disagreeing input, including the only quality-losing row (HumanEval/124:
+   local-pass, cloud-FAIL). `MIN_DISAGREEMENTS=2` keeps all 3 catches
+   (15/4/2 disagreements). Caveat, stated plainly: the threshold was chosen
+   post-hoc on these 12 rejects — it mirrors tool_judge's ≥2-of-K consensus
+   posture, but the live confirmation run must confirm it before any headline
+   cites 0.939. The cache stores raw counts; `--min-disagree` sweeps are free.
+
+Shipped: `orch bench report code-judge` (counterfactual replay over a recorded
+live-route JSONL), `bench live-route --code-judge` + `repro --code-judge`
+(opt-in live gate), 33 tests. Next: the live confirmation run
+(`orch bench repro --code-judge`), then the reward-fidelity fix (Era 20) fed by
+this better judge.

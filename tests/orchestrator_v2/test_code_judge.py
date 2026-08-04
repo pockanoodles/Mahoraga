@@ -232,6 +232,23 @@ async def test_differential_abstains_without_entrypoint():
     assert w.calls == []  # abstained before spending any generation
 
 
+async def test_differential_single_disagreement_is_below_reject_threshold():
+    # wrong on exactly one input (x=0) -> 1 mismatch < MIN_DISAGREEMENTS -> abstain
+    one_off = "```python\ndef double(x):\n    return x * 2 if x != 0 else 1\n```"
+    w = _ScriptedWorker(gen=_GOOD_GEN)
+    verdict, _c, detail = await differential_check(w, _TASK_PROMPT, one_off)
+    assert verdict is None and "below reject threshold" in detail
+
+
+async def test_differential_min_disagreements_one_rejects_single_mismatch():
+    one_off = "```python\ndef double(x):\n    return x * 2 if x != 0 else 1\n```"
+    w = _ScriptedWorker(gen=_GOOD_GEN)
+    verdict, _c, detail = await differential_check(
+        w, _TASK_PROMPT, one_off, min_disagreements=1
+    )
+    assert verdict is False and "1/" in detail
+
+
 async def test_differential_abstains_on_single_usable_reference():
     # 2 of 3 generations are garbage -> only 1 reference -> insufficient material
     w = _ScriptedWorker(gen=[_GOOD_GEN, "no code here", "also not code"])

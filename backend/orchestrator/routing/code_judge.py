@@ -47,6 +47,13 @@ from .tool_judge import run_solver_code
 
 GEN_SAMPLES = 3            # independent (reference + CASES) generations per task
 MAX_CASES = 20             # pooled input cap across generations
+# Reject only on >=2 disagreeing consensus inputs. One disagreement in ~20 is
+# noise-shaped (an out-of-contract or ambiguous generated input); two
+# independent ones are systematic — the same "never act on a single piece of
+# evidence" posture as tool_judge's >=2-of-K solver consensus. Calibrated on
+# the recorded HumanEval+ replay (catches disagreed on 15/4/2 inputs, 6 of 9
+# false alarms on exactly 1, including the only cloud-fail row).
+MIN_DISAGREEMENTS = 2
 FLOAT_RTOL = 1e-6
 FLOAT_ATOL = 1e-9
 _HARNESS_TIMEOUT_SECONDS = 10   # matches the bank builder's verify timeout
@@ -209,17 +216,19 @@ async def dump_cases(code: str) -> Optional[list]:
 
 
 async def differential_check(
-    worker, task_prompt: str, candidate: str, *, k: int = GEN_SAMPLES
+    worker, task_prompt: str, candidate: str, *, k: int = GEN_SAMPLES,
+    min_disagreements: int = MIN_DISAGREEMENTS,
 ) -> tuple[Optional[bool], float, str]:
     """Generated-test differential check. Returns (verdict, cost_usd, detail).
 
     verdict:
       False — the candidate disagrees with an executed reference consensus on
-              at least one generated input (a catch);
+              at least `min_disagreements` generated inputs (a catch);
       None  — ABSTAIN: no prompt entrypoint, <2 usable references, no
-              consensus input, or the candidate agrees everywhere. Never True —
-              agreement on generated inputs does not prove correctness, so the
-              base judge remains the sole accept.
+              consensus input, disagreements below the reject threshold, or
+              the candidate agrees everywhere. Never True — agreement on
+              generated inputs does not prove correctness, so the base judge
+              remains the sole accept.
 
     The candidate's code is executed, never re-read by a model; hidden bank
     tests are not accepted by this signature at all.
@@ -298,11 +307,16 @@ async def differential_check(
 
     if checked == 0:
         return None, cost, "no consensus inputs"
-    if mismatches:
+    if len(mismatches) >= min_disagreements:
         i, expected, got = mismatches[0]
         return False, cost, (
             f"{len(mismatches)}/{checked} consensus inputs disagree — "
             f"e.g. {entrypoint}(*{pooled[i]!r}): expected {expected!r}, got {got!r}"
+        )
+    if mismatches:
+        return None, cost, (
+            f"below reject threshold: {len(mismatches)}/{checked} consensus inputs "
+            f"disagree (min {min_disagreements})"
         )
     return None, cost, f"agrees on {checked} consensus inputs"
 

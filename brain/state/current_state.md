@@ -1,6 +1,44 @@
-# Current State — 2026-08-03
+# Current State — 2026-08-04
 
-## Read this first — 2026-08-03 (latest): P1 — the routing A/B (bandit vs baselines)
+## Read this first — 2026-08-04 (latest): the code-mode tool-judge — recall 0.688 → 0.781
+
+**Era 19's queued lever is built and measured.** `routing/code_judge.py`: the
+judge writes K=3 reference implementations + test inputs from the prompt alone
+(never sees candidate or hidden tests), everything executes in the sandbox,
+expected output = executed reference consensus, deterministic compare,
+recall-only (structurally can only reject/abstain). Replayed offline over the
+recorded P0 run — exact counterfactual, free, because the P0 run recorded every
+cloud baseline.
+
+**Result (164 HumanEval+, k=3, min_disagree=2):** fail-recall **22/32 → 25/32**,
+wrong answers served **10 → 7**, over-escalations 15 → 19 (all added ones on
+cloud-pass rows: money, not quality), **routed 0.921 → 0.939 @ $10.04/1k** vs
+cloud 0.976 @ $35.97 — **96.2% of cloud quality at a 72.1% cost cut** (was
+94.4% / 76.5%). Detail: findings Era 22 + `brain/journal/2026-08-04-code-judge.md`.
+
+**Two structural findings:** (1) tool-judge recall is bounded by the judge
+model's own solve rate (qwen3.5 solves 5/10 of the misses; catches only came
+from the solvable side) — stronger reference-writer = the ≥32 GB lever;
+(2) one disagreeing generated input is noise, two are signal
+(`MIN_DISAGREEMENTS=2` dropped 6/9 false alarms incl. the only quality-losing
+one, kept all 3 catches) — threshold chosen post-hoc, needs live confirmation.
+
+**DO NOT cite 0.939 as the headline yet** — it's a counterfactual replay on the
+run the threshold was calibrated on. The honest sequence: run
+`orch bench repro --code-judge` (fresh ~5 h live run) and cite THAT number.
+Until then the citable headline stays Era 19's (0.921 / 76.5% / recall 0.688).
+
+**Shipped (branch `feat/code-judge`, PR pending):** `routing/code_judge.py`,
+`orch bench report code-judge` (offline replay, `::code` cache slot, free
+`--min-disagree` sweeps), `--code-judge` on `bench live-route` + `bench repro`,
+`RoutedCase.judge_detail`. 33 tests.
+
+**Next:** (1) live confirmation run → new README/resume headline; (2) reward-
+fidelity fix (judge verdict as bandit success term, Era 20) — now fed by a
+better judge; (3) case-generation coverage (K=5, boundary sweeps) as the cheap
+recall lever at 16 GB.
+
+## Read this first — 2026-08-03 (earlier): P1 — the routing A/B (bandit vs baselines)
 
 **The "learns" claim got its experiment and the answer is a diagnosed null.**
 Per bank: force-explore cross (round-robin/statics/per-prompt oracle derived

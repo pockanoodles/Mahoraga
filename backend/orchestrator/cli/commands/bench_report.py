@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
@@ -34,7 +35,7 @@ from ...routing.route_sim import (
 )
 from ...routing.judge_gate import judge_one, GENERAL_RUBRIC
 from ...routing.tool_judge import tool_augmented_judge
-from ...routing.code_judge import differential_check
+from ...routing.code_judge import MIN_DISAGREEMENTS, differential_check
 from ...routing.nonverifiable_bank import (
     load_bank as load_nv_bank,
     load_refs as load_nv_refs,
@@ -1352,6 +1353,11 @@ def code_judge_cmd(
     ),
     judge_model: str = typer.Option("qwen3.5:latest", "--judge-model"),
     gen_samples: int = typer.Option(3, "--gen-samples", help="Reference generations per task (K)"),
+    min_disagree: int = typer.Option(
+        MIN_DISAGREEMENTS, "--min-disagree",
+        help="Reject only on >= this many disagreeing consensus inputs "
+             "(cached verdicts are re-derived, so sweeping this is free)",
+    ),
     cache_path: Path = typer.Option(
         DEFAULT_JUDGE_CACHE, "--cache",
         help="Verdict cache (own ::code slot) so re-runs never re-generate",
@@ -1406,24 +1412,36 @@ def code_judge_cmd(
     tool_verdicts: dict[str, Optional[bool]] = {}
     tool_details: dict[str, str] = {}
 
+    def _apply_threshold(verdict: Optional[bool], detail: str) -> Optional[bool]:
+        """Re-derive a cached reject under --min-disagree (the detail carries
+        the true mismatch count, so the threshold is sweepable for free)."""
+        if verdict is not False:
+            return verdict
+        m = re.match(r"(\d+)/\d+ consensus inputs disagree", detail)
+        if m and int(m.group(1)) < min_disagree:
+            return None
+        return verdict
+
     async def _check_all() -> None:
         for idx, row in enumerate(targets, 1):
             prompt = row["prompt_full"]
             hit = slot.get(prompt)
             if hit is not None:
-                tool_verdicts[prompt] = hit.get("verdict")
+                tool_verdicts[prompt] = _apply_threshold(hit.get("verdict"), hit.get("detail", ""))
                 tool_details[prompt] = hit.get("detail", "")
                 continue
+            # fresh checks record the raw (threshold-1) verdict so the cache
+            # stays sweepable; the effective verdict is derived above
             verdict, _cost, detail = await differential_check(
-                worker, prompt, row["local_output"], k=gen_samples
+                worker, prompt, row["local_output"], k=gen_samples, min_disagreements=1
             )
-            tool_verdicts[prompt] = verdict
+            tool_verdicts[prompt] = verdict_effective
             tool_details[prompt] = detail
             slot[prompt] = {"verdict": verdict, "detail": detail}
             cache_path.parent.mkdir(parents=True, exist_ok=True)
             cache_path.write_text(json.dumps(cache, indent=2))
             typer.echo(
-                f"  [{idx}/{len(targets)}] tool={'REJECT' if verdict is False else 'abstain'} "
+                f"  [{idx}/{len(targets)}] tool={'REJECT' if verdict_effective is False else 'abstain'} "
                 f"local_passed={row.get('local_passed')} — {detail[:100]}",
                 err=True,
             )
@@ -1488,7 +1506,8 @@ def code_judge_cmd(
 
     scope = "misses-only (ground-truth-peeking smoke)" if misses_only else "all recorded accepts"
     auto_summary = (
-        f"input={input_path.name} judge={judge_model} k={gen_samples} scope={scope} "
+        f"input={input_path.name} judge={judge_model} k={gen_samples} "
+        f"min_disagree={min_disagree} scope={scope} "
         f"checked={checked} abstained={abstained} "
         f"recall {old_tn}/{n_fail}->{new_tn}/{n_fail} fp {old_fp}->{new_fp} "
         f"over-esc {old_fn}->{new_fn} "
@@ -1500,7 +1519,8 @@ def code_judge_cmd(
 
     if output_json:
         typer.echo(json.dumps({
-            "judge_model": judge_model, "gen_samples": gen_samples, "scope": scope,
+            "judge_model": judge_model, "gen_samples": gen_samples,
+            "min_disagree": min_disagree, "scope": scope,
             "n": n, "checked": checked, "abstained": abstained,
             "old": {"confusion": {"tp": old_tp, "fp": old_fp, "tn": old_tn, "fn": old_fn},
                     "pass_rate": round(old_pass, 4), "cost_per_1k": round(old_cost * 1000, 2),

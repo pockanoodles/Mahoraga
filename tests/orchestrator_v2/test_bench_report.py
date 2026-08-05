@@ -555,3 +555,54 @@ def test_iso_to_epoch_offsets_and_day_bounds():
     import pytest
     with pytest.raises(ValueError):
         _iso_to_epoch("not-a-date")
+
+
+# ── code-judge replay: the fresh-check (cache-miss) path ─────────────────────
+# Regression: `verdict_effective` was unassigned on fresh checks (NameError on
+# any row not already in the cache), masked in the Era-22 replay by a warm cache.
+
+def _make_bench_runs_db(path: Path) -> None:
+    conn = sqlite3.connect(str(path))
+    conn.execute("""
+        CREATE TABLE bench_runs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            started_at TEXT, ended_at TEXT, mode TEXT,
+            task_count_planned INTEGER, task_count_completed INTEGER, notes TEXT
+        )
+    """)
+    conn.commit()
+    conn.close()
+
+
+def test_code_judge_fresh_check_populates_cache(tmp_path, monkeypatch):
+    async def _fake_check(worker, prompt, candidate, *, k=3, min_disagreements=1):
+        return False, 0.0, "3/4 consensus inputs disagree — e.g. f(*[1]): expected 1, got 2"
+
+    monkeypatch.setattr(
+        "backend.orchestrator.cli.commands.bench_report.differential_check", _fake_check
+    )
+    rows = [
+        {"prompt_full": "p1", "local_output": "def f(x):\n    return x",
+         "judge_verdict": True, "local_passed": False, "escalated": False,
+         "cloud_passed": True, "cloud_cost": 0.03, "judge_cost": 0.0,
+         "total_cost": 0.0, "final_passed": False},
+        {"prompt_full": "p2", "local_output": "def f(x):\n    return x",
+         "judge_verdict": False, "local_passed": False, "escalated": True,
+         "cloud_passed": True, "cloud_cost": 0.04, "judge_cost": 0.0,
+         "total_cost": 0.04, "final_passed": True},
+    ]
+    inp = tmp_path / "routed.jsonl"
+    inp.write_text("\n".join(json.dumps(r) for r in rows) + "\n")
+    cache = tmp_path / "cache.json"  # absent → every check is fresh
+    db = tmp_path / "decisions.db"
+    _make_bench_runs_db(db)
+
+    result = runner.invoke(app, [
+        "bench", "report", "code-judge", "--input", str(inp),
+        "--cache", str(cache), "--decisions-db", str(db),
+    ])
+    assert result.exit_code == 0, result.output
+    # the raw (threshold-1) verdict is cached so --min-disagree sweeps stay free
+    slot = json.loads(cache.read_text())["qwen3.5:latest::code"]
+    assert slot["p1"]["verdict"] is False
+    assert "disagree" in slot["p1"]["detail"]

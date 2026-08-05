@@ -1444,6 +1444,7 @@ def code_judge_cmd(
             verdict, _cost, detail = await differential_check(
                 worker, prompt, row["local_output"], k=gen_samples, min_disagreements=1
             )
+            verdict_effective = _apply_threshold(verdict, detail)
             tool_verdicts[prompt] = verdict_effective
             tool_details[prompt] = detail
             slot[prompt] = {"verdict": verdict, "detail": detail}

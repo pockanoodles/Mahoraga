@@ -1668,6 +1668,16 @@ async def run_api_task(
     else:
         quality_score, quality_components = 0.0, None
 
+    # Reward-fidelity judge (findings Era 20): the exec gate's "ran without
+    # crashing" saturates at ~1.0, leaving latency as the only reward gradient.
+    # A free local judge verdict becomes the correctness coefficient on the
+    # success term. Runs after `elapsed` is captured so judge latency never
+    # pollutes outcome.latency_s; None ≡ legacy reward wherever it doesn't run.
+    from ..routing.reward_judge import REWARD_JUDGE_BUCKETS, judge_correctness, reward_judge_mode
+    _correctness, _judge_cost, _judge_detail = None, 0.0, ""
+    if success and bucket in REWARD_JUDGE_BUCKETS and reward_judge_mode() != "off":
+        _correctness, _judge_cost, _judge_detail = await judge_correctness(req.prompt, output)
+
     # F2.2: score alt output and pick the winner when double-run fired.
     # Both outcomes are fed to the bandit so we learn from two agents per task.
     _double_run_winner: str | None = None
@@ -1690,6 +1700,11 @@ async def run_api_task(
             )
         else:
             _alt_quality, _alt_components = 0.0, None
+        _alt_correctness, _alt_judge_cost, _alt_judge_detail = None, 0.0, ""
+        if _alt_success and bucket in REWARD_JUDGE_BUCKETS and reward_judge_mode() != "off":
+            _alt_correctness, _alt_judge_cost, _alt_judge_detail = await judge_correctness(
+                req.prompt, _alt_output
+            )
         _alt_outcome = TaskOutcome(
             success=_alt_success,
             latency_s=elapsed,
@@ -1698,6 +1713,9 @@ async def run_api_task(
             agent_name=alt_agent,
             bucket=bucket,
             spawn_time_ms=0.0,
+            correctness=_alt_correctness,
+            judge_cost=_alt_judge_cost,
+            judge_detail=_alt_judge_detail,
         )
         try:
             router.observe(alt_task, _alt_outcome)
@@ -1745,6 +1763,9 @@ async def run_api_task(
         bucket=bucket,
         spawn_time_ms=agent_spawn_ms,
         quality_components=quality_components,
+        correctness=_correctness,
+        judge_cost=_judge_cost,
+        judge_detail=_judge_detail,
     )
     try:
         router.observe(task, outcome)
@@ -2005,6 +2026,7 @@ async def run_batch(
                 status = "failed"
         else:
             quality_score, quality_components = 0.0, None
+        # No exec gate or reward judge on the batch path in v1 — same asymmetry.
         outcome = TaskOutcome(
             success=success,
             latency_s=elapsed,

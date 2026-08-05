@@ -712,6 +712,7 @@ class BanditRouter:
                 cost_usd=outcome.cost_usd,
                 quality=outcome.quality_score,
                 reward=reward,
+                correctness=outcome.correctness if outcome.correctness is not None else 1.0,
             )
 
         # Layer 3: episodic memory (all outcomes — failures inform the bandit too).

@@ -1,8 +1,12 @@
 """
 Composite reward function for bandit routing.
 
-Reward = success × (w_success·1 + w_quality·quality + w_speed·φ_speed + w_cost·φ_cost)
+Reward = success × (w_success·c + w_quality·quality + w_speed·φ_speed + w_cost·φ_cost)
        - swap_penalty
+
+c = judge correctness coefficient in [0, 1]; 1.0 when no judge ran (correctness=None),
+    so the reward is unchanged wherever the judge is off — see findings.md Era 20:
+    the constant success term saturated at ~1.0 and left latency as the only gradient.
 
 φ_speed = exp(-λ · latency_s / T_REF_S)   exponential decay against a fixed reference time
 φ_cost  = 1 - tanh(cost_usd / COST_REF)   soft budget penalty
@@ -72,6 +76,9 @@ class TaskOutcome:
     bucket: str = "general"
     spawn_time_ms: float = 0.0   # agent_spawn_time_ms; used for swap penalty
     quality_components: dict[str, float | None] | None = None
+    correctness: float | None = None   # reward-judge verdict; None = judge didn't run
+    judge_cost: float = 0.0            # the judge call's own cost (telemetry only)
+    judge_detail: str = ""             # judge provenance, e.g. a code-judge override reason
 
 
 class RewardCalculator:
@@ -112,7 +119,11 @@ class RewardCalculator:
         phi_speed = math.exp(-_SPEED_LAMBDA * outcome.latency_s / _SPEED_T_REF)
         phi_cost  = 1.0 - math.tanh(outcome.cost_usd / _COST_REF)
 
-        raw = w_s * 1.0 + w_q * outcome.quality_score + w_sp * phi_speed + w_c * phi_cost
+        # Judge correctness scales the success term (Era 20): None ≡ 1.0 keeps
+        # the legacy reward exact wherever the judge doesn't run. success=False
+        # already returned 0.0 above — a judge True never resurrects a crash.
+        c = 1.0 if outcome.correctness is None else max(0.0, min(1.0, outcome.correctness))
+        raw = w_s * c + w_q * outcome.quality_score + w_sp * phi_speed + w_c * phi_cost
 
         # Swap penalty: if spawn_time_ms is substantial, agent was cold-loaded.
         # Normalise against the speed reference (5 s = 5000 ms).

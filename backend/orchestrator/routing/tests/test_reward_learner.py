@@ -183,6 +183,42 @@ def test_save_load_roundtrip(tmp_path):
     assert learner2.get_weights("test") == original_weights
 
 
+def test_observe_default_correctness_keeps_old_call_sites_working():
+    """Old call sites omit `correctness`; the buffered row's first column is 1.0."""
+    learner = RewardWeightLearner()
+    learner.observe("code", latency_s=2.0, cost_usd=0.0, quality=0.8, reward=0.7)
+    assert learner._buffer["code"][0][0] == 1.0
+
+
+def test_observe_records_correctness_column():
+    learner = RewardWeightLearner()
+    learner.observe("code", latency_s=2.0, cost_usd=0.0, quality=0.8, reward=0.3,
+                    correctness=0.0)
+    learner.observe("code", latency_s=2.0, cost_usd=0.0, quality=0.8, reward=0.9,
+                    correctness=1.0)
+    assert [row[0] for row in learner._buffer["code"]] == [0.0, 1.0]
+
+
+def test_learned_weights_on_simplex_with_varying_correctness():
+    """OLS over a varying correctness column still projects onto the simplex."""
+    learner = RewardWeightLearner()
+    import random
+    rng = random.Random(21)
+    w_s, w_q, w_sp, w_c = BUCKET_WEIGHTS["code"]
+    for _ in range(MIN_SAMPLES + 20):
+        lat = rng.uniform(0.5, 8.0)
+        qual = rng.uniform(0.4, 1.0)
+        corr = rng.choice([0.0, 1.0])
+        reward = w_s * corr + w_q * qual + w_sp * _phi_speed(lat) + w_c * _phi_cost(0.0)
+        learner.observe("code", latency_s=lat, cost_usd=0.0, quality=qual,
+                        reward=reward, correctness=corr)
+
+    assert learner.has_learned("code")
+    w = learner.get_weights("code")
+    assert abs(sum(w) - 1.0) < 1e-6
+    assert all(wi >= WEIGHT_FLOOR for wi in w)
+
+
 def test_reward_calculator_uses_learned_weights():
     """RewardCalculator should use learned weights once converged."""
     from backend.orchestrator.routing.reward import RewardCalculator, TaskOutcome

@@ -81,6 +81,23 @@ def test_unparseable_verdict_escalates():
     assert case.escalated is True             # None → safe default = escalate
 
 
+def test_code_judge_crash_degrades_to_abstain(monkeypatch):
+    # A gate bug must not kill the run: the accept stands, detail records it.
+    async def _boom(*a, **k):
+        raise OverflowError("int too large to convert to float")
+    monkeypatch.setattr(
+        "backend.orchestrator.routing.live_route.differential_check", _boom
+    )
+    local = _FakeWorker("ollama:local:coder", summary=PASS_CODE)
+    judge = _FakeWorker("ollama:judge", summary='{"correct": true}')
+    cloud = _FakeWorker("claude-cli:sonnet", summary=PASS_CODE, cost=0.05)
+    case = asyncio.run(route_one(local, judge, cloud, "solve it", TESTS,
+                                 code_judge=True))
+    assert case.escalated is False and case.judge_verdict is True
+    assert "tool crashed" in case.judge_detail
+    assert case.total_cost == 0.0
+
+
 def test_escalate_only_skips_cloud_when_kept():
     case, local, judge, cloud = _run(PASS_CODE, '{"correct": true}', PASS_CODE,
                                       run_cloud_always=False)

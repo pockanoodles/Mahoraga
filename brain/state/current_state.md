@@ -1,6 +1,54 @@
 # Current State — 2026-08-05
 
-## Read this first — 2026-08-05 (latest): reward fidelity SHIPPED — the reward is fixed, and that exonerates it
+## Read this first — 2026-08-05 (latest): the route ceiling — the oracle gap is a tautology, the headroom is the judge
+
+**The question three eras assumed the answer to: is the +11.6-pt oracle gap
+reachable by any router?** Built `routing/route_ceiling.py` +
+`orch bench report route-ceiling` (zero inference, runs off the committed P1
+cross + P0 cascade). Two answers, both load-bearing.
+
+**1. The gap is an algebraic identity.** For two arms,
+`oracle − round_robin == split/(2n)` exactly — verified on both banks
+(0.1189 = 39/328; 0.0400 = 4/100) and property-tested. It is guaranteed
+positive whenever the arms ever disagree, **including two identical models
+whose disagreements are pure sampling noise.** It measures disagreement, not
+complementary skill. Eras 20 and 23 both cited it as the motivation for
+semantic routing — that was reading a tautology as a finding.
+
+**2. The residual is unpredictable.** A leave-one-out kNN probe with
+*full-information* neighbours (strictly more than an online learner sees, so an
+upper bound; and the same mechanism episodic memory ships) fails to beat the
+best static arm on either bank: HumanEval+ handcraft 0.7805 (+0.0061, p=0.625)
+/ lexical 0.7866 (+0.0122, p=0.436) vs best-static 0.7744; 50-bank both 0.9400
+(−0.0200, p≈0.66). Verdict **NOT-DETECTABLE** on both.
+
+**3. The measured headroom is the judge's recall.** Same tool on the P0
+cascade: judge = pass@1 0.9207 @ esc 0.2256 @ $8.47/1k; oracle gate =
+**0.9817 @ esc 0.1768 @ $6.62/1k — +6.1 pts at LOWER spend.** Text features add
+exactly 0.0000 on top of the judge verdict (lexical −0.0122); without it they
+collapse to recall 0.25–0.28. The judge verdict is a **sufficient statistic**
+for the escalation decision — independently confirming Era 22's "recall is
+bounded by the judge model's own solve rate."
+
+**Consequence: A1 semantic routing is demoted** from "the remaining lever" to
+"open pending one measurement" (ADR
+`brain/decisions/2026-08-05-oracle-gap-is-not-a-lever.md`). **Judge recall is
+promoted** — it now has a measured ceiling instead of a hunch. Detail: findings
+Era 24 + `brain/journal/2026-08-05-route-ceiling.md`.
+
+**Two stated limits, both cheap to close — do these before acting on the above:**
+1. **MiniLM was NOT probed.** The environment this ran in blocked the model
+   host, so the semantic row reports `unavailable` rather than guessing.
+   `orch bench report route-ceiling` on the Mac fills it in, zero inference.
+2. **One sample per (prompt, arm)** cannot separate "better arm here" from
+   "lucky this once." Decisive test: K=5 re-runs of just the 39 split prompts
+   (~390 local generations).
+
+Shipped: `routing/route_ceiling.py`, `orch bench report route-ceiling`, 22
+tests (planted-signal vs exchangeable-noise synthetic crosses — validated
+against ground truth, not against the recorded data). Suite 1604.
+
+## Read this first — 2026-08-05 (earlier): reward fidelity SHIPPED — the reward is fixed, and that exonerates it
 
 **Era 20's prescription, built and validated (PRs #34 + #35, both merged).**
 The judge verdict is now the correctness coefficient on the reward's success

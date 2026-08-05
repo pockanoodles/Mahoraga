@@ -206,7 +206,19 @@ orch bench report judge-gate                   # judge accuracy against the orac
 orch bench report judge-bank --tool            # judge on the non-verifiable bank
 orch bench report cost                         # dollars avoided vs a cloud reference
 orch bench report verify --input results.jsonl --bank experiments/prompts_verifiable.jsonl
+orch bench report route-ceiling                # how much can ANY router learn from this data?
 ```
+
+`route-ceiling` is the sanity check on routing claims. The oracle-vs-static gap
+that motivates most routing work is, for two arms, the identity `split/(2n)` —
+positive whenever the arms disagree at all, sampling noise included. The
+command reports that decomposition, then asks whether the disagreement is
+actually *predictable* with a leave-one-out kNN probe over pluggable text
+representations plus a label-permutation test, and separately places the
+cascade judge on its achievable frontier. On the recorded runs the arm-routing
+answer is NOT-DETECTABLE and the escalation answer is +6.1 pts of headroom
+inside the judge's own recall — see
+`brain/decisions/2026-08-05-oracle-gap-is-not-a-lever.md`.
 
 Only run trusted evaluation data: the live execution gate, the offline
 verifier, and the tool-augmented judge all execute generated code locally.

@@ -622,3 +622,61 @@ bit-exactness legacy guard; also fixed a latent NameError in
 `code_judge_cmd`'s fresh-check path — masked by a warm cache in Era 22, would
 have crashed any new-cache replay). Suite 1581. Next: bench-repro live
 confirmation (running), K=5 case-coverage sweep, then A1.
+
+## Era 24 — the route ceiling: the oracle gap is a tautology, the headroom is the judge (2026-08-05)
+
+Asked the question three eras of roadmap had assumed the answer to: **is the
++11.6-pt oracle gap reachable by any router?** Built
+`routing/route_ceiling.py` + `orch bench report route-ceiling` (zero inference,
+runs off the committed P1 cross and P0 cascade).
+
+**Finding 1 — the gap is an algebraic identity.** For two arms,
+`oracle − round_robin == split/(2n)` exactly (verified on both banks:
+0.1189 = 39/328 and 0.0400 = 4/100; property-tested over random matrices). It
+is guaranteed positive whenever two arms ever disagree — *including two
+identical models whose disagreements are pure sampling noise*. The statistic
+measures disagreement, not complementary skill. Eras 20 and 23 both cited it as
+the motivation for semantic routing; that was reading a tautology as a finding.
+
+**Finding 2 — the residual is unpredictable, both banks.** Leave-one-out kNN
+over prompt text with *full-information* neighbours (strictly more than an
+online learner sees → an upper bound; and the same mechanism episodic memory
+ships) fails to beat the best static arm anywhere:
+
+| bank | representation | best k | pass@1 | Δ best-static | p |
+|---|---|---|---|---|---|
+| HumanEval+ 164 | handcraft 9-dim | 20 | 0.7805 | +0.0061 | 0.625 |
+| HumanEval+ 164 | lexical TF-IDF | 5 | 0.7866 | +0.0122 | 0.436 |
+| 50-bank | handcraft 9-dim | 5 | 0.9400 | −0.0200 | 0.668 |
+| 50-bank | lexical TF-IDF | 20 | 0.9400 | −0.0200 | 0.663 |
+
+p = 2000-resample label permutation, already pricing in best-k selection
+optimism. Verdict NOT-DETECTABLE on both banks.
+
+**Finding 3 — the real headroom, quantified, is the judge's recall.** Same tool
+on the P0 cascade: the judge sits at pass@1 0.9207 / esc-rate 0.2256 /
+$8.47 per 1k; the oracle gate reaches **0.9817 / esc-rate 0.1768 / $6.62 per 1k
+— +6.1 pts at lower spend.** Text features add exactly 0.0000 on top of the
+judge verdict (and −0.0122 for lexical); without it they collapse to recall
+0.25–0.28. **The judge verdict is a sufficient statistic for the escalation
+decision** — the gain is inside its recall, independently confirming Era 22's
+"recall is bounded by the judge model's own solve rate."
+
+**Consequence:** A1 semantic routing demoted from "the remaining lever" to
+"open pending one measurement" (ADR `2026-08-05-oracle-gap-is-not-a-lever.md`).
+Judge recall promoted, now with a measured ceiling rather than a hunch.
+
+**Stated limits (both cheap to close):** (1) MiniLM was *not* probed — the
+environment's egress policy blocked the model host, and the tool reports
+`unavailable` rather than guessing; one command on the Mac fills the row.
+(2) One sample per (prompt, arm) cannot separate "better arm here" from "lucky
+this once" — the decisive test is K=5 re-runs of just the 39 split prompts
+(~390 local generations).
+
+Shipped: `routing/route_ceiling.py`, `orch bench report route-ceiling`, 22
+tests (planted-signal vs exchangeable-noise synthetic crosses — the analyzer
+must separate them, so it's validated against ground truth rather than against
+the recorded data). Suite 1604. Bugs the tests caught during authoring: the
+oracle frontier was a quota not a cap (non-monotone, not an upper envelope),
+rows with no recorded cloud answer were scored as cloud failures, and the
+NOT-DETECTABLE summary crashed with permutations disabled.

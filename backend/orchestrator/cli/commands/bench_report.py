@@ -34,6 +34,7 @@ from ...routing.route_sim import (
     infer_arms,
 )
 from ...routing.reward_fidelity_replay import run_replay as run_reward_replay
+from ...routing.route_ceiling import run_ceiling
 from ...routing.judge_gate import judge_one, GENERAL_RUBRIC
 from ...routing.tool_judge import tool_augmented_judge
 from ...routing.code_judge import MIN_DISAGREEMENTS, differential_check
@@ -57,6 +58,8 @@ DEFAULT_P1_CROSS = (
     Path(__file__).resolve().parents[4] / "experiments" / "p1_cross_qwen_full.jsonl",
     Path(__file__).resolve().parents[4] / "experiments" / "p1_cross_qwen_topup.jsonl",
 )
+# The recorded P0 live cascade (Era 19) — local arm + judge + cloud outcome per row.
+DEFAULT_LIVE_ROUTE = Path(__file__).resolve().parents[4] / "experiments" / "live_route_humaneval_164.jsonl"
 DEFAULT_NV_BANK = Path(__file__).resolve().parents[4] / "experiments" / "prompts_nonverifiable.jsonl"
 DEFAULT_NV_REFS = Path(__file__).resolve().parents[4] / "experiments" / "prompts_nonverifiable_refs.jsonl"
 DEFAULT_JUDGE_CACHE = Path.home() / ".mahoraga-v2" / "judge_gate_cache.json"
@@ -1676,3 +1679,191 @@ def reward_judge_cmd(
     for c in criteria:
         typer.echo(f"    [{c['verdict']:<4}] {c['criterion']}")
         typer.echo(f"           {c['detail']}")
+
+
+@report_app.command("route-ceiling")
+def route_ceiling_cmd(
+    results: Optional[list[Path]] = typer.Option(
+        None, "--results", "-r",
+        help="Force-explore cross JSONL(s) for the arm ceiling; repeatable. "
+             "Default: the recorded P1 HumanEval+ cross.",
+    ),
+    bank: Path = typer.Option(
+        DEFAULT_HUMANEVAL_BANK, "--bank", help="Gold bank (prompt + hidden tests) for re-grading"
+    ),
+    cascade: Optional[Path] = typer.Option(
+        DEFAULT_LIVE_ROUTE, "--cascade",
+        help="live-route cascade JSONL for the escalation ceiling. Pass a "
+             "non-existent path to skip that section.",
+    ),
+    skip_arm: bool = typer.Option(False, "--skip-arm", help="Skip the arm-selection ceiling"),
+    k_values: str = typer.Option("3,5,10,20", "--k", help="Comma-separated kNN neighbourhood sizes to sweep"),
+    permutations: int = typer.Option(2000, "--permutations", help="Label-permutation resamples for the significance test (0 disables)"),
+    seed: int = typer.Option(42, "--seed", help="RNG seed for the permutation test"),
+    decisions_db: Path = typer.Option(DEFAULT_DECISIONS_DB, "--decisions-db"),
+    output_json: bool = typer.Option(False, "--json"),
+    notes: Optional[str] = typer.Option(None, "--notes", help="Why this analysis — logged to bench_runs."),
+) -> None:
+    """How much can *any* router learn from the recorded data?
+
+    Two offline ceilings, zero new inference:
+
+    Arm selection — the oracle-vs-round-robin gap is the algebraic identity
+    split/(2n) for two arms, so it is guaranteed positive whenever the arms
+    ever disagree, noise included. A leave-one-out kNN probe with
+    full-information neighbours (strictly more than any online learner sees)
+    asks whether the split prompts are actually predictable, and a
+    label-permutation test says whether the answer clears chance.
+
+    Escalation — places the judge's operating point on the oracle-gate
+    frontier and asks whether cheap features add fail-recall on top of the
+    judge verdict at matched escalation rate (matched cost).
+    """
+    try:
+        ks = tuple(int(x) for x in k_values.split(",") if x.strip())
+    except ValueError:
+        typer.echo(f"Invalid --k value: {k_values!r} (expected comma-separated ints)", err=True)
+        raise typer.Exit(1)
+    if not ks:
+        typer.echo("--k must name at least one neighbourhood size", err=True)
+        raise typer.Exit(1)
+
+    results_paths = [p for p in (results or list(DEFAULT_P1_CROSS))] if not skip_arm else []
+    missing = [p for p in results_paths if not p.exists()]
+    if missing:
+        typer.echo(f"Results file(s) not found: {', '.join(str(p) for p in missing)}", err=True)
+        raise typer.Exit(1)
+    if results_paths and not bank.exists():
+        typer.echo(f"Gold bank not found: {bank}", err=True)
+        raise typer.Exit(1)
+    cascade_path = cascade if (cascade and cascade.exists()) else None
+    if not results_paths and cascade_path is None:
+        typer.echo("Nothing to analyse: no cross results and no cascade file.", err=True)
+        raise typer.Exit(1)
+
+    if results_paths:
+        typer.echo(
+            f"grading {len(results_paths)} cross file(s) against {bank.name} "
+            "(a few hundred sandboxed runs, CPU only)…", err=True,
+        )
+    try:
+        report = run_ceiling(
+            bank if results_paths else None,
+            results_paths or None,
+            cascade_path,
+            k_values=ks,
+            n_permutations=permutations,
+            seed=seed,
+        )
+    except ValueError as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(1)
+
+    arm = report.get("arm_ceiling")
+    esc = report.get("escalation_ceiling")
+
+    auto_bits = []
+    if arm:
+        auto_bits.append(
+            f"arm={arm['verdict']} n={arm['stats']['n_prompts']} "
+            f"split={arm['stats']['split']} oracle_gap={arm['stats']['oracle_over_best_static']}"
+        )
+    if esc:
+        auto_bits.append(
+            f"esc={esc['verdict']} judge_pass@1={esc['judge']['pass_at_1']} "
+            f"frontier@rate={(esc['frontier_at_judge_rate'] or {}).get('pass_at_1')}"
+        )
+    auto_summary = f"route-ceiling k={','.join(str(k) for k in ks)} perms={permutations} " + " ".join(auto_bits)
+    try:
+        log_offline_run(
+            decisions_db, mode="route-ceiling",
+            task_count=(arm or {}).get("stats", {}).get("n_prompts", 0) or (esc or {}).get("n_rows", 0),
+            notes=f"{auto_summary} | {notes}" if notes else auto_summary,
+        )
+    except sqlite3.Error as exc:
+        # The ledger is a nice-to-have; losing minutes of sandboxed grading
+        # because the decisions DB is absent (fresh checkout, CI) is not.
+        typer.echo(f"warning: could not log to the experiment ledger ({exc})", err=True)
+
+    if output_json:
+        typer.echo(json.dumps(report, indent=2))
+        return
+
+    if arm:
+        s = arm["stats"]
+        env = arm.get("environment", {})
+        typer.echo("")
+        typer.echo("route-ceiling A — arm-selection ceiling")
+        typer.echo(
+            f"  environment: {s['n_prompts']} prompts x {s['n_arms']} arms "
+            f"({', '.join(a.split(':')[-1] for a in env.get('arms', []))})"
+        )
+        typer.echo(
+            f"  outcomes: {s['all_pass']} all-pass  {s['none_pass']} none-pass  "
+            f"{s['split']} split"
+        )
+        typer.echo(
+            f"  baselines: round-robin={s['round_robin']}  best-static={s['best_static']}  "
+            f"oracle={s['oracle']}"
+        )
+        if "split_over_2n" in s:
+            held = "holds" if s["identity_holds"] else "BROKEN"
+            typer.echo(
+                f"  identity: oracle - round-robin = {s['oracle_over_round_robin']} "
+                f"= split/(2n) = {s['split_over_2n']}  [{held}]"
+            )
+            typer.echo(
+                "            (the gap is guaranteed positive whenever the arms disagree — "
+                "it measures disagreement, not skill)"
+            )
+        typer.echo("")
+        typer.echo(f"  {'representation':<14}{'best k':>8}{'pass@1':>10}{'Δbest-static':>14}{'p':>9}  detail")
+        typer.echo("  " + "-" * 82)
+        for p in arm["probes"]:
+            if not p["available"]:
+                typer.echo(f"  {p['representation']:<14}{'—':>8}{'n/a':>10}{'—':>14}{'—':>9}  {p['detail']}")
+                continue
+            typer.echo(
+                f"  {p['representation']:<14}{p['best_k']:>8}{p['pass_at_1']:>10.4f}"
+                f"{p['gain_over_best_static']:>+14.4f}{p['p_value']:>9.4f}  {p['detail']}"
+            )
+        typer.echo("")
+        typer.echo(f"  verdict: {arm['verdict']}")
+        typer.echo(f"    {arm['detail']}")
+
+    if esc:
+        typer.echo("")
+        typer.echo("route-ceiling B — escalation ceiling")
+        typer.echo(
+            f"  {esc['n_rows']} cascade rows: always-local={esc['always_local']}  "
+            f"always-cloud={esc['always_cloud']} @ ${esc['always_cloud_cost']}/1k"
+        )
+        j = esc["judge"]
+        typer.echo(
+            f"  judge: esc-rate={j['esc_rate']}  fail-recall={j['fail_recall']} "
+            f"({j['n_caught']}/{j['n_failed']})  over-esc={j['over_escalations']}  "
+            f"pass@1={j['pass_at_1']} @ ${j['cost_per_1k']}/1k"
+        )
+        fr = esc["frontier_at_judge_rate"]
+        if fr:
+            typer.echo(
+                f"  oracle gate at the same rate ({fr['esc_rate']}): pass@1={fr['pass_at_1']} "
+                f"@ ${fr['cost_per_1k']}/1k  → {fr['pass_at_1'] - j['pass_at_1']:+.4f} headroom at equal spend"
+            )
+        typer.echo("")
+        typer.echo(f"  {'representation':<14}{'judge?':>8}{'k':>5}{'pass@1':>10}{'recall':>9}{'Δjudge':>9}")
+        typer.echo("  " + "-" * 60)
+        for p in esc["probes"]:
+            if not p.get("available"):
+                typer.echo(
+                    f"  {p['representation']:<14}{'—':>8}{'—':>5}{'n/a':>10}{'—':>9}{'—':>9}"
+                    f"   {p.get('detail', '')}"
+                )
+                continue
+            typer.echo(
+                f"  {p['representation']:<14}{str(p['with_judge']):>8}{p['k']:>5}"
+                f"{p['pass_at_1']:>10.4f}{p['fail_recall']:>9.4f}{p['delta_vs_judge']:>+9.4f}"
+            )
+        typer.echo("")
+        typer.echo(f"  verdict: {esc['verdict']}")
+        typer.echo(f"    {esc['detail']}")

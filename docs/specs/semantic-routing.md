@@ -1,5 +1,16 @@
 # A1: Semantic-Augmented Routing
 
+> **⚠ Motivation superseded (2026-08-05, Era 24).** §1's "invisible ceiling"
+> argument rests on the per-prompt oracle gap. That gap is the algebraic
+> identity `split/(2n)` for two arms — guaranteed positive whenever the arms
+> disagree at all, noise included — and a full-information leave-one-out probe
+> finds the residual unpredictable on both banks (p ≈ 0.44 / 0.63). Read
+> `brain/decisions/2026-08-05-oracle-gap-is-not-a-lever.md` before citing this
+> spec's motivation or scheduling the work. The retrieval-quality arguments in
+> §1.2 stand on their own; the oracle-gap framing does not. Reopening requires
+> the MiniLM probe row (`orch bench report route-ceiling`) or the K=5
+> split-prompt reproducibility run.
+
 **Status:** Design Spec (pre-implementation)
 **Author:** Design review with Opus 4.6
 **Scope:** Replace keyword-overlap episodic retrieval with semantic embedding retrieval; preserve the 9-dim handcrafted LinUCB context vector unchanged.

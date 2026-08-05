@@ -622,3 +622,48 @@ bit-exactness legacy guard; also fixed a latent NameError in
 `code_judge_cmd`'s fresh-check path — masked by a warm cache in Era 22, would
 have crashed any new-cache replay). Suite 1581. Next: bench-repro live
 confirmation (running), K=5 case-coverage sweep, then A1.
+
+## Era 24 — code-judge live confirmation: recall reproduces, the package doesn't, and that's the finding (2026-08-05)
+
+The pre-registered test from Era 22 ran: `orch bench repro --code-judge`,
+fresh inference on all 164, threshold untouched (min_disagree=2), attempt #2
+after PR #33 (attempt #1 died to lid-close sleep + the OverflowError).
+
+**What reproduced — the tool's own claims, off calibration data:**
+- **Fail-recall 29/37 = 0.784 live vs 0.781 projected.** The recall gain is
+  real and stable.
+- **Recall-only economics held perfectly: 0/11 over-escalations lost quality**
+  (cloud recovered every one); all 8 tool catches were genuine (6 recovered by
+  cloud). The tool cannot lose quality by construction, and live it didn't.
+- **Paired same-run decomposition (the strongest honest claim):** base judge
+  alone this run: recall 21/37 = 0.568, routed 0.884 @ $10.43/1k. With the
+  tool layer: recall 0.784, routed **0.921 @ $14.74/1k — +3.7 pts for
+  +$4.31/1k on identical inference.**
+
+**What did NOT reproduce — the Era-22 headline package (0.939 @ $10.04/1k,
+96.2%/72.1%):** dead, permanently. Not because the tool failed — because
+run-to-run variance in the *other* components dominates: granite 0.805 → 0.774
+pass@1 (37 true failures vs 32), base-judge recall 0.688 → 0.568, base
+over-escalations 15 → 24. Full run #2: cloud 0.970 @ $37.69/1k, routed 0.921
+@ $14.74/1k = 94.9% retention at a 60.9% cut.
+
+**Findings with legs:**
+1. **The reading judge is the high-variance component** (recall 0.688 → 0.568
+   across two fresh runs on the same bank); the execution-backed layer is the
+   stable one (0.781 → 0.784). Judgment-by-reading isn't just blind where
+   failures are subtle (Era 18/19) — it's *noisy* run to run; execution
+   evidence is what generalizes.
+2. **min_disagree is exhausted as a precision lever:** above the threshold,
+   disagreement counts no longer separate catches (2–7) from false alarms
+   (2–8). Precision 8/19 = 0.42 is purely a money knob now.
+3. **Single-run benchmark numbers carry ±3-pt-scale variance** (local arm) —
+   any future headline should either cite the specific run or a cross-run
+   range, never a replay projection.
+
+**Citable after tonight:** the Era-19 P0 headline stands unchanged (routed
+0.921 @ $8.47/1k, 76.5% cut, 94.4% of cloud — that run is complete and honest
+on its own). New addable claims: judge fail-recall 0.69 → 0.78 via generated
+tests (confirmed fresh), +3.7 pts routed pass@1 same-run, retention 94–95%
+across both fresh runs, zero quality cost from verification. Per-case data:
+`experiments/repro_2026-08-04.jsonl`. Next: K=5 case-coverage sweep (running),
+A1 semantic routing.

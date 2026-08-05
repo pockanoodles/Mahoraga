@@ -1,6 +1,33 @@
 # Current State — 2026-08-05
 
-## Read this first — 2026-08-05 (latest): reward fidelity SHIPPED — the reward is fixed, and that exonerates it
+## Read this first — 2026-08-05 (latest): the code-judge live confirmation RAN — guard resolved
+
+**The Era-22 do-not-cite guard is resolved: the 0.939 replay package is dead;
+the tool's claims are confirmed.** Fresh `bench repro --code-judge` (attempt
+#2, after PR #33): judge fail-recall **29/37 = 0.784 vs 0.781 projected** —
+reproduces off calibration data. Recall-only economics held perfectly live:
+0/11 over-escalations lost quality, 8/8 catches genuine. Same-run paired
+decomposition: base judge alone recall 0.568 / routed 0.884 @ $10.43/1k →
+with tool **0.784 / 0.921 @ $14.74/1k (+3.7 pts for +$4.31/1k)**. The package
+numbers (0.939/96.2%/72.1%) did NOT reproduce because run variance elsewhere
+dominates: granite 0.805→0.774, base-judge recall 0.688→0.568. This run:
+cloud 0.970 @ $37.69/1k, routed 0.921 @ $14.74 = 94.9% retention, 60.9% cut.
+
+**Citable now:** Era-19 P0 headline UNCHANGED (0.921 @ $8.47/1k, 76.5% cut,
+94.4% of cloud). Addable, confirmed fresh: recall 0.69→0.78 via generated
+executed tests; +3.7 pts same-run; retention 94–95% across both fresh runs;
+verification never costs quality. NEVER cite replay projections as headlines
+— cite runs or cross-run ranges (local arm alone wobbles ±3 pts).
+
+Key structural findings (Era 24 + `brain/journal/2026-08-05-code-judge-live-confirmation.md`):
+the reading judge is the high-variance component (0.688→0.568 across runs),
+the execution layer is the stable one (0.781→0.784); min_disagree is
+exhausted as a precision lever. Running overnight: K=5 case-coverage sweep
+(own cache file `judge_gate_cache_k5.json`). Next after that: A1 semantic
+routing — the top open lever (Era 23 exonerated the reward, Era 24 caps
+judge-recall gains at 16 GB).
+
+## Read this first — 2026-08-05 (earlier): reward fidelity SHIPPED — the reward is fixed, and that exonerates it
 
 **Era 20's prescription, built and validated (PRs #34 + #35, both merged).**
 The judge verdict is now the correctness coefficient on the reward's success

@@ -1,0 +1,3 @@
+{"prompt_full": "Write a function f that returns 42", "actual_agent": "ollama:arm-a", "bucket": "code", "success": true, "elapsed_s": 2.0, "output_full": "```python\ndef f():\n    return 42\n```"}
+{"prompt_full": "Write a function f that returns 42", "actual_agent": "ollama:arm-b", "bucket": "code", "success": true, "elapsed_s": 6.0, "output_full": "```python\ndef f():\n    return 0\n```"}
+{"prompt_full": "Write a function g that returns 7", "actual_agent": "ollama:arm-a", "bucket": "code", "success": true, "output_full": "```python\ndef g():\n    return 7\n```"}

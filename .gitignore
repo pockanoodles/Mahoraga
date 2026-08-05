@@ -9,6 +9,7 @@ __pycache__/
 .aider.*
 experiments/
 *.jsonl
+!tests/orchestrator_v2/fixtures/*.jsonl
 .claude/
 
 # Local AI-call context / build scaffolding — never pushed

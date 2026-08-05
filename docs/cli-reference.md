@@ -142,6 +142,11 @@ workers directly through `bench live-route`.
 | `orch bench report reweight --weights ...` | Recompute logged rewards |
 | `orch bench report quality-replay --input ...` | Rescore captured outputs |
 | `orch bench report verify --input ... --bank ...` | Run hidden Python tests |
+| `orch bench report route-sim --input ... --bench-run-id ...` | Counterfactual routing-vs-baseline Pareto |
+| `orch bench report judge-gate --input ... --bench-run-id ...` | Score an LLM-judge escalation gate |
+| `orch bench report judge-bank` | Judge discrimination on non-verifiable tasks |
+| `orch bench report code-judge --input ...` | Replay the generated-test code judge |
+| `orch bench report reward-judge` | Reward-fidelity replay: legacy vs oracle vs synthetic-judge rewards |
 
 See [Experiments and evaluation](experimentation.md) for file formats and
 safety notes.

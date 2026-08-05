@@ -146,6 +146,15 @@ def test_values_equal_distinct_ints():
     assert not values_equal(66, 68)
 
 
+def test_values_equal_ints_beyond_float_range():
+    # factorial-class outputs overflow float(); must compare exactly, not crash
+    huge = 2**2000
+    assert values_equal(huge, huge)
+    assert not values_equal(huge, huge + 1)
+    assert not values_equal(huge, 1.5)
+    assert not values_equal([huge], [huge + 1])
+
+
 # ----- value_consensus (pure) -----
 
 def test_value_consensus_majority_wins():

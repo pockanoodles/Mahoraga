@@ -530,6 +530,9 @@ def live_route_cmd(
         f"cloud_baseline={'full' if run_cloud_always else 'escalate-only'}"
     )
 
+    # Flushed per case so a crash hours in loses nothing already measured.
+    out_f = open(output, "w") if output else None
+
     async def _run_all():
         out = []
         for i, p in enumerate(prompts, 1):
@@ -549,15 +552,18 @@ def live_route_cmd(
                 f"judge={case.judge_verdict}) ${case.total_cost:.4f}"
                 + (f"  ERR: {case.error}" if case.error else "")
             )
+            if out_f:
+                out_f.write(json.dumps(case.as_dict()) + "\n")
+                out_f.flush()
             out.append(case)
         return out
 
-    cases = asyncio.run(_run_all())
-
+    try:
+        cases = asyncio.run(_run_all())
+    finally:
+        if out_f:
+            out_f.close()
     if output:
-        with open(output, "w") as f:
-            for c in cases:
-                f.write(json.dumps(c.as_dict()) + "\n")
         typer.echo(f"per-case results → {output}")
 
     # ── Confusion of the judge gate vs hidden-test ground truth ────────────────

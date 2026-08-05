@@ -156,9 +156,15 @@ async def route_one(
     verdict, judge_cost, _raw, judge_err = await judge_one(judge_worker, prompt, local_output)
     judge_detail = ""
     if code_judge and verdict is True:
-        tool_verdict, tool_cost, detail = await differential_check(
-            judge_worker, prompt, local_output
-        )
+        # A gate bug must never kill a multi-hour live run: any unexpected
+        # exception degrades to an abstain (keep the base accept — recall-only,
+        # so skipping the tool can only under-catch, never serve a worse answer).
+        try:
+            tool_verdict, tool_cost, detail = await differential_check(
+                judge_worker, prompt, local_output
+            )
+        except Exception as exc:  # noqa: BLE001
+            tool_verdict, tool_cost, detail = None, 0.0, f"tool crashed: {exc!r}"
         judge_cost += tool_cost
         if tool_verdict is False:
             verdict = False

@@ -146,7 +146,10 @@ def values_equal(a: Any, b: Any, *, rtol: float = FLOAT_RTOL, atol: float = FLOA
     if isinstance(a, bool) != isinstance(b, bool):
         return a == b
     if isinstance(a, (int, float)) and isinstance(b, (int, float)):
-        return math.isclose(float(a), float(b), rel_tol=rtol, abs_tol=atol)
+        try:
+            return math.isclose(float(a), float(b), rel_tol=rtol, abs_tol=atol)
+        except OverflowError:
+            return a == b  # ints beyond float range are exact — compare exactly
     if isinstance(a, (list, tuple)) and isinstance(b, (list, tuple)):
         return len(a) == len(b) and all(
             values_equal(x, y, rtol=rtol, atol=atol) for x, y in zip(a, b)

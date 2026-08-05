@@ -1,6 +1,41 @@
-# Current State — 2026-08-04
+# Current State — 2026-08-05
 
-## Read this first — 2026-08-04 (latest): the code-mode tool-judge — recall 0.688 → 0.781
+## Read this first — 2026-08-05 (latest): reward fidelity SHIPPED — the reward is fixed, and that exonerates it
+
+**Era 20's prescription, built and validated (PRs #34 + #35, both merged).**
+The judge verdict is now the correctness coefficient on the reward's success
+term (`TaskOutcome.correctness`, `w_s * c`); exec gate stays the hard floor;
+`None` ≡ legacy bit-for-bit; flags `MAHORAGA_REWARD_JUDGE=off|on|code` (default
+on) + `MAHORAGA_REWARD_JUDGE_MODEL`. Decision log gains
+correctness/judge_cost/judge_detail; the OLS w_s regressor is finally
+identifiable. Offline validation: `orch bench report reward-judge` (zero
+inference — recorded P1 cross + real RewardCalculator + fresh LinUCB × 20
+orderings).
+
+**Result:** the reward now measures correctness (reward↔pass r 0.119 → 0.98+;
+the 50-bank arm reward leader flips from the faster arm to the *better* arm)
+— but it does NOT convert into a pass@1 win: oracle-reward LinUCB 0.767 vs
+round-robin 0.771. Arm-level gaps (0.004–0.024 reward) are below cold-start
+LinUCB's resolution at 50–164 pulls; judge noise transmits only ~0.57–0.64 of
+them. **The Era-20 null now has a clean interpretation: not a broken ruler —
+the arms aren't separable as arms. The +11.6-pt win is per-prompt → semantic
+routing (A1) is the remaining lever, reward ruled out as confounder.** Still
+no honest "bandit beats X" resume number; the honest sentence is "reward
+measures execution-verified correctness." Detail: findings Era 23 +
+`brain/journal/2026-08-05-reward-fidelity.md`.
+
+Also fixed: latent NameError in `code_judge_cmd` fresh checks (masked by warm
+cache in Era 22 — would have crashed any new-cache sweep); OverflowError on
+factorial-class ints in `code_judge.values_equal` + crash-net + per-case
+flush in live-route (PR #33; killed live confirmation attempt #1 at 83/164).
+Ops lesson: `nohup` does not survive lid-close sleep — long benches need
+`caffeinate -i -w <PID>` + AC power + lid open.
+
+**Next:** (1) live confirmation run attempt #2 (running overnight 2026-08-05)
+→ headline decision; (2) K=5 case-coverage sweep (`--gen-samples 5`, needs its
+own `--cache` file — the cache key ignores K); (3) A1 semantic routing.
+
+## Read this first — 2026-08-04 (earlier): the code-mode tool-judge — recall 0.688 → 0.781
 
 **Era 19's queued lever is built and measured.** `routing/code_judge.py`: the
 judge writes K=3 reference implementations + test inputs from the prompt alone

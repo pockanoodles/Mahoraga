@@ -573,3 +573,52 @@ live-route JSONL), `bench live-route --code-judge` + `repro --code-judge`
 (opt-in live gate), 33 tests. Next: the live confirmation run
 (`orch bench repro --code-judge`), then the reward-fidelity fix (Era 20) fed by
 this better judge.
+
+## Era 23 — reward fidelity: the reward is fixed, and that exonerates it (2026-08-05)
+
+Era 20's prescription, built and validated overnight. PR #34: the judge verdict
+is now the correctness coefficient on the reward's success term
+(`TaskOutcome.correctness`; `w_s * c` in `RewardCalculator.compute`). The exec
+gate stays the hard floor (a judge True never resurrects a crash);
+`correctness=None` reproduces the legacy reward bit-for-bit, so the change is
+inert wherever the judge doesn't run. Flag surface mirrors the exec gate:
+`MAHORAGA_REWARD_JUDGE=off|on|code` (default on; `code` layers the recall-only
+differential check), `MAHORAGA_REWARD_JUDGE_MODEL` (default qwen3.5). Judge
+runs inline in `/api/task` after `elapsed` is captured, so judge latency never
+pollutes the speed term. Decision log gains correctness/judge_cost/judge_detail
+columns — the Era-20 diagnosis query is now rerunnable as AVG(correctness).
+
+PR #35: `orch bench report reward-judge` — zero-LLM-inference validation. The
+recorded P1 cross is the environment (re-graded via verify_replay), the real
+RewardCalculator scores four variants (legacy / oracle / synthetic judge at the
+two measured operating points), and a fresh in-memory LinUCB replays 20
+shuffled orderings.
+
+**The result, reported exactly (HumanEval+ 164, seed 42):**
+- **The reward is fixed at the signal level:** reward↔true-pass correlation
+  0.119 (legacy) → 0.980–0.995 (judge/oracle), and on the 50-bank — where the
+  faster arm is the *worse* arm — the arm reward leader flips from granite
+  (legacy latency artifact, gap 0.0216) to qwen, the truly better arm, under
+  oracle. The wrong-way latency gradient is gone.
+- **It does not convert into a pass@1 win on either bank:** oracle-reward
+  LinUCB 0.7668 vs round-robin 0.7713 (legacy 0.7808 — a latency-luck
+  artifact, disc-acc 0.540 ≈ coin flip reproduces Era 20). Arm-level pass gaps
+  (0.6–4 pts ≈ 0.004–0.024 reward at w_s=0.6) are below what cold-start LinUCB
+  separates in 50–164 pulls; both measured judges attenuate the correctness
+  gap (transmission ≈ recall−FPR = 0.57/0.64) further below the latency gap.
+
+**The finding with legs: the reward is now exonerated.** Era 20 could not
+distinguish "broken ruler" from "no arm-level signal"; Era 23 fixes the ruler
+and the null persists → the arms genuinely aren't separable *as arms* on these
+banks. The +11.6-pt oracle gap lives per-prompt (complementarity 19/20), which
+the lexical 9-dim context vector cannot see. **Semantic routing (A1 spec) is
+the remaining routing lever, now with the reward ruled out as a confounder.**
+The live reward-judge still pays for itself operationally: production state
+stops training on "ran without crashing" and the OLS w_s regressor is finally
+identifiable.
+
+Shipped: PRs #34 (core + 27 tests) + #35 (replay + 11 tests incl. the
+bit-exactness legacy guard; also fixed a latent NameError in
+`code_judge_cmd`'s fresh-check path — masked by a warm cache in Era 22, would
+have crashed any new-cache replay). Suite 1581. Next: bench-repro live
+confirmation (running), K=5 case-coverage sweep, then A1.

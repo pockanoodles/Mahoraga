@@ -33,6 +33,7 @@ from ...routing.route_sim import (
     simulate as simulate_policies,
     infer_arms,
 )
+from ...routing.reward_fidelity_replay import run_replay as run_reward_replay
 from ...routing.judge_gate import judge_one, GENERAL_RUBRIC
 from ...routing.tool_judge import tool_augmented_judge
 from ...routing.code_judge import MIN_DISAGREEMENTS, differential_check
@@ -48,6 +49,14 @@ from ...tracking.pricing import PRICING, PRICING_AS_OF, calculate_cost
 DEFAULT_METRICS_DB = Path.home() / ".mahoraga-v2" / "mahoraga.db"
 DEFAULT_DECISIONS_DB = Path.home() / ".mahoraga-v2" / "routing_decisions.db"
 DEFAULT_VERIFY_BANK = Path(__file__).resolve().parents[4] / "experiments" / "prompts_verifiable.jsonl"
+DEFAULT_HUMANEVAL_BANK = Path(__file__).resolve().parents[4] / "experiments" / "prompts_humaneval_plus.jsonl"
+# The recorded P1 force-explore cross (Era 20). The qwen topup file carries the
+# 53 recorded qwen timings the recovered full file lacks (same outputs).
+DEFAULT_P1_CROSS = (
+    Path(__file__).resolve().parents[4] / "experiments" / "p1_cross_granite.jsonl",
+    Path(__file__).resolve().parents[4] / "experiments" / "p1_cross_qwen_full.jsonl",
+    Path(__file__).resolve().parents[4] / "experiments" / "p1_cross_qwen_topup.jsonl",
+)
 DEFAULT_NV_BANK = Path(__file__).resolve().parents[4] / "experiments" / "prompts_nonverifiable.jsonl"
 DEFAULT_NV_REFS = Path(__file__).resolve().parents[4] / "experiments" / "prompts_nonverifiable_refs.jsonl"
 DEFAULT_JUDGE_CACHE = Path.home() / ".mahoraga-v2" / "judge_gate_cache.json"
@@ -1553,3 +1562,116 @@ def code_judge_cmd(
         typer.echo(f"  converted miss: {r['prompt_full'][:76]}…")
     for r in added_over:
         typer.echo(f"  added over-escalation: {r['prompt_full'][:76]}…")
+
+
+@report_app.command("reward-judge")
+def reward_judge_cmd(
+    results: Optional[list[Path]] = typer.Option(
+        None, "--results", "-r",
+        help="Force-explore cross JSONL(s) (prompt_full/output_full/actual_agent); "
+             "repeatable. Default: the recorded P1 HumanEval+ cross.",
+    ),
+    bank: Path = typer.Option(
+        DEFAULT_HUMANEVAL_BANK, "--bank", help="Gold bank (prompt + hidden tests) for re-grading"
+    ),
+    orderings: int = typer.Option(20, "--orderings", help="Shuffled prompt orderings per variant (each gets a fresh cold-start bandit)"),
+    seed: int = typer.Option(42, "--seed", help="RNG seed (shuffles + synthetic-judge sampling)"),
+    alpha: float = typer.Option(1.0, "--alpha", help="LinUCB exploration coefficient"),
+    decay: float = typer.Option(0.98, "--decay", help="dLinUCB discount factor"),
+    decisions_db: Path = typer.Option(DEFAULT_DECISIONS_DB, "--decisions-db"),
+    output_json: bool = typer.Option(False, "--json"),
+    notes: Optional[str] = typer.Option(None, "--notes", help="Why this replay — logged to bench_runs."),
+) -> None:
+    """Offline reward-fidelity replay: does the judge-fed correctness
+    coefficient fix Era 20's saturated success term?
+
+    Zero new inference — re-grades the recorded P1 force-explore cross against
+    the bank's hidden tests (CPU-only sandbox runs), then plays a fresh
+    cold-start LinUCB over shuffled orderings under four reward variants:
+    legacy (correctness=None), oracle (true pass), and synthetic judges at the
+    measured plain/code operating points. All rewards come from the real
+    RewardCalculator. Prints pass@1 vs the round-robin / best-static / oracle
+    baselines derived from the same matrix, and PASS/FAIL per replay criterion.
+    """
+    results_paths = [p for p in (results or list(DEFAULT_P1_CROSS))]
+    missing = [p for p in results_paths if not p.exists()]
+    if missing:
+        typer.echo(f"Results file(s) not found: {', '.join(str(p) for p in missing)}", err=True)
+        raise typer.Exit(1)
+    if not bank.exists():
+        typer.echo(f"Gold bank not found: {bank}", err=True)
+        raise typer.Exit(1)
+
+    typer.echo(
+        f"grading {len(results_paths)} results file(s) against {bank.name} "
+        "(a few hundred sandboxed runs, CPU only)…", err=True,
+    )
+    try:
+        report = run_reward_replay(
+            bank, results_paths,
+            n_orderings=orderings, seed=seed, alpha=alpha, decay=decay,
+        )
+    except ValueError as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(1)
+
+    env = report["environment"]
+    base = report["baselines"]
+    variants = report["variants"]
+    criteria = report["criteria"]
+
+    verdicts = {c["criterion"].split(" ")[0]: c["verdict"] for c in criteria}
+    auto_summary = (
+        f"bank={bank.name} n_prompts={env['n_prompts']} orderings={orderings} seed={seed} "
+        f"pass@1 " + " ".join(f"{name}={v['pass_at_1']}" for name, v in variants.items())
+        + f" rr={base['round_robin']} best_static={base['best_static']} "
+        f"oracle_router={base['oracle_router']} verdicts={verdicts}"
+    )
+    log_offline_run(
+        decisions_db, mode="reward-judge", task_count=env["n_prompts"],
+        notes=f"{auto_summary} | {notes}" if notes else auto_summary,
+    )
+
+    if output_json:
+        typer.echo(json.dumps(report, indent=2))
+        return
+
+    typer.echo("")
+    typer.echo(f"reward-judge — offline reward-fidelity replay over {', '.join(p.name for p in results_paths)}")
+    typer.echo(
+        f"  environment: {env['n_prompts']} prompts x {len(env['arms'])} arms "
+        f"({', '.join(a.split(':')[-1] for a in env['arms'])}), "
+        f"{env['n_discriminating']} arm-discriminating, "
+        f"{env['n_latency_backfilled']} rows latency-backfilled, "
+        f"{env['n_dropped_incomplete']} bank prompts dropped (incomplete matrix)"
+    )
+    statics = "  ".join(f"static {a.split(':')[-1]}={v}" for a, v in base["static"].items())
+    typer.echo(
+        f"  baselines: round-robin={base['round_robin']}  {statics}  "
+        f"oracle-router={base['oracle_router']}"
+    )
+    typer.echo(f"  bandit: cold-start LinUCB d=9 alpha={alpha} decay={decay}, "
+               f"{orderings} orderings, seed={seed}")
+    typer.echo("")
+    arms = env["arms"]
+    picks_hdr = "picks(" + "/".join(a.split(":")[-1] for a in arms) + ")"
+    typer.echo(f"  {'variant':<14}{'pass@1':>10}{'±std':>8}{'Δrr':>9}{picks_hdr:>26}"
+               f"{'disc-acc':>10}{'rew-gap':>9}{'rew↔pass':>10}")
+    typer.echo("  " + "-" * 96)
+    for name, v in variants.items():
+        shares = "/".join(f"{v['pick_share'].get(a, 0.0)*100:.0f}%" for a in arms)
+        disc = f"{v['disc_accuracy']:.3f}" if v["disc_accuracy"] is not None else "n/a"
+        corr = f"{v['reward_pass_corr']:.3f}" if v["reward_pass_corr"] is not None else "n/a"
+        typer.echo(
+            f"  {name:<14}{v['pass_at_1']:>10.4f}{v['pass_at_1_std']:>8.4f}"
+            f"{v['pass_at_1'] - base['round_robin']:>+9.4f}{shares:>26}"
+            f"{disc:>10}{v['reward_gap']:>9.4f}{corr:>10}"
+        )
+    typer.echo("")
+    typer.echo("  (rew-gap = arm mean-reward gap under expected correctness; "
+               "rew↔pass = Pearson r between per-pull reward and true pass)")
+    typer.echo("")
+    typer.echo("  criteria:")
+    for c in criteria:
+        typer.echo(f"    [{c['verdict']:<4}] {c['criterion']}")
+        typer.echo(f"           {c['detail']}")

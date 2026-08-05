@@ -148,3 +148,34 @@ def test_observe_triggers_save_to_custom_path(tmp_path, noop_logger):
     agent = router.route(task)
     router.observe(task, TaskOutcome(True, 2.0, 0.005, 0.85, agent))
     assert os.path.exists(custom)
+
+
+class _SpyLearner:
+    """Records observe() kwargs so tests can assert what the router forwards."""
+    def __init__(self):
+        self.calls = []
+
+    def observe(self, **kwargs):
+        self.calls.append(kwargs)
+
+
+def test_observe_forwards_correctness_to_learner(state_file, noop_logger):
+    router = BanditRouter(strategy="ucb1", logger=noop_logger, state_path=state_file)
+    spy = _SpyLearner()
+    router._learner = spy
+    task = MockTask()
+    agent = router.route(task)
+    router.observe(task, TaskOutcome(True, 1.0, 0.0, 0.9, agent, bucket="code",
+                                     correctness=0.0))
+    assert spy.calls[-1]["correctness"] == 0.0
+
+
+def test_observe_defaults_missing_correctness_to_one(state_file, noop_logger):
+    """correctness=None (no judge) reaches the learner as the legacy 1.0 regressor."""
+    router = BanditRouter(strategy="ucb1", logger=noop_logger, state_path=state_file)
+    spy = _SpyLearner()
+    router._learner = spy
+    task = MockTask()
+    agent = router.route(task)
+    router.observe(task, TaskOutcome(True, 1.0, 0.0, 0.9, agent, bucket="code"))
+    assert spy.calls[-1]["correctness"] == 1.0

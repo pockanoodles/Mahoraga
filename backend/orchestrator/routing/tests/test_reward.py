@@ -2,7 +2,7 @@
 import math
 from backend.orchestrator.routing.reward import (
     RewardCalculator, TaskOutcome, BUCKET_WEIGHTS,
-    _SPEED_LAMBDA, _SPEED_T_REF,
+    _SPEED_LAMBDA, _SPEED_T_REF, _COST_REF,
 )
 
 
@@ -92,3 +92,58 @@ def test_all_bucket_weights_sum_to_one():
     for bucket, (ws, wq, wsp, wc) in BUCKET_WEIGHTS.items():
         total = ws + wq + wsp + wc
         assert abs(total - 1.0) < 1e-9, f"Bucket {bucket!r} weights sum to {total}, not 1.0"
+
+
+# ── Correctness coefficient (Era 20 reward-fidelity judge) ────────────────────
+
+def test_correctness_none_reproduces_legacy_reward():
+    """No judge (correctness=None) must be bit-for-bit the legacy formula."""
+    calc = RewardCalculator()
+    kw = dict(success=True, latency_s=5.0, cost_usd=0.01, quality_score=0.5,
+              agent_name="a", bucket="code")
+    w_s, w_q, w_sp, w_c = BUCKET_WEIGHTS["code"]
+    phi_sp = math.exp(-_SPEED_LAMBDA * 5.0 / _SPEED_T_REF)
+    phi_c = 1.0 - math.tanh(0.01 / _COST_REF)
+    legacy = round(w_s * 1.0 + w_q * 0.5 + w_sp * phi_sp + w_c * phi_c, 4)
+    assert calc.compute(TaskOutcome(**kw)) == legacy
+    assert calc.compute(TaskOutcome(**kw, correctness=None)) == legacy
+    assert calc.compute(TaskOutcome(**kw, correctness=1.0)) == legacy
+
+
+def test_correctness_zero_removes_exactly_w_success():
+    """A judge reject removes exactly the success term, nothing else."""
+    calc = RewardCalculator()
+    kw = dict(success=True, latency_s=5.0, cost_usd=0.0, quality_score=0.5,
+              agent_name="a", bucket="code")
+    accepted = calc.compute(TaskOutcome(**kw, correctness=1.0))
+    rejected = calc.compute(TaskOutcome(**kw, correctness=0.0))
+    w_s = BUCKET_WEIGHTS["code"][0]
+    assert abs((accepted - rejected) - w_s) < 1e-9
+
+
+def test_failure_floor_beats_judge_accept():
+    """success=False is the hard floor — a judge True never resurrects a crash."""
+    calc = RewardCalculator()
+    outcome = TaskOutcome(success=False, latency_s=1.0, cost_usd=0.0,
+                          quality_score=0.9, agent_name="a", correctness=1.0)
+    assert calc.compute(outcome) == 0.0
+
+
+def test_correctness_clamped_to_01():
+    """Out-of-range correctness clamps to [0, 1] rather than distorting reward."""
+    calc = RewardCalculator()
+    kw = dict(success=True, latency_s=2.0, cost_usd=0.0, quality_score=0.8,
+              agent_name="a", bucket="code")
+    assert calc.compute(TaskOutcome(**kw, correctness=2.0)) == \
+        calc.compute(TaskOutcome(**kw, correctness=1.0))
+    assert calc.compute(TaskOutcome(**kw, correctness=-1.0)) == \
+        calc.compute(TaskOutcome(**kw, correctness=0.0))
+
+
+def test_judge_cost_and_detail_do_not_affect_reward():
+    calc = RewardCalculator()
+    kw = dict(success=True, latency_s=1.0, cost_usd=0.01, quality_score=0.8,
+              agent_name="a", correctness=1.0)
+    base = calc.compute(TaskOutcome(**kw))
+    with_meta = calc.compute(TaskOutcome(**kw, judge_cost=0.02, judge_detail="x"))
+    assert base == with_meta

@@ -181,6 +181,15 @@ class DecisionLogger:
             self._conn.execute(
                 "ALTER TABLE decisions ADD COLUMN escalation_strategy TEXT"
             )
+        # Era 21 reward-fidelity judge: correctness coefficient on the success
+        # term, plus the judge's own cost and provenance. NULL correctness on
+        # old rows means "judge didn't run" — the legacy-reward semantics.
+        if "correctness" not in existing:
+            self._conn.execute("ALTER TABLE decisions ADD COLUMN correctness REAL")
+        if "judge_cost" not in existing:
+            self._conn.execute("ALTER TABLE decisions ADD COLUMN judge_cost REAL")
+        if "judge_detail" not in existing:
+            self._conn.execute("ALTER TABLE decisions ADD COLUMN judge_detail TEXT")
         self._conn.commit()
 
     # ------------------------------------------------------------------
@@ -437,7 +446,10 @@ class DecisionLogger:
                     quality_length     = ?,
                     quality_embed      = ?,
                     reward             = ?,
-                    error_message      = ?
+                    error_message      = ?,
+                    correctness        = ?,
+                    judge_cost         = ?,
+                    judge_detail       = ?
                 WHERE id = ?
                 """,
                 (
@@ -452,6 +464,9 @@ class DecisionLogger:
                     qc.get("embed"),
                     reward,
                     outcome.error_message,
+                    outcome.correctness,
+                    outcome.judge_cost,
+                    outcome.judge_detail,
                     row[0],
                 ),
             )

@@ -1,10 +1,13 @@
 """
 Adaptive reward weight learner — updates per-bucket weights using OLS after ≥100 observations.
 
-For each bucket we buffer (1.0, quality, phi_speed, phi_cost, reward) tuples from successful
-tasks. After MIN_SAMPLES observations per bucket, we fit:
+For each bucket we buffer (correctness, quality, phi_speed, phi_cost, reward) tuples from
+successful tasks. After MIN_SAMPLES observations per bucket, we fit:
 
-    reward ≈ w_s·1 + w_q·quality + w_sp·phi_speed + w_c·phi_cost
+    reward ≈ w_s·correctness + w_q·quality + w_sp·phi_speed + w_c·phi_cost
+
+`correctness` defaults to 1.0 (the pre-Era-21 constant regressor) so w_s only becomes
+identifiable where the reward judge actually runs.
 
 using OLS (numpy lstsq), then project onto the probability simplex (sum=1, each ≥ WEIGHT_FLOOR).
 
@@ -87,7 +90,7 @@ class RewardWeightLearner:
     """
 
     def __init__(self, state_path: str | Path | None = None) -> None:
-        # Per-bucket observation buffer: rows are (1.0, quality, phi_sp, phi_c, reward)
+        # Per-bucket observation buffer: rows are (correctness, quality, phi_sp, phi_c, reward)
         self._buffer: dict[str, list[tuple[float, ...]]] = {}
         # Learned weights per bucket (post-projection)
         self._learned: dict[str, tuple[float, float, float, float]] = {}
@@ -107,17 +110,20 @@ class RewardWeightLearner:
         cost_usd: float,
         quality: float,
         reward: float,
+        correctness: float = 1.0,
     ) -> None:
         """Record one successful outcome for weight learning.
 
         Call this for every task where success=True so the learner accumulates
-        enough signal to fit per-bucket weights.
+        enough signal to fit per-bucket weights. `correctness` is the reward
+        judge's coefficient on the success term; the 1.0 default is the legacy
+        constant regressor for call sites where no judge ran.
         """
         phi_sp = _phi_speed(latency_s)
         phi_c = _phi_cost(cost_usd)
 
         buf = self._buffer.setdefault(bucket, [])
-        buf.append((1.0, quality, phi_sp, phi_c, reward))
+        buf.append((correctness, quality, phi_sp, phi_c, reward))
 
         # FIFO cap
         if len(buf) > MAX_BUFFER:
@@ -160,7 +166,7 @@ class RewardWeightLearner:
 
     def _fit(self, bucket: str) -> None:
         data = np.array(self._buffer[bucket], dtype=float)  # (n, 5)
-        x_mat = data[:, :4]   # [1.0, quality, phi_sp, phi_c]
+        x_mat = data[:, :4]   # [correctness, quality, phi_sp, phi_c]
         y_vec = data[:, 4]    # reward
 
         try:

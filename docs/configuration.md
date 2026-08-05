@@ -115,6 +115,8 @@ embedding check, which uses `nomic-embed-text`.
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `MAHORAGA_EXEC_GATE` | `on` | Execute code-like outputs before rewarding success |
+| `MAHORAGA_REWARD_JUDGE` | `on` | Local judge verdict scales the reward's success term on code-like buckets (`off`/`on`/`code`; `code` adds the generated-test differential check) |
+| `MAHORAGA_REWARD_JUDGE_MODEL` | `qwen3.5` | Ollama model used as the reward judge |
 | `MAHORAGA_DRIFT_ENABLED` | `true` | Enable reward drift detection |
 | `MAHORAGA_DRIFT_WINDOW` | `50` | Rolling observations for drift checks |
 | `MAHORAGA_DRIFT_SIGMA` | `2.0` | Drift threshold in standard deviations |
@@ -134,6 +136,11 @@ MAHORAGA_EXEC_GATE=off orch serve
 
 The gate and offline verifier execute generated Python locally. Do not use
 untrusted prompts or outputs without a stronger sandbox.
+
+The reward judge sits on top of the gate: the gate stays the hard floor (code
+that crashes scores 0 regardless of the judge), and the judge verdict scales
+the success term of the composite reward. When the judge is off, unavailable,
+or unparseable, the reward is exactly the legacy value.
 
 ### Budget and escalation
 

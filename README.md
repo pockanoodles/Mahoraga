@@ -16,7 +16,7 @@ local → judge → cloud escalation cascade reached a verified pass@1 of 0.921 
 76.5% cost cut — with a free local model serving as the escalation judge.
 Reproduce it with one command: [`orch bench repro`](#reproduce-the-benchmark).
 
-Mahoraga currently runs two local Ollama arms:
+My Mahoraga currently runs two local Ollama arms:
 
 | Arm | Model | Role |
 | --- | --- | --- |

@@ -334,6 +334,34 @@ This is a substitution baseline — what those tasks would have cost on the
 escalation arm — not a measure of interactive-session spend, which carries
 conversation context and costs considerably more.
 
+### The delegation funnel
+
+`orch metrics usage` measures what happened to work that *arrived*. It cannot
+see the work that never did — and the cascade saves nothing on a task that is
+never delegated, so that unmeasured step bounds every other number here.
+
+`orch metrics funnel` closes it. A Claude Code `PostToolUse` hook
+([`scripts/claude_code_funnel_hook.py`](scripts/claude_code_funnel_hook.py))
+records one line per code-producing action — both delegations and files written
+inline — and the report gives the ratio:
+
+```bash
+orch metrics funnel --install-hint    # print the hook config
+orch metrics funnel --since 2026-08-12
+```
+
+The recorder logs no file contents, only derived shape (path, extension, line
+and character counts), writes to `~/.mahoraga-v2/funnel.jsonl`, and exits 0 on
+any failure — a measurement that can interrupt the work it measures gets
+uninstalled, and then it measures nothing.
+
+**The reported rate is a lower bound.** A hook cannot tell whether a file needed
+conversation context to write, so the denominator counts everything *shaped*
+like delegable work; actions that clearly are not — in-place edits, non-code
+files, writes too small to be worth a round trip or too large for a
+context-free 8B — are excluded and reported with their reason, so the
+definition is arguable rather than asserted.
+
 The default decision log is
 `~/.mahoraga-v2/routing_decisions.db`.
 

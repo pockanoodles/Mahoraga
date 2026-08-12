@@ -1,8 +1,26 @@
-"""orch service — manage Mahoraga as a macOS launchd background service."""
+"""orch service — manage Mahoraga as a macOS launchd background service.
+
+Configuration note: a launchd job does NOT inherit your shell's environment. It
+starts with a minimal PATH and no user variables at all, which silently breaks
+two things that work fine under a manual `orch serve`:
+
+  - every MAHORAGA_* knob (exec gate, reward judge, escalation cascade, memory
+    mode) is stuck at its code default, with no way to set it;
+  - `claude`, `ollama`, and anything else in ~/.local/bin or Homebrew is
+    unresolvable, so the escalation arm degrades to serving local answers
+    without an error anyone would notice.
+
+So `install` bakes an EnvironmentVariables block into the plist: a PATH that
+covers the venv, ~/.local/bin, and Homebrew, plus any KEY=VALUE lines from
+`~/.mahoraga-v2/service.env`. Edit that file and re-run `orch service install`
+to change the daemon's configuration.
+"""
 from __future__ import annotations
 
+import os
 import subprocess
 from pathlib import Path
+from xml.sax.saxutils import escape as _xml_escape
 
 import typer
 
@@ -14,6 +32,7 @@ _PROJECT_ROOT = Path(__file__).parents[4]
 _ORCH_BIN = _PROJECT_ROOT / ".venv" / "bin" / "orch"
 _LOG_DIR = Path.home() / ".mahoraga-v2"
 _LOG_FILE = _LOG_DIR / "server.log"
+_SERVICE_ENV_FILE = _LOG_DIR / "service.env"
 
 _PLIST_TEMPLATE = """\
 <?xml version="1.0" encoding="UTF-8"?>
@@ -46,6 +65,15 @@ _PLIST_TEMPLATE = """\
         <false/>
     </dict>
 
+    <!-- launchd gives a job no user environment and a minimal PATH. Without
+         this block the daemon cannot see any MAHORAGA_* setting and cannot
+         resolve `claude`/`ollama`, so the escalation cascade silently serves
+         local answers. Sourced from ~/.mahoraga-v2/service.env at install. -->
+    <key>EnvironmentVariables</key>
+    <dict>
+{env_entries}
+    </dict>
+
     <key>StandardOutPath</key>
     <string>{log}</string>
 
@@ -58,6 +86,64 @@ _PLIST_TEMPLATE = """\
 </plist>
 """
 
+# PATH the daemon runs with. Covers the venv (orch, python), ~/.local/bin (the
+# `claude` CLI the escalation arm spawns), and Homebrew (`ollama`), then the
+# system defaults. launchd's own default is /usr/bin:/bin:/usr/sbin:/sbin.
+_DAEMON_PATH_DIRS = [
+    str(_PROJECT_ROOT / ".venv" / "bin"),
+    str(Path.home() / ".local" / "bin"),
+    "/opt/homebrew/bin",
+    "/usr/local/bin",
+    "/usr/bin",
+    "/bin",
+    "/usr/sbin",
+    "/sbin",
+]
+
+
+def _parse_env_file(path: Path) -> dict[str, str]:
+    """Read KEY=VALUE lines from `path`; blank lines and `#` comments ignored.
+
+    Deliberately not a full dotenv parser — no interpolation, no export
+    keyword, no multi-line values. The daemon's config surface is a handful of
+    MAHORAGA_* flags, and a surprising parser is worse than a dumb one.
+    """
+    env: dict[str, str] = {}
+    if not path.exists():
+        return env
+    for raw in path.read_text().splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        key = key.strip()
+        if key:
+            env[key] = value.strip().strip('"').strip("'")
+    return env
+
+
+def _build_environment() -> dict[str, str]:
+    """The daemon's environment: a working PATH plus the user's service.env.
+
+    HOME is passed through explicitly because state paths (`~/.mahoraga-v2`)
+    resolve from it, and service.env wins over the defaults so PATH itself can
+    be overridden if a roster needs something exotic.
+    """
+    env = {
+        "PATH": ":".join(_DAEMON_PATH_DIRS),
+        "HOME": str(Path.home()),
+    }
+    env.update(_parse_env_file(_SERVICE_ENV_FILE))
+    return env
+
+
+def _render_env_entries(env: dict[str, str]) -> str:
+    """Render an env dict as indented plist <key>/<string> pairs, XML-escaped."""
+    return "\n".join(
+        f"        <key>{_xml_escape(k)}</key>\n        <string>{_xml_escape(v)}</string>"
+        for k, v in sorted(env.items())
+    )
+
 
 def _launchctl(*args: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(["launchctl", *args], capture_output=True, text=True, check=False)
@@ -66,6 +152,28 @@ def _launchctl(*args: str) -> subprocess.CompletedProcess[str]:
 def _is_loaded() -> bool:
     result = _launchctl("list", _LABEL)
     return result.returncode == 0
+
+
+def _load_job() -> tuple[bool, str]:
+    """Load the job, clearing launchd's sticky disabled flag first.
+
+    Two traps this exists to close, both of which produced a CLI that reported
+    success while the daemon was not running:
+
+      - `launchctl load` prints "Load failed: 5: Input/output error" and still
+        exits 0, so the return code cannot be trusted. Verify with `list`.
+      - a label can be marked disabled in launchd's persistent database, which
+        survives unload/reinstall and even a reboot. Every subsequent load
+        fails with that same opaque errno 5 until `launchctl enable` clears it.
+
+    Returns (loaded, detail).
+    """
+    _launchctl("enable", f"gui/{os.getuid()}/{_LABEL}")
+    result = _launchctl("load", str(_PLIST_PATH))
+    if _is_loaded():
+        return True, ""
+    detail = (result.stderr or result.stdout or "").strip()
+    return False, detail or "launchctl reported no error but the job is not listed"
 
 
 @app.command("install")
@@ -77,21 +185,34 @@ def install() -> None:
 
     _LOG_DIR.mkdir(parents=True, exist_ok=True)
 
+    environment = _build_environment()
     plist_content = _PLIST_TEMPLATE.format(
         label=_LABEL,
         orch_bin=str(_ORCH_BIN),
         workdir=str(_PROJECT_ROOT),
         log=str(_LOG_FILE),
+        env_entries=_render_env_entries(environment),
     )
     _PLIST_PATH.write_text(plist_content)
     typer.echo(f"Wrote plist → {_PLIST_PATH}")
 
+    settings = {k: v for k, v in environment.items() if k.startswith("MAHORAGA_")}
+    if settings:
+        typer.echo(f"Daemon settings from {_SERVICE_ENV_FILE}:")
+        for key, value in sorted(settings.items()):
+            typer.echo(f"  {key}={value}")
+    else:
+        typer.echo(
+            f"No MAHORAGA_* settings found — create {_SERVICE_ENV_FILE} "
+            "(KEY=VALUE per line) and re-run to configure the daemon."
+        )
+
     if _is_loaded():
         _launchctl("unload", str(_PLIST_PATH))
 
-    result = _launchctl("load", str(_PLIST_PATH))
-    if result.returncode != 0:
-        typer.echo(f"launchctl load failed:\n{result.stderr}", err=True)
+    loaded, detail = _load_job()
+    if not loaded:
+        typer.echo(f"launchctl load failed: {detail}", err=True)
         raise typer.Exit(1)
 
     typer.echo("Service installed and started.")
@@ -124,12 +245,17 @@ def start() -> None:
     # "not loaded" — load it fresh (RunAtLoad + KeepAlive bring it up).
     # Fall back to `launchctl start` only if it's somehow loaded-but-stopped.
     if not _is_loaded():
-        result = _launchctl("load", str(_PLIST_PATH))
+        loaded, detail = _load_job()
+        if not loaded:
+            typer.echo(f"Failed to start: {detail}", err=True)
+            raise typer.Exit(1)
     else:
         result = _launchctl("start", _LABEL)
-    if result.returncode != 0:
-        typer.echo(f"Failed to start: {result.stderr.strip() or 'already running?'}", err=True)
-        raise typer.Exit(1)
+        if result.returncode != 0:
+            typer.echo(
+                f"Failed to start: {result.stderr.strip() or 'already running?'}", err=True
+            )
+            raise typer.Exit(1)
     typer.echo("Service started.")
 
 

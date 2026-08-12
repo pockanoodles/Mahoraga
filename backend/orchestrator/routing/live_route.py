@@ -34,6 +34,7 @@ subscription, no API key).
 """
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Optional
@@ -97,11 +98,16 @@ class RoutedCase:
         }
 
 
-async def _run_worker(worker, prompt: str) -> tuple[str, float, Optional[str]]:
+async def run_worker(worker, prompt: str) -> tuple[str, float, Optional[str]]:
     """Run one worker on a raw prompt; return (output, cost_usd, error).
 
     Mirrors how `/api/task` frames a bench prompt (title=prompt[:80],
     goal=prompt) so the model sees the same input as a live serving call.
+
+    Public because the live serving cascade (`routing/cascade.py`) runs its
+    escalation call through this exact framing — a bench prompt and a served
+    prompt must reach the arm identically, or the measured cascade stops
+    describing the shipped one.
     """
     task = Task.new(run_id="live-route", title=prompt[:80], goal=prompt)
     attempt = TaskAttempt.new(task_id=task.id, worker_id=getattr(worker, "id", "arm"))
@@ -150,7 +156,7 @@ async def route_one(
     role-stripped ids (`ollama:granite4.1-8b`, `claude-cli`) so the matrix keys
     match the 5a/5b convention rather than the role-suffixed worker id.
     """
-    local_output, _local_cost, local_err = await _run_worker(local_worker, prompt)
+    local_output, _local_cost, local_err = await run_worker(local_worker, prompt)
     local_passed, _ = run_case(local_output, tests)
 
     verdict, judge_cost, _raw, judge_err = await judge_one(judge_worker, prompt, local_output)
@@ -178,7 +184,7 @@ async def route_one(
     cloud_cost = 0.0
     cloud_err: Optional[str] = None
     if escalate or run_cloud_always:
-        cloud_output, cloud_cost, cloud_err = await _run_worker(cloud_worker, prompt)
+        cloud_output, cloud_cost, cloud_err = await run_worker(cloud_worker, prompt)
         cloud_passed, _ = run_case(cloud_output, tests)
 
     if escalate:
@@ -251,14 +257,15 @@ def load_arms(
     cloud_arm: str = "claude-cli",
     *,
     local_role: str = "coder",
-) -> tuple[OllamaWorker, OllamaWorker, ClaudeCliWorker]:
+) -> tuple[OllamaWorker, OllamaWorker, Any]:
     """Construct (local, judge, cloud) workers faithful to agents.yaml.
 
     The local arm is built from its `models` spec (options / max_ctx /
     extra_payload / base_url) so it behaves exactly as the configured roster
-    arm; the judge is a plain Ollama worker (think off); the cloud arm is the
-    audited `ClaudeCliWorker` from the `claude-cli` block (enabled or not — this
-    is an explicit bench, the same posture as Phase 4).
+    arm; the judge is a plain Ollama worker (think off); the cloud arm comes
+    from `build_cloud_worker` — subscription-backed or API-key-backed depending
+    on the arm — read from its block whether enabled or not, since this is an
+    explicit bench, the same posture as Phase 4.
     """
     cfg: dict[str, Any] = yaml.safe_load(config_path.read_text()) or {}
 
@@ -284,15 +291,90 @@ def load_arms(
         extra_payload={"think": False},
     )
 
-    cli_cfg = cfg.get(cloud_arm, {})
-    cli_kwargs: dict[str, Any] = {
-        "model": cli_cfg.get("model", "claude-sonnet-4-6"),
-        "worker_id": cli_cfg.get("worker_id", f"{cloud_arm}:sonnet"),
-    }
-    if cli_cfg.get("binary_path"):
-        cli_kwargs["binary_path"] = cli_cfg["binary_path"]
-    if cli_cfg.get("timeout"):
-        cli_kwargs["timeout"] = float(cli_cfg["timeout"])
-    cloud_worker = ClaudeCliWorker(**cli_kwargs)
+    cloud_worker = build_cloud_worker(cfg, cloud_arm)
 
     return local_worker, judge_worker, cloud_worker
+
+
+class CloudArmUnavailable(RuntimeError):
+    """The configured escalation arm cannot be built here.
+
+    Distinct from a config *error*: the roster is fine, this machine just
+    cannot reach the arm (no API key, no CLI). Callers degrade — the serving
+    cascade serves the local answer, the bench preflight prints the fix — so
+    this must carry a message a person can act on directly.
+    """
+
+
+# Which worker class backs a cloud arm. The two differ only in how they
+# authenticate and bill: `claude_cli` shells out to the `claude` binary under
+# an interactive subscription, `claude_api` calls the Anthropic API with a key.
+# Both frame the prompt through `workers.base._build_prompt`, so an arm swap
+# changes who pays, never what the model is asked.
+_CLOUD_WORKER_KINDS = ("claude_cli", "claude_api")
+
+
+def _cloud_worker_kind(cloud_arm: str, arm_cfg: dict[str, Any]) -> str:
+    """Resolve which worker class an arm wants.
+
+    Explicit `worker:` in agents.yaml wins. Otherwise infer from the arm id so
+    existing rosters — which predate the key — keep working unchanged.
+    """
+    explicit = str(arm_cfg.get("worker") or "").strip()
+    if explicit:
+        if explicit not in _CLOUD_WORKER_KINDS:
+            raise ValueError(
+                f"cloud arm {cloud_arm!r}: worker {explicit!r} is not one of "
+                f"{', '.join(_CLOUD_WORKER_KINDS)}"
+            )
+        return explicit
+    return "claude_api" if cloud_arm == "claude" else "claude_cli"
+
+
+def build_cloud_worker(cfg: dict[str, Any], cloud_arm: str = "claude-cli"):
+    """Build the audited cloud escalation arm from a parsed agents.yaml.
+
+    Reads the arm's block whether or not it is `enabled` — that flag governs
+    membership in the *bandit's* action space, not reachability by an explicit
+    escalation. Both the bench cascade (`load_arms`) and the live serving
+    cascade (`routing/cascade.py`) construct their cloud arm here so the two
+    cannot drift into describing different models.
+
+    Two backings are supported, and which one is chosen is purely an
+    authentication and billing decision:
+
+      - `claude-cli` — the `claude` binary on an interactive subscription. It
+        reports real per-task cost, which is what the published benchmark used,
+        but it makes reproduction require that subscription.
+      - `claude` — the Anthropic API with `ANTHROPIC_API_KEY`, priced from
+        reported token usage. Same model, same prompt framing, so a run with
+        this arm is comparable to the published one; it is the arm a stranger
+        reproducing the benchmark should use.
+
+    Raises `CloudArmUnavailable` when the arm is configured but unreachable
+    from this machine, so callers can degrade with an actionable message
+    instead of failing at call time.
+    """
+    arm_cfg = cfg.get(cloud_arm, {}) or {}
+    kind = _cloud_worker_kind(cloud_arm, arm_cfg)
+    model = arm_cfg.get("model", "claude-sonnet-4-6")
+    worker_id = arm_cfg.get("worker_id", f"{cloud_arm}:sonnet")
+
+    if kind == "claude_api":
+        api_key = os.getenv("ANTHROPIC_API_KEY")
+        if not api_key:
+            raise CloudArmUnavailable(
+                f"cloud arm {cloud_arm!r} needs ANTHROPIC_API_KEY and it is not "
+                "set — export a key, or use the subscription-backed arm with "
+                "--cloud-arm claude-cli"
+            )
+        from ..workers.claude import ClaudeWorker
+
+        return ClaudeWorker(api_key=api_key, model=model, worker_id=worker_id)
+
+    cli_kwargs: dict[str, Any] = {"model": model, "worker_id": worker_id}
+    if arm_cfg.get("binary_path"):
+        cli_kwargs["binary_path"] = arm_cfg["binary_path"]
+    if arm_cfg.get("timeout"):
+        cli_kwargs["timeout"] = float(arm_cfg["timeout"])
+    return ClaudeCliWorker(**cli_kwargs)

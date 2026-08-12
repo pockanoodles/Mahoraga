@@ -295,3 +295,59 @@ async def test_differential_check_never_returns_true():
     w = _ScriptedWorker(gen=_GOOD_GEN)  # real catch -> False, not True
     verdicts.append((await differential_check(w, _TASK_PROMPT, _CANDIDATE_WRONG))[0])
     assert all(v in (None, False) for v in verdicts)
+
+
+# ── prose entrypoints (organic traffic) ──────────────────────────────────────
+#
+# HumanEval prompts ARE function stubs, so requiring a literal `def` in the
+# prompt always matched on the bank — and abstained on essentially every live
+# task, where the function is named in prose. These pin the fallback.
+
+
+def test_prose_signature_is_found():
+    prompt = "Write a Python function chunk(lst, n) that splits a list. Code only."
+    code = "def chunk(lst, n):\n    return []\n"
+    assert code_judge.extract_entrypoint(prompt, code) == "chunk"
+
+
+def test_pasted_stub_still_wins_over_prose_mentions():
+    """The `def` stub is the high-confidence signal and must not be overridden."""
+    prompt = "Use helper(x) as needed.\n\ndef target(a):\n    ...\n"
+    code = "def helper(x):\n    return x\n\ndef target(a):\n    return a\n"
+    assert code_judge.extract_entrypoint(prompt, code) == "target"
+
+
+def test_builtin_mentions_are_not_entrypoints():
+    """`print(`/`len(` in prose must not be mistaken for the function under test."""
+    prompt = "Write something that uses print(x) and len(y). Call it solve(z)."
+    code = "def solve(z):\n    return z\n"
+    assert code_judge.extract_entrypoint(prompt, code) == "solve"
+
+
+def test_prose_name_the_candidate_never_defines_abstains():
+    """The name must be one the candidate actually defines, or we abstain."""
+    prompt = "Write a Python function rotate(lst, k) that rotates a list."
+    code = "def something_else(a):\n    return a\n"
+    assert code_judge.extract_entrypoint(prompt, code) is None
+
+
+def test_no_candidate_functions_abstains():
+    prompt = "Write a Python function chunk(lst, n)."
+    assert code_judge.extract_entrypoint(prompt, "x = 1\n") is None
+
+
+def test_unparseable_candidate_abstains():
+    prompt = "Write a Python function chunk(lst, n)."
+    assert code_judge.extract_entrypoint(prompt, "def chunk(:\n  bad syntax") is None
+
+
+def test_stub_miss_does_not_fall_through_to_prose():
+    """A prompt with a stub is resolved by the stub alone.
+
+    Falling through to prose on a stub miss would change behaviour on
+    HumanEval+ (all-stub prompts), so the published recall would stop
+    describing the shipped code.
+    """
+    prompt = "Call solve(x) first.\n\ndef target(a):\n    ...\n"
+    code = "def solve(x):\n    return x\n"  # defines the prose name, not the stub
+    assert code_judge.extract_entrypoint(prompt, code) is None

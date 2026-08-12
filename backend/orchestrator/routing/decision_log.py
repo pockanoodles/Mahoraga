@@ -190,6 +190,17 @@ class DecisionLogger:
             self._conn.execute("ALTER TABLE decisions ADD COLUMN judge_cost REAL")
         if "judge_detail" not in existing:
             self._conn.execute("ALTER TABLE decisions ADD COLUMN judge_detail TEXT")
+        # Live escalation cascade: what the caller was actually served. Without
+        # these the escalation rate is uncomputable — the cost ledger records
+        # the spend but has no join back to the decision, so "how often did the
+        # local arm's answer get replaced, and what did that buy" could not be
+        # answered from the log at all. NULL/0 on old rows means "no cascade".
+        if "escalated_to" not in existing:
+            self._conn.execute("ALTER TABLE decisions ADD COLUMN escalated_to TEXT")
+        if "escalation_cost" not in existing:
+            self._conn.execute("ALTER TABLE decisions ADD COLUMN escalation_cost REAL")
+        if "escalation_reason" not in existing:
+            self._conn.execute("ALTER TABLE decisions ADD COLUMN escalation_reason TEXT")
         self._conn.commit()
 
     # ------------------------------------------------------------------
@@ -449,7 +460,10 @@ class DecisionLogger:
                     error_message      = ?,
                     correctness        = ?,
                     judge_cost         = ?,
-                    judge_detail       = ?
+                    judge_detail       = ?,
+                    escalated_to       = ?,
+                    escalation_cost    = ?,
+                    escalation_reason  = ?
                 WHERE id = ?
                 """,
                 (
@@ -467,6 +481,9 @@ class DecisionLogger:
                     outcome.correctness,
                     outcome.judge_cost,
                     outcome.judge_detail,
+                    outcome.escalated_to,
+                    outcome.escalation_cost,
+                    outcome.escalation_reason,
                     row[0],
                 ),
             )

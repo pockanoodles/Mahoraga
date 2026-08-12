@@ -61,7 +61,9 @@ def _get_judge_worker() -> OllamaWorker:
     return _judge_worker
 
 
-async def judge_correctness(task_prompt: str, output: str) -> tuple[float | None, float, str]:
+async def judge_correctness(
+    task_prompt: str, output: str, *, thorough: bool = False
+) -> tuple[float | None, float, str]:
     """Judge one served output; return (correctness, judge_cost, detail).
 
     correctness — 1.0 (judge accepts) / 0.0 (rejects) / None (abstain: judge
@@ -69,6 +71,15 @@ async def judge_correctness(task_prompt: str, output: str) -> tuple[float | None
     In mode `code`, a base accept additionally runs the recall-only
     `differential_check`; its False flips the verdict, its exceptions degrade
     to an abstain (keep the base accept), mirroring live_route.route_one.
+
+    `thorough=True` forces that generated-test check on for this call whatever
+    the global mode says. It exists because the check's price is latency, not
+    dollars, and the two differ by two orders of magnitude: measured live on a
+    16 GB M-series box it adds ~265s to a task the local arm answered in ~6s
+    (K sequential reference generations from a 9.7B judge, plus arm/judge model
+    swap thrash — 5.3 GB + 6.6 GB do not coexist in 16 GB). That is fine for
+    unattended batch work and unusable for interactive delegation, so the
+    caller picks per task rather than the daemon picking once for everything.
 
     NEVER raises — the reward path must survive any judge failure.
     """
@@ -79,7 +90,7 @@ async def judge_correctness(task_prompt: str, output: str) -> tuple[float | None
         if error:
             return None, cost, f"judge unavailable: {error}"
         detail = ""
-        if reward_judge_mode() == "code" and verdict is True:
+        if (thorough or reward_judge_mode() == "code") and verdict is True:
             try:
                 tool_verdict, tool_cost, tool_detail = await differential_check(
                     worker, task_prompt, output

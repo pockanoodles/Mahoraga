@@ -14,7 +14,15 @@ On the 164-task HumanEval+ benchmark, run live end to end, Mahoraga's
 local → judge → cloud escalation cascade reached a verified pass@1 of 0.921 at
 23.5% of an always-cloud policy's cost — $8.47 vs $35.97 per 1,000 tasks, a
 76.5% cost cut — with a free local model serving as the escalation judge.
-Reproduce it with one command: [`orch bench repro`](#reproduce-the-benchmark).
+Check it in one second with `orch bench verify`, which recomputes every figure
+below from the per-case results committed to this repo; reproduce it on your
+own hardware with [`orch bench repro`](#reproduce-the-benchmark). Full method,
+replication, and limits: [`docs/RESULTS.md`](docs/RESULTS.md).
+
+![orch bench verify recomputing every published figure from committed per-case results](docs/assets/verify.gif)
+
+That runs on a fresh clone with no models, no network, no API key and no GPU —
+regenerate the recording with `vhs demo/verify.tape`.
 
 Mahoraga currently runs two local Ollama arms:
 
@@ -60,6 +68,26 @@ For code-like buckets, the execution gate is enabled by default. It rejects
 outputs that do not execute before they can receive a successful reward. This
 is a conservative runnable-code check, not a proof that the answer is
 functionally correct.
+
+Also on code-like buckets, an answer known to be bad is not served. Two signals
+trigger escalation: the execution gate failing to run the output at all, and a
+free local judge reading the output and rejecting it. Either one re-runs the
+task on an escalation arm (`claude-cli` by default) and serves that answer
+instead — the benchmark cascade, on the live path.
+
+The escalation arm sits outside the bandit's action space, so the policy can
+never route to it on its own; only a rejection reaches it. The bandit still
+observes the local arm's own output, and escalation spend is recorded against
+the escalation arm rather than the local one, so a second tier never launders a
+failure into a reward. Configure with `MAHORAGA_CASCADE=off`,
+`MAHORAGA_ESCALATE_TO`, and `MAHORAGA_ESCALATE_MAX_PER_DAY` (default 25).
+
+The reading judge adds a few seconds per task. The generated-test check
+(`MAHORAGA_REWARD_JUDGE=code`) raises fail-recall from 0.688 to 0.784 but costs
+minutes of local inference per task on a 16 GB machine, so it is not a sensible
+global default for interactive use. Request it per task instead with
+`"thorough": true` on `/api/task`, or the `thorough` argument on the MCP
+`run_task` tool.
 
 ## Quick start
 
@@ -115,7 +143,10 @@ health checks, and troubleshooting.
 - **FastAPI and web UI:** `orch serve`
 - **MCP stdio bridge:** `python -m backend.mcp.server`
 - **CLI operations:** `orch --help`
-- **macOS background service:** `orch service --help`
+- **macOS background service:** `orch service --help` — a launchd job inherits
+  no shell environment, so daemon settings come from
+  `~/.mahoraga-v2/service.env` (`KEY=VALUE` per line), applied by
+  `orch service install`
 
 The MCP bridge provides nine tools for task execution, route previews, health,
 agent status, routing statistics, and runtime policy changes. See the
@@ -199,6 +230,7 @@ reject, never the reverse) and raises accuracy to 0.900 without rejecting a
 single correct answer.
 
 ```bash
+orch bench verify                              # recompute every published figure from its artifact
 orch bench repro                               # reproduce the headline HumanEval+ run
 orch bench live-route --bank experiments/prompts_verifiable.jsonl  # live cascade, any bank
 orch bench report route-sim -i results.jsonl   # counterfactual policies, zero new inference
@@ -211,7 +243,29 @@ orch bench report verify --input results.jsonl --bank experiments/prompts_verifi
 Only run trusted evaluation data: the live execution gate, the offline
 verifier, and the tool-augmented judge all execute generated code locally.
 
+The cascade on the live serving path — a local arm answers, the free local
+judge rejects, and only then does the task reach a paid arm:
+
+![a live task: local arm answers, local judge rejects, task escalates to claude-cli for $0.05](docs/assets/cascade.gif)
+
+Regenerate with `vhs demo/cascade.tape`. The take is not deterministic: judge
+fail-recall is 0.688 and the local arm does not fail on demand, so roughly one
+run in four escalates.
+
 ## Reproduce the benchmark
+
+Reproducibility here has a cheap half and an expensive half, and they answer
+different questions.
+
+**Does the README match the data?** — `orch bench verify`. It recomputes every
+published figure from the per-case JSONL it was derived from and requires it to
+round to exactly the printed value. No models, no network, no API key, no GPU;
+it runs in milliseconds on a fresh clone and in CI on every push, so a headline
+number cannot be edited without the artifact to back it. Published claims are
+declared in [`experiments/claims.json`](experiments/claims.json); the full
+method and limits are in [`docs/RESULTS.md`](docs/RESULTS.md).
+
+**Is the data real on my hardware?** — `orch bench repro`, below.
 
 The headline HumanEval+ table above reproduces with one command on a fresh
 clone. Prerequisites:
@@ -225,9 +279,17 @@ clone. Prerequisites:
   ollama pull qwen3.5:latest   # escalation judge
   ```
 
-- The `claude` CLI installed (`npm install -g @anthropic-ai/claude-code`) and
-  authenticated — the cloud arm bills through that auth and records real
-  per-task cost.
+- A cloud arm, either way of authenticating:
+
+  | Arm | Needs | Use when |
+  | --- | --- | --- |
+  | `--cloud-arm claude-cli` (default) | `npm install -g @anthropic-ai/claude-code`, then `claude` once interactively | You have a Claude subscription; this is what the published run used. |
+  | `--cloud-arm claude` | `export ANTHROPIC_API_KEY=...` | You do not. No subscription required. |
+
+  Both arms run the same model and are handed the identical prompt, so the
+  routed pass@1 comparison holds either way. Expect the always-cloud *dollar*
+  column to differ, since API and subscription bill differently — the published
+  cost figures are the `claude-cli` ones.
 - The repo installed per the quick start (`pip install -e .`). The API server
   does not need to be running; the benchmark drives the workers directly.
 
@@ -265,9 +327,56 @@ need to be running.
 orch metrics live
 orch metrics live --watch 30
 orch metrics snapshot
+orch metrics usage --since 2026-08-01
 orch quarantine list
 orch budget status
 ```
+
+`orch metrics usage` answers the question the benchmarks cannot: of the real
+work actually sent to Mahoraga, how much did a free local model handle, and
+what did that avoid? It reports local share, escalation rate split by trigger,
+judge verdicts, and spend.
+
+Its counterfactual is self-calibrating. Rather than pricing locally-served
+tasks off a rate table, the baseline is the escalation arm's **own measured
+per-task cost on the same machine in the same window** — every escalation
+records what it actually charged. With no priced escalation in the window, the
+report says the avoided spend is unknown rather than guessing. Bench rows are
+excluded, since one forced-explore run would otherwise swamp a month of use.
+
+This is a substitution baseline — what those tasks would have cost on the
+escalation arm — not a measure of interactive-session spend, which carries
+conversation context and costs considerably more.
+
+![orch metrics usage and orch metrics funnel side by side](docs/assets/dogfood.gif)
+
+### The delegation funnel
+
+`orch metrics usage` measures what happened to work that *arrived*. It cannot
+see the work that never did — and the cascade saves nothing on a task that is
+never delegated, so that unmeasured step bounds every other number here.
+
+`orch metrics funnel` closes it. A Claude Code `PostToolUse` hook
+([`scripts/claude_code_funnel_hook.py`](scripts/claude_code_funnel_hook.py))
+records one line per code-producing action — both delegations and files written
+inline — and the report gives the ratio:
+
+```bash
+orch metrics funnel --install-hint    # print the hook config
+orch metrics funnel --since 2026-08-12
+```
+
+The recorder logs no file contents, only derived shape (path, extension, line
+and character counts), writes to `~/.mahoraga-v2/funnel.jsonl`, and exits 0 on
+any failure — a measurement that can interrupt the work it measures gets
+uninstalled, and then it measures nothing.
+
+**The reported rate is a lower bound.** A hook cannot tell whether a file needed
+conversation context to write, so the denominator counts everything *shaped*
+like delegable work; actions that clearly are not — in-place edits, non-code
+files, writes too small to be worth a round trip or too large for a
+context-free 8B — are excluded and reported with their reason, so the
+definition is arguable rather than asserted.
 
 The default decision log is
 `~/.mahoraga-v2/routing_decisions.db`.
@@ -303,9 +412,10 @@ branches, validated in CI, and merged through pull requests.
 - State is global to one local user; there is no multi-tenant isolation.
 - Quality scoring is useful for routing but remains heuristic outside the
   execution-verified code/debug paths.
-- The judge-gated escalation cascade currently runs through
-  `orch bench live-route`; it is not yet wired into the live `/api/task`
-  routing path.
+- The judge-gated escalation cascade is live on `/api/task` (and therefore the
+  MCP bridge), but its measured numbers come from `orch bench live-route` on
+  committed banks. Organic traffic has no oracle, so the serving path reports
+  which tier answered — not whether the answer was right.
 - The judge has a structural blind spot on prose tasks: it reliably catches
   stated falsehoods but misses omissions and most wrong quantities unless the
   tool-augmented solver can compute the answer.

@@ -45,7 +45,7 @@ orch
 ├── memory {inspect, clear, backfill}
 ├── quality {train, eval, predict, inspect, retrain}
 ├── brain {status, query}
-├── metrics {live, snapshot}
+├── metrics {live, snapshot, usage, funnel}
 ├── budget {status, reset, tune}
 ├── quarantine {list, clear, add, events}
 ├── replay {run}
@@ -122,13 +122,30 @@ batch.
 The default agent list in this command predates the current `agents.yaml`.
 Pass `--agents` explicitly for reproducible runs.
 
+### Claim verification
+
+`orch bench verify` recomputes every published benchmark figure from the
+committed per-case artifact it was derived from, and requires it to round to
+exactly the value declared in `experiments/claims.json`. It needs no models,
+network, API key, or GPU, exits nonzero on any mismatch, and runs in CI — so a
+headline number in the README cannot drift from its data. `--json` emits the
+per-metric results. See [Results](RESULTS.md).
+
 ### Benchmark reproduction
 
 `orch bench repro` reproduces the headline HumanEval+ cascade benchmark with
-the published configuration pinned (local=granite4.1-8b, judge=qwen3.5:latest,
-cloud=claude-cli). It preflights the environment first; `--preflight-only`
-checks without inference, `--smoke` runs the first 5 tasks, `--local-only`
-skips the always-cloud baseline. See the README's
+the published configuration pinned (local=granite4.1-8b, judge=qwen3.5:latest).
+It preflights the environment first; `--preflight-only` checks without
+inference, `--smoke` runs the first 5 tasks, `--local-only` skips the
+always-cloud baseline.
+
+`--cloud-arm` picks how the cloud arm authenticates: `claude-cli` (default —
+the `claude` binary on a Claude subscription, what the published run used) or
+`claude` (the Anthropic API with `ANTHROPIC_API_KEY`, no subscription needed).
+Same model and prompt framing either way, so routed pass@1 is comparable; the
+always-cloud dollar column is not, because the two bill differently. The same
+choice applies to the live serving cascade through `MAHORAGA_ESCALATE_TO`.
+See the README's
 [Reproduce the benchmark](../README.md#reproduce-the-benchmark) section.
 Unlike `bench run`, it does not need the FastAPI service — it drives the
 workers directly through `bench live-route`.
@@ -199,6 +216,8 @@ limit, database, JSON, and notes options.
 | --- | --- |
 | `orch metrics live` | Human-readable health snapshot or watch loop |
 | `orch metrics snapshot` | Machine-readable snapshot |
+| `orch metrics usage` | What the cascade did for real work: local share, escalations, spend avoided |
+| `orch metrics funnel` | How much delegable work reached Mahoraga (`--install-hint` for the hook config) |
 | `orch memory inspect` | Inspect episodic memory files |
 | `orch memory clear` | Clear memory with confirmation |
 | `orch memory backfill` | Rebuild memory from the decision log |

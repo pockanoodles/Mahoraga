@@ -19,6 +19,11 @@ below from the per-case results committed to this repo; reproduce it on your
 own hardware with [`orch bench repro`](#reproduce-the-benchmark). Full method,
 replication, and limits: [`docs/RESULTS.md`](docs/RESULTS.md).
 
+![orch bench verify recomputing every published figure from committed per-case results](docs/assets/verify.gif)
+
+That runs on a fresh clone with no models, no network, no API key and no GPU —
+regenerate the recording with `vhs demo/verify.tape`.
+
 Mahoraga currently runs two local Ollama arms:
 
 | Arm | Model | Role |

@@ -30,3 +30,9 @@ docs/superpowers/
 
 # Runtime state — the router's decision data lives in ~/.mahoraga-v2/, not the repo
 brain/decisions/log.md
+
+# Demo source footage — large, regenerable, and not part of the product.
+demo/raw/
+
+# Rendered film — 26MB, regenerable with demo/assemble.sh
+demo/out/

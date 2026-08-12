@@ -1,6 +1,68 @@
-# Current State — 2026-08-05
+# Current State — 2026-08-11
 
-## Read this first — 2026-08-05 (latest): the code-judge live confirmation RAN — guard resolved
+## Read this first — 2026-08-11 (latest): the cascade is LIVE on /api/task
+
+**The Era-19 cascade stopped being a bench command.** `routing/cascade.py` +
+a ~30-line wire in `/api/task`: the judge verdict the reward path has computed
+since Era 23 now also *routes* — a reject re-runs the prompt on an escalation
+arm and serves that answer instead of the known-bad local one. Reaches the MCP
+bridge for free (`run_task` passes the body through). 23 tests; suite 1605 green.
+
+**The finding that made it small:** `route_one` was never portable (it needs the
+bank's hidden tests). The gate was already running in production and its verdict
+was being thrown away after the reward used it.
+
+**Two invariants, both test-pinned:** (1) the escalation arm lives OUTSIDE the
+bandit's action space — enabling it in agents.yaml would let an unexplored arm
+inflate its own UCB and spend money exploring; (2) escalation never
+re-attributes — the bandit still observes the local arm's output, and escalation
+spend hits the cost ledger but not `TaskOutcome.cost_usd` (else a rejected arm
+is penalized twice for one rejection).
+
+**Live confirmation (real `orch serve`, both branches):** `median_of_two_sorted`
+→ judge reject → escalated to claude-cli ($0.041), caller got the correct
+answer; decision log recorded granite `correctness=0.0`, `reward=0.462` vs
+0.71–0.81 on the two accepted rows. Bandit learned the failure, user got the fix.
+
+**TWO escalation triggers** (the second added after live traffic exposed the
+hole): the **exec gate** failing to run the output — the harder, deterministic
+signal, and the one the judge never sees because the gate flips the task to
+failed before the `if success` judge guard — and the **judge** rejecting on a
+read. Before the exec trigger, granite's non-compiling code (2 of 6 live tasks)
+was the one class that never escalated.
+
+**Config:** `MAHORAGA_CASCADE=off` disables · `MAHORAGA_ESCALATE_TO` (default
+`claude-cli`) · `MAHORAGA_ESCALATE_MAX_PER_DAY` (default 25, refund-on-failure).
+Code-like buckets only.
+
+**The code-judge is NOT the serving default — it is a per-task opt-in.** Two
+findings killed it as a global: (1) `extract_entrypoint` required a literal
+`def` in the *prompt*, which HumanEval prompts have and real requests never do,
+so the 0.784 recall **did not transfer to organic traffic at all** (fixed with a
+prose `name(...)` fallback, strictly conditional so bank behaviour is
+unchanged); (2) once engaged it costs **~265s/task** on 16 GB — K sequential
+reference generations plus granite↔qwen3.5 swap thrash. Reading judge is +4–9s.
+Request the tool per task with `thorough: true` on `/api/task` or MCP
+`run_task`. Live latency now 9–18s per code task including escalation.
+
+**The daemon finally has a config surface.** The plist had NO
+`EnvironmentVariables` block, so under launchd every MAHORAGA_* knob was pinned
+to its code default and `claude` was unresolvable (escalation degraded
+silently). `orch service install` now bakes in PATH + `~/.mahoraga-v2/service.env`.
+Two traps found there: `launchctl load` prints failure and **exits 0** (install
+reported success while nothing ran), and the label was stuck in launchd's
+persistent *disabled* database — `_load_job` clears it and verifies via `list`.
+
+**Ops lesson:** every new path to a paid arm needs its own test-suite guard. The
+exec-gate trigger made the suite spawn real `claude` calls (60s → 438s, two cost
+tests failing) because `_no_live_reward_judge` guarded the judge, not the
+cascade. `conftest.py` now has `_no_live_escalation`.
+
+**Next:** A1 semantic routing (still the top open research lever). Then measure
+real judge coverage on organic traffic once it accumulates. Detail:
+`brain/journal/2026-08-11-cascade-serving-path.md`.
+
+## Read this first — 2026-08-05 (earlier): the code-judge live confirmation RAN — guard resolved
 
 **The Era-22 do-not-cite guard is resolved: the 0.939 replay package is dead;
 the tool's claims are confirmed.** Fresh `bench repro --code-judge` (attempt

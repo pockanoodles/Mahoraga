@@ -7,9 +7,21 @@ __pycache__/
 .env
 .worktrees/
 .aider.*
-experiments/
+# experiments/ is scratch: local prompt banks, model outputs, working runs.
+# Published evidence is opted in explicitly below — a file becomes committable
+# when it backs a claim in experiments/claims.json, and `orch bench verify`
+# fails if a claimed artifact is missing. Use `experiments/*` rather than
+# `experiments/`: git will not descend into an excluded directory, so a bare
+# directory rule makes the negations below silently inert.
+experiments/*
 *.jsonl
 !tests/orchestrator_v2/fixtures/*.jsonl
+!experiments/claims.json
+!experiments/build_humaneval_bank.py
+!experiments/prompts_humaneval_plus.jsonl
+!experiments/prompts_humaneval_plus_refs.jsonl
+!experiments/live_route_humaneval_164.jsonl
+!experiments/repro_2026-08-04.jsonl
 .claude/
 
 # Local AI-call context / build scaffolding — never pushed

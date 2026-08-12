@@ -122,6 +122,15 @@ batch.
 The default agent list in this command predates the current `agents.yaml`.
 Pass `--agents` explicitly for reproducible runs.
 
+### Claim verification
+
+`orch bench verify` recomputes every published benchmark figure from the
+committed per-case artifact it was derived from, and requires it to round to
+exactly the value declared in `experiments/claims.json`. It needs no models,
+network, API key, or GPU, exits nonzero on any mismatch, and runs in CI — so a
+headline number in the README cannot drift from its data. `--json` emits the
+per-metric results. See [Results](RESULTS.md).
+
 ### Benchmark reproduction
 
 `orch bench repro` reproduces the headline HumanEval+ cascade benchmark with

@@ -14,7 +14,10 @@ On the 164-task HumanEval+ benchmark, run live end to end, Mahoraga's
 local → judge → cloud escalation cascade reached a verified pass@1 of 0.921 at
 23.5% of an always-cloud policy's cost — $8.47 vs $35.97 per 1,000 tasks, a
 76.5% cost cut — with a free local model serving as the escalation judge.
-Reproduce it with one command: [`orch bench repro`](#reproduce-the-benchmark).
+Check it in one second with `orch bench verify`, which recomputes every figure
+below from the per-case results committed to this repo; reproduce it on your
+own hardware with [`orch bench repro`](#reproduce-the-benchmark). Full method,
+replication, and limits: [`docs/RESULTS.md`](docs/RESULTS.md).
 
 Mahoraga currently runs two local Ollama arms:
 
@@ -222,6 +225,7 @@ reject, never the reverse) and raises accuracy to 0.900 without rejecting a
 single correct answer.
 
 ```bash
+orch bench verify                              # recompute every published figure from its artifact
 orch bench repro                               # reproduce the headline HumanEval+ run
 orch bench live-route --bank experiments/prompts_verifiable.jsonl  # live cascade, any bank
 orch bench report route-sim -i results.jsonl   # counterfactual policies, zero new inference
@@ -235,6 +239,19 @@ Only run trusted evaluation data: the live execution gate, the offline
 verifier, and the tool-augmented judge all execute generated code locally.
 
 ## Reproduce the benchmark
+
+Reproducibility here has a cheap half and an expensive half, and they answer
+different questions.
+
+**Does the README match the data?** — `orch bench verify`. It recomputes every
+published figure from the per-case JSONL it was derived from and requires it to
+round to exactly the printed value. No models, no network, no API key, no GPU;
+it runs in milliseconds on a fresh clone and in CI on every push, so a headline
+number cannot be edited without the artifact to back it. Published claims are
+declared in [`experiments/claims.json`](experiments/claims.json); the full
+method and limits are in [`docs/RESULTS.md`](docs/RESULTS.md).
+
+**Is the data real on my hardware?** — `orch bench repro`, below.
 
 The headline HumanEval+ table above reproduces with one command on a fresh
 clone. Prerequisites:

@@ -1,0 +1,65 @@
+{
+  "_comment": [
+    "Every benchmark number Mahoraga publishes, bound to the committed per-case",
+    "artifact it was computed from. `orch bench verify` recomputes each metric",
+    "and requires it to round to exactly the value below, at the decimal place",
+    "shown. CI runs it, so a headline number cannot drift from its data.",
+    "",
+    "Adding a claim here is how a number becomes publishable: if it is not in",
+    "this file with an artifact behind it, it does not go in the README.",
+    "`published_in` records where the number is quoted, so a failure points at",
+    "the prose that needs fixing."
+  ],
+  "claims": [
+    {
+      "id": "humaneval_plus_164_reading_judge",
+      "description": "HumanEval+ 164, cascade with the reading judge (headline result)",
+      "artifact": "experiments/live_route_humaneval_164.jsonl",
+      "config": {
+        "bank": "HumanEval+ (164 tasks, all code bucket)",
+        "local_arm": "ollama:granite4.1-8b",
+        "judge": "ollama:qwen3.5 — reads prompt + output, never the hidden tests",
+        "cloud_arm": "claude-cli (Sonnet)",
+        "date": "2026-08-03"
+      },
+      "published_in": ["README.md", "docs/RESULTS.md"],
+      "metrics": {
+        "n": { "value": 164, "decimals": 0 },
+        "routed_pass_at_1": { "value": 0.921, "decimals": 3 },
+        "cloud_pass_at_1": { "value": 0.976, "decimals": 3 },
+        "local_pass_at_1": { "value": 0.805, "decimals": 3 },
+        "routed_cost_per_1k": { "value": 8.47, "decimals": 2 },
+        "cloud_cost_per_1k": { "value": 35.97, "decimals": 2 },
+        "cost_reduction": { "value": 0.765, "decimals": 3 },
+        "escalation_rate": { "value": 0.226, "decimals": 3 },
+        "judge_fail_recall": { "value": 0.688, "decimals": 3 },
+        "judge_cost_total": { "value": 0.0, "decimals": 2 }
+      }
+    },
+    {
+      "id": "humaneval_plus_164_code_judge",
+      "description": "HumanEval+ 164, independent re-run with the generated-test code judge",
+      "artifact": "experiments/repro_2026-08-04.jsonl",
+      "config": {
+        "bank": "HumanEval+ (164 tasks, all code bucket)",
+        "local_arm": "ollama:granite4.1-8b",
+        "judge": "reading judge + differential_check on accepts (recall-only)",
+        "cloud_arm": "claude-cli (Sonnet)",
+        "date": "2026-08-04"
+      },
+      "published_in": ["docs/RESULTS.md"],
+      "metrics": {
+        "n": { "value": 164, "decimals": 0 },
+        "routed_pass_at_1": { "value": 0.921, "decimals": 3 },
+        "cloud_pass_at_1": { "value": 0.97, "decimals": 3 },
+        "local_pass_at_1": { "value": 0.774, "decimals": 3 },
+        "routed_cost_per_1k": { "value": 14.74, "decimals": 2 },
+        "cloud_cost_per_1k": { "value": 37.69, "decimals": 2 },
+        "cost_reduction": { "value": 0.609, "decimals": 3 },
+        "escalation_rate": { "value": 0.39, "decimals": 3 },
+        "judge_fail_recall": { "value": 0.784, "decimals": 3 },
+        "judge_cost_total": { "value": 0.0, "decimals": 2 }
+      }
+    }
+  ]
+}

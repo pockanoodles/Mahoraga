@@ -48,6 +48,11 @@ from ...routing.live_route import route_one, load_arms, to_matrix  # noqa: E402
 from ...routing.route_sim import simulate  # noqa: E402
 from ...routing.verify_replay import load_bank as load_verify_bank  # noqa: E402
 from ...routing.reweight_replay import log_offline_run  # noqa: E402
+from ...routing.benchmark.verify import (  # noqa: E402
+    DEFAULT_CLAIMS,
+    render_verification,
+    verify_claims,
+)
 
 _PROJECT_ROOT = Path(__file__).resolve().parents[4]
 DEFAULT_VERIFY_BANK = _PROJECT_ROOT / "experiments" / "prompts_verifiable.jsonl"
@@ -722,6 +727,47 @@ def bench_repro(
         + (" --smoke" if smoke else "")
         + (" --code-judge" if code_judge else ""),
     )
+
+
+@app.command("verify")
+def bench_verify(
+    claims: Path = typer.Option(DEFAULT_CLAIMS, "--claims", help="Claims manifest to check"),
+    json_out: bool = typer.Option(False, "--json", help="Emit results as JSON"),
+) -> None:
+    """Recompute every published benchmark number from its committed artifact.
+
+    The cheap half of reproducibility. `bench repro` re-runs the benchmark on
+    your hardware (~3.5 h, needs Ollama and a `claude` CLI) and answers "is
+    this real here". This answers "does the README still match the data" — it
+    reads the per-case JSONL files already in the repo, recomputes each
+    headline figure, and requires it to round to exactly the published value.
+
+    No models, no network, no API key, no GPU: runs in milliseconds on a fresh
+    clone, which makes it the thing a skeptical reader can actually run. Exits
+    nonzero on any mismatch, so CI catches a number edited in prose without the
+    artifact to support it.
+    """
+    try:
+        results = verify_claims(claims)
+    except FileNotFoundError:
+        typer.echo(f"Claims manifest not found: {claims}", err=True)
+        raise typer.Exit(2)
+    except json.JSONDecodeError as exc:
+        typer.echo(f"Claims manifest is not valid JSON: {exc}", err=True)
+        raise typer.Exit(2)
+
+    if json_out:
+        failed = [r for r in results if not r.ok]
+        typer.echo(json.dumps({
+            "claims": [r.to_dict() for r in results],
+            "verified": len(results) - len(failed),
+            "failed": len(failed),
+        }, indent=2))
+    else:
+        typer.echo(render_verification(results))
+
+    if any(not r.ok for r in results):
+        raise typer.Exit(1)
 
 
 @app.command("validate")

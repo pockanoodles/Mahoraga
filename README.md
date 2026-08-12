@@ -288,9 +288,26 @@ need to be running.
 orch metrics live
 orch metrics live --watch 30
 orch metrics snapshot
+orch metrics usage --since 2026-08-01
 orch quarantine list
 orch budget status
 ```
+
+`orch metrics usage` answers the question the benchmarks cannot: of the real
+work actually sent to Mahoraga, how much did a free local model handle, and
+what did that avoid? It reports local share, escalation rate split by trigger,
+judge verdicts, and spend.
+
+Its counterfactual is self-calibrating. Rather than pricing locally-served
+tasks off a rate table, the baseline is the escalation arm's **own measured
+per-task cost on the same machine in the same window** — every escalation
+records what it actually charged. With no priced escalation in the window, the
+report says the avoided spend is unknown rather than guessing. Bench rows are
+excluded, since one forced-explore run would otherwise swamp a month of use.
+
+This is a substitution baseline — what those tasks would have cost on the
+escalation arm — not a measure of interactive-session spend, which carries
+conversation context and costs considerably more.
 
 The default decision log is
 `~/.mahoraga-v2/routing_decisions.db`.

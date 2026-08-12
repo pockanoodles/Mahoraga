@@ -393,3 +393,53 @@ async def test_failed_escalation_keeps_the_failed_status(store, client_setup, ro
     assert body["status"] == "failed"
     assert body["output"] == BROKEN_OUTPUT
     assert body["cascade"]["escalated"] is False
+
+
+# ── escalation reaches the decision log ──────────────────────────────────────
+#
+# Without these columns the escalation rate is uncomputable: the cost ledger
+# records the spend but has no join back to the decision, so "how often did the
+# local answer get replaced, and what did that buy" cannot be answered at all.
+
+
+def _escalation_row(router: BanditRouter) -> dict:
+    with router.logger._lock:
+        cur = router.logger._conn.execute(
+            "SELECT escalated_to, escalation_cost, escalation_reason "
+            "FROM decisions ORDER BY id DESC LIMIT 1"
+        )
+        cols = [d[0] for d in cur.description]
+        return dict(zip(cols, cur.fetchone()))
+
+
+async def test_judge_escalation_is_recorded(store, client_setup, router):
+    await _post_code_task(0.0, (CLOUD_OUTPUT, 0.037, "escalated to claude-cli"))
+    row = _escalation_row(router)
+    assert row["escalated_to"] == "claude-cli"
+    assert row["escalation_cost"] == pytest.approx(0.037)
+    assert row["escalation_reason"] == "judge"
+
+
+async def test_exec_gate_escalation_records_its_own_reason(store, client_setup, router):
+    """The two triggers must stay distinguishable in the log.
+
+    They mean different things: one is the judge's probabilistic read, the
+    other is deterministic non-compiling output. Collapsing them would hide
+    which signal is actually carrying the cascade.
+    """
+    await _post_broken_code_task((CLOUD_OUTPUT, 0.02, "escalated"))
+    assert _escalation_row(router)["escalation_reason"] == "exec_gate"
+
+
+async def test_no_escalation_leaves_the_columns_empty(store, client_setup, router):
+    await _post_code_task(1.0, (CLOUD_OUTPUT, 0.02, "unused"))
+    row = _escalation_row(router)
+    assert row["escalated_to"] is None
+    assert not row["escalation_reason"]
+
+
+async def test_failed_escalation_is_not_logged_as_one(store, client_setup, router):
+    """An attempt that bought nothing must not count toward the escalation rate."""
+    await _post_code_task(0.0, (None, 0.0, "arm unavailable"))
+    row = _escalation_row(router)
+    assert row["escalated_to"] is None

@@ -1698,6 +1698,7 @@ async def run_api_task(
     _escalated_to: str | None = None
     _escalation_cost = 0.0
     _escalation_detail = ""
+    _escalation_reason = ""
     _local_output = output
     if _cascade.should_escalate(_correctness, bucket, exec_failed=_exec_gate_failed):
         _esc_output, _escalation_cost, _escalation_detail = await _cascade.escalate(req.prompt)
@@ -1709,6 +1710,7 @@ async def run_api_task(
             )
             output = _esc_output
             _escalated_to = _cascade.escalation_arm()
+            _escalation_reason = "exec_gate" if _exec_gate_failed else "judge"
             # The caller is getting a good answer, so the response reports
             # success even though the bandit records the local arm's failure
             # below. These are different questions: "did the request succeed"
@@ -1812,6 +1814,9 @@ async def run_api_task(
         correctness=_correctness,
         judge_cost=_judge_cost,
         judge_detail=_judge_detail,
+        escalated_to=_escalated_to,
+        escalation_cost=_escalation_cost,
+        escalation_reason=_escalation_reason,
     )
     try:
         router.observe(task, outcome)

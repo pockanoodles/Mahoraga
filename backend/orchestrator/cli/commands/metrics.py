@@ -31,6 +31,7 @@ from backend.orchestrator.routing.observability import (
     HealthSnapshot,
     compute_health_snapshot,
 )
+from backend.orchestrator.routing.usage_report import compute_usage, render_usage
 
 
 app = typer.Typer(
@@ -377,3 +378,28 @@ def snapshot(
     """One-shot JSON dump of the health snapshot. Pipe to jq."""
     snap = compute_health_snapshot(db_path=db)
     typer.echo(json.dumps(snap.to_dict(), indent=2, default=str))
+
+
+@app.command()
+def usage(
+    since: Optional[str] = typer.Option(
+        None, "--since", help="Start date, inclusive (YYYY-MM-DD)."
+    ),
+    until: Optional[str] = typer.Option(
+        None, "--until", help="End date, inclusive (YYYY-MM-DD)."
+    ),
+    db: Path = typer.Option(DEFAULT_DB_PATH, help="Path to routing_decisions.db"),
+    json_out: bool = typer.Option(
+        False, "--json", help="Emit raw JSON instead of formatted text.",
+    ),
+) -> None:
+    """What the cascade did for real work: local share, escalations, spend avoided.
+
+    Organic traffic only — rows carrying a bench_run_id are experiments, and a
+    single forced-explore run would otherwise swamp a month of actual use.
+    """
+    report = compute_usage(db, since=since, until=until)
+    if json_out:
+        typer.echo(json.dumps(report.to_dict(), indent=2))
+    else:
+        typer.echo(render_usage(report))

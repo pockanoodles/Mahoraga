@@ -1,6 +1,50 @@
 # Current State — 2026-08-12
 
-## Read this first — 2026-08-12 (latest): published numbers are bound to their artifacts
+## Read this first — 2026-08-12 (latest): the funnel has a meter, and the repro has no subscription footnote
+
+**`orch metrics funnel` measures the denominator.** A PostToolUse hook
+(`scripts/claude_code_funnel_hook.py`) records one line per code-producing
+action — delegations AND inline writes — to `~/.mahoraga-v2/funnel.jsonl`.
+Before this, every measurement started at `run_task`, so 15 delegated tasks
+could be 15-of-15 or 15-of-200 and nothing distinguished them; "improve
+delegation" was unfalsifiable (the Era-20 bandit trap one level up).
+
+**The rate is a LOWER bound and says so in its own output.** A hook cannot see
+whether a file needed conversation context, so the denominator counts everything
+*shaped* like delegable work. That direction is deliberate: the number's job is
+to argue the tool is underused, so an over-stated rate would retire a live
+problem. Exclusions carry reasons (`edit-in-place`, `non-code-file`,
+`below-round-trip-threshold`, `oversized-for-local-arm`) so the definition is
+arguable, not asserted.
+
+**Two plan corrections found while building** (both would have been fidelity
+bugs): (1) the router's `_classify_bucket` does NOT fit — it takes a *prompt*,
+the hook has the *output*, and keyword-classifying generated code matches "code"
+trivially; replaced with action shape. (2) the numerator must NOT come from the
+decisions DB — the DB has all organic traffic, the hook only Claude Code
+sessions, so the ratio's halves would describe different populations. Both
+halves come from the one log.
+
+Recorder is stdlib-only (~20ms vs ~500ms to load the Typer CLI; pinned by a
+test), logs no file contents, exits 0 on any input. PostToolUse not Pre, so a
+rejected edit can't inflate the denominator.
+
+**`~/.claude/scripts/mahoraga-routing.sh` rewritten** — it advertised OpenCode,
+Goose, Gemini CLI, all `enabled: false`. Now disqualifier-based, not
+category-based: delegation is the default for code-shaped work and the burden is
+on NOT delegating (a judgment-call framing loses to "I'll just do it").
+
+**API-key escalation arm SHIPPED — the subscription footnote is gone.**
+`orch bench repro --cloud-arm claude` (or `MAHORAGA_ESCALATE_TO=claude`) runs
+the same model over ANTHROPIC_API_KEY. The arm choice is an AUTH decision only:
+both workers name the same model and share `workers.base._build_prompt`, pinned
+by a test, so routed pass@1 stays comparable — the always-cloud *dollar* column
+does not. `CloudArmUnavailable` carries the fix in its message (the serving
+cascade degrades silently, so that message is the only trace).
+
+Suite 1706 green.
+
+## Read this first — 2026-08-12: published numbers are bound to their artifacts
 
 **`orch bench verify` recomputes every headline figure from the committed
 per-case JSONL and requires it to round to exactly the printed value.** No

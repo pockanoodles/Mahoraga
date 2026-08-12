@@ -61,6 +61,26 @@ outputs that do not execute before they can receive a successful reward. This
 is a conservative runnable-code check, not a proof that the answer is
 functionally correct.
 
+Also on code-like buckets, an answer known to be bad is not served. Two signals
+trigger escalation: the execution gate failing to run the output at all, and a
+free local judge reading the output and rejecting it. Either one re-runs the
+task on an escalation arm (`claude-cli` by default) and serves that answer
+instead — the benchmark cascade, on the live path.
+
+The escalation arm sits outside the bandit's action space, so the policy can
+never route to it on its own; only a rejection reaches it. The bandit still
+observes the local arm's own output, and escalation spend is recorded against
+the escalation arm rather than the local one, so a second tier never launders a
+failure into a reward. Configure with `MAHORAGA_CASCADE=off`,
+`MAHORAGA_ESCALATE_TO`, and `MAHORAGA_ESCALATE_MAX_PER_DAY` (default 25).
+
+The reading judge adds a few seconds per task. The generated-test check
+(`MAHORAGA_REWARD_JUDGE=code`) raises fail-recall from 0.688 to 0.784 but costs
+minutes of local inference per task on a 16 GB machine, so it is not a sensible
+global default for interactive use. Request it per task instead with
+`"thorough": true` on `/api/task`, or the `thorough` argument on the MCP
+`run_task` tool.
+
 ## Quick start
 
 Requirements:
@@ -115,7 +135,10 @@ health checks, and troubleshooting.
 - **FastAPI and web UI:** `orch serve`
 - **MCP stdio bridge:** `python -m backend.mcp.server`
 - **CLI operations:** `orch --help`
-- **macOS background service:** `orch service --help`
+- **macOS background service:** `orch service --help` — a launchd job inherits
+  no shell environment, so daemon settings come from
+  `~/.mahoraga-v2/service.env` (`KEY=VALUE` per line), applied by
+  `orch service install`
 
 The MCP bridge provides nine tools for task execution, route previews, health,
 agent status, routing statistics, and runtime policy changes. See the
@@ -303,9 +326,10 @@ branches, validated in CI, and merged through pull requests.
 - State is global to one local user; there is no multi-tenant isolation.
 - Quality scoring is useful for routing but remains heuristic outside the
   execution-verified code/debug paths.
-- The judge-gated escalation cascade currently runs through
-  `orch bench live-route`; it is not yet wired into the live `/api/task`
-  routing path.
+- The judge-gated escalation cascade is live on `/api/task` (and therefore the
+  MCP bridge), but its measured numbers come from `orch bench live-route` on
+  committed banks. Organic traffic has no oracle, so the serving path reports
+  which tier answered — not whether the answer was right.
 - The judge has a structural blind spot on prose tasks: it reliably catches
   stated falsehoods but misses omissions and most wrong quantities unless the
   tool-augmented solver can compute the answer.

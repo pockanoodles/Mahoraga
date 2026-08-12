@@ -426,6 +426,11 @@ class TaskRequest(BaseModel):
     capability_hint: str | None = None
     agent_override: str | None = None
     bench_run_id: int | None = None
+    # Run the generated-test check on this task's answer even when the daemon
+    # is in reading-judge mode. Higher recall (0.688 -> 0.784 on HumanEval+) in
+    # exchange for minutes of local inference — worth it unattended, not worth
+    # it while someone waits. See reward_judge.judge_correctness.
+    thorough: bool = False
 
 
 class BenchRunCreate(BaseModel):
@@ -1633,6 +1638,7 @@ async def run_api_task(
     cost_usd = resolve_cost(ollama_m)
 
     bucket = _classify_bucket(req.prompt, hint=req.capability_hint)
+    _exec_gate_failed = False
     from ..routing.quality import score_quality_detailed as _score_quality_detailed
     from ..routing.escalation_strategies import STRICT_VERIFY_QUALITY_THRESHOLD
     from ..routing.execution_gate import EXEC_GATE_BUCKETS, check_executes, exec_gate_enabled
@@ -1665,6 +1671,7 @@ async def run_api_task(
                 )
                 success = False
                 status = "failed"
+                _exec_gate_failed = True
     else:
         quality_score, quality_components = 0.0, None
 
@@ -1676,7 +1683,42 @@ async def run_api_task(
     from ..routing.reward_judge import REWARD_JUDGE_BUCKETS, judge_correctness, reward_judge_mode
     _correctness, _judge_cost, _judge_detail = None, 0.0, ""
     if success and bucket in REWARD_JUDGE_BUCKETS and reward_judge_mode() != "off":
-        _correctness, _judge_cost, _judge_detail = await judge_correctness(req.prompt, output)
+        _correctness, _judge_cost, _judge_detail = await judge_correctness(
+            req.prompt, output, thorough=req.thorough
+        )
+
+    # Escalation cascade (findings Era 19): the judge verdict above already
+    # decides whether the local answer is correct — spend it a second time and
+    # actually re-route the rejects, instead of serving a known-bad answer.
+    # Deliberately AFTER `output` is scored and BEFORE the outcome is built:
+    # the bandit must keep observing the local arm's own work (crediting it
+    # with the escalation arm's answer would re-break the Era-23 reward), so
+    # this swaps only what the caller is served.
+    from ..routing import cascade as _cascade
+    _escalated_to: str | None = None
+    _escalation_cost = 0.0
+    _escalation_detail = ""
+    _local_output = output
+    if _cascade.should_escalate(_correctness, bucket, exec_failed=_exec_gate_failed):
+        _esc_output, _escalation_cost, _escalation_detail = await _cascade.escalate(req.prompt)
+        if _esc_output is not None:
+            logging.getLogger(__name__).info(
+                "cascade: %s %s output from %s; escalated to %s",
+                "exec gate rejected" if _exec_gate_failed else "judge rejected",
+                bucket, selected_agent, _cascade.escalation_arm(),
+            )
+            output = _esc_output
+            _escalated_to = _cascade.escalation_arm()
+            # The caller is getting a good answer, so the response reports
+            # success even though the bandit records the local arm's failure
+            # below. These are different questions: "did the request succeed"
+            # and "did the routed arm do its job" stopped being the same thing
+            # the moment a second tier existed.
+            status = "success"
+        else:
+            logging.getLogger(__name__).info(
+                "cascade: %s; serving local output", _escalation_detail
+            )
 
     # F2.2: score alt output and pick the winner when double-run fired.
     # Both outcomes are fed to the bandit so we learn from two agents per task.
@@ -1738,7 +1780,11 @@ async def run_api_task(
                 logging.getLogger(__name__).warning(
                     "cost ledger record failed for alt task %s: %s", alt_task.id, exc
                 )
-        if _alt_success and _alt_quality > quality_score:
+        # An escalated answer outranks a double-run alt: the cascade swap was
+        # made on a judge correctness verdict, the alt comparison on heuristic
+        # quality — which Era 9 showed does not track correctness (the only
+        # 100%-correct arm ranked 3rd of 4). Never let the weaker signal win.
+        if _escalated_to is None and _alt_success and _alt_quality > quality_score:
             logging.getLogger(__name__).info(
                 "double_run winner: %s (%.3f) beat %s (%.3f)",
                 alt_agent, _alt_quality, selected_agent, quality_score,
@@ -1800,6 +1846,27 @@ async def run_api_task(
         cost_usd=cost_usd,
     )
 
+    # Escalation spend is real money on a real arm, but it is NOT the selected
+    # agent's cost — the bandit's φ_cost must keep describing what the local arm
+    # charged, or a judge rejection would penalize the arm twice (once through
+    # correctness=0, again through a bill it did not run up). So it reaches the
+    # ledger, which tracks actual spend, and not the outcome.
+    if _escalation_cost > 0 and _cost_ledger is not None:
+        try:
+            await _cost_ledger.record(
+                user_id="web-user",
+                mission_id=mission.id,
+                model=_escalated_to or _cascade.escalation_arm(),
+                input_tokens=0,
+                output_tokens=0,
+                cache_read_tokens=0,
+                cost_usd=_escalation_cost,
+            )
+        except Exception as exc:
+            logging.getLogger(__name__).warning(
+                "cost ledger record failed for escalation on task %s: %s", task.id, exc
+            )
+
     # Nonzero cost → also append to the cost ledger (feeds /cost/summary daily spend)
     if cost_usd > 0 and _cost_ledger is not None:
         try:
@@ -1856,6 +1923,18 @@ async def run_api_task(
             "runner_up": runner_up,
             "double_run_alt": alt_agent,
             "double_run_winner": _double_run_winner,
+        },
+        # The caller is told which tier answered: `escalated` false means a free
+        # local arm's answer passed the judge, true means the judge rejected it
+        # and `escalated_to` produced what is in `output`.
+        "cascade": {
+            "escalated": _escalated_to is not None,
+            "escalated_to": _escalated_to,
+            "judge_correctness": _correctness,
+            "judge_detail": _judge_detail,
+            "escalation_detail": _escalation_detail,
+            "escalation_cost_usd": round(_escalation_cost, 6),
+            "escalations_today": _cascade.escalations_today(),
         },
     }
 

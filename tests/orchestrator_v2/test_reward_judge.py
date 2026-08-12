@@ -268,3 +268,72 @@ def test_log_outcome_persists_null_correctness(tmp_path):
         ("t-judge-2",),
     ).fetchone()
     assert row == (None, 0.0, "")
+
+
+# ── per-task thorough opt-in ─────────────────────────────────────────────────
+#
+# The generated-test check costs latency, not dollars, and the gap is two
+# orders of magnitude: ~265s added to a ~6s task on a 16 GB box. Fine
+# unattended, unusable interactively — so the caller chooses per task instead
+# of the daemon choosing once for everything.
+
+
+def test_thorough_forces_the_tool_check_in_reading_mode(monkeypatch):
+    monkeypatch.setenv("MAHORAGA_REWARD_JUDGE", "on")
+    monkeypatch.setattr(
+        reward_judge, "_get_judge_worker",
+        lambda: _FakeJudgeWorker('{"correct": true}'),
+    )
+    called: dict = {}
+
+    async def _fake_check(worker, prompt, output, **kw):
+        called["ran"] = True
+        return False, 0.0, "disagrees on 3 inputs"
+
+    monkeypatch.setattr(reward_judge, "differential_check", _fake_check)
+
+    correctness, _cost, detail = asyncio.run(
+        reward_judge.judge_correctness("p", "o", thorough=True)
+    )
+    assert called.get("ran") is True
+    assert correctness == 0.0, "a tool reject must flip the base accept"
+    assert "code-judge override" in detail
+
+
+def test_default_leaves_reading_mode_untouched(monkeypatch):
+    """Without the flag, reading mode must not pay for the tool check."""
+    monkeypatch.setenv("MAHORAGA_REWARD_JUDGE", "on")
+    monkeypatch.setattr(
+        reward_judge, "_get_judge_worker",
+        lambda: _FakeJudgeWorker('{"correct": true}'),
+    )
+    called: dict = {}
+
+    async def _fake_check(worker, prompt, output, **kw):
+        called["ran"] = True
+        return False, 0.0, "should not run"
+
+    monkeypatch.setattr(reward_judge, "differential_check", _fake_check)
+
+    correctness, _cost, _detail = asyncio.run(reward_judge.judge_correctness("p", "o"))
+    assert "ran" not in called
+    assert correctness == 1.0
+
+
+def test_thorough_cannot_resurrect_a_base_reject(monkeypatch):
+    """Recall-only: the tool never softens a reject, flag or no flag."""
+    monkeypatch.setenv("MAHORAGA_REWARD_JUDGE", "on")
+    monkeypatch.setattr(
+        reward_judge, "_get_judge_worker",
+        lambda: _FakeJudgeWorker('{"correct": false}'),
+    )
+
+    async def _fake_check(worker, prompt, output, **kw):
+        raise AssertionError("tool must not run on a base reject")
+
+    monkeypatch.setattr(reward_judge, "differential_check", _fake_check)
+
+    correctness, _cost, _detail = asyncio.run(
+        reward_judge.judge_correctness("p", "o", thorough=True)
+    )
+    assert correctness == 0.0

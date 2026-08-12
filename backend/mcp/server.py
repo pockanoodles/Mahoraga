@@ -107,11 +107,18 @@ async def list_tools() -> list[Tool]:
         Tool(
             name="run_task",
             description=(
-                "Send a task to Mahoraga for execution. Mahoraga automatically picks the best "
-                "available AI agent for the job based on the task type — code tasks go to coding "
-                "agents, research tasks go to research agents. Use this for tasks like creating "
-                "files, refactoring code, writing tests, running shell commands, or researching a "
-                "topic. Returns the result, which agent handled it, and how well it performed."
+                "Run a task on a local model instead of spending your own tokens on it. "
+                "Mahoraga picks the best available agent for the task type, then verifies the "
+                "answer: for code tasks a local judge checks correctness and, if the answer "
+                "fails, the task is automatically re-run on a stronger cloud agent before the "
+                "result comes back. So a returned answer has either passed verification or "
+                "already been escalated — you do not need to re-do the work yourself.\n\n"
+                "Delegate here whenever a task is self-contained and does not need the "
+                "surrounding conversation: writing a function or script, generating tests, "
+                "refactoring a known block, explaining or summarizing a snippet, boilerplate, "
+                "one-off conversions. Keep tasks that depend on broad context in this session.\n\n"
+                "Returns the result, which agent handled it, and a `cascade` block reporting "
+                "whether the answer was served locally or escalated."
             ),
             inputSchema={
                 "type": "object",
@@ -129,6 +136,16 @@ async def list_tools() -> list[Tool]:
                     "agent_override": {
                         "type": "string",
                         "description": "Optional. Force a specific agent. e.g. 'aider', 'ollama', 'codex-cli'.",
+                    },
+                    "thorough": {
+                        "type": "boolean",
+                        "description": (
+                            "Optional, default false. Verify the answer harder: the judge "
+                            "writes and executes its own tests against it, catching wrong-"
+                            "but-runnable code the reading judge misses. Costs several "
+                            "minutes of local compute, so use it only when correctness "
+                            "matters more than latency and nobody is waiting on the result."
+                        ),
                     },
                 },
                 "required": ["prompt"],
@@ -432,6 +449,8 @@ async def _handle_run_task(args: dict) -> dict:
         body["capability_hint"] = args["capability_hint"]
     if "agent_override" in args:
         body["agent_override"] = args["agent_override"]
+    if args.get("thorough"):
+        body["thorough"] = True
     return await _post("/api/task", body)
 
 

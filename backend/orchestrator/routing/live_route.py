@@ -97,11 +97,16 @@ class RoutedCase:
         }
 
 
-async def _run_worker(worker, prompt: str) -> tuple[str, float, Optional[str]]:
+async def run_worker(worker, prompt: str) -> tuple[str, float, Optional[str]]:
     """Run one worker on a raw prompt; return (output, cost_usd, error).
 
     Mirrors how `/api/task` frames a bench prompt (title=prompt[:80],
     goal=prompt) so the model sees the same input as a live serving call.
+
+    Public because the live serving cascade (`routing/cascade.py`) runs its
+    escalation call through this exact framing — a bench prompt and a served
+    prompt must reach the arm identically, or the measured cascade stops
+    describing the shipped one.
     """
     task = Task.new(run_id="live-route", title=prompt[:80], goal=prompt)
     attempt = TaskAttempt.new(task_id=task.id, worker_id=getattr(worker, "id", "arm"))
@@ -150,7 +155,7 @@ async def route_one(
     role-stripped ids (`ollama:granite4.1-8b`, `claude-cli`) so the matrix keys
     match the 5a/5b convention rather than the role-suffixed worker id.
     """
-    local_output, _local_cost, local_err = await _run_worker(local_worker, prompt)
+    local_output, _local_cost, local_err = await run_worker(local_worker, prompt)
     local_passed, _ = run_case(local_output, tests)
 
     verdict, judge_cost, _raw, judge_err = await judge_one(judge_worker, prompt, local_output)
@@ -178,7 +183,7 @@ async def route_one(
     cloud_cost = 0.0
     cloud_err: Optional[str] = None
     if escalate or run_cloud_always:
-        cloud_output, cloud_cost, cloud_err = await _run_worker(cloud_worker, prompt)
+        cloud_output, cloud_cost, cloud_err = await run_worker(cloud_worker, prompt)
         cloud_passed, _ = run_case(cloud_output, tests)
 
     if escalate:
@@ -284,7 +289,21 @@ def load_arms(
         extra_payload={"think": False},
     )
 
-    cli_cfg = cfg.get(cloud_arm, {})
+    cloud_worker = build_cloud_worker(cfg, cloud_arm)
+
+    return local_worker, judge_worker, cloud_worker
+
+
+def build_cloud_worker(cfg: dict[str, Any], cloud_arm: str = "claude-cli") -> ClaudeCliWorker:
+    """Build the audited cloud escalation arm from a parsed agents.yaml.
+
+    Reads the arm's block whether or not it is `enabled` — that flag governs
+    membership in the *bandit's* action space, not reachability by an explicit
+    escalation. Both the bench cascade (`load_arms`) and the live serving
+    cascade (`routing/cascade.py`) construct their cloud arm here so the two
+    cannot drift into describing different models.
+    """
+    cli_cfg = cfg.get(cloud_arm, {}) or {}
     cli_kwargs: dict[str, Any] = {
         "model": cli_cfg.get("model", "claude-sonnet-4-6"),
         "worker_id": cli_cfg.get("worker_id", f"{cloud_arm}:sonnet"),
@@ -293,6 +312,4 @@ def load_arms(
         cli_kwargs["binary_path"] = cli_cfg["binary_path"]
     if cli_cfg.get("timeout"):
         cli_kwargs["timeout"] = float(cli_cfg["timeout"])
-    cloud_worker = ClaudeCliWorker(**cli_kwargs)
-
-    return local_worker, judge_worker, cloud_worker
+    return ClaudeCliWorker(**cli_kwargs)

@@ -243,6 +243,15 @@ orch bench report verify --input results.jsonl --bank experiments/prompts_verifi
 Only run trusted evaluation data: the live execution gate, the offline
 verifier, and the tool-augmented judge all execute generated code locally.
 
+The cascade on the live serving path — a local arm answers, the free local
+judge rejects, and only then does the task reach a paid arm:
+
+![a live task: local arm answers, local judge rejects, task escalates to claude-cli for $0.05](docs/assets/cascade.gif)
+
+Regenerate with `vhs demo/cascade.tape`. The take is not deterministic: judge
+fail-recall is 0.688 and the local arm does not fail on demand, so roughly one
+run in four escalates.
+
 ## Reproduce the benchmark
 
 Reproducibility here has a cheap half and an expensive half, and they answer
@@ -338,6 +347,8 @@ excluded, since one forced-explore run would otherwise swamp a month of use.
 This is a substitution baseline — what those tasks would have cost on the
 escalation arm — not a measure of interactive-session spend, which carries
 conversation context and costs considerably more.
+
+![orch metrics usage and orch metrics funnel side by side](docs/assets/dogfood.gif)
 
 ### The delegation funnel
 

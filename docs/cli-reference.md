@@ -134,10 +134,18 @@ per-metric results. See [Results](RESULTS.md).
 ### Benchmark reproduction
 
 `orch bench repro` reproduces the headline HumanEval+ cascade benchmark with
-the published configuration pinned (local=granite4.1-8b, judge=qwen3.5:latest,
-cloud=claude-cli). It preflights the environment first; `--preflight-only`
-checks without inference, `--smoke` runs the first 5 tasks, `--local-only`
-skips the always-cloud baseline. See the README's
+the published configuration pinned (local=granite4.1-8b, judge=qwen3.5:latest).
+It preflights the environment first; `--preflight-only` checks without
+inference, `--smoke` runs the first 5 tasks, `--local-only` skips the
+always-cloud baseline.
+
+`--cloud-arm` picks how the cloud arm authenticates: `claude-cli` (default —
+the `claude` binary on a Claude subscription, what the published run used) or
+`claude` (the Anthropic API with `ANTHROPIC_API_KEY`, no subscription needed).
+Same model and prompt framing either way, so routed pass@1 is comparable; the
+always-cloud dollar column is not, because the two bill differently. The same
+choice applies to the live serving cascade through `MAHORAGA_ESCALATE_TO`.
+See the README's
 [Reproduce the benchmark](../README.md#reproduce-the-benchmark) section.
 Unlike `bench run`, it does not need the FastAPI service — it drives the
 workers directly through `bench live-route`.

@@ -265,9 +265,17 @@ clone. Prerequisites:
   ollama pull qwen3.5:latest   # escalation judge
   ```
 
-- The `claude` CLI installed (`npm install -g @anthropic-ai/claude-code`) and
-  authenticated — the cloud arm bills through that auth and records real
-  per-task cost.
+- A cloud arm, either way of authenticating:
+
+  | Arm | Needs | Use when |
+  | --- | --- | --- |
+  | `--cloud-arm claude-cli` (default) | `npm install -g @anthropic-ai/claude-code`, then `claude` once interactively | You have a Claude subscription; this is what the published run used. |
+  | `--cloud-arm claude` | `export ANTHROPIC_API_KEY=...` | You do not. No subscription required. |
+
+  Both arms run the same model and are handed the identical prompt, so the
+  routed pass@1 comparison holds either way. Expect the always-cloud *dollar*
+  column to differ, since API and subscription bill differently — the published
+  cost figures are the `claude-cli` ones.
 - The repo installed per the quick start (`pip install -e .`). The API server
   does not need to be running; the benchmark drives the workers directly.
 

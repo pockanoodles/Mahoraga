@@ -111,10 +111,22 @@ ollama:
 
 claude:
   enabled: false
+  worker: claude_api
   model: claude-sonnet-4-6
   worker_id: claude:sonnet
   # Disabled for v2 local-only phase. Re-enable for escalation testing.
   # Unexplored arms inflate UCB and steal routes from trained local arms.
+  #
+  # This is the API-key-backed cloud arm (ANTHROPIC_API_KEY), and it is the
+  # one to use for reproducing the published benchmark without a Claude
+  # subscription: `orch bench repro --cloud-arm claude`, or
+  # MAHORAGA_ESCALATE_TO=claude for the live serving cascade. Same model and
+  # same prompt framing as `claude-cli` below — the arms differ only in who
+  # authenticates and how the call is billed, so cost columns are not
+  # comparable between them while pass@1 is.
+  #
+  # As with claude-cli, `enabled: false` governs the BANDIT's action space
+  # only; the escalation cascade reaches this arm directly.
   capabilities:
     code: 0.95
     general: 0.95
@@ -125,6 +137,7 @@ claude:
 
 claude-cli:
   enabled: false
+  worker: claude_cli
   model: claude-sonnet-4-6
   worker_id: claude-cli:sonnet
   # Cloud head-to-head arm for Phase 4 cost benchmarking — enable explicitly

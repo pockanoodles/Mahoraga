@@ -88,6 +88,12 @@ because it is the one we wanted.
   identical inputs.
 - **Hardware**: 16 GB M-series MacBook Pro. Local arm `granite4.1:8b`, judge
   `qwen3.5:latest`, cloud arm `claude-cli` (Sonnet).
+- **Reproducing without a subscription**: the published run billed the cloud
+  arm through the `claude` CLI on an interactive subscription. `orch bench
+  repro --cloud-arm claude` runs the same model over the Anthropic API with
+  `ANTHROPIC_API_KEY` instead. Same prompt framing, so routed pass@1 is
+  comparable; the always-cloud dollar column is not, because API and
+  subscription bill differently.
 
 ## What these numbers support, and what they don't
 

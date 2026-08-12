@@ -64,7 +64,15 @@ def cascade_enabled() -> bool:
 
 
 def escalation_arm() -> str:
-    """agents.yaml key for the escalation arm. Default the audited claude CLI."""
+    """agents.yaml key for the escalation arm. Default the audited claude CLI.
+
+    `claude-cli` bills through an interactive Claude subscription — the same
+    quota pool as the session this cascade exists to relieve. `claude` bills an
+    API key instead, which separates the two pools and is the right choice on a
+    machine with no subscription. Both run the same model through the same
+    prompt framing; a build failure (no key, no binary) degrades to serving the
+    local answer rather than raising.
+    """
     return os.getenv("MAHORAGA_ESCALATE_TO", "claude-cli").strip() or "claude-cli"
 
 

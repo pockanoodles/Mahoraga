@@ -1,6 +1,37 @@
-# Current State — 2026-08-11
+# Current State — 2026-08-12
 
-## Read this first — 2026-08-11 (latest): the cascade is LIVE on /api/task
+## Read this first — 2026-08-12 (latest): published numbers are bound to their artifacts
+
+**`orch bench verify` recomputes every headline figure from the committed
+per-case JSONL and requires it to round to exactly the printed value.** No
+models, network, API key, or GPU — milliseconds on a fresh clone, and it runs in
+CI, so a README number cannot drift from its data. Claims are declared in
+`experiments/claims.json` (artifact + value + decimal place + where quoted), so
+publishing a number is a reviewable manifest edit. Missing artifact or
+uncomputable metric FAILS, never skips. Full method + limits: `docs/RESULTS.md`.
+
+**The split worth remembering:** `bench repro` = "is the data real on my
+hardware" (~3.5 h). `bench verify` = "does the README match the data" (~10 ms).
+Only the second is something a skeptical reader actually runs.
+
+**The headline is a replication, not a single measurement.**
+`experiments/repro_2026-08-04.jsonl` — an independent full-bank run that had
+never been committed — gives **routed pass@1 0.921, identical to the 08-03 run**,
+despite a different judge config and the local arm's own pass@1 moving
+0.805 → 0.774 (decoding is not seed-pinned). The cascade absorbed the variance.
+
+**Unflattering result now published:** the code judge bought **+9.6pts
+fail-recall for +$6.27/1k and ZERO pass@1** on this bank — extra recall spent
+escalating answers that would have passed. Settles `thorough` as opt-in-only.
+
+**Trap fixed:** `experiments/` was ignored as a *directory* while its contents
+were tracked via an old `git add -f`. Git does not descend into an excluded
+directory, so negations were inert and new evidence silently failed to commit
+(as `repro_2026-08-04.jsonl` had). Now `experiments/*` + explicit negations.
+
+Suite 1670 green.
+
+## Read this first — 2026-08-11: the cascade is LIVE on /api/task
 
 **The Era-19 cascade stopped being a bench command.** `routing/cascade.py` +
 a ~30-line wire in `/api/task`: the judge verdict the reward path has computed

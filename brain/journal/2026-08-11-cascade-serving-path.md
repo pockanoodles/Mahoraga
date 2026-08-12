@@ -168,6 +168,62 @@ Daemon running with `MAHORAGA_REWARD_JUDGE=on`, `MAHORAGA_CASCADE=on`,
 `ESCALATE_TO=claude-cli`, cap 25/day. Live latency 9–18s per code task including
 escalation. Suite 1638 green.
 
+## Part three — making it measurable for the only user who matters
+
+Kaito's framing, and it settles the resume question: **he is the user.** N=1
+dogfooding, tracked honestly. That reframes what "does it work" means — not
+adoption, but "does running this daily actually save me what the benchmark
+says."
+
+Which surfaced a gap created by Part one: **escalations were not recorded
+anywhere queryable.** The cost ledger got a row with no join back to the
+decision, and the decision log had no idea a cascade happened. The number
+Kaito wants was literally uncomputable. Fixed: three columns on `decisions`
+(`escalated_to`, `escalation_cost`, `escalation_reason`), threaded through
+`TaskOutcome` — the cascade runs before `router.observe`, so no second write
+path was needed. `escalation_reason` keeps the two triggers distinguishable,
+because "the judge caught it" and "it did not compile" are different claims and
+collapsing them would hide which signal is carrying the cascade.
+
+Then `routing/usage_report.py` + `orch metrics usage`.
+
+**The design decision that makes it honest: the counterfactual is measured, not
+tabled.** `bench report cost` prices local rows off a rate table and its own
+docstring calls the result a floor (bare tokens miss the cache-creation that
+dominates a real CLI call — ~27× under the measured rate). Here the baseline is
+the escalation arm's *own* per-task cost on this machine in this window, taken
+from escalations that actually happened. No price table, no assumed model, no
+extrapolation from someone else's hardware. With no priced escalation in the
+window it reports "unknown" rather than guessing.
+
+Two bounds stated in the output itself, so the caveat travels with the number:
+it is a **substitution** baseline (what these tasks would have cost on the
+escalation arm), NOT interactive-session spend, which carries conversation
+context and costs far more. And bench rows are excluded — one 200-task
+forced-explore run would swamp a month of real work.
+
+First real reading (2026-08-11, the day's traffic):
+
+```
+Tasks routed        15
+  served locally    14  (93.3%)
+  escalated          1  (6.7%)   judge rejected
+Judge: accepted 10 · rejected 3 · abstained 2
+Spend: escalations $0.0403 · measured rate $0.0403/task (n=1)
+       avoided $0.5647 · cost reduction 93.3% vs all-cloud
+```
+
+n=1 on the rate, so the dollar figure is noise for now — but the plumbing is
+closed end to end and every task from here accumulates into it. All-time
+organic is 229 tasks, 217 of them abstained because they predate the judge
+entirely; that number will stay ugly and honest until new traffic dilutes it.
+
+**The resume consequence:** this supports a second, independent claim alongside
+the HumanEval+ benchmark — "N tasks over M weeks of daily use, X% served locally
+at zero marginal cost". Two claims from two sources (one reproducible by a
+stranger, one lived) beats one claim polished harder. What it does NOT support
+is a production/users claim, and the phrasing should never imply one.
+
 ## Open
 
 - **Delegation is the real funnel** — the cascade only saves tokens on tasks

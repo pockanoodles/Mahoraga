@@ -58,9 +58,28 @@ exec-gate trigger made the suite spawn real `claude` calls (60s → 438s, two co
 tests failing) because `_no_live_reward_judge` guarded the judge, not the
 cascade. `conftest.py` now has `_no_live_escalation`.
 
-**Next:** A1 semantic routing (still the top open research lever). Then measure
-real judge coverage on organic traffic once it accumulates. Detail:
-`brain/journal/2026-08-11-cascade-serving-path.md`.
+**Dogfooding is now instrumented — `orch metrics usage`.** Kaito's call: he is
+the user, N=1, tracked honestly. Escalations are recorded on the decision row
+(`escalated_to`/`escalation_cost`/`escalation_reason`, threaded via
+`TaskOutcome`) — before this they were uncomputable, since the cost ledger had
+no join back to the task. `routing/usage_report.py` reports local share,
+escalation rate by trigger, judge verdicts, and spend over a date window, bench
+rows excluded.
+
+**The counterfactual is MEASURED, not tabled** — the escalation arm's own
+per-task cost on this machine in this window, not a rate table (which
+`bench report cost` uses and calls a floor). No priced escalation in the window
+→ reports "unknown" rather than guessing. It is a *substitution* baseline (what
+these tasks would have cost on the escalation arm), NOT interactive-session
+spend. First reading 2026-08-11: 15 tasks, 93.3% local, 1 escalation @ $0.0403.
+
+**Resume framing (settled):** two independent claims — the HumanEval+ benchmark
+(reproducible by a stranger) and the dogfooding record (lived). Never a
+production/users claim; there is one user by design.
+
+**Next:** accumulate real usage (the funnel — getting work to actually reach
+`run_task` — is now the binding constraint, not the cascade). Then A1 semantic
+routing. Detail: `brain/journal/2026-08-11-cascade-serving-path.md`.
 
 ## Read this first — 2026-08-05 (earlier): the code-judge live confirmation RAN — guard resolved
 

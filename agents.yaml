@@ -67,6 +67,55 @@ ollama:
         review: 0.85
         debug: 0.80
 
+    # granite4.2-8b: the October longitudinal study's local-side second point
+    # (added 2026-09-11, findings Era 31). A post-train of the SAME 4.1 base
+    # with a thinking toggle added — identical architecture (40 layers, hidden
+    # 4096, vocab 100352) and an identical 5.35 GB Q4_K_M footprint, so it is a
+    # drop-in at zero memory cost. Worth measuring because IBM published
+    # HumanEval+ 79.88 for 4.1-8b and NOTHING for 4.2-8b (they switched to
+    # agentic suites), which makes a 4.1-vs-4.2 run on this harness the only
+    # protocol-matched Python-synthesis comparison of the two that exists.
+    # enabled only for bench runs — see brain/decisions/2026-09-11-october-run-shape.md
+    - id: granite4.2-8b
+      model: granite4.2:8b            # IBM, 5.3 GB Q4_K_M, thinking-capable
+      max_ctx: 131072
+      enabled: false
+      capabilities:
+        code: 0.82
+        test: 0.85
+        refactor: 0.83
+        review: 0.85
+        debug: 0.80
+
+    # ornith-1.5-9b: the arm that decides a hardware purchase (added 2026-09-11,
+    # findings Era 32). MIT, 5.78 GB, and it CLAIMS SWE-bench Verified 70.6 —
+    # Laguna-XS-class (a 20 GB MoE) at a quarter of the memory. If that holds,
+    # this 16 GB machine already sits at the 24 GB tier and the 16→24 GB upgrade
+    # delta collapses from +23 to ~+8 points.
+    #
+    # Treat the vendor number as unverified, and not merely because it is
+    # vendor-reported: Ornith's method RL-trains the SCAFFOLD alongside the
+    # solution rollouts, so 70.6 measures model+scaffold and is NOT
+    # protocol-comparable to granite's plain-harness figure. Contamination-
+    # controlled SWE-rebench puts Qwen3.6-27B at only 31.2. It is also a
+    # Qwen3.5 fine-tune, so it is correlated with the qwen3.5 arm rather than
+    # an independent addition.
+    #
+    # Caveat on this tag: the Ollama build bundles a ~922 MB vision projector
+    # that is dead weight for code (6.6 GB packaged vs 5.78 GB text-only). The
+    # HF text-only GGUF is the leaner path if the projector ever matters.
+    # enabled only for bench runs.
+    - id: ornith-1.5-9b
+      model: ornith-1.5:9b            # 8.95B dense, MIT, Qwen3.5 lineage
+      max_ctx: 131072
+      enabled: false
+      capabilities:
+        code: 0.85
+        refactor: 0.82
+        debug: 0.82
+        review: 0.80
+        general: 0.78
+
     # qwen3-14b: diagnostic 3rd arm (2026-07-09 → 2026-07-26). Retained to test
     # whether capability spread breaks the qwen3.5/granite reward tie; it didn't,
     # and Phase 4 (bench_run_id=19) showed no correctness edge over the smaller

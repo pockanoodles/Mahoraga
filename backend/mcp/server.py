@@ -25,6 +25,8 @@ from mcp.server import Server
 from mcp.server.stdio import stdio_server
 from mcp.types import Tool, TextContent
 
+from .funnel_liveness import record_alive
+
 MAHORAGA_BASE = os.environ.get("MAHORAGA_BASE", "http://localhost:8000")
 TIMEOUT = httpx.Timeout(connect=5.0, read=300.0, write=10.0, pool=5.0)
 # R1.1 — bumped from 1 retry to 2 with longer second backoff per spec
@@ -94,7 +96,7 @@ async def _get(path: str, params: dict | None = None) -> dict:
 
 @server.list_tools()
 async def list_tools() -> list[Tool]:
-    return [
+    tools = [
         Tool(
             name="health_check",
             description=(
@@ -318,6 +320,13 @@ async def list_tools() -> list[Tool]:
             },
         ),
     ]
+    # Serving this list is the moment `run_task` becomes visible to the agent,
+    # so it is the one observation that makes the delegation funnel's rate
+    # readable: no liveness rows in a window means a low rate cannot be
+    # distinguished from a tool that never loaded — which is exactly what the
+    # 0.0% reading of 2026-09-10 turned out to be. Fire-and-forget by design.
+    record_alive(len(tools))
+    return tools
 
 
 @server.call_tool()

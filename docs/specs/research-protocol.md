@@ -211,6 +211,28 @@ Each question below is answerable with the infrastructure that now exists. Order
 
 **This is the architectural differentiator.** RouteLLM can't do this — it's a static offline classifier. Mahoraga learns online from every task, forever, with prompt-level similarity priors. If the retrieval layer measurably improves routing quality, that's the headline result for the paper.
 
+**Status (2026-09-11): DEPRIORITIZED — not in progress.** Run at n≈42/condition 2026-07-10 and again to 262/336 in condition A before being stopped: memory changed the routed agent on 14.6% of matched prompts but aggregate reward moved 0.7963 vs 0.7839, diff/SE ≈ 0.54 — indistinguishable from noise. The first null was inconclusive-because-the-ruler-was-broken (the reward's success term was saturated); that has since been fixed and independently validated, and re-running Q6 on the corrected reward is *possible*. It is deliberately not queued. See the status block below.
+
+### Status of the bandit research line (2026-09-11)
+
+**Parked. Architecture, not a result — and labelled as such in the README and `docs/RESULTS.md`.** Nothing is deleted; the learner, episodic memory, per-bucket matrices and decision log all still run, and the cascade depends on the reward path they carry.
+
+The reason is three attempts, not fatigue:
+
+1. **Q6 (retrieval-augmented vs vanilla)** — within noise at the sample sizes reached, twice.
+2. **Bandit vs round-robin vs static-best vs per-prompt oracle** (2026-08-03) — the bandit never beat round-robin on either bank. Diagnosed at the time as reward saturation.
+3. **Reward fidelity** (2026-08-05) — the saturation was fixed and verified (reward↔pass@1 correlation 0.12 → 0.98+), and the null *survived it*: oracle-reward LinUCB still did not beat round-robin. That result exonerates the reward and relocates the finding: **the two local arms are not separable as arms** on these banks. Arm-level reward gaps of 0.004–0.024 are below cold-start LinUCB's resolution at 50–164 pulls.
+
+The per-prompt oracle beats the best single arm by **11.6 points**, so the remaining signal is real but *per-prompt*, not per-arm. Capturing it is a semantic-routing problem, and the semantic layer is already built and already evaluated near-null (+0.35 reward, ~0.25σ).
+
+**Also deprioritized, for the same reason — do not re-open without new evidence:**
+
+- **Q6 at larger N.** Would need several hundred per condition to resolve an effect that three independent measurements place inside noise.
+- **Distance-weighted episodic α.** A refinement to a retrieval layer whose gross effect is not yet detectable; tuning the weighting before the effect is measurable is fitting noise.
+- **The gamma (discount) sweep grid.** Non-stationarity handling matters only once arm selection has a signal to track. See `brain/decisions/2026-07-03-adaptive-gamma.md`.
+
+**What would un-park this line:** evidence that arm selection has recoverable signal — a roster whose arms are actually separable (a genuinely stronger local arm, or a heterogeneous pool rather than two similar 8B-class models), or per-prompt routing features that close a measurable share of the 11.6-point oracle gap. Volume alone will not do it.
+
 ---
 
 ## Part 3 — Quality Scorer Specification

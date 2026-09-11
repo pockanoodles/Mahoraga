@@ -667,3 +667,504 @@ tests (confirmed fresh), +3.7 pts routed pass@1 same-run, retention 94–95%
 across both fresh runs, zero quality cost from verification. Per-case data:
 `experiments/repro_2026-08-04.jsonl`. Next: K=5 case-coverage sweep (running),
 A1 semantic routing.
+
+## Era 25 — K=5 case coverage: recall 0.781 → 0.844, and it stays a projection (2026-08-05)
+
+The Era-22 sweep re-run at K=5 references instead of 3. Offline counterfactual
+replay over the recorded 08-03 live-route run
+(`experiments/live_route_humaneval_164.jsonl`), min_disagree=2, all 127 recorded
+accepts tool-checked, 114 abstained. Zero inference — read back out of
+`~/.mahoraga-v2/judge_gate_cache_k5.json` in 0.33s, reproducing `bench_runs`
+id=40 exactly.
+
+**What more case coverage buys, and what it costs:**
+- **Fail-recall 22/32 = 0.688 (base judge) → 25/32 = 0.781 at K=3 → 27/32 =
+  0.844 at K=5.** More generated inputs find more real failures, monotonically.
+- **Wrong answers served 10 → 5.** The tool layer halves what the reading judge
+  lets through.
+- **Over-escalations 15 → 23** (K=3: 19). The price of the extra recall, paid in
+  cloud calls on answers that would have passed.
+- **Projected routed pass@1 0.9207 @ $8.47/1k → 0.9451 @ $11.41/1k**, against
+  always-cloud 0.9756 @ $35.97/1k — 96.9% of cloud pass@1 at a 68.3% cost cut.
+
+**Why this is not a headline, and deliberately never will be.** Every number
+above is a *replay projection*: the local arm's outputs and the per-row cloud
+baseline are frozen from the 08-03 run, and only the gate is counterfactual.
+Era 24's third finding is binding here — single-run benchmark numbers carry
+±3-pt-scale variance, and the Era-22 K=3 replay package (0.939 @ $10.04/1k) was
+retired permanently when it failed to reproduce live. The K=5 delta over K=3
+sits inside exactly that variance band. **A K=5 headline would require its own
+~4-hour `bench repro --code-judge` live confirmation run, and that run is not
+queued** — not because the result looks bad, but because Era 26 (below) makes
+K-scaling moot on the serving path: the tool costs ~265s/task at K=3 on 16 GB,
+and K=5 is strictly worse. The honest status of this Era is "the recall lever
+scales with K, measured offline; the economics of K=5 are unconfirmed live."
+
+**Operational gotcha, worth the line because it silently produces wrong
+numbers:** the verdict cache's `::code` key does **not** include K. A K≠3 sweep
+pointed at the default cache reads K=3 verdicts back and reports them as K=5.
+Any K sweep needs its own `--cache` path, or the run is lying about which K
+produced it. (`--min-disagree` remains free to sweep — raw disagreement counts
+are stored, so thresholds are re-derived, not re-generated.)
+
+## Era 26 — the cascade reaches the serving path, and organic traffic breaks three assumptions the bank was hiding (2026-08-11)
+
+A product question, not a research one: what is this *for*, to someone who isn't
+us. The answer exposed an inversion. The part shipped as a product — bandit
+routing between two local arms — is a diagnosed null (Eras 20/23). The part that
+works — the local→judge→cloud cascade, 0.921 pass@1 at 23.5% of always-cloud
+cost (Era 19) — was a **benchmark command**, and the README said so in its own
+limitations list.
+
+**The finding that made the port ~30 lines: the gate was already running in
+production.** `route_one` was never the thing to move — it is bench-shaped
+(needs the bank's hidden tests, grades every step, runs the cloud arm on
+kept-local prompts to measure a baseline). But `app.py` has called
+`reward_judge.judge_correctness` on every successful code-bucket task since
+Era 23: the verdict was computed live, spent on the reward's correctness
+coefficient, and then **the rejected answer was served to the caller anyway.**
+The wire was spending an existing verdict a second time.
+
+Two invariants, both test-pinned, both protecting Era 23's work: (1) the
+escalation arm lives **outside the bandit's action space** — flipping
+`claude-cli` to `enabled: true` would let an unexplored arm inflate its own UCB
+and start spending real money to explore itself, so the arm is constructed in
+`cascade.py` from the same `build_cloud_worker` the bench uses, reachable only
+by a judge rejection; (2) **escalation never re-attributes** — the bandit keeps
+observing the local arm's own output, and escalation spend hits the cost ledger
+but not `TaskOutcome.cost_usd`. Crediting the local arm with Sonnet's answer, or
+billing it for a call it didn't make, would re-break the reward signal Era 23
+was spent fixing.
+
+Live confirmation through a real `orch serve`, both branches:
+`median_of_two_sorted` → judge reject (0.0) → escalated to claude-cli ($0.041),
+caller got the correct answer, and the decision log recorded
+`selected_agent=granite`, `correctness=0.0`, `reward=0.462` against the two
+accepted rows' 0.71–0.81. **The bandit learned granite failed; the caller got
+the fix. That is the whole design in one row.**
+
+**Three things the bank had hidden, all found within hours of live traffic:**
+1. **The measured recall gain transferred to organic traffic at exactly 0%.**
+   `extract_entrypoint` required a literal `def name(` **in the prompt**.
+   HumanEval prompts *are* function stubs, so it always matched on the bank —
+   and never matched a real request ("Write a Python function chunk(lst, n)
+   that…"), which names the function in prose. The 0.688 → 0.784 gain was a
+   bank artifact on the wire. Fixed with a prose `name(...)` fallback, kept
+   strictly conditional so a prompt containing a stub is still resolved by the
+   stub alone and the published number is unchanged.
+2. **The tool judge is unusable interactively on this hardware: ~265s/task.**
+   Four live samples ran 44–295s wall while the model itself answered in
+   4.6–6.8s. Cause is the 16 GB box — K sequential reference generations from a
+   9.7B judge plus arm/judge swap thrash (granite 5.3 GB + qwen3.5 6.6 GB do not
+   coexist). The reading judge is +4–9s. **Latency, not dollars, is what makes
+   verification batch-only:** the daemon default reverts to `on` and the tool
+   becomes a per-task opt-in (`thorough: true` on `/api/task` and MCP
+   `run_task`), because only the caller knows whether this task is worth 265s.
+3. **The wire had a hole exactly where it mattered most.** The reward judge only
+   runs on successes (`if success and …`), so when the exec gate caught granite's
+   non-compiling code — 2 of 6 live tasks — no verdict was produced,
+   `correctness` stayed `None`, and `None` never escalates. **The answers most
+   certain to be wrong were the only class that never got a second opinion**,
+   and the caller received broken code with `status: failed`. Fixed:
+   `should_escalate` now takes `exec_failed`, and that is the *harder* signal —
+   code that does not compile is wrong deterministically, with none of the
+   judge's false-positive risk. When escalation succeeds the response reports
+   success while the bandit still records the local arm's failure; those stopped
+   being the same question the moment a second tier existed.
+
+**The bill for fix #3, and the lesson:** adding the exec-gate trigger made the
+**test suite spawn real `claude` CLI calls** — any fixture whose output failed to
+compile now escalated for real. Caught by two cost-ledger row-count tests and by
+the suite going 60s → 438s. `conftest.py` gains `_no_live_escalation`; the
+existing `_no_live_reward_judge` was not enough *precisely because the new
+trigger needs no judge*. **Every new path to a paid arm needs its own
+test-suite guard.**
+
+Adjacent, same class: **the launchd daemon had no configuration surface at
+all.** The plist carried no `EnvironmentVariables` block, and a launchd job
+inherits nothing — so under `orch service start` every MAHORAGA_* knob was
+pinned to its code default, and PATH excluded `~/.local/bin`, making the
+escalation arm's `claude` binary unresolvable and degrading silently to serving
+local answers. `install` now bakes in PATH plus `~/.mahoraga-v2/service.env`.
+Two traps found there: **`launchctl load` prints failure and still exits 0**, so
+`install` had been reporting "Service installed and started." while nothing ran;
+and the label was stuck in launchd's persistent *disabled* database (an Era-8
+leftover) which survives unload and reboot and fails every load with an opaque
+errno 5. `_load_job` clears the flag and verifies via `list` instead of trusting
+the exit code.
+
+**The finding with legs: a mechanism that looks live and is not.** Three in one
+session (judge entrypoint, daemon env, `launchctl`'s exit code) and a fourth in
+Era 29. The class is *measured on the bank, assumed on the wire* — and the only
+defence is a live sample of every path before its number is quoted.
+
+Shipped: `routing/cascade.py` + the `/api/task` wire + response surface + MCP
+tool description; code-like buckets only (the prose judge's ref-accept is 1.000,
+so extending there buys nothing), a daily escalation cap (default 25) with
+refund-on-failure, and every failure path degrading to the local answer rather
+than raising. 23 tests; suite 1638 green. Live latency 9–18s per code task
+including escalation. Final config: `MAHORAGA_REWARD_JUDGE=on`,
+`MAHORAGA_CASCADE=on`, `ESCALATE_TO=claude-cli`, cap 25/day.
+
+## Era 27 — the dogfooding meter, and a baseline that refuses to guess (2026-08-11)
+
+The framing that settles what "does it work" means for this project: **Kaito is
+the user.** N=1 dogfooding, tracked honestly — not adoption, but "does running
+this daily actually save me what the benchmark says."
+
+Which exposed a gap Era 26 had just created: **escalations were not recorded
+anywhere queryable.** The cost ledger got a row with no join back to the
+decision, and the decision log had no idea a cascade had happened. The number
+was literally uncomputable. Fixed with three columns on `decisions`
+(`escalated_to`, `escalation_cost`, `escalation_reason`) threaded through
+`TaskOutcome` — the cascade runs before `router.observe`, so no second write
+path was needed. `escalation_reason` exists because "the judge caught it" and
+"it did not compile" are different claims, and collapsing them would hide which
+signal is actually carrying the cascade.
+
+**The design decision that makes the number honest: the counterfactual is
+measured, not tabled.** `bench report cost` prices local rows off a rate table
+and its own docstring calls the result a floor — bare tokens miss the
+cache-creation that dominates a real CLI call, ~27× under the measured rate.
+Here the baseline is the escalation arm's **own per-task cost on this machine in
+this window**, taken from escalations that actually happened. No price table, no
+assumed model, no extrapolation from someone else's hardware. With no priced
+escalation in the window it reports "unknown" rather than guessing.
+
+**First real reading (2026-08-11 traffic), stated with its n:** 15 tasks routed,
+14 served locally (93.3%), 1 escalated on a judge reject; judge accepted 10 /
+rejected 3 / abstained 2; escalation spend $0.0403 at a measured $0.0403/task
+(**n=1**), $0.5647 avoided, 93.3% reduction vs all-cloud. The dollar figure is
+noise at n=1 — what changed is that the plumbing is closed end to end and every
+task from here accumulates into it. All-time organic is 229 tasks, 217 of them
+abstained because they predate the judge entirely; that number stays ugly and
+honest until new traffic dilutes it.
+
+Two bounds printed inside the output so the caveat travels with the number: it
+is a **substitution** baseline (what these tasks would have cost on the
+escalation arm), **not** interactive-session spend, which carries conversation
+context and costs far more; and bench rows are excluded, because one 200-task
+forced-explore run would swamp a month of real work.
+
+**The economics, stated against the project's own interest:** escalation goes to
+`claude-cli` on the Max subscription — the *same quota pool* as the Claude Code
+session it is meant to relieve. It is not free. It wins because a fresh CLI
+subprocess carries no conversation context (a real in-session call runs ~35K
+tokens, cache-dominated), so an escalated task costs roughly an order of
+magnitude less quota than doing it inline, and the ~70–78% that never escalate
+cost nothing at all. Measured escalation cost this session ran $0.041–$0.113
+per call, **notably above the bench's $0.036/task always-cloud rate** — small-n,
+but the reason the daily cap exists is that the judge's precision is not 1.0.
+
+**What this supports:** a second, independent claim alongside the HumanEval+
+benchmark — "N tasks over M weeks of daily use, X% served locally at zero
+marginal cost." Two claims from two sources (one reproducible by a stranger, one
+lived) beats one claim polished harder. **What it does not support is a
+production or users claim, and the phrasing should never imply one.**
+
+Shipped: `routing/usage_report.py` + `orch metrics usage`.
+
+## Era 28 — every published number bound to its artifact, and the headline turns out to be a replication (2026-08-12)
+
+A resume question, not a research one: the HumanEval+ result has to survive a
+stranger checking it. The gap was never the number — it was that a reader had
+exactly two options, trust the README or spend 3.5 hours re-running the
+benchmark on a 16 GB Mac with Ollama and a `claude` CLI. Nothing in between, and
+nothing preventing the prose from drifting away from the data.
+
+**The finding that made it small: the numbers were already backed.**
+Recomputing straight from `experiments/live_route_humaneval_164.jsonl`
+reproduces every published figure exactly — 0.9207 → 0.921, 0.9756 → 0.976,
+$8.47, $35.97, 76.5%, recall 0.6875 → 0.688. The claim was never soft; it was
+**presented as prose rather than as something runnable.** So the work was a
+verifier, not a re-run.
+
+Three constraints, all load-bearing:
+1. **The comparison is literal, at the published precision.** A claim records
+   the number *as printed* plus its decimal place and passes only when the
+   recomputed metric rounds to exactly that. Rounding is half-up via `Decimal`,
+   because Python's half-to-even makes `round(0.6875, 3) == 0.688` a coincidence
+   rather than an intent. Approximate verification of a published number is
+   theatre.
+2. **Claims live in data, not code.** `experiments/claims.json` binds each
+   number to its artifact, its decimal place, and the files that quote it — so
+   publishing a number is a reviewable manifest edit, and a failure names the
+   prose that needs fixing.
+3. **Missing or uncomputable FAILS; it never skips.** An absent artifact and an
+   underivable metric are the exact conditions this exists to catch. A verifier
+   that passes when it should not is worse than none, because it launders an
+   unbacked claim as a checked one.
+
+The split that clarified everything: **`bench repro` answers "is the data real
+on my hardware" (~3.5 h); `bench verify` answers "does the README still match
+the data" (~1s, no models, network, API key or GPU — green on GitHub's Ubuntu
+runner, in CI).** Only the second is something a skeptical reader will actually
+run.
+
+**The finding with legs: the headline is a replication, not a single
+measurement.** `experiments/repro_2026-08-04.jsonl` — the independent 164-task
+run from Era 24 — existed only on this machine, uncommitted. **Routed pass@1
+came out identical (0.921) across both runs**, on a different day, with a
+different judge configuration, and with the local arm's own pass@1 moving
+0.805 → 0.774 because decoding is not seed-pinned. The routed result held
+anyway, which is the cascade absorbing local variance by escalating what it
+catches. That converts the headline from a measurement into a replication, and
+supports one sentence: *"94% of frontier pass@1 at 24% of frontier cost on
+HumanEval+, replicated across two independent full-bank runs, verifiable from
+the repo in one command without hardware."*
+
+**And it carries an unflattering result, published because it is the result:**
+on the 08-04 run the code judge bought **+9.6 points of fail-recall for
++$6.27/1k and zero pass@1** — the extra recall was spent escalating answers that
+would have passed. It goes in `RESULTS.md` because it is what happened, it
+retires any argument for `thorough` as a default on this bank, and it is the
+live counterpart to Era 25's caveat: recall scales with K, pass@1 does not have
+to follow.
+
+**The trap found by doing it: `experiments/` was ignored as a *directory* while
+its contents were tracked.** The published evidence survived only because
+someone once ran `git add -f`; git will not descend into an excluded directory,
+so negations under a bare directory rule are inert, and the next artifact would
+silently fail to commit — as `repro_2026-08-04.jsonl` in fact had. Switched to
+`experiments/*` with explicit negations, so publishing evidence is a deliberate
+act that shows up in a diff, which is how `claims.json` already treats it.
+
+`RESULTS.md` states what the result does **not** support on the same page,
+deliberately: nothing about production, users, uptime, or scale; nothing about
+the contextual bandit improving routing (it never beat round-robin — it is
+architecture here, not a result); no generalisation past Python function
+synthesis at n=164; and no cost claim against interactive assistant use, since
+the baseline is substitution. Volunteering the limits is what makes the rest
+credible.
+
+Shipped: `routing/benchmark/verify.py` + `experiments/claims.json` +
+`orch bench verify` + `docs/RESULTS.md`, wired into CI; 15 tests, suite 1670.
+Same day, the last precondition on reproduction died: an **API-key escalation
+arm** (`orch bench repro --cloud-arm claude`, or `MAHORAGA_ESCALATE_TO=claude`)
+runs the same model over `ANTHROPIC_API_KEY`, so the repro no longer requires
+the Max subscription. The arm choice is an **auth** decision only — both workers
+name the same model and share `workers.base._build_prompt`, pinned by a test —
+so routed pass@1 stays comparable while the always-cloud *dollar* column does
+not. `CloudArmUnavailable` carries the fix in its message, because the serving
+cascade degrades silently and that message is the only trace. Suite 1706.
+
+## Era 29 — the delegation funnel: a meter for the denominator nothing had measured (2026-08-12)
+
+The question that bounds every other number in this ledger: **how much
+delegable work reaches Mahoraga at all?** The cascade saves nothing on a task
+that is never delegated, and every measurement in the repo starts at `run_task`
+— so the denominator was invisible, and 15 delegated tasks could be 15 of 15 or
+15 of 200 with nothing distinguishing them. "Improve delegation" was
+unfalsifiable: the Era-20 bandit trap one level up, an intervention with no
+measurable target.
+
+**The design decision that makes it honest: the rate is reported as a lower
+bound, and says so in its own output.** A hook sees a file being written; it
+cannot see whether the model needed three turns of conversation to know what to
+write. So the candidate rule counts anything whose *shape* fits — new code file,
+5–300 lines — which over-counts the denominator and pushes the measured rate
+down. That direction is deliberate: this number's job is to argue the tool is
+underused, and an over-stated rate would quietly retire a problem that is still
+there. Erring toward "you delegate less than this" fails safe.
+
+Exclusions are reported **with their reason** rather than dropped, so the
+definition of "delegable" is arguable instead of asserted: `edit-in-place` (a
+surgical change defined by surrounding code — the arms get no repo),
+`non-code-file`, `below-round-trip-threshold` (<5 lines, faster to write than to
+round-trip), `oversized-for-local-arm` (>300 lines, beyond a context-free 8B's
+one-shot).
+
+**Two plan corrections made while building, both of which would have been
+fidelity bugs dressed as code reuse:**
+1. **Reusing the router's `_classify_bucket` to label eligibility does not
+   fit.** It takes a *prompt*; a PostToolUse hook has the *output*, and running
+   a keyword classifier over generated code matches "code" trivially and
+   discriminates nothing. The funnel's labels would have looked principled while
+   measuring noise. Replaced with action shape (tool, extension, size) — what
+   the hook can actually observe.
+2. **The numerator must not come from the decisions DB.** Wrong population: the
+   DB records all organic traffic, the hook sees only Claude Code sessions, so
+   the ratio's two halves would describe different worlds. Both halves now come
+   from the single hook log.
+
+The cost split: the recorder runs on every write, and `orch --help` alone costs
+~500 ms to import Typer and the command tree, so the recorder is stdlib-only in
+`scripts/claude_code_funnel_hook.py` (~20 ms, pinned by a test) with analysis in
+`routing/funnel_report.py` where import cost is free. It **exits 0 on any
+input** — malformed payload, missing directory, unreadable disk — because a
+measurement tool that can interrupt the work it measures gets uninstalled within
+a day, and then it measures nothing. `PostToolUse` rather than `PreToolUse` so a
+rejected edit cannot inflate the denominator. It logs no file contents, only
+derived shape.
+
+**The intervention side, fixed the same day — fourth instance of the Era-26
+class.** `~/.claude/scripts/mahoraga-routing.sh` was advertising **OpenCode,
+Goose, and Gemini CLI**, all `enabled: false`: promising capabilities Mahoraga
+cannot deliver, which teaches the calling model the tool is unreliable the first
+time it tries one. Rewritten around **disqualifiers rather than categories.**
+The old version asked "is this boilerplate / structured code with a clear
+spec?" — a judgment call, and the default answer to a judgment call mid-task is
+"I'll just do it." Inverting it makes delegation the default for code-shaped
+work and puts the burden on *not* delegating. Whether that moves the rate is now
+a measurable question, which is the entire point of having built the meter
+first.
+
+**The caveat that matters: the meter exists, the reading does not.** The rate
+needs weeks, not hours; nothing about a September claim can be written from one
+day of data. The 5/300-line candidate bounds are asserted from what an 8B can
+plausibly one-shot, not measured. And **delegation quality is still unmeasured**
+— the funnel counts whether work was delegated, not whether the delegated result
+was accepted or thrown away, so a high rate with silently discarded outputs
+would look like success.
+
+Shipped: `scripts/claude_code_funnel_hook.py` +
+`routing/funnel_report.py` + `orch metrics funnel` over
+`~/.mahoraga-v2/funnel.jsonl`; hook merged into `~/.claude/settings.json` with a
+backup alongside, and it captured a real `Edit` on the first try. Suite 1706.
+
+## Era 30 — the funnel's first reading is 0.0%, and it was measuring an unplugged tool (2026-09-10)
+
+Four weeks idle (2026-08-12 → 2026-09-10). PR #39 merged after sitting green and
+mergeable for 29 days (merge `7583594`, 13 commits: the serving-path cascade,
+`bench verify`, the API-key repro arm, `orch metrics usage`,
+`orch metrics funnel`). Suite **1719 green** in 62s.
+
+**The reading: 0.0%.** 1617 hook rows over 44 sessions, Aug 12 → Sep 10:
+**170 delegable actions, 0 delegated.** Zero organic routing since Aug 13 —
+decisions DB goes 1095 rows in July → 26 in August → 0 since. **The meter built
+in Era 29 to make "improve delegation" falsifiable immediately falsified it.**
+That is the meter working, and it is the strongest argument this project has
+produced for building the measurement before the intervention.
+
+**But a 0.0% numerator had a mundane cause, and it is the Era-26 class again.**
+`~/.claude.json` set `mahoraga.command: "python"`, and no bare `python` exists
+on PATH on this machine (only a Homebrew 3.14 build without `psutil`), so the
+MCP server died with `ENOENT: Executable not found in $PATH: python` and
+`run_task` was simply **not available** for much of the window. The funnel was
+reading an unplugged tool. Both entries (project scopes `Projects/Mahoraga` and
+`Projects/ops`) repointed to the absolute venv interpreter. **Rule: pin the
+absolute venv interpreter in MCP configs, never a bare name** — the same root
+cause is why `python3 -m pytest` fails at collection and tests need
+`.venv/bin/python`. Consequence for the lived claim: **the dogfooding clock
+restarts 2026-09-10, and the Aug 12 → Sep 10 window is void as a usage
+measurement.** The 0.0% is a real reading of a broken wire, not a real reading
+of delegation behaviour, and it must never be cited as the latter.
+
+**The finding with legs is in the exclusion breakdown, not the rate: 1302 of
+1617 recorded actions were `edit-in-place`** — surgical changes to existing
+files, disqualified in Era 29 because the arms get no repo. Four fifths of real
+coding work is not "write me a function"; it is "change this function, in this
+file, in this repo." **This is new evidence postdating Era 23's conclusion that
+semantic routing (A1) was the remaining lever, and it argues the binding
+constraint is arm *context* — no repo access — not arm *selection*.** A1 is
+separately built and evaluated near-null; between a parked null and an
+unmeasured ~80% of the actual workload, repo-context is where the next real gain
+plausibly lives. Recorded here as an open decision, not a plan — it deserves an
+explicit call before any further routing work.
+
+**What remains citable, unchanged by this session:** the Era-19/28 headline —
+routed 0.921 @ $8.47/1k, 76.5% cost cut, 94.4% of cloud, now a replication
+across two independent full-bank runs, `bench verify`-checked. **Nothing
+usage-shaped is citable**; the lived-claim denominator starts accumulating from
+2026-09-10, and 16 GB is now a first-class qualifier on the headline rather
+than a footnote.
+
+Carried into this session feature-complete but uncommitted and unjournaled: a
+**third dogfooding meter**, `orch metrics resource` (log-only).
+`routing/resource_sampler.py` (psutil CPU + `pmset -g therm` + Ollama
+`/api/ps` warm models → `~/.mahoraga-v2/resource.jsonl`) and
+`routing/resource_report.py` (`fine`/`strained`/`critical`), wired behind
+`MAHORAGA_RESOURCE_LOG` in `service/app.py`, CLI in `cli/commands/metrics.py`.
+Deliberately **CPU and thermal, not RAM occupancy** — on a 16 GB laptop the
+resource cost a user actually feels is heat and fan noise, not a memory
+percentage. 13 tests pass; known gaps are `sampler_loop` (interval and
+cancellation untested), `_thermal_level`'s nominal-vs-elevated parsing, and a
+brittle `"￿"` sentinel in the report's `until` filter.
+
+Next: the thesis becomes **longitudinal** — "does local-first routing still pay
+as the frontier moves?" — re-measuring the cascade against current local models
+and current frontier pricing on the same bank and publishing the trend across
+two dated points, favourable or not. The bandit research line is formally
+parked (architecture, honestly labelled, nothing deleted), and the deliverable
+is a break-even decision framework on top of the benchmark.
+
+---
+
+## Era 31 — the ≤14B tier was abandoned, and that is half the thesis answer (2026-09-11)
+
+**Week 1's blocking question — "has a better 16 GB local arm shipped since June
+2026?" — answered: no.** Three parallel research passes, cross-validated, every
+load-bearing file size verified against Ollama `/tags` pages or the Hugging Face
+blobs API rather than recalled.
+
+**The direct answer.** Nothing in the window is a credible Python-synthesis
+upgrade for 16 GB, and the reason is not that the releases were weak — it is
+that the size class was vacated. Qwen 3.6 and 3.8 ship **no member under
+17 GB** (`qwen3.6` smallest is 27b-q4_K_M at 17 GB; `qwen3-coder` smallest is
+19 GB; `qwen3.8-flash-next` is 125B-A6B at 105 GB). Meta's Llama line was
+replaced by "Muse", smallest 17.31 GB. Mistral published no open ≤14B LLM in
+the window. No Phi-5, no StarCoder3, and every in-window Nvidia LM is ≥30 B.
+**The MoE memory rejection from 2026-07-26 re-confirmed against the new
+generation** — Laguna XS 2.1 (33B-A3B) is 20 GB, `granite4.2:30b` is 18 GB,
+gemma4 26B-A4B is 18–20 GB, `qwen3.6:35b-a3b` is 23–24 GB. Total params are
+what must be resident; "3B active" still markets like a small model and costs
+like a large one.
+
+**The finding that outruns the question: the Python-synthesis leaderboards are
+frozen.** EvalPlus's own `results.json`, pulled directly, holds 125 models whose
+newest entries are DeepSeek-V3 and Qwen2.5-Coder-32B — **zero 2026 models, and
+no Granite at any size.** LiveCodeBench's official board and Aider polyglot
+contain **no model ≤14B at all.** The 2026 cohort stopped reporting
+EvalPlus-family numbers and moved to agentic suites. IBM did it mid-line:
+granite-**4.1**-8b published HumanEval+ **80.49**; granite-**4.2**-8b publishes
+**none**. So the claim "model X beats granite on Python synthesis" is at present
+**unfalsifiable from published data** — which is precisely the gap a local
+harness fills.
+
+**One thing did ship, and it is a free baseline refresh rather than an
+upgrade: `granite4.2:8b`** (2026-08-25, Apache 2.0). Its footprint is
+byte-identical to the incumbent — both `GraniteForCausalLM`, 40 layers, hidden
+4096, vocab 100352, 17.59 GB bf16 / 5.35 GB Q4_K_M — because it is a post-train
+of the same 4.1 base with a thinking toggle added. Zero memory-budget change,
+no roster restructuring, highest published LCB v6 (73.24) of anything ≤14B, and
+no independent reproduction of the 4.2 figures as of 2026-09-09. **Because IBM
+switched suites, a 4.1-vs-4.2 run on this harness would be the only
+protocol-matched Python-synthesis comparison of the two in existence** — and
+the harness is already vendor-validated, since the local band 0.774–0.805
+brackets IBM's own 80.49 almost exactly.
+
+**Two contamination signals worth carrying forward, both arguing for the
+verifier layer rather than against it.** (1) Ornith-1.5-9B and K2-Horizon-7B
+both claim SWE-bench Verified *exactly* 70.6, while contamination-controlled
+SWE-rebench puts Qwen3.6-**27B** at 31.2 and Qwen3.5-**35B-A3B** at 17.1 —
+models 3–4× larger scoring less than half. (2) IFM disclosed that a K2-7B run
+reached 82 by downloading reference solutions from GitHub, and self-corrected
+Terminal-Bench 70.2 → 66.9 after reward-hacking detection. Commendable
+disclosure, and a ready-made citation for why this repo grades against hidden
+tests it generates or holds itself.
+
+**And a measurement-validity warning aimed straight at our own bank:
+HumanEval+ is saturated.** K2-Horizon-**0.9B** reports HumanEval+ 79.9 — tying
+granite-4.1-8b at a tenth the size while scoring ~36 points lower on LCB v6.
+The only ≤14B models anywhere that exceed granite's 80.49 are **2024-era**
+Qwen2.5-Coder (7B-Instruct 84.1 at 4.7 GB; 14B-Instruct 87.2 at 9.0 GB). If the
+literal goal were "beat granite on HumanEval+", a two-year-old 4.7 GB model is
+the best available shot — which says more about the instrument than the models.
+The bank stays fixed for the longitudinal comparison (identical method is the
+whole point), but its ceiling is now a known limitation, not an assumption.
+
+**Consequence for the longitudinal study.** The written contingency fires — but
+in a *better* form than it was written in. The plan assumed "no new local model"
+meant a pricing-side-only trend. Instead the October run gets **both** points:
+a local-side one (granite 4.1 → 4.2, free, same footprint, same memory budget)
+and a pricing-side one (the same bank re-costed at current frontier prices).
+Two real axes rather than one.
+
+**The scout result is itself thesis evidence, and this is the part to publish.**
+The headline question is "does local-first routing still pay as the frontier
+moves?" In this window the frontier moved **up and out of** the size class that
+fits consumer hardware: it did not make the local tier obsolete, it stopped
+serving it. A thesis about routing between a free local tier and a paid frontier
+tier gets *more* load-bearing, not less, when the gap between the tiers widens
+with no fittable model to close it. That is a finding about the market
+structure, obtained from public release data, at zero inference cost.

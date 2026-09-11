@@ -115,6 +115,48 @@ qwen3.5 is the sole local judge stays in force for the study.
 Both arms are registered in `agents.yaml` as `enabled: false`, the established
 convention for bench-only arms (as `claude-cli` is).
 
+### Consolidation: the local-side axis and the hardware question are ONE run
+
+Decided 2026-09-11, on Kaito's call, after the arithmetic was checked properly.
+
+The first framing had ornith as a separate ~1-hour experiment. That was wrong on
+cost: 164 prompts at ~20 s is **~55 min per arm**, so ornith-vs-granite-4.1
+alone is ~1.8 h, and three pairwise runs come to ~5.5 h.
+
+But the October local-side axis is *already* a granite 4.1-vs-4.2 run over the
+same bank. So it becomes **one force-explore pass with three arms** —
+`ollama:granite4.1-8b`, `ollama:granite4.2-8b`, `ollama:ornith-1.5-9b` — over
+HumanEval+ 164. 492 tasks, ~3–3.5 h, and it yields both results at once:
+
+1. the **longitudinal local-side point** (4.1 → 4.2), and
+2. the **hardware answer** (does ornith's claimed 70.6 survive a
+   protocol-matched harness?).
+
+**The consolidation is not just cheaper, it is methodologically better.** Era 24
+measured the local arm wobbling ±3 points across two fresh runs on the same
+bank, and Era 31's whole problem is that vendors report on incomparable
+harnesses. Running all three arms in one session puts them on the same bank, the
+same judge configuration, the same thermal conditions and the same decoding
+settings — so the *differences* between them are not confounded by run-to-run
+variance. Three separate runs would have re-introduced exactly the variance the
+study is trying to measure against.
+
+A useful consequence: the ornith comparison inherits the anchor's method for
+free, which is the thing that makes it citable at all. Ornith's own 70.6 is
+model + learned scaffold; ours will be plain-harness, same as granite's.
+
+**Discipline is the plan's existing long-run ritual, non-negotiable** — AC
+power, lid open, `caffeinate -i -w <PID> &` immediately after launch,
+`nohup` plus a persistent monitor on the PID, incremental per-case JSONL flush,
+and `ollama list` before starting. A prior ~5 h run lost 2 h to lid-close sleep,
+and harness background tasks have been killed mid-run. This is a
+start-it-and-leave-the-machine-alone job, not something to launch mid-session.
+
+The guardian judge measurement stays **separate and independent** — ~5 minutes
+on the existing 30-row non-verifiable bank, no interaction with the cascade run,
+and per the guardrail above it does not enter the October run regardless of
+outcome.
+
 ## Consequences
 
 **The scout result is itself a publishable part of the thesis answer, and it

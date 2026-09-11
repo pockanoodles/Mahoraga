@@ -45,7 +45,7 @@ orch
 ├── memory {inspect, clear, backfill}
 ├── quality {train, eval, predict, inspect, retrain}
 ├── brain {status, query}
-├── metrics {live, snapshot, usage, funnel}
+├── metrics {live, snapshot, usage, funnel, resource}
 ├── budget {status, reset, tune}
 ├── quarantine {list, clear, add, events}
 ├── replay {run}
@@ -218,6 +218,7 @@ limit, database, JSON, and notes options.
 | `orch metrics snapshot` | Machine-readable snapshot |
 | `orch metrics usage` | What the cascade did for real work: local share, escalations, spend avoided |
 | `orch metrics funnel` | How much delegable work reached Mahoraga (`--install-hint` for the hook config) |
+| `orch metrics resource` | Is Mahoraga straining the machine — CPU/thermal, log-only (`MAHORAGA_RESOURCE_LOG=1` to enable) |
 | `orch memory inspect` | Inspect episodic memory files |
 | `orch memory clear` | Clear memory with confirmation |
 | `orch memory backfill` | Rebuild memory from the decision log |

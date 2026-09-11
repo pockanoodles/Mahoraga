@@ -289,6 +289,26 @@ async def lifespan(app: FastAPI):
             "auto_retrain: disabled (set MAHORAGA_AUTO_RETRAIN=1 to enable)"
         )
 
+    # Resource sampler: log-only CPU/thermal observability while local models
+    # are warm. Gated by MAHORAGA_RESOURCE_LOG — off by default, since this is
+    # a diagnostic, not something routing or escalation reads from (yet).
+    _resource_task: asyncio.Task | None = None
+    if os.getenv("MAHORAGA_RESOURCE_LOG", "").strip().lower() in ("1", "true", "yes", "on"):
+        from ..routing.resource_sampler import sampler_loop as _resource_sampler_loop
+        _resource_interval_s = float(
+            os.getenv("MAHORAGA_RESOURCE_LOG_INTERVAL_S", "30") or "30"
+        )
+        _resource_task = asyncio.create_task(
+            _resource_sampler_loop(_config.get("ollama_base_url"), _resource_interval_s)
+        )
+        _startup_logger.info(
+            "resource_log: enabled (interval=%ds)", int(_resource_interval_s),
+        )
+    else:
+        _startup_logger.info(
+            "resource_log: disabled (set MAHORAGA_RESOURCE_LOG=1 to enable)"
+        )
+
     yield
     # Cancel the retrain loop cleanly on shutdown so pytest event loops
     # don't see a dangling task.
@@ -296,6 +316,12 @@ async def lifespan(app: FastAPI):
         _retrain_task.cancel()
         try:
             await _retrain_task
+        except (asyncio.CancelledError, Exception):  # noqa: BLE001
+            pass
+    if _resource_task is not None:
+        _resource_task.cancel()
+        try:
+            await _resource_task
         except (asyncio.CancelledError, Exception):  # noqa: BLE001
             pass
     await _store.close()

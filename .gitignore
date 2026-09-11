@@ -26,6 +26,10 @@ experiments/*
 
 # Local AI-call context / build scaffolding — never pushed
 docs/superpowers/
+# Build plans and working notes. They narrate *how* the work was done, which
+# stays on the machine; the decision and its rationale go in brain/decisions/
+# and the polished design doc goes in docs/specs/.
+docs/plans/
 .DS_Store
 
 # Runtime state — the router's decision data lives in ~/.mahoraga-v2/, not the repo

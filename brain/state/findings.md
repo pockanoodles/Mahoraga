@@ -1097,18 +1097,40 @@ is a break-even decision framework on top of the benchmark.
 load-bearing file size verified against Ollama `/tags` pages or the Hugging Face
 blobs API rather than recalled.
 
-**The direct answer.** Nothing in the window is a credible Python-synthesis
-upgrade for 16 GB, and the reason is not that the releases were weak — it is
-that the size class was vacated. Qwen 3.6 and 3.8 ship **no member under
-17 GB** (`qwen3.6` smallest is 27b-q4_K_M at 17 GB; `qwen3-coder` smallest is
-19 GB; `qwen3.8-flash-next` is 125B-A6B at 105 GB). Meta's Llama line was
-replaced by "Muse", smallest 17.31 GB. Mistral published no open ≤14B LLM in
-the window. No Phi-5, no StarCoder3, and every in-window Nvidia LM is ≥30 B.
+**The direct answer.** Nothing in the window is a *verified* Python-synthesis
+upgrade for 16 GB. **The flagship lines consolidated upward, out of the class.**
+Qwen 3.6 and 3.8 ship **no member under 17 GB** (`qwen3.6` smallest is
+27b-q4_K_M at 17 GB; `qwen3.8` smallest 18 GB; `qwen3-coder` smallest 19 GB;
+`qwen3.8-flash-next` is 125B-A6B at 105 GB). Meta's Llama line was replaced by
+"Muse" under a new `meta-models` org holding exactly one model,
+Muse-Glimmer-30B, smallest 17 GB. Mistral published no open ≤14B LLM in the
+window, and there is no Phi-5 and no StarCoder3. Two releases credibly promised
+for the class were **verified not shipped** by direct HF org and search queries:
+Microsoft **Aion 1.0 Instruct** (nothing named Aion in the `microsoft` org) and
+Meta **Muse Spark** (`meta-models` holds only Muse-Glimmer variants).
+
 **The MoE memory rejection from 2026-07-26 re-confirmed against the new
-generation** — Laguna XS 2.1 (33B-A3B) is 20 GB, `granite4.2:30b` is 18 GB,
-gemma4 26B-A4B is 18–20 GB, `qwen3.6:35b-a3b` is 23–24 GB. Total params are
-what must be resident; "3B active" still markets like a small model and costs
-like a large one.
+generation** — Laguna XS 2.1 (Poolside, 33B/3B-active) is 20.27 GB,
+`qwen3.6:35b-a3b` is 20.9–24 GB depending on quant, gemma4 26B-A4B is
+18–20 GB. Total params are what must be resident; "3B active" still markets
+like a small model and costs like a large one. (`granite4.2:30b` at 18 GB
+belongs on this list for its *size* but not as an MoE — it is **dense 29.3B**,
+so on a memory-bound box it is the worst of both: large resident footprint
+*and* ~10× the per-token compute of an A3B.)
+
+**CORRECTED, same day, by a second independent pass — two errors worth the
+record.** (1) The first pass reported granite-4.1-8b's published HumanEval+ as
+**80.49**. The model card says **79.88**, with **80.21** as the "Eval+ Avg"
+across HumanEval+/MBPP+ — 80.49 appears in no primary source. The conclusion is
+unaffected (our local band 0.774–0.805 still brackets the vendor figure), but
+the number was wrong and is not to be cited. (2) **"The tier was vacated" was
+too strong.** It conflated *no verified upgrade* with *no releases*, and the
+second pass verified releases did continue: IBM shipped granite 4.2 **8B and
+3B** on 2026-08-25, `ornith-ai` shipped a **9B** on 2026-08-18, Microsoft
+shipped **Fara1.5-4B** on 2026-07-17. The honest statement is **"the flagship
+lines consolidated upward while second-tier and specialist labs kept shipping
+small"** — and the ≤10 GB slot is therefore *occupied, and newer than our
+incumbents*, just not by anything with a verified synthesis advantage.
 
 **The finding that outruns the question: the Python-synthesis leaderboards are
 frozen.** EvalPlus's own `results.json`, pulled directly, holds 125 models whose
@@ -1116,22 +1138,24 @@ newest entries are DeepSeek-V3 and Qwen2.5-Coder-32B — **zero 2026 models, and
 no Granite at any size.** LiveCodeBench's official board and Aider polyglot
 contain **no model ≤14B at all.** The 2026 cohort stopped reporting
 EvalPlus-family numbers and moved to agentic suites. IBM did it mid-line:
-granite-**4.1**-8b published HumanEval+ **80.49**; granite-**4.2**-8b publishes
+granite-**4.1**-8b published HumanEval+ **79.88**; granite-**4.2**-8b publishes
 **none**. So the claim "model X beats granite on Python synthesis" is at present
 **unfalsifiable from published data** — which is precisely the gap a local
 harness fills.
 
-**One thing did ship, and it is a free baseline refresh rather than an
+**One thing did ship that is a free baseline refresh rather than an
 upgrade: `granite4.2:8b`** (2026-08-25, Apache 2.0). Its footprint is
 byte-identical to the incumbent — both `GraniteForCausalLM`, 40 layers, hidden
-4096, vocab 100352, 17.59 GB bf16 / 5.35 GB Q4_K_M — because it is a post-train
-of the same 4.1 base with a thinking toggle added. Zero memory-budget change,
-no roster restructuring, highest published LCB v6 (73.24) of anything ≤14B, and
-no independent reproduction of the 4.2 figures as of 2026-09-09. **Because IBM
-switched suites, a 4.1-vs-4.2 run on this harness would be the only
-protocol-matched Python-synthesis comparison of the two in existence** — and
-the harness is already vendor-validated, since the local band 0.774–0.805
-brackets IBM's own 80.49 almost exactly.
+4096, vocab 100352, 17.59 GB bf16 / 5,347,917,952 B Q4_K_M — because it is a
+post-train of the same 4.1 base with a thinking toggle added. Zero
+memory-budget change, no roster restructuring, highest published LCB v6 (73.24)
+of anything ≤14B, and no independent reproduction of the 4.2 figures as of
+2026-09-09. **Because IBM switched suites, a 4.1-vs-4.2 run on this harness
+would be the only protocol-matched Python-synthesis comparison of the two in
+existence** — and the harness is already vendor-validated, since the local band
+0.774–0.805 brackets IBM's own HumanEval+ 79.88 almost exactly. (4.2 publishes
+**no** HumanEval figure at all, which is what makes the comparison ours to
+make and also why the 4.1 number cannot simply be carried forward.)
 
 **Two contamination signals worth carrying forward, both arguing for the
 verifier layer rather than against it.** (1) Ornith-1.5-9B and K2-Horizon-7B
@@ -1146,7 +1170,7 @@ tests it generates or holds itself.
 **And a measurement-validity warning aimed straight at our own bank:
 HumanEval+ is saturated.** K2-Horizon-**0.9B** reports HumanEval+ 79.9 — tying
 granite-4.1-8b at a tenth the size while scoring ~36 points lower on LCB v6.
-The only ≤14B models anywhere that exceed granite's 80.49 are **2024-era**
+The only ≤14B models anywhere that exceed granite's 79.88 are **2024-era**
 Qwen2.5-Coder (7B-Instruct 84.1 at 4.7 GB; 14B-Instruct 87.2 at 9.0 GB). If the
 literal goal were "beat granite on HumanEval+", a two-year-old 4.7 GB model is
 the best available shot — which says more about the instrument than the models.
@@ -1168,3 +1192,108 @@ serving it. A thesis about routing between a free local tier and a paid frontier
 tier gets *more* load-bearing, not less, when the gap between the tiers widens
 with no fittable model to close it. That is a finding about the market
 structure, obtained from public release data, at zero inference cost.
+
+---
+
+## Era 32 — the memory-tier map: 24 GB is the cliff, 48 GB is a trap, and the judge has a purpose-built candidate (2026-09-11)
+
+Era 31 answered "is there a better arm at 16 GB?" This answers the question
+behind it — **what would more memory actually buy?** — because the answer bears
+on a hardware purchase, not just a roster line. One focused pass, primary
+sources only (`ollama.com/library/*/tags`, HF model cards, and the HF
+`?blobs=true` API for exact byte counts). Web search was exhausted, which turned
+out to help: every size below is a verified byte count rather than a blog
+restatement.
+
+**The cliff is 16 → 24 GB, and it is the only step that changes model class.**
+
+| Step | Best-in-tier SWE-bench Verified | Delta | Rough hardware cost |
+|---|---|---|---|
+| 16 → 24 GB | 47.67 → **70.9** | **+23.2** | ~$700–900 used 3090 + PSU |
+| 24 → 32 GB | 70.9 → 79.0 | +8.1 | large (32 GB Mac) |
+| 32 → 48 GB | 79.0 → 79.0 | **~+1 (Q4→Q8 only)** | ~$800 second 3090 |
+
+**The 24 GB pick is `laguna-xs-2.1:q4_K_M`** — Poolside, 33B total / **3B
+active** MoE, **20,274,300,032 B** (18.88 GiB), OpenMDW-1.1, SWE-bench Verified
+**70.9** (vendor). That is **+23.2 points over `granite4.2:8b`'s 47.67** — a
+~49% relative gain on an axis where 8B-class models are at their ceiling. Not a
+quant-level difference; a class change.
+
+**And it fits for an architectural reason, not by luck.** 40 layers with only
+**10 using global attention** — the other 30 are sliding-window at a 512-token
+window — and the **KV cache is natively FP8**. Long-context KV growth is
+therefore roughly a quarter of a full-attention model's, so 18.88 GiB of weights
+leaves genuinely enough headroom at 128K on a 24 GB card. The others are
+tighter: Ornith-1.5-35B-A3B at 20.22 GiB leaves ~2.3 GiB and only works with
+quantised KV; `qwen3.6:35b-a3b-q4_K_M` is **24 GB and does not fit at all** —
+you need UD-Q4_K_S (20.9 GB) or UD-IQ4_XS (17.7 GB). Anyone who says
+"Qwen3.6-35B fits a 3090" without naming the quant is wrong half the time.
+
+**24 GB is the correct build target because the whole 2026 A3B code class lands
+there.** Laguna XS 20.27, Ornith-35B 21.71, North Mini Code 19, Muse Glimmer
+18.16, Qwen3-Coder 19, granite4.2:30b 18, Qwen3.6-35B-A3B 20.9 — that
+distribution *is* one consumer card minus KV cache. **A used 3090 is the
+cheapest ticket into the entire class**, and it retires the 2026-07-26 "MoE is
+locked out by memory" constraint at a single hardware step.
+
+**48 GB is the trap.** There is **no model in the 22–40 GB weight band that
+beats the 20–22 GB MoEs.** A second 3090 buys Q8 of weights already run at Q4 —
+worth ~1–2 points — plus batch headroom. Worst dollar-per-point on the map. The
+next real step after 24 GB is 64–128 GB, where Laguna S 2.1 (118B/8B-active,
+Terminal-Bench 2.1 70.2) becomes reachable and, more valuably for a router,
+**judge and generator can stay co-resident with no model swapping** — which is
+the thing that currently costs ~265s/task when the code judge engages.
+
+**THE CONDITIONAL THAT COULD INVERT ALL OF THIS.** `ornith-1.5:9b` — MIT,
+**5,780,090,816 B** (5.38 GiB), 2026-08-18 — claims SWE-bench Verified **70.6**,
+i.e. Laguna-XS-class *at a quarter of the memory*. If that replicates, the
+16 GB machine already sits at the 24 GB tier's quality, the 16→24 delta
+collapses from +23 to about **+8**, and **32 GB unified becomes the best buy**
+as the cheapest tier running Ornith-35B-A3B at full context. **It is not
+established, and there is a specific reason to doubt it beyond "vendor-only":
+Ornith's method uses RL to train the *scaffold* alongside the solution
+rollouts, so its SWE-bench figure measures model + learned scaffold and is not
+protocol-comparable to granite's plain-harness number.** Contamination-controlled
+SWE-rebench also puts Qwen3.6-**27B** at 31.2, making 70.6 from a 9B a large
+outlier. This is the highest-leverage open question on the map and it is exactly
+what `orch bench run --mode force-explore` exists to settle — resolve it locally
+before buying hardware.
+
+**A directly actionable finding for the judge, which is the load-bearing
+component.** `granite4.1-guardian:8b-q4_K_M` — **5.1 GB**, Apache 2.0, a
+*purpose-built* verification model: RAG hallucination detection 0.760–0.764
+balanced accuracy, IFEval multi-constraint 0.844. Same footprint as the
+incumbent judge, and the judge's known failure mode on this project is exactly
+what a guardian model is trained for — Era 15–17 established that local judges
+catch stated falsehoods but miss omissions and quantities, structurally, across
+two model families. A swap-and-measure on the existing 30-row non-verifiable
+bank is a `--judge-model` flag change and ~5 minutes, the same shape as the
+Era-16 deconfound.
+
+**The 16 GB MoE-offload lever is dead.** The circulating claim of ~17 tok/s for
+a 30B-A3B on a 16 GB M4 via llama.cpp mmap is **not corroborated by any primary
+source**, and three things argue against it: the nearest Apple measurement is an
+M3 Pro with **36 GB** where the model *fits* (so it tests nothing about
+offload); "zero swap" is compatible with heavy clean-page eviction and is
+evidence of nothing; and the arithmetic does not close — ~3B active params at
+~4.5 bits is ~1.7 GB of expert reads per token, which at ~5 GB/s NVMe caps near
+**3 tok/s**. The measured 8.70 tok/s datapoint came from a machine with 32 GB
+RAM *plus* a 16 GB GPU and an explicit 8 GiB slab cache, and the enabling
+llama.cpp work is unmerged (#20757 closed by its author without merging, #26448
+still open). Verdict: single-digit tok/s. A fully-resident 5.78 GB model beats
+any offload scheme on the same laptop.
+
+**Two more fabrications caught, worth recording because this space is heavily
+SEO-polluted.** "Llama 5, 600B, April 2026" does not exist — `meta-llama` has
+shipped nothing since April 2025 and Meta's 2026 line is Muse under a new org.
+And "Qwen3-Coder 14B that fits in 12 GB" does not exist: `qwen3-coder` has
+exactly two sizes, 30b and 480b, smallest file 19 GB. The likely seed of that
+slop is traceable — a community merge named
+`tvall43/Qwen3.6-14B-A3B-FableVibes-GGUF` (422K downloads) whose *filename*
+implies an official Qwen3.6-14B-A3B base that Alibaba never released.
+
+**Standing caveat on this whole map: nearly every benchmark above is
+vendor-reported.** Artificial Analysis's tables did not render; the only
+third-party figure recovered is North Mini Code's AA Coding Index 33.4, itself
+cited second-hand. The map is a purchasing and prioritisation aid, not
+measurement — which is the argument for measuring locally before spending.

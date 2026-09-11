@@ -1,4 +1,4 @@
-# The October run measures two axes, because the frontier vacated the 16 GB tier
+# The October run measures two axes, because the frontier consolidated out of the 16 GB tier
 
 **Date:** 2026-09-11
 **Status:** accepted
@@ -17,11 +17,17 @@ The scout ran 2026-09-11 (three parallel passes, cross-validated, every
 load-bearing quant size verified against Ollama `/tags` or the Hugging Face
 blobs API). Full detail in Era 31. The short version:
 
-- **No credible Python-synthesis upgrade for 16 GB shipped in the window.** Not
-  because releases were weak — because the size class was vacated. Qwen 3.6/3.8
-  ship no member under 17 GB; `qwen3-coder`'s smallest is 19 GB; Meta's line
-  became "Muse" at 17.31 GB minimum; no Phi-5, no StarCoder3, no open Mistral
-  ≤14B, every in-window Nvidia LM ≥30 B.
+- **No *verified* Python-synthesis upgrade for 16 GB shipped in the window.**
+  The flagship lines consolidated upward, out of the class: Qwen 3.6/3.8 ship no
+  member under 17 GB; `qwen3-coder`'s smallest is 19 GB; Meta's line became
+  "Muse" at 17 GB minimum; no Phi-5, no StarCoder3, no open Mistral ≤14B. Aion
+  1.0 and Muse Spark verified not shipped.
+  **Corrected same day:** "the size class was vacated" was too strong — it
+  conflated *no verified upgrade* with *no releases*. IBM shipped granite 4.2
+  8B and 3B (2026-08-25), `ornith-ai` shipped a 9B (2026-08-18), Microsoft
+  shipped Fara1.5-4B (2026-07-17). The slot is occupied and newer than our
+  incumbents; nothing in it has a verified synthesis advantage. See Era 31's
+  correction block and Era 32.
 - **The MoE memory rejection re-confirmed against the new generation** —
   Laguna XS 2.1 (33B-A3B) 20 GB, `granite4.2:30b` 18 GB, `qwen3.6:35b-a3b`
   23–24 GB. Total params must be resident; active-param marketing does not
@@ -34,7 +40,8 @@ blobs API). Full detail in Era 31. The short version:
 - **One in-window release matters:** `granite4.2:8b` (2026-08-25, Apache 2.0) —
   a post-train of the *same* 4.1 base with a thinking toggle, byte-identical
   footprint (5.35 GB Q4_K_M, same 40 layers / hidden 4096 / vocab 100352).
-  IBM published HumanEval+ 80.49 for 4.1-8b and **nothing** for 4.2-8b.
+  IBM published HumanEval+ **79.88** for 4.1-8b (the 80.21 often seen is the
+  "Eval+ Avg"; an earlier note of 80.49 was wrong) and **nothing** for 4.2-8b.
 
 ## Decision
 
@@ -87,7 +94,7 @@ exist anywhere else.** Because IBM switched benchmark suites between 4.1 and
 4.1-vs-4.2 HumanEval+ number on this harness would be the only
 protocol-matched Python-synthesis comparison of the two in existence. This
 harness is already vendor-validated — the local band 0.774–0.805 brackets IBM's
-own 80.49 almost exactly — so that output is genuinely citable rather than
+own 79.88 almost exactly — so that output is genuinely citable rather than
 merely internal.
 
 **Risk accepted.** granite 4.2 is not a foregone improvement. No published

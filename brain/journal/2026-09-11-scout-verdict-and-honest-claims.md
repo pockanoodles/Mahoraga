@@ -12,7 +12,7 @@ passes, cross-validated, with every load-bearing quant size verified against
 Ollama `/tags` or the Hugging Face blobs API rather than recalled. Full record:
 findings Era 31. Decision: `brain/decisions/2026-09-11-october-run-shape.md`.
 
-**The size class was vacated, not merely unimproved.** Qwen 3.6 and 3.8 ship no
+**The flagship lines consolidated upward, out of the class.** Qwen 3.6 and 3.8 ship no
 member under 17 GB. `qwen3-coder`'s smallest build is 19 GB. Meta's Llama line
 became "Muse" with a 17.31 GB floor. No Phi-5, no StarCoder3, no open Mistral
 ≤14B, every in-window Nvidia LM ≥30 B. And the MoE memory rejection from July
@@ -24,7 +24,7 @@ markets like a small model and still costs like a 30B one to hold resident.
 frozen.** EvalPlus's own `results.json` holds 125 models whose newest entries
 are DeepSeek-V3 and Qwen2.5-Coder-32B — zero 2026 models, no Granite at any
 size. LiveCodeBench's official board and Aider polyglot contain nothing ≤14B.
-IBM switched suites mid-line: granite-4.1-8b published HumanEval+ **80.49**;
+IBM switched suites mid-line: granite-4.1-8b published HumanEval+ **79.88**;
 granite-4.2-8b publishes **none**. So "model X beats granite on Python
 synthesis" is, right now, *unfalsifiable from published data.* That is not a gap
 in the research — it is a gap in the field, and it happens to be exactly the gap
@@ -43,7 +43,7 @@ local-side second point that happens to cost nothing to adopt. And because IBM
 changed suites, a 4.1-vs-4.2 HumanEval+ number on this harness would be **the
 only protocol-matched Python-synthesis comparison of the two in existence** —
 citable rather than internal, since the harness is already vendor-validated (our
-local band 0.774–0.805 brackets IBM's own 80.49).
+local band 0.774–0.805 brackets IBM's own 79.88).
 
 **Two things to carry, both of which argue for the verifier layer.** Ornith-1.5-9B
 and K2-Horizon-7B both claim SWE-bench Verified *exactly* 70.6, while
@@ -56,7 +56,7 @@ repo grades against hidden tests rather than trusting reported numbers.
 **One warning aimed at our own instrument: HumanEval+ is saturated.**
 K2-Horizon-**0.9B** reports 79.9 on it — tying granite-4.1-8b at a tenth the
 size while scoring ~36 points lower on LiveCodeBench v6. The only ≤14B models
-anywhere that exceed 80.49 are *2024-era* Qwen2.5-Coder (7B at 84.1 for 4.7 GB).
+anywhere that exceed 79.88 are *2024-era* Qwen2.5-Coder (7B at 84.1 for 4.7 GB).
 The bank stays fixed — identical method across two dated measurements is the
 entire value of a longitudinal study — but its ceiling is now a published
 limitation instead of an unexamined assumption.

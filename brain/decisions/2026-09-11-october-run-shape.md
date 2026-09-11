@@ -68,12 +68,52 @@ all, and that turned out to be one release too pessimistic.
   this field. Say so; do not fix it by swapping banks mid-study.
 - **`granite4.2:8b` is pulled now, not in week 2.** 5.3 GB, no memory-budget
   change, and having it resident de-risks the run. Pulled 2026-09-11.
-- **`ornith-1.5:9b` is a stretch arm, not a committed one.** It claims SWE-bench
-  Verified 70.6 at 9B while contamination-controlled SWE-rebench puts
-  Qwen3.6-**27B** at 31.2; it is also a Qwen3.5 fine-tune, so it is *correlated*
-  with the existing qwen3.5 arm rather than an independent addition. Run it only
-  if the primary two axes land with time to spare, and use the text-only GGUF
-  (the Ollama tag carries a 922 MB vision projector that is dead weight here).
+- ~~**`ornith-1.5:9b` is a stretch arm, not a committed one.**~~ **AMENDED
+  later the same day — see "Scope amendment" below.** The original reasoning
+  stands on the merits (contested vendor number, Qwen3.5 lineage so correlated
+  with the existing arm), but Era 32 changed what the run is *for*.
+
+## Scope amendment (2026-09-11, after the tier map — Era 32)
+
+Two cheap local experiments are promoted into week 2. Both are local-only and
+cost **zero dollars**.
+
+**1. `ornith-1.5:9b` becomes a committed W2 arm, not a stretch arm.** Its
+justification changed. As a roster candidate it was weak — a contested vendor
+number on a correlated lineage, worth running only with time to spare. As an
+input to a **hardware purchase** it is the single highest-leverage measurement
+available: it claims SWE-bench Verified 70.6 at 5.78 GB, which is Laguna-XS
+class (a 20 GB MoE) at a quarter of the memory. If it replicates, this 16 GB
+machine already sits at the 24 GB tier, the 16→24 GB delta collapses from +23
+to ~+8 points, and **32 GB unified becomes the better buy than a used 3090.**
+A ~1-hour local run that informs an ~$800 decision is not a stretch item.
+
+The distrust is retained and sharpened in the roster comment: Ornith
+RL-trains the *scaffold* alongside the solution rollouts, so 70.6 measures
+model + learned scaffold and is **not protocol-comparable** to granite's
+plain-harness figure. Running it on our harness is precisely what makes the
+comparison protocol-matched. Using the Ollama tag despite its ~922 MB vision
+projector — the leaner HF text-only GGUF is noted as the fallback, but tag
+simplicity beats 0.8 GB for a first head-to-head that still fits in 16 GB.
+
+**2. `granite4.1-guardian:8b-q4_K_M` gets measured as the judge.** 5.1 GB,
+Apache 2.0, a *purpose-built* verification model at the incumbent judge's exact
+footprint. The reason this is not a fishing expedition: Eras 15–17 established
+that local judges catch stated falsehoods but miss omissions and wrong
+quantities **structurally, across two model families** — and detecting exactly
+that class of defect is what a guardian model is trained for. The existing
+30-row non-verifiable bank already measures that blind spot, so this is a
+`--judge-model` swap and ~5 minutes, the same shape as the Era-16 deconfound.
+
+**Guardrail on the second one:** the judge is inside the longitudinal
+comparison. If the guardian wins, it does **not** get swapped into the October
+cascade run — that would change two variables at once and forfeit the
+method-identical property the whole study rests on. It is measured now and
+adopted, if at all, *after* the two-axis run lands. Era 17's finding that
+qwen3.5 is the sole local judge stays in force for the study.
+
+Both arms are registered in `agents.yaml` as `enabled: false`, the established
+convention for bench-only arms (as `claude-cli` is).
 
 ## Consequences
 

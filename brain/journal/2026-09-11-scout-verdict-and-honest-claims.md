@@ -158,3 +158,55 @@ because the `::code` cache key ignores K.
   Deliberately not deleted today; there is 178 GB free, so reclaiming it is not
   urgent, and it is the only ≥14B local model on the machine if a comparison
   point is ever wanted.
+
+## Later the same day — the last W1 item, and a candidate that died in five minutes
+
+**The funnel can now tell "not used" from "not there" (PR #44).** This was the
+outstanding week-1 item and the one that mattered most, because its absence is
+what made the Aug 12 → Sep 10 window void. The MCP server records one row when
+it serves its tool list — the moment `run_task` becomes visible to the agent —
+and the funnel reads it back as an interpretation: `no-delegable-work`,
+`tool-liveness-unknown`, `tool-available-unused`, or `measured`.
+`orch metrics funnel` now prints a liveness-unknown rate *and* prints above it
+that the rate is not readable and why.
+
+Three design calls worth keeping. Liveness is its own event, so it touches
+neither half of the ratio — only whether the ratio is readable; pinned by a test
+that adds 20 liveness rows and asserts no counter and no rate moves. The row
+carries an empty session, so editor restarts cannot inflate the session count.
+And the writer is stdlib-only and fire-and-forget, the same tradeoff the hook
+makes, because it runs on the tool-discovery path — a liveness probe that can
+break tool discovery is worse than none. That last choice means the log path and
+event name live in two files, so a test pins writer and reader to the same
+values; drift there would write rows that are silently never counted, which is
+the original failure mode wearing a different hat.
+
+**The guardian judge is not a drop-in, and finding that out cost five minutes.**
+Era 32's most actionable-looking item was `granite4.1-guardian:8b` — 5.1 GB,
+Apache 2.0, purpose-built for verification, at the incumbent judge's exact
+footprint. Ran it as a `--judge-model` swap on the 30-row non-verifiable bank:
+**accuracy 0.000, ref-accept 0.000, catch 0.000, `unparsed=60`.**
+
+Confirmed the cause rather than guessing it. `judge_gate` parses
+`"correct": true|false`; a direct `/api/generate` call to the guardian returns
+`<score> no </score>`. It is a classifier, not a free-form judge. And an adapter
+would be more than a wrapper: the guardian emits a *risk* label, so the polarity
+is inverted and it answers a different question — "is this risky?" overlaps "is
+this wrong?" on hallucination and diverges everywhere else, and this project's
+defect taxonomy is mostly not safety-shaped. Not queued. qwen3.5 stays the sole
+local judge; Era 17 stands.
+
+**The lesson is about the tier map, not the guardian.** Era 32 is almost
+entirely vendor-reported desk research, and this was the first of its
+recommendations tested locally. One for one, the local test contradicted the
+implied readiness — and it failed on *protocol*, which no amount of reading
+model cards would have surfaced. Ornith's claimed 70.6 is now the only untested
+high-stakes item on that map, and it is the one a hardware purchase rests on.
+
+**Also today:** both October bench arms registered in `agents.yaml` as
+`enabled: false`, and the local-side axis and the hardware question collapsed
+into **one** 3-arm force-explore run — cheaper (~3.5 h vs ~5.5 h) and
+methodologically better, since Era 24's ±3-point run-to-run wobble would
+otherwise confound the between-arm differences. `ollama show ornith-1.5:9b`
+reports architecture `qwen35`, which confirms the Qwen3.5-lineage correlation
+straight from model metadata rather than from a vendor card.

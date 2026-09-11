@@ -40,9 +40,13 @@ Validate a bank without inference:
 orch bench validate experiments/prompts.jsonl
 ```
 
-The repository ignores `experiments/` so local prompt banks and model outputs
-do not get committed accidentally. Store any bank needed for published
-reproduction in an intentional, tracked location or attach it to the release.
+The repository ignores `experiments/` by default so local prompt banks and
+model outputs do not get committed accidentally. Anything that backs a
+published number is opted in explicitly by a negation in `.gitignore` and
+declared in [`experiments/claims.json`](../experiments/claims.json), so
+publishing evidence is a deliberate, reviewable act rather than a side effect
+of a run. `orch bench verify` fails if a claimed artifact is missing — see
+[Results](RESULTS.md).
 
 ## Live batch runs
 

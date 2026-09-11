@@ -1,6 +1,162 @@
-# Current State — 2026-08-05
+# Current State — 2026-08-12
 
-## Read this first — 2026-08-05 (latest): the code-judge live confirmation RAN — guard resolved
+## Read this first — 2026-08-12 (latest): the funnel has a meter, and the repro has no subscription footnote
+
+**`orch metrics funnel` measures the denominator.** A PostToolUse hook
+(`scripts/claude_code_funnel_hook.py`) records one line per code-producing
+action — delegations AND inline writes — to `~/.mahoraga-v2/funnel.jsonl`.
+Before this, every measurement started at `run_task`, so 15 delegated tasks
+could be 15-of-15 or 15-of-200 and nothing distinguished them; "improve
+delegation" was unfalsifiable (the Era-20 bandit trap one level up).
+
+**The rate is a LOWER bound and says so in its own output.** A hook cannot see
+whether a file needed conversation context, so the denominator counts everything
+*shaped* like delegable work. That direction is deliberate: the number's job is
+to argue the tool is underused, so an over-stated rate would retire a live
+problem. Exclusions carry reasons (`edit-in-place`, `non-code-file`,
+`below-round-trip-threshold`, `oversized-for-local-arm`) so the definition is
+arguable, not asserted.
+
+**Two plan corrections found while building** (both would have been fidelity
+bugs): (1) the router's `_classify_bucket` does NOT fit — it takes a *prompt*,
+the hook has the *output*, and keyword-classifying generated code matches "code"
+trivially; replaced with action shape. (2) the numerator must NOT come from the
+decisions DB — the DB has all organic traffic, the hook only Claude Code
+sessions, so the ratio's halves would describe different populations. Both
+halves come from the one log.
+
+Recorder is stdlib-only (~20ms vs ~500ms to load the Typer CLI; pinned by a
+test), logs no file contents, exits 0 on any input. PostToolUse not Pre, so a
+rejected edit can't inflate the denominator.
+
+**`~/.claude/scripts/mahoraga-routing.sh` rewritten** — it advertised OpenCode,
+Goose, Gemini CLI, all `enabled: false`. Now disqualifier-based, not
+category-based: delegation is the default for code-shaped work and the burden is
+on NOT delegating (a judgment-call framing loses to "I'll just do it").
+
+**API-key escalation arm SHIPPED — the subscription footnote is gone.**
+`orch bench repro --cloud-arm claude` (or `MAHORAGA_ESCALATE_TO=claude`) runs
+the same model over ANTHROPIC_API_KEY. The arm choice is an AUTH decision only:
+both workers name the same model and share `workers.base._build_prompt`, pinned
+by a test, so routed pass@1 stays comparable — the always-cloud *dollar* column
+does not. `CloudArmUnavailable` carries the fix in its message (the serving
+cascade degrades silently, so that message is the only trace).
+
+Suite 1706 green.
+
+## Read this first — 2026-08-12: published numbers are bound to their artifacts
+
+**`orch bench verify` recomputes every headline figure from the committed
+per-case JSONL and requires it to round to exactly the printed value.** No
+models, network, API key, or GPU — milliseconds on a fresh clone, and it runs in
+CI, so a README number cannot drift from its data. Claims are declared in
+`experiments/claims.json` (artifact + value + decimal place + where quoted), so
+publishing a number is a reviewable manifest edit. Missing artifact or
+uncomputable metric FAILS, never skips. Full method + limits: `docs/RESULTS.md`.
+
+**The split worth remembering:** `bench repro` = "is the data real on my
+hardware" (~3.5 h). `bench verify` = "does the README match the data" (~10 ms).
+Only the second is something a skeptical reader actually runs.
+
+**The headline is a replication, not a single measurement.**
+`experiments/repro_2026-08-04.jsonl` — an independent full-bank run that had
+never been committed — gives **routed pass@1 0.921, identical to the 08-03 run**,
+despite a different judge config and the local arm's own pass@1 moving
+0.805 → 0.774 (decoding is not seed-pinned). The cascade absorbed the variance.
+
+**Unflattering result now published:** the code judge bought **+9.6pts
+fail-recall for +$6.27/1k and ZERO pass@1** on this bank — extra recall spent
+escalating answers that would have passed. Settles `thorough` as opt-in-only.
+
+**Trap fixed:** `experiments/` was ignored as a *directory* while its contents
+were tracked via an old `git add -f`. Git does not descend into an excluded
+directory, so negations were inert and new evidence silently failed to commit
+(as `repro_2026-08-04.jsonl` had). Now `experiments/*` + explicit negations.
+
+Suite 1670 green.
+
+## Read this first — 2026-08-11: the cascade is LIVE on /api/task
+
+**The Era-19 cascade stopped being a bench command.** `routing/cascade.py` +
+a ~30-line wire in `/api/task`: the judge verdict the reward path has computed
+since Era 23 now also *routes* — a reject re-runs the prompt on an escalation
+arm and serves that answer instead of the known-bad local one. Reaches the MCP
+bridge for free (`run_task` passes the body through). 23 tests; suite 1605 green.
+
+**The finding that made it small:** `route_one` was never portable (it needs the
+bank's hidden tests). The gate was already running in production and its verdict
+was being thrown away after the reward used it.
+
+**Two invariants, both test-pinned:** (1) the escalation arm lives OUTSIDE the
+bandit's action space — enabling it in agents.yaml would let an unexplored arm
+inflate its own UCB and spend money exploring; (2) escalation never
+re-attributes — the bandit still observes the local arm's output, and escalation
+spend hits the cost ledger but not `TaskOutcome.cost_usd` (else a rejected arm
+is penalized twice for one rejection).
+
+**Live confirmation (real `orch serve`, both branches):** `median_of_two_sorted`
+→ judge reject → escalated to claude-cli ($0.041), caller got the correct
+answer; decision log recorded granite `correctness=0.0`, `reward=0.462` vs
+0.71–0.81 on the two accepted rows. Bandit learned the failure, user got the fix.
+
+**TWO escalation triggers** (the second added after live traffic exposed the
+hole): the **exec gate** failing to run the output — the harder, deterministic
+signal, and the one the judge never sees because the gate flips the task to
+failed before the `if success` judge guard — and the **judge** rejecting on a
+read. Before the exec trigger, granite's non-compiling code (2 of 6 live tasks)
+was the one class that never escalated.
+
+**Config:** `MAHORAGA_CASCADE=off` disables · `MAHORAGA_ESCALATE_TO` (default
+`claude-cli`) · `MAHORAGA_ESCALATE_MAX_PER_DAY` (default 25, refund-on-failure).
+Code-like buckets only.
+
+**The code-judge is NOT the serving default — it is a per-task opt-in.** Two
+findings killed it as a global: (1) `extract_entrypoint` required a literal
+`def` in the *prompt*, which HumanEval prompts have and real requests never do,
+so the 0.784 recall **did not transfer to organic traffic at all** (fixed with a
+prose `name(...)` fallback, strictly conditional so bank behaviour is
+unchanged); (2) once engaged it costs **~265s/task** on 16 GB — K sequential
+reference generations plus granite↔qwen3.5 swap thrash. Reading judge is +4–9s.
+Request the tool per task with `thorough: true` on `/api/task` or MCP
+`run_task`. Live latency now 9–18s per code task including escalation.
+
+**The daemon finally has a config surface.** The plist had NO
+`EnvironmentVariables` block, so under launchd every MAHORAGA_* knob was pinned
+to its code default and `claude` was unresolvable (escalation degraded
+silently). `orch service install` now bakes in PATH + `~/.mahoraga-v2/service.env`.
+Two traps found there: `launchctl load` prints failure and **exits 0** (install
+reported success while nothing ran), and the label was stuck in launchd's
+persistent *disabled* database — `_load_job` clears it and verifies via `list`.
+
+**Ops lesson:** every new path to a paid arm needs its own test-suite guard. The
+exec-gate trigger made the suite spawn real `claude` calls (60s → 438s, two cost
+tests failing) because `_no_live_reward_judge` guarded the judge, not the
+cascade. `conftest.py` now has `_no_live_escalation`.
+
+**Dogfooding is now instrumented — `orch metrics usage`.** Kaito's call: he is
+the user, N=1, tracked honestly. Escalations are recorded on the decision row
+(`escalated_to`/`escalation_cost`/`escalation_reason`, threaded via
+`TaskOutcome`) — before this they were uncomputable, since the cost ledger had
+no join back to the task. `routing/usage_report.py` reports local share,
+escalation rate by trigger, judge verdicts, and spend over a date window, bench
+rows excluded.
+
+**The counterfactual is MEASURED, not tabled** — the escalation arm's own
+per-task cost on this machine in this window, not a rate table (which
+`bench report cost` uses and calls a floor). No priced escalation in the window
+→ reports "unknown" rather than guessing. It is a *substitution* baseline (what
+these tasks would have cost on the escalation arm), NOT interactive-session
+spend. First reading 2026-08-11: 15 tasks, 93.3% local, 1 escalation @ $0.0403.
+
+**Resume framing (settled):** two independent claims — the HumanEval+ benchmark
+(reproducible by a stranger) and the dogfooding record (lived). Never a
+production/users claim; there is one user by design.
+
+**Next:** accumulate real usage (the funnel — getting work to actually reach
+`run_task` — is now the binding constraint, not the cascade). Then A1 semantic
+routing. Detail: `brain/journal/2026-08-11-cascade-serving-path.md`.
+
+## Read this first — 2026-08-05 (earlier): the code-judge live confirmation RAN — guard resolved
 
 **The Era-22 do-not-cite guard is resolved: the 0.939 replay package is dead;
 the tool's claims are confirmed.** Fresh `bench repro --code-judge` (attempt

@@ -26,6 +26,12 @@ jobs:
           pip install -r requirements.txt
           pip install -e .
 
+      - name: Verify published benchmark claims
+        # Recomputes every headline number from its committed per-case artifact.
+        # No models or network: this is the guard against a README figure being
+        # edited without the data to support it.
+        run: orch bench verify
+
       - name: Test
         # Skip `slow`-marked tests (they load the real embedding model, which
         # needs a network download and isn't hermetic). The other ~1263 tests

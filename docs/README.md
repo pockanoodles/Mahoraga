@@ -14,6 +14,8 @@ These guides describe the behavior of the current `main` branch.
   stdio tools.
 - [Experiments and evaluation](experimentation.md) — run live batches,
   simulations, replays, and execution-verified evaluations.
+- [Results](RESULTS.md) — every published benchmark number, the artifact behind
+  it, how to verify it in one second, and what it does and does not support.
 
 ## Understand and extend Mahoraga
 

@@ -78,6 +78,21 @@ GEN_PROMPT = (
 )
 
 _PROMPT_DEF_RE = re.compile(r"^\s*def\s+([A-Za-z_]\w*)\s*\(", re.MULTILINE)
+
+# Organic prompts rarely paste a stub — they name the function in prose
+# ("Write a Python function chunk(lst, n) that ..."). HumanEval prompts ARE
+# stubs, so `_PROMPT_DEF_RE` always hit there and this check silently abstained
+# on ~all live traffic. This picks up a bare `name(` mention as a fallback.
+_PROMPT_CALL_RE = re.compile(r"\b([A-Za-z_]\w*)\s*\(")
+
+# Names that appear as `name(` in prose without being the function under test.
+# The candidate-defines intersection already filters most noise; this covers
+# the residue where a model defines a helper that shadows a builtin.
+_CALL_NAME_STOPWORDS = frozenset({
+    "print", "len", "range", "list", "dict", "set", "tuple", "str", "int",
+    "float", "bool", "sum", "min", "max", "sorted", "enumerate", "zip", "map",
+    "filter", "abs", "round", "type", "isinstance", "open", "input", "format",
+})
 _CASE_LINE_RE = re.compile(r"^__CJ__ (\d+) (OK|ERR) ?(.*)$", re.MULTILINE)
 _CASES_DUMP_SNIPPET = '\n\nprint("__CJ_CASES__", repr(CASES))\n'
 _CASES_DUMP_RE = re.compile(r"^__CJ_CASES__ (.*)$", re.MULTILINE)
@@ -120,18 +135,39 @@ def _defined_functions(code: str) -> set[str]:
 def extract_entrypoint(task_prompt: str, candidate_code: str) -> Optional[str]:
     """The function under test, derived deterministically or not at all.
 
-    The name must come from the TASK PROMPT (a stub/signature the prompt shows)
-    so that independently generated references implement the same callable; of
-    the prompt's `def` names the candidate actually defines, the LAST wins (a
-    stub that includes a helper lists the target function last). None -> the
-    caller abstains — a prompt with no visible signature is out of scope for
-    the differential check, by design.
+    The name must come from the TASK PROMPT (a stub the prompt shows, or a
+    `name(...)` the prompt mentions in prose) so that independently generated
+    references implement the same callable; of the prompt's names the candidate
+    actually defines, the LAST wins (a stub that includes a helper lists the
+    target function last). None -> the caller abstains.
+
+    A pasted `def` stub is the high-confidence signal and wins outright. The
+    prose fallback exists because it is how organic traffic actually asks:
+    HumanEval prompts are literal stubs, so requiring `def` made this check
+    abstain on essentially every live task while measuring 0.784 recall on the
+    bank. Both paths still require the candidate to DEFINE the name, so a
+    misread can only pick a function that exists — and because the wrapper is
+    recall-only, a wrong entrypoint costs an over-escalation (money), never a
+    served wrong answer.
     """
-    prompt_names = _PROMPT_DEF_RE.findall(task_prompt or "")
-    if not prompt_names:
-        return None
     candidate_names = _defined_functions(candidate_code)
-    shared = [name for name in prompt_names if name in candidate_names]
+    if not candidate_names:
+        return None
+
+    # A prompt that pastes a stub is resolved by the stub ALONE. Falling
+    # through to prose on a stub miss would change the behaviour this check was
+    # measured with on HumanEval+ (whose prompts are all stubs), so the
+    # published 0.784 recall would no longer describe the shipped code.
+    def_names = _PROMPT_DEF_RE.findall(task_prompt or "")
+    if def_names:
+        shared = [name for name in def_names if name in candidate_names]
+        return shared[-1] if shared else None
+
+    call_names = [
+        name for name in _PROMPT_CALL_RE.findall(task_prompt or "")
+        if name not in _CALL_NAME_STOPWORDS
+    ]
+    shared = [name for name in call_names if name in candidate_names]
     return shared[-1] if shared else None
 
 

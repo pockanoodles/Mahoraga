@@ -44,10 +44,20 @@ app = typer.Typer(
 from .bench_report import report_app  # noqa: E402
 app.add_typer(report_app, name="report")
 
-from ...routing.live_route import route_one, load_arms, to_matrix  # noqa: E402
+from ...routing.live_route import (  # noqa: E402
+    CloudArmUnavailable,
+    load_arms,
+    route_one,
+    to_matrix,
+)
 from ...routing.route_sim import simulate  # noqa: E402
 from ...routing.verify_replay import load_bank as load_verify_bank  # noqa: E402
 from ...routing.reweight_replay import log_offline_run  # noqa: E402
+from ...routing.benchmark.verify import (  # noqa: E402
+    DEFAULT_CLAIMS,
+    render_verification,
+    verify_claims,
+)
 
 _PROJECT_ROOT = Path(__file__).resolve().parents[4]
 DEFAULT_VERIFY_BANK = _PROJECT_ROOT / "experiments" / "prompts_verifiable.jsonl"
@@ -448,17 +458,28 @@ def _preflight_repro(
         local_worker, _judge, cloud_worker = load_arms(
             config, local_arm, judge_model, cloud_arm
         )
+    except CloudArmUnavailable as exc:
+        # The roster is fine; this machine just cannot reach the arm. The
+        # message already names the fix, so surface it as-is.
+        problems.append(str(exc))
+        return problems
     except ValueError as exc:
         problems.append(str(exc))
         return problems
     problems += _preflight_ollama(
         local_worker._base_url, [local_worker._model, judge_model]
     )
-    if shutil.which(cloud_worker._binary) is None:
+    # Only the subscription-backed arm has a binary to find. The API-backed arm
+    # proved its own precondition by constructing at all (build_cloud_worker
+    # raises without a key), so there is nothing left to check here.
+    binary = getattr(cloud_worker, "_binary", None)
+    if binary is not None and shutil.which(binary) is None:
         problems.append(
-            f"`{cloud_worker._binary}` CLI not found on PATH — install with "
+            f"`{binary}` CLI not found on PATH — install with "
             "`npm install -g @anthropic-ai/claude-code`, then run `claude` once "
-            "interactively to authenticate (the cloud arm bills through that auth)"
+            "interactively to authenticate (the cloud arm bills through that auth). "
+            "To reproduce without a subscription, use `--cloud-arm claude` with "
+            "ANTHROPIC_API_KEY set."
         )
     return problems
 
@@ -663,6 +684,7 @@ def bench_repro(
     smoke: bool = typer.Option(False, "--smoke", help="Quick end-to-end check: first 5 prompts only (~5 min)"),
     code_judge: bool = typer.Option(False, "--code-judge", help="Add the recall-only generated-test check on judge accepts (slower; can only add escalations)"),
     local_only: bool = typer.Option(False, "--local-only", help="Skip the always-cloud baseline — cloud runs only on judged escalations (cheaper; drops the always-cloud row from the table)"),
+    cloud_arm: str = typer.Option("claude-cli", "--cloud-arm", help="Cloud escalation arm: `claude-cli` (Max/Pro subscription, what the published run used) or `claude` (ANTHROPIC_API_KEY — no subscription needed)"),
     preflight_only: bool = typer.Option(False, "--preflight-only", help="Run the environment checks and exit — no inference, no spend"),
     output: Optional[Path] = typer.Option(None, "--output", "-o", help="Per-case results JSONL (default: experiments/repro_<date>.jsonl)"),
     json_out: bool = typer.Option(False, "--json", help="Emit the summary as JSON instead of the readable policy table"),
@@ -671,14 +693,22 @@ def bench_repro(
     """One-command reproduction of the headline HumanEval+ cascade benchmark.
 
     Thin wrapper over `bench live-route` with the published configuration
-    pinned: local=granite4.1-8b, judge=qwen3.5:latest, cloud=claude-cli, bank=
-    the committed HumanEval+ 164. Preflights the environment first (Ollama up,
-    both models pulled, `claude` CLI on PATH, bank present) so a fresh clone
-    fails in seconds with the fix, not hours in. Full run is ~3.5 h on a 16 GB
-    M-series Mac; `--smoke` is a ~5 min wiring check. To vary arms or judge,
-    use `bench live-route` directly.
+    pinned: local=granite4.1-8b, judge=qwen3.5:latest, bank=the committed
+    HumanEval+ 164. Preflights the environment first (Ollama up, both models
+    pulled, cloud arm reachable, bank present) so a fresh clone fails in
+    seconds with the fix, not hours in. Full run is ~3.5 h on a 16 GB M-series
+    Mac; `--smoke` is a ~5 min wiring check. To vary arms or judge, use
+    `bench live-route` directly.
+
+    Only the *cloud* arm is a real choice, and it is an authentication one.
+    The published run used `claude-cli`, which bills through an interactive
+    Max/Pro subscription — accurate, but it made reproduction require that
+    subscription. `--cloud-arm claude` calls the same model over the Anthropic
+    API with `ANTHROPIC_API_KEY` instead. Both arms are handed the identical
+    prompt, so the routed comparison holds; the always-cloud dollar figure is
+    the one to expect to differ, since API and subscription bill differently.
     """
-    local_arm, judge_model, cloud_arm = "granite4.1-8b", "qwen3.5:latest", "claude-cli"
+    local_arm, judge_model = "granite4.1-8b", "qwen3.5:latest"
 
     problems = _preflight_repro(bank, config, local_arm, judge_model, cloud_arm)
     if problems:
@@ -686,9 +716,13 @@ def bench_repro(
         for p in problems:
             typer.echo(f"  - {p}", err=True)
         raise typer.Exit(1)
+    auth = (
+        "ANTHROPIC_API_KEY set" if cloud_arm == "claude"
+        else "`claude` CLI found"
+    )
     typer.echo(
         "Preflight OK — Ollama up, granite4.1:8b + qwen3.5:latest present, "
-        "`claude` CLI found, bank readable."
+        f"cloud arm {cloud_arm!r} reachable ({auth}), bank readable."
     )
     if preflight_only:
         return
@@ -720,8 +754,52 @@ def bench_repro(
         json_out=json_out,
         notes="orch bench repro"
         + (" --smoke" if smoke else "")
-        + (" --code-judge" if code_judge else ""),
+        + (" --code-judge" if code_judge else "")
+        # The cloud arm changes what the always-cloud dollar column means, so
+        # it has to survive into the run ledger, not just this invocation.
+        + (f" --cloud-arm {cloud_arm}" if cloud_arm != "claude-cli" else ""),
     )
+
+
+@app.command("verify")
+def bench_verify(
+    claims: Path = typer.Option(DEFAULT_CLAIMS, "--claims", help="Claims manifest to check"),
+    json_out: bool = typer.Option(False, "--json", help="Emit results as JSON"),
+) -> None:
+    """Recompute every published benchmark number from its committed artifact.
+
+    The cheap half of reproducibility. `bench repro` re-runs the benchmark on
+    your hardware (~3.5 h, needs Ollama and a `claude` CLI) and answers "is
+    this real here". This answers "does the README still match the data" — it
+    reads the per-case JSONL files already in the repo, recomputes each
+    headline figure, and requires it to round to exactly the published value.
+
+    No models, no network, no API key, no GPU: runs in milliseconds on a fresh
+    clone, which makes it the thing a skeptical reader can actually run. Exits
+    nonzero on any mismatch, so CI catches a number edited in prose without the
+    artifact to support it.
+    """
+    try:
+        results = verify_claims(claims)
+    except FileNotFoundError:
+        typer.echo(f"Claims manifest not found: {claims}", err=True)
+        raise typer.Exit(2)
+    except json.JSONDecodeError as exc:
+        typer.echo(f"Claims manifest is not valid JSON: {exc}", err=True)
+        raise typer.Exit(2)
+
+    if json_out:
+        failed = [r for r in results if not r.ok]
+        typer.echo(json.dumps({
+            "claims": [r.to_dict() for r in results],
+            "verified": len(results) - len(failed),
+            "failed": len(failed),
+        }, indent=2))
+    else:
+        typer.echo(render_verification(results))
+
+    if any(not r.ok for r in results):
+        raise typer.Exit(1)
 
 
 @app.command("validate")

@@ -79,6 +79,13 @@ class TaskOutcome:
     correctness: float | None = None   # reward-judge verdict; None = judge didn't run
     judge_cost: float = 0.0            # the judge call's own cost (telemetry only)
     judge_detail: str = ""             # judge provenance, e.g. a code-judge override reason
+    # Live cascade, telemetry only — the reward never reads these. What the
+    # caller was actually served is a serving fact, not this arm's outcome, but
+    # the decision row is the per-task record and answering "how often did the
+    # local answer get replaced, and what did that cost" needs it stored here.
+    escalated_to: str | None = None    # escalation arm that produced the served answer
+    escalation_cost: float = 0.0       # what that escalation actually charged
+    escalation_reason: str = ""        # "exec_gate" | "judge" | "" (no escalation)
 
 
 class RewardCalculator:

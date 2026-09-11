@@ -31,6 +31,18 @@ from backend.orchestrator.routing.observability import (
     HealthSnapshot,
     compute_health_snapshot,
 )
+from backend.orchestrator.routing.usage_report import compute_usage, render_usage
+from backend.orchestrator.routing.funnel_report import (
+    DEFAULT_LOG as DEFAULT_FUNNEL_LOG,
+    compute_funnel,
+    install_hint,
+    render_funnel,
+)
+
+# The recorder ships in the repo so its log schema and this reader cannot drift.
+FUNNEL_HOOK_SCRIPT = (
+    Path(__file__).resolve().parents[4] / "scripts" / "claude_code_funnel_hook.py"
+)
 
 
 app = typer.Typer(
@@ -377,3 +389,64 @@ def snapshot(
     """One-shot JSON dump of the health snapshot. Pipe to jq."""
     snap = compute_health_snapshot(db_path=db)
     typer.echo(json.dumps(snap.to_dict(), indent=2, default=str))
+
+
+@app.command()
+def usage(
+    since: Optional[str] = typer.Option(
+        None, "--since", help="Start date, inclusive (YYYY-MM-DD)."
+    ),
+    until: Optional[str] = typer.Option(
+        None, "--until", help="End date, inclusive (YYYY-MM-DD)."
+    ),
+    db: Path = typer.Option(DEFAULT_DB_PATH, help="Path to routing_decisions.db"),
+    json_out: bool = typer.Option(
+        False, "--json", help="Emit raw JSON instead of formatted text.",
+    ),
+) -> None:
+    """What the cascade did for real work: local share, escalations, spend avoided.
+
+    Organic traffic only — rows carrying a bench_run_id are experiments, and a
+    single forced-explore run would otherwise swamp a month of actual use.
+    """
+    report = compute_usage(db, since=since, until=until)
+    if json_out:
+        typer.echo(json.dumps(report.to_dict(), indent=2))
+    else:
+        typer.echo(render_usage(report))
+
+
+@app.command()
+def funnel(
+    since: Optional[str] = typer.Option(
+        None, "--since", help="Start date, inclusive (YYYY-MM-DD)."
+    ),
+    until: Optional[str] = typer.Option(
+        None, "--until", help="End date, inclusive (YYYY-MM-DD)."
+    ),
+    log: Path = typer.Option(DEFAULT_FUNNEL_LOG, help="Path to funnel.jsonl"),
+    json_out: bool = typer.Option(
+        False, "--json", help="Emit raw JSON instead of formatted text.",
+    ),
+    install_hint_only: bool = typer.Option(
+        False, "--install-hint", help="Print the Claude Code hook config and exit.",
+    ),
+) -> None:
+    """How much delegable work actually reached Mahoraga.
+
+    `usage` measures what happened to tasks that arrived. This measures the step
+    before it — the denominator every other number depends on, since the cascade
+    saves nothing on work that never gets delegated.
+
+    The reported rate is a LOWER bound: the hook cannot see whether a file
+    needed conversation context, so the denominator counts everything shaped
+    like delegable work.
+    """
+    if install_hint_only:
+        typer.echo(install_hint(FUNNEL_HOOK_SCRIPT))
+        return
+    report = compute_funnel(log, since=since, until=until)
+    if json_out:
+        typer.echo(json.dumps(report.to_dict(), indent=2))
+    else:
+        typer.echo(render_funnel(report))

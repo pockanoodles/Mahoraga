@@ -24,7 +24,7 @@ replication, and limits: [`docs/RESULTS.md`](docs/RESULTS.md).
 That runs on a fresh clone with no models, no network, no API key and no GPU —
 regenerate the recording with `vhs demo/verify.tape`.
 
-Mahoraga currently runs two local Ollama arms:
+My Mahoraga currently runs two local Ollama arms:
 
 | Arm | Model | Role |
 | --- | --- | --- |

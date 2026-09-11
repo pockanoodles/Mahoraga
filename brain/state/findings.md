@@ -1297,3 +1297,58 @@ vendor-reported.** Artificial Analysis's tables did not render; the only
 third-party figure recovered is North Mini Code's AA Coding Index 33.4, itself
 cited second-hand. The map is a purchasing and prioritisation aid, not
 measurement — which is the argument for measuring locally before spending.
+
+---
+
+## Era 33 — the guardian judge is not a drop-in, and a 5-minute test said so (2026-09-11)
+
+Era 32 flagged `granite4.1-guardian:8b-q4_K_M` as the most actionable item on
+the tier map: 5.1 GB, Apache 2.0, a **purpose-built verification model** at the
+incumbent judge's exact footprint. The motivation was specific rather than
+hopeful — Eras 15–17 established that local judges catch stated falsehoods but
+miss omissions and wrong quantities *structurally, across two model families*,
+and detecting that class of defect is what a guardian model is trained for.
+
+**Ran it as a `--judge-model` swap on the existing 30-row non-verifiable bank,
+the same shape as the Era-16 deconfound. Result: accuracy 0.000, ref-accept
+0.000, mutant-catch 0.000, and `unparsed=60` — every one of the 60 verdicts
+unreadable.**
+
+**That is not a broken experiment; it is the answer.** The cause was confirmed
+rather than guessed. `judge_gate` parses verdicts with
+`_VERDICT_RE = r'"correct"\s*:\s*(true|false)'` — a JSON-ish field. A direct
+`/api/generate` call to the guardian returns:
+
+```
+<score> no </score>
+```
+
+So the guardian is a **classifier, not a free-form judge**. It does not speak
+the judge-gate protocol, and it never could by flag alone.
+
+**And an adapter would be more than a wrapper, which is the part worth
+recording.** Granite Guardian emits a *risk* label, not a correctness verdict —
+"no" means *no risk detected*, so the polarity is inverted relative to what the
+gate asks, and it answers a different question. "Is this output risky?" and "is
+this answer wrong?" overlap on hallucination and diverge everywhere else; the
+project's own defect taxonomy (subtle-omission, wrong-quantity,
+constraint-violation, meaning-drift) is mostly *not* safety-shaped. An adapter
+would need the guardian's own prompt template, a polarity mapping, and then a
+fresh validation that its risk notion tracks our correctness notion at all.
+
+**Verdict: qwen3.5 remains the sole local judge. Era 17 stands, and a guardian
+adapter is NOT queued.** The candidate is not refuted as a model — it is
+refuted as a *cheap* swap, which is the only thing that made it attractive this
+window.
+
+**The cost of learning this was ~5 minutes and $0**, and it happened before any
+adapter work was committed. That is the whole argument for running the cheap
+version of an experiment first: the tier map's most actionable-looking item was
+the one that died fastest, and it died on protocol rather than on quality — a
+failure mode no amount of reading vendor cards would have surfaced.
+
+**Standing caution this reinforces:** Era 32's map is almost entirely
+vendor-reported figures, and this is the first of its recommendations to be
+tested locally. One for one, the local test contradicted the desk research's
+implied readiness. Weight the rest of that map accordingly — particularly
+ornith's claimed 70.6, which is now the only untested high-stakes item on it.

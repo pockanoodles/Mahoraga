@@ -1,0 +1,9 @@
+diff --git a/backend/orchestrator/routing/code_judge.py b/backend/orchestrator/routing/code_judge.py
+index 1bff89e..e68e840 100644
+--- a/backend/orchestrator/routing/code_judge.py
++++ b/backend/orchestrator/routing/code_judge.py
+@@ -329,3 +329,4 @@ async def code_augmented_judge(
+         return False, total_cost, f"tool override: {detail}"
+     tag = "base" if tool_verdict is None else "tool-confirmed"
+     return True, total_cost, f"{tag}: {detail}"
++MIN_DISAGREE = 2

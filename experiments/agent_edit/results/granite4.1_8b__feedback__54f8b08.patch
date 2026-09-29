@@ -1,0 +1,37 @@
+diff --git a/backend/orchestrator/workers/postprocess.py b/backend/orchestrator/workers/postprocess.py
+index 060152b..eafa4b2 100644
+--- a/backend/orchestrator/workers/postprocess.py
++++ b/backend/orchestrator/workers/postprocess.py
+@@ -12,9 +12,29 @@ _SIGNOFF_RE = re.compile(
+ 
+ 
+ def extract_code(response: str) -> str:
+-    """Return the first fenced code block content, or the raw response if none found."""
+-    blocks = re.findall(r"```(?:\w*)\n(.*?)```", response, re.DOTALL)
+-    return blocks[0].strip() if blocks else response.strip()
++    """Extracts fenced code blocks from a response string, tolerating unclosed fences."""
++    # Find fenced code blocks using a regular expression
++    fenced_blocks = re.findall(r"```(?:\w*)\n(.*?)```", response, re.DOTALL)
++    
++    if fenced_blocks:
++        # Return the first block's content, stripped of leading/trailing whitespace
++        return fenced_blocks[0].strip()
++    else:
++        # If no complete fenced block is found, check for an unclosed opening fence
++        if "```" in response:
++            # Extract content after the opening fence until the end of the string
++            start_index = response.find("```") + 3
++            content = response[start_index:].strip()
++            # Remove any trailing closing fence if present
++            if content.endswith("```"):
++                content = content[:-3].strip()
++            # Strip the opening fence from the content
++            if content.startswith("python"):
++                content = content[7:].strip()
++            return content
++        else:
++            # Return the raw response if no fenced block is found
++            return response.strip()
+ 
+ 
+ def strip_preamble(response: str) -> str:

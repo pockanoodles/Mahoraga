@@ -20,7 +20,7 @@ Two gates, applied when a task is built (`prepare.py`):
 - **B.** At the task base, at least one of them fails, so the task discriminates.
 
 22 candidate commits in, 18 tasks out; the drops and their reasons are in
-`dropped.json`. Tasks span 1 to 164 changed source lines, and 10 of the 18
+`dropped.json`. Tasks span 1 to 164 changed source lines, and 12 of the 18
 touch two or three files.
 
 **Scoring** (`run.py`). Test files are restored from the base before scoring,
@@ -60,17 +60,19 @@ zsh experiments/agent_edit/chain.sh                  # all arms, resumable
 `prepare.py` rewrites `tasks.jsonl`, because each task's base commit is created
 locally. Needs Ollama with the arm models pulled, and `aider` on PATH.
 
-## Results (2026-09-28, 16 GB M-series)
+## Results (2026-09-28/29, 16 GB M-series)
 
-| Arm | Resolved | Broke other code | Median time |
-| --- | --- | --- | --- |
-| qwen3.5, blind | **5 / 18 (28%)** | 7 | 8.4 min |
-| qwen3.5, feedback | **5 / 18 (28%)** | 5 | 13.1 min |
-| granite4.1-8b, blind | pending | | |
-| granite4.1-8b, feedback | pending | | |
+| Arm | Resolved | Multi-file resolved | Broke other code | Median time |
+| --- | --- | --- | --- | --- |
+| qwen3.5, blind | **5 / 18 (28%)** | 4 / 12 | 7 | 8.4 min |
+| qwen3.5, feedback | **5 / 18 (28%)** | 3 / 12 | 5 | 13.1 min |
+| granite4.1-8b, blind | 0 / 18 | 0 / 12 | 1 | 12.9 min |
+| granite4.1-8b, feedback | 1 / 18 | 0 / 12 | 0 | 11.8 min |
 
-- **About one in four real edits lands**, including two three-file changes
-  solved end to end.
+No attempt in any arm edited a test file.
+
+- **About one in four real edits lands** with qwen3.5, including two
+  three-file changes solved end to end.
 - **The test gate caught every failure.** No failing attempt would have been
   served. The common failure is *over-reach*: the model rewrites neighbouring
   code it had no reason to touch, and the full-suite check is what catches it.
@@ -79,9 +81,11 @@ locally. Needs Ollama with the arm models pulled, and `aider` on PATH.
 - **An attempt costs 8 to 13 minutes on 16 GB**, which rules out interactive
   use. The shape it supports is asynchronous: a free first attempt, tests
   decide, escalate the rest.
-- **granite4.1-8b cannot use the search/replace format** (0/7 before the pause
-  at 00:14). It writes search blocks for code that does not exist in the file,
-  so the edits never apply.
+- **granite4.1-8b cannot use the search/replace format.** In 27 of its 36
+  attempts it wrote search blocks quoting code that is not in the file, so the
+  edits never applied (qwen3.5: 4 of 36). Its one pass, the fence parser, came
+  with feedback. The cascade's best prompt-answering arm is the worst editing
+  arm, so arm quality does not transfer across interfaces.
 
 ## Limits
 

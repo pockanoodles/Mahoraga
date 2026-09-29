@@ -1,0 +1,26 @@
+{
+ "sha": "74a2e41",
+ "model": "granite4.1:8b",
+ "cond": "feedback",
+ "secs": 179.4,
+ "timed_out": false,
+ "resolved": false,
+ "f2p_pass": 0,
+ "f2p_total": 2,
+ "regressions": 0,
+ "regression_ids": [],
+ "suite_crashed": false,
+ "edited_files": [],
+ "touched_tests": [],
+ "gold_src": [
+  "backend/orchestrator/brain_logger.py",
+  "backend/orchestrator/routing/bandit_router.py",
+  "backend/orchestrator/service/app.py"
+ ],
+ "hit_gold_file": false,
+ "no_edit": true,
+ "tokens_sent": 3700.0,
+ "tokens_recv": 806.0,
+ "llm_calls": 2,
+ "edit_errors": 0
+}

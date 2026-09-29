@@ -1,0 +1,23 @@
+diff --git a/backend/orchestrator/workers/postprocess.py b/backend/orchestrator/workers/postprocess.py
+index 060152b..5198cfd 100644
+--- a/backend/orchestrator/workers/postprocess.py
++++ b/backend/orchestrator/workers/postprocess.py
+@@ -12,9 +12,15 @@ _SIGNOFF_RE = re.compile(
+ 
+ 
+ def extract_code(response: str) -> str:
+-    """Return the first fenced code block content, or the raw response if none found."""
+-    blocks = re.findall(r"```(?:\w*)\n(.*?)```", response, re.DOTALL)
+-    return blocks[0].strip() if blocks else response.strip()
++    """Extracts fenced code block from a response string, tolerates unclosed/truncated fences."""
++    fenced_blocks = response.split("```")
++    if len(fenced_blocks) >= 3:
++        code_block = fenced_blocks[1]
++        return code_block.strip()
++    # Handle unclosed/opening fence by stripping it and returning the rest of the content
++    if "```" in response:
++        response = response.split("```")[1]
++    return response.strip()
+ 
+ 
+ def strip_preamble(response: str) -> str:

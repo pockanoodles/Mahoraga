@@ -1,0 +1,27 @@
+{
+ "sha": "3d72cc2",
+ "model": "granite4.1:8b",
+ "cond": "feedback",
+ "secs": 522.3,
+ "timed_out": false,
+ "resolved": false,
+ "f2p_pass": 0,
+ "f2p_total": 2,
+ "regressions": 0,
+ "regression_ids": [],
+ "suite_crashed": false,
+ "edited_files": [
+  "backend/orchestrator/routing/code_judge.py"
+ ],
+ "touched_tests": [],
+ "gold_src": [
+  "backend/orchestrator/cli/commands/bench_report.py",
+  "backend/orchestrator/routing/code_judge.py"
+ ],
+ "hit_gold_file": true,
+ "no_edit": false,
+ "tokens_sent": 45200.0,
+ "tokens_recv": 1221.0,
+ "llm_calls": 4,
+ "edit_errors": 9
+}

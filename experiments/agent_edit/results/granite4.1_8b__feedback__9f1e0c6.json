@@ -1,0 +1,24 @@
+{
+ "sha": "9f1e0c6",
+ "model": "granite4.1:8b",
+ "cond": "feedback",
+ "secs": 696.8,
+ "timed_out": false,
+ "resolved": false,
+ "f2p_pass": 0,
+ "f2p_total": 14,
+ "regressions": 0,
+ "regression_ids": [],
+ "suite_crashed": false,
+ "edited_files": [],
+ "touched_tests": [],
+ "gold_src": [
+  "backend/orchestrator/cli/commands/service.py"
+ ],
+ "hit_gold_file": false,
+ "no_edit": true,
+ "tokens_sent": 39800.0,
+ "tokens_recv": 3805.0,
+ "llm_calls": 4,
+ "edit_errors": 18
+}

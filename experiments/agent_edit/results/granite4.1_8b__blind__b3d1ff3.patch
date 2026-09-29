@@ -1,0 +1,452 @@
+diff --git a/.aider.chat.history.md b/.aider.chat.history.md
+index 73c02da..e92569e 100644
+--- a/.aider.chat.history.md
++++ b/.aider.chat.history.md
+@@ -494,3 +494,405 @@ This ensures that `text` is not `None` before calling `split()`.
+ > **Example Fix  
+ > Create new file? (Y)es/(N)o [Yes]: y  
+ > Applied edit to **Example Fix  
++
++# aider chat started at 2026-09-29 01:15:53
++
++> /Users/kaitosoeno/.local/bin/aider --model ollama_chat/granite4.1:8b --edit-format diff --model-settings-file /private/tmp/claude-501/-Users-kaitosoeno-Projects-Mahoraga/9fa9805a-2c5c-48ae-a18d-e09c6c71b8b0/scratchpad/agentedit/model-settings.yml --map-tokens 2048 --yes-always --no-auto-commits --no-gitignore --no-pretty --no-stream --no-show-model-warnings --no-check-update --no-analytics --no-show-release-notes --message Make the following change to this repository.
++
++fix: close remaining reward leaks + gate gateway success on exception state
++
++1. /api/task endpoint had the same leak as /api/batch: _run_task raising
++   would bypass router.observe and store.metrics.record. Wrap in try/except,
++   fire observe+metrics with failure outcome, then re-raise for HTTP 500.
++
++2. Gateway.py: when _run_task raises but prior completed attempts exist
++   (retry scenario), the outcome was incorrectly reporting success=True.
++   Gate on _run_task_exc is None.
++
++Adds regression test test_single_task_observe_fires_on_exception.
++
++Tests covering this change already exist in: tests/orchestrator_v2/test_e2e_reward_loop.py. Do not modify any test files; change the source code so those tests pass without breaking anything else.  
++> Aider v0.86.2  
++> Model: ollama_chat/granite4.1:8b with diff edit format  
++> Git repo: .git with 342 files  
++> Repo-map: using 2048 tokens, auto refresh  
++
++#### Make the following change to this repository.  
++####   
++#### fix: close remaining reward leaks + gate gateway success on exception state  
++####   
++#### 1. /api/task endpoint had the same leak as /api/batch: _run_task raising  
++####    would bypass router.observe and store.metrics.record. Wrap in try/except,  
++####    fire observe+metrics with failure outcome, then re-raise for HTTP 500.  
++####   
++#### 2. Gateway.py: when _run_task raises but prior completed attempts exist  
++####    (retry scenario), the outcome was incorrectly reporting success=True.  
++####    Gate on _run_task_exc is None.  
++####   
++#### Adds regression test test_single_task_observe_fires_on_exception.  
++####   
++#### Tests covering this change already exist in: tests/orchestrator_v2/test_e2e_reward_loop.py. Do not modify any test files; change the source code so those tests pass without breaking anything else.  
++> tests/orchestrator_v2/test_e2e_reward_loop.py  
++> Add file to the chat? (Y)es/(N)o/(D)on't ask again [Yes]: y  
++
++To fix the reward leaks and gate the gateway success on exception state, we need to modify two files:
++
++1. **`backend/orchestrator/service/app.py`**: Wrap `_run_task` calls in try/except blocks to ensure `router.observe` and `store.metrics.record` are called even if `_run_task` raises an exception.
++
++2. **`backend/orchestrator/workers/gateway.py`**: Ensure the success outcome is correctly gated on `_run_task_exc` being `None`.
++
++Here are the *SEARCH/REPLACE* blocks for these changes:
++
++backend/orchestrator/service/app.py
++```python
++<<<<<<< SEARCH
++async def _run_task(task_id: str, s: Store, reg: WorkerRegistry, ver: Verifier) -> None:
++    worker = reg.get_worker(s.workers.get(task_id))
++    attempt = await s.tasks.attempt_create(task_id)
++    await worker.execute(attempt, s.tasks.get(task_id), feedback=None)
++=======
++async def _run_task(task_id: str, s: Store, reg: WorkerRegistry, ver: Verifier) -> None:
++    try:
++        worker = reg.get_worker(s.workers.get(task_id))
++        attempt = await s.tasks.attempt_create(task_id)
++        await worker.execute(attempt, s.tasks.get(task_id), feedback=None)
++    except Exception as e:
++        # Ensure observe and metrics are called even on failure
++        await router.observe(
++            task_id=task_id,
++            success=False,
++            reward=0.0,
++            model_warm_norm=0.0,
++            quality=0.0,
++            latency_s=0.0,
++            cost_usd=0.0,
++            detail=str(e),
++        )
++        await store.metrics.record(
++            task_id=task_id,
++            success=False,
++            reward=0.0,
++            model_warm_norm=0.0,
++            quality=0.0,
++            latency_s=0.0,
++            cost_usd=0.0,
++            detail=str(e),
++        )
++        raise
++>>>>>>> REPLACE
++```
++
++backend/orchestrator/workers/gateway.py
++```python
++<<<<<<< SEARCH
++async def run_task(self, task: Task, worker_id: str) -> None:
++    worker = self.registry.get(worker_id)
++    attempt = await self.store.tasks.attempt_create(task.id)
++    await worker.execute(attempt, task)
++    await self.store.tasks.update_status(task.id, TaskStatus.completed)
++=======
++async def run_task(self, task: Task, worker_id: str) -> None:
++    worker = self.registry.get(worker_id)
++    attempt = await self.store.tasks.attempt_create(task.id)
++    try:
++        await worker.execute(attempt, task)
++        await self.store.tasks.update_status(task.id, TaskStatus.completed)
++    except Exception as e:
++        # Gate success on no exception
++        await self.store.tasks.update_status(task.id, TaskStatus.failed)
++        raise
++>>>>>>> REPLACE
++```
++
++These changes ensure that `router.observe` and `store.metrics.record` are called even if `_run_task` raises an exception, and that the success outcome in `Gateway.run_task` is correctly gated on `_run_task_exc` being `None`.
++
++No additional shell commands are needed beyond running the existing tests to verify these changes. You can run the tests with the command:
++
++```bash
++pytest tests/orchestrator_v2/
++```
++
++> Tokens: 8.9k sent, 699 received.  
++> backend/orchestrator/service/app.py  
++> Add file to the chat? (Y)es/(N)o/(D)on't ask again [Yes]: y  
++
++You have added the file `backend/orchestrator/service/app.py` to the chat. No other files were mentioned for modification. 
++
++Below are the *SEARCH/REPLACE* blocks for the requested changes:
++
++1. **Close remaining reward leaks in `/api/task` endpoint**  
++   This ensures `router.observe` and `store.metrics.record` are called even if `_run_task` raises an exception.
++
++   ```plaintext
++   backend/orchestrator/service/app.py
++   ```python
++   <<<<<<< SEARCH
++   async def _run_task(task_id: str, s: Store, reg: WorkerRegistry, ver: Verifier) -> None:
++       worker = reg.get_worker(s.workers.get(task_id))
++       attempt = await s.tasks.attempt_create(task_id)
++       await worker.execute(attempt, s.tasks.get(task_id), feedback=None)
++   =======
++   async def _run_task(task_id: str, s: Store, reg: WorkerRegistry, ver: Verifier) -> None:
++       try:
++           worker = reg.get_worker(s.workers.get(task_id))
++           attempt = await s.tasks.attempt_create(task_id)
++           await worker.execute(attempt, s.tasks.get(task_id), feedback=None)
++       except Exception as e:
++           # Ensure observe and metrics are called even on failure
++           await router.observe(
++               task_id=task_id,
++               success=False,
++               reward=0.0,
++               model_warm_norm=0.0,
++               quality=0.0,
++               latency_s=0.0,
++               cost_usd=0.0,
++               detail=str(e),
++           )
++           await store.metrics.record(
++               task_id=task_id,
++               success=False,
++               reward=0.0,
++               model_warm_norm=0.0,
++               quality=0.0,
++               latency_s=0.0,
++               cost_usd=0.0,
++               detail=str(e),
++           )
++           raise
++   >>>>>>> REPLACE
++   ```
++
++2. **Gate gateway success on exception state in `Gateway.py`**  
++   This ensures the success outcome is correctly gated on `_run_task_exc` being `None`.
++
++   ```plaintext
++   backend/orchestrator/workers/gateway.py
++   ```python
++   <<<<<<< SEARCH
++   async def run_task(self, task: Task, worker_id: str) -> None:
++       worker = self.registry.get(worker_id)
++       attempt = await self.store.tasks.attempt_create(task.id)
++       await worker.execute(attempt, task)
++       await self.store.tasks.update_status(task.id, TaskStatus.completed)
++   =======
++   async def run_task(self, task: Task, worker_id: str) -> None:
++       worker = self.registry.get(worker_id)
++       attempt = await self.store.tasks.attempt_create(task.id)
++       try:
++           await worker.execute(attempt, task)
++           await self.store.tasks.update_status(task.id, TaskStatus.completed)
++       except Exception as e:
++           # Gate success on no exception
++           await self.store.tasks.update_status(task.id, TaskStatus.failed)
++           raise
++   >>>>>>> REPLACE
++   ```
++
++These changes should close the reward leaks and ensure the gateway success is correctly gated on exceptions. No additional shell commands are needed beyond running the existing tests to verify these changes. You can run the tests with the command:
++
++```bash
++pytest tests/orchestrator_v2/
++```
++
++> Tokens: 24k sent, 700 received.  
++> The LLM did not conform to the edit format.  
++> https://aider.chat/docs/troubleshooting/edit-errors.html  
++> You have added the file `backend/orchestrator/service/app.py` to the chat. No other files were mentioned for modification. 
++
++Below are the *SEARCH/REPLACE* blocks for the requested changes:
++
++1. **Close remaining reward leaks in `/api/task` endpoint**  
++   This ensures `router.observe` and `store.metrics.record` are called even if `_run_task` raises an exception.
++
++   ```plaintext
++   backend/orchestrator/service/app.py
++   ```python
++   <<<<<<< SEARCH
++
++^^^ Bad/missing filename. The filename must be alone on the line before the opening fence ```  
++
++Apologies for the oversight. Below are the corrected *SEARCH/REPLACE* blocks for the requested changes, including the full file paths as required.
++
++1. **Close remaining reward leaks in `/api/task` endpoint**  
++   This ensures `router.observe` and `store.metrics.record` are called even if `_run_task` raises an exception.
++
++   ```plaintext
++   backend/orchestrator/service/app.py
++   ```python
++   <<<<<<< SEARCH
++   async def _run_task(task_id: str, s: Store, reg: WorkerRegistry, ver: Verifier) -> None:
++       worker = reg.get_worker(s.workers.get(task_id))
++       attempt = await s.tasks.attempt_create(task_id)
++       await worker.execute(attempt, s.tasks.get(task_id), feedback=None)
++   =======
++   async def _run_task(task_id: str, s: Store, reg: WorkerRegistry, ver: Verifier) -> None:
++       try:
++           worker = reg.get_worker(s.workers.get(task_id))
++           attempt = await s.tasks.attempt_create(task_id)
++           await worker.execute(attempt, s.tasks.get(task_id), feedback=None)
++       except Exception as e:
++           # Ensure observe and metrics are called even on failure
++           await router.observe(
++               task_id=task_id,
++               success=False,
++               reward=0.0,
++               model_warm_norm=0.0,
++               quality=0.0,
++               latency_s=0.0,
++               cost_usd=0.0,
++               detail=str(e),
++           )
++           await store.metrics.record(
++               task_id=task_id,
++               success=False,
++               reward=0.0,
++               model_warm_norm=0.0,
++               quality=0.0,
++               latency_s=0.0,
++               cost_usd=0.0,
++               detail=str(e),
++           )
++           raise
++   >>>>>>> REPLACE
++   ```
++
++2. **Gate gateway success on exception state in `Gateway.py`**  
++   This ensures the success outcome is correctly gated on `_run_task_exc` being `None`.
++
++   ```plaintext
++   backend/orchestrator/workers/gateway.py
++   ```python
++   <<<<<<< SEARCH
++   async def run_task(self, task: Task, worker_id: str) -> None:
++       worker = self.registry.get(worker_id)
++       attempt = await self.store.tasks.attempt_create(task.id)
++       await worker.execute(attempt, task)
++       await self.store.tasks.update_status(task.id, TaskStatus.completed)
++   =======
++   async def run_task(self, task: Task, worker_id: str) -> None:
++       worker = self.registry.get(worker_id)
++       attempt = await self.store.tasks.attempt_create(task.id)
++       try:
++           await worker.execute(attempt, task)
++           await self.store.tasks.update_status(task.id, TaskStatus.completed)
++       except Exception as e:
++           # Gate success on no exception
++           await self.store.tasks.update_status(task.id, TaskStatus.failed)
++           raise
++   >>>>>>> REPLACE
++   ```
++
++These changes should close the reward leaks and ensure the gateway success is correctly gated on exceptions. No additional shell commands are needed beyond running the existing tests to verify these changes. You can run the tests with the command:
++
++```bash
++pytest tests/orchestrator_v2/
++```
++
++> Tokens: 24k sent, 687 received.  
++> The LLM did not conform to the edit format.  
++> https://aider.chat/docs/troubleshooting/edit-errors.html  
++> Apologies for the oversight. Below are the corrected *SEARCH/REPLACE* blocks for the requested changes, including the full file paths as required.
++
++1. **Close remaining reward leaks in `/api/task` endpoint**  
++   This ensures `router.observe` and `store.metrics.record` are called even if `_run_task` raises an exception.
++
++   ```plaintext
++   backend/orchestrator/service/app.py
++   ```python
++   <<<<<<< SEARCH
++
++^^^ Bad/missing filename. The filename must be alone on the line before the opening fence ```  
++
++Thank you for the detailed instructions. Below are the corrected *SEARCH/REPLACE* blocks for the requested changes, including the full file paths as required.
++
++1. **Close remaining reward leaks in `/api/task` endpoint**  
++   This ensures `router.observe` and `store.metrics.record` are called even if `_run_task` raises an exception.
++
++   ```plaintext
++   backend/orchestrator/service/app.py
++   ```python
++   <<<<<<< SEARCH
++   async def _run_task(task_id: str, s: Store, reg: WorkerRegistry, ver: Verifier) -> None:
++       worker = reg.get_worker(s.workers.get(task_id))
++       attempt = await s.tasks.attempt_create(task_id)
++       await worker.execute(attempt, s.tasks.get(task_id), feedback=None)
++   =======
++   async def _run_task(task_id: str, s: Store, reg: WorkerRegistry, ver: Verifier) -> None:
++       try:
++           worker = reg.get_worker(s.workers.get(task_id))
++           attempt = await s.tasks.attempt_create(task_id)
++           await worker.execute(attempt, s.tasks.get(task_id), feedback=None)
++       except Exception as e:
++           # Ensure observe and metrics are called even on failure
++           await router.observe(
++               task_id=task_id,
++               success=False,
++               reward=0.0,
++               model_warm_norm=0.0,
++               quality=0.0,
++               latency_s=0.0,
++               cost_usd=0.0,
++               detail=str(e),
++           )
++           await store.metrics.record(
++               task_id=task_id,
++               success=False,
++               reward=0.0,
++               model_warm_norm=0.0,
++               quality=0.0,
++               latency_s=0.0,
++               cost_usd=0.0,
++               detail=str(e),
++           )
++           raise
++   >>>>>>> REPLACE
++   ```
++
++2. **Gate gateway success on exception state in `Gateway.py`**  
++   This ensures the success outcome is correctly gated on `_run_task_exc` being `None`.
++
++   ```plaintext
++   backend/orchestrator/workers/gateway.py
++   ```python
++   <<<<<<< SEARCH
++   async def run_task(self, task: Task, worker_id: str) -> None:
++       worker = self.registry.get(worker_id)
++       attempt = await self.store.tasks.attempt_create(task.id)
++       await worker.execute(attempt, task)
++       await self.store.tasks.update_status(task.id, TaskStatus.completed)
++   =======
++   async def run_task(self, task: Task, worker_id: str) -> None:
++       worker = self.registry.get(worker_id)
++       attempt = await self.store.tasks.attempt_create(task.id)
++       try:
++           await worker.execute(attempt, task)
++           await self.store.tasks.update_status(task.id, TaskStatus.completed)
++       except Exception as e:
++           # Gate success on no exception
++           await self.store.tasks.update_status(task.id, TaskStatus.failed)
++           raise
++   >>>>>>> REPLACE
++   ```
++
++These changes should close the reward leaks and ensure the gateway success is correctly gated on exceptions. No additional shell commands are needed beyond running the existing tests to verify these changes. You can run the tests with the command:
++
++```bash
++pytest tests/orchestrator_v2/
++```
++
++> Tokens: 25k sent, 688 received.  
++> The LLM did not conform to the edit format.  
++> https://aider.chat/docs/troubleshooting/edit-errors.html  
++> Thank you for the detailed instructions. Below are the corrected *SEARCH/REPLACE* blocks for the requested changes, including the full file paths as required.
++
++1. **Close remaining reward leaks in `/api/task` endpoint**  
++   This ensures `router.observe` and `store.metrics.record` are called even if `_run_task` raises an exception.
++
++   ```plaintext
++   backend/orchestrator/service/app.py
++   ```python
++   <<<<<<< SEARCH
++
++^^^ Bad/missing filename. The filename must be alone on the line before the opening fence ```  
++> Only 3 reflections allowed, stopping.  
+diff --git a/.aider.input.history b/.aider.input.history
+index 792c366..4fb54d3 100644
+--- a/.aider.input.history
++++ b/.aider.input.history
+@@ -58,3 +58,37 @@
+ +Explain what causes this error and how to fix it: AttributeError: 'NoneType' obj
+ +
+ +Explain what causes this error and how to fix it: AttributeError: 'NoneType' object has no attribute 'split'
++
++# 2026-09-29 01:15:54.541788
+++Make the following change to this repository.
+++
+++fix: close remaining reward leaks + gate gateway success on exception state
+++
+++1. /api/task endpoint had the same leak as /api/batch: _run_task raising
+++   would bypass router.observe and store.metrics.record. Wrap in try/except,
+++   fire observe+metrics with failure outcome, then re-raise for HTTP 500.
+++
+++2. Gateway.py: when _run_task raises but prior completed attempts exist
+++   (retry scenario), the outcome was incorrectly reporting success=True.
+++   Gate on _run_task_exc is None.
+++
+++Adds regression test test_single_task_observe_fires_on_exception.
+++
+++Tests covering this change already exist in: tests/orchestrator_v2/test_e2e_reward_loop.py. Do not modify any test files; change the source code so those tests pass without breaking anything else.
++
++# 2026-09-29 01:15:54.541934
+++Make the following change to this repository.
+++
+++fix: close remaining reward leaks + gate gateway success on exception state
+++
+++1. /api/task endpoint had the same leak as /api/batch: _run_task raising
+++   would bypass router.observe and store.metrics.record. Wrap in try/except,
+++   fire observe+metrics with failure outcome, then re-raise for HTTP 500.
+++
+++2. Gateway.py: when _run_task raises but prior completed attempts exist
+++   (retry scenario), the outcome was incorrectly reporting success=True.
+++   Gate on _run_task_exc is None.
+++
+++Adds regression test test_single_task_observe_fires_on_exception.
+++
+++Tests covering this change already exist in: tests/orchestrator_v2/test_e2e_reward_loop.py. Do not modify any test files; change the source code so those tests pass without breaking anything else.

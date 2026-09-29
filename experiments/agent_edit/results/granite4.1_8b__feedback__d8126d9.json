@@ -1,0 +1,26 @@
+{
+ "sha": "d8126d9",
+ "model": "granite4.1:8b",
+ "cond": "feedback",
+ "secs": 398.4,
+ "timed_out": false,
+ "resolved": false,
+ "f2p_pass": 0,
+ "f2p_total": 1,
+ "regressions": 0,
+ "regression_ids": [],
+ "suite_crashed": false,
+ "edited_files": [
+  "backend/orchestrator/gateway/gateway.py"
+ ],
+ "touched_tests": [],
+ "gold_src": [
+  "backend/orchestrator/gateway.py"
+ ],
+ "hit_gold_file": false,
+ "no_edit": false,
+ "tokens_sent": 36800.0,
+ "tokens_recv": 1394.0,
+ "llm_calls": 4,
+ "edit_errors": 8
+}

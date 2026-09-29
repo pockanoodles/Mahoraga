@@ -1,0 +1,53 @@
+diff --git a/backend/orchestrator/store/metrics.py b/backend/orchestrator/store/metrics.py
+index 34d2992..5b04619 100644
+--- a/backend/orchestrator/store/metrics.py
++++ b/backend/orchestrator/store/metrics.py
+@@ -4,20 +4,39 @@ import time
+ from typing import Any
+ import aiosqlite
+ 
++# Intent buckets checked BEFORE code to prevent code snippets from overriding intent.
++# Code is now last among specific buckets (not before intent).
+ _BUCKET_KEYWORDS: dict[str, list[str]] = {
+-    "code":     ["write", "implement", "function", "class", "script", "module", "def ", "return"],
+-    "test":     ["test", "pytest", "unittest", "spec", "assert"],
+-    "refactor": ["refactor", "rename", "restructure", "clean up", "simplify"],
+-    "debug":    ["debug", "fix", "bug", "error", "traceback", "exception"],
+-    "research": ["search", "summarize", "find", "look up", "research", "what is"],
+-    "plan":     ["plan", "design", "architect", "outline", "steps", "approach"],
+-    "review":   ["review", "audit", "check", "evaluate", "assess"],
+-    "security": ["security", "vulnerability", "exploit", "auth", "injection"],
++    "security": ["vulnerab", "secret", "exploit", "attack", "breach", 
++                 "injection", "xss", "csrf", "auth", "permission", 
++                 "rbac", "privilege", "escalation", "csp", "jwt", "token"],
++    "test":     ["test", "pytest", "unittest", "mock", "fixture", "assertion",
++                 "coverage", "integration", "e2e", "spec"],
++    "refactor": ["refactor", "simplify", "extract", "inline", "duplicate",
++                 "dead", "unused", "smell", "code smell"],
++    "debug":    ["debug", "traceback", "exception", "error", "bug", 
++                 "fix", "issue", "crash", "hang", "leak"],
++    "research": ["research", "investigate", "explore", "study", "survey",
++                 "literature", "paper", "algorithm", "approach"],
++    "plan":     ["architect", "migrate", "roadmap", "timeline", "estimate"],
++    "review":   ["review", "pull request", "pr", "merge", "code review",
++                 "feedback", "comment", "suggestion"],
++    "code":     ["def ", "return", "implement", "function", "class", 
++                 "import", "from", "async", "await", "lambda"],
+ }
+ 
+ 
+ def _classify_bucket(text: str, hint: str | None = None) -> str:
+-    """Map a prompt (and optional capability hint) to a reward bucket name."""
++    """Map a prompt (and optional capability hint) to a reward bucket name.
++    
++    Priority order (highest to lowest):
++    1. Explicit hint if provided
++    2. Intent buckets: security, test, refactor, debug, research, plan, review
++    3. Code (generic code generation)
++    4. General fallback
++    
++    This prevents code snippets in prompts from overriding intent classification.
++    """
+     if hint and hint in _BUCKET_KEYWORDS:
+         return hint
+     lower = text.lower()

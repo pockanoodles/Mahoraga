@@ -1,0 +1,31 @@
+{
+ "sha": "b3d1ff3",
+ "model": "qwen3.5:latest",
+ "cond": "blind",
+ "secs": 496.5,
+ "timed_out": false,
+ "resolved": false,
+ "f2p_pass": 1,
+ "f2p_total": 1,
+ "regressions": 2,
+ "regression_ids": [
+  "tests.orchestrator_v2.test_gateway::test_gateway_observe_fires_on_run_task_exception",
+  "tests.orchestrator_v2.test_gateway::test_gateway_observe_preserves_agent_attribution_on_failure"
+ ],
+ "suite_crashed": false,
+ "edited_files": [
+  "backend/orchestrator/gateway.py",
+  "backend/orchestrator/service/app.py"
+ ],
+ "touched_tests": [],
+ "gold_src": [
+  "backend/orchestrator/gateway.py",
+  "backend/orchestrator/service/app.py"
+ ],
+ "hit_gold_file": true,
+ "no_edit": false,
+ "tokens_sent": 38000.0,
+ "tokens_recv": 4078.0,
+ "llm_calls": 2,
+ "edit_errors": 0
+}

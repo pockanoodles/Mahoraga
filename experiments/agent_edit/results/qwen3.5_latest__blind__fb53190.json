@@ -1,0 +1,35 @@
+{
+ "sha": "fb53190",
+ "model": "qwen3.5:latest",
+ "cond": "blind",
+ "secs": 517.7,
+ "timed_out": false,
+ "resolved": false,
+ "f2p_pass": 0,
+ "f2p_total": 5,
+ "regressions": 8,
+ "regression_ids": [
+  "tests.orchestrator_v2.test_ollama_worker::test_execute_appends_feedback_to_prompt",
+  "tests.orchestrator_v2.test_ollama_worker::test_execute_completed_on_success",
+  "tests.orchestrator_v2.test_ollama_worker::test_execute_failed_on_connect_error",
+  "tests.orchestrator_v2.test_ollama_worker::test_execute_failed_on_empty_response",
+  "tests.orchestrator_v2.test_ollama_worker::test_execute_skips_thinking_phase_chunks",
+  "tests.orchestrator_v2.test_ollama_worker::test_execute_think_false_in_top_level_payload",
+  "tests.orchestrator_v2.test_ollama_worker::test_metrics_include_prompt_tokens_from_done_chunk",
+  "tests.orchestrator_v2.test_ollama_worker::test_metrics_prompt_eval_rate_guards_zero_duration"
+ ],
+ "suite_crashed": false,
+ "edited_files": [
+  "backend/orchestrator/workers/ollama.py"
+ ],
+ "touched_tests": [],
+ "gold_src": [
+  "backend/orchestrator/workers/ollama.py"
+ ],
+ "hit_gold_file": true,
+ "no_edit": false,
+ "tokens_sent": 51400.0,
+ "tokens_recv": 3815.0,
+ "llm_calls": 4,
+ "edit_errors": 5
+}

@@ -1,0 +1,37 @@
+{
+ "sha": "b44da35",
+ "model": "qwen3.5:latest",
+ "cond": "feedback",
+ "secs": 1200.0,
+ "timed_out": true,
+ "resolved": false,
+ "f2p_pass": 4,
+ "f2p_total": 13,
+ "regressions": 7,
+ "regression_ids": [
+  "tests.orchestrator_v2.test_funnel::test_excluded_actions_stay_out_of_the_denominator",
+  "tests.orchestrator_v2.test_funnel::test_no_delegable_work_is_unknown_not_zero",
+  "tests.orchestrator_v2.test_funnel::test_rate_is_delegated_over_delegable",
+  "tests.orchestrator_v2.test_funnel::test_render_states_the_lower_bound",
+  "tests.orchestrator_v2.test_funnel::test_sessions_are_counted_distinctly",
+  "tests.orchestrator_v2.test_funnel::test_torn_line_does_not_discard_the_rest",
+  "tests.orchestrator_v2.test_funnel::test_window_filters_by_date"
+ ],
+ "suite_crashed": false,
+ "edited_files": [
+  "backend/mcp/funnel_liveness.py",
+  "backend/orchestrator/routing/funnel_report.py"
+ ],
+ "touched_tests": [],
+ "gold_src": [
+  "backend/mcp/funnel_liveness.py",
+  "backend/mcp/server.py",
+  "backend/orchestrator/routing/funnel_report.py"
+ ],
+ "hit_gold_file": true,
+ "no_edit": false,
+ "tokens_sent": 44700.0,
+ "tokens_recv": 12300.0,
+ "llm_calls": 3,
+ "edit_errors": 0
+}

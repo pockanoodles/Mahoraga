@@ -1,0 +1,18 @@
+[
+ {
+  "sha": "727c859",
+  "drop": "gate B: no fail-to-pass tests"
+ },
+ {
+  "sha": "46d702c",
+  "drop": "gate A: 1 tests fail at C"
+ },
+ {
+  "sha": "dec00d3",
+  "drop": "gate B: no fail-to-pass tests"
+ },
+ {
+  "sha": "781385b",
+  "drop": "no pass-to-pass baseline (suite crashed at base)"
+ }
+]

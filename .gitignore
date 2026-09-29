@@ -22,6 +22,12 @@ experiments/*
 !experiments/prompts_humaneval_plus_refs.jsonl
 !experiments/live_route_humaneval_164.jsonl
 !experiments/repro_2026-08-04.jsonl
+# Agent-edit probe: harness, tasks, per-attempt scores and diffs. Aider logs
+# and chat transcripts stay local (large, and mostly echoed repo source).
+!experiments/agent_edit/
+!experiments/agent_edit/tasks.jsonl
+experiments/agent_edit/results/*.log
+experiments/agent_edit/results/*.chat.md
 .claude/
 
 # Local AI-call context / build scaffolding — never pushed

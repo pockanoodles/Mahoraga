@@ -1,0 +1,9 @@
+# Aider model settings for the probe arms.
+# num_predict caps each call's generation (~4.5 min at ~30 t/s): an uncapped
+# qwen3.5 thinking runaway held one call past litellm's 600s timeout. A capped
+# runaway shows up as a failed attempt instead of a hung harness.
+- name: ollama_chat/qwen3.5:latest
+  extra_params: {num_ctx: 32768, num_predict: 8192}
+  reasoning_tag: think
+- name: ollama_chat/granite4.1:8b
+  extra_params: {num_ctx: 32768, num_predict: 8192}

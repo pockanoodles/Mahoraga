@@ -1,0 +1,84 @@
+diff --git a/backend/orchestrator/routing/execution_gate.py b/backend/orchestrator/routing/execution_gate.py
+index e69de29..3760844 100644
+--- a/backend/orchestrator/routing/execution_gate.py
++++ b/backend/orchestrator/routing/execution_gate.py
+@@ -0,0 +1,79 @@
++"""Live verifiable-reward execution gate for code-producing buckets."""
++from __future__ import annotations
++
++import asyncio
++import os
++import re
++import shlex
++import subprocess
++from typing import Optional
++
++
++EXEC_GATE_BUCKETS = {"code", "test", "refactor", "debug"}
++
++
++def exec_gate_enabled() -> bool:
++    """Check if execution gate is enabled via environment variable.
++    
++    On by default; MAHORAGA_EXEC_GATE=off disables.
++    """
++    val = os.environ.get("MAHORAGA_EXEC_GATE")
++    if val is None:
++        return True
++    # Disable on any of these values (case-insensitive)
++    return val.lower() not in {"off", "0", "false", "no"}
++
++
++async def check_executes(
++    code: str,
++    timeout: int = 5,
++) -> tuple[bool, Optional[str]]:
++    """Execute code in a subprocess and verify it runs successfully.
++    
++    Args:
++        code: The code string to execute (may include markdown fences)
++        timeout: Maximum execution time in seconds
++        
++    Returns:
++        Tuple of (ran_successfully, error_message_or_none)
++        
++    Catches:
++        - Syntax errors
++        - Runtime errors  
++        - Import errors
++        - Timeouts
++        - Empty output (no code produced)
++    """
++    # Strip markdown fences if present
++    cleaned = re.sub(r"^```python\s*$", "", code, flags=re.MULTILINE)
++    cleaned = re.sub(r"^\s*```$", "", cleaned, flags=re.MULTILINE)
++    
++    # Check for actual code content
++    if not cleaned.strip():
++        return False, "no code produced"
++    
++    try:
++        # Run in isolated subprocess with short timeout
++        proc = await asyncio.create_subprocess_exec(
++            "python3",
++            "-c",
++            cleaned,
++            stdout=asyncio.subprocess.PIPE,
++            stderr=asyncio.subprocess.PIPE,
++            timeout=timeout,
++        )
++        
++        stdout, stderr = await proc.communicate()
++        
++        # Check for errors in output
++        if proc.returncode != 0:
++            err_output = (stderr.decode("utf-8") or stdout.decode("utf-8")).strip()
++            return False, err_output if err_output else "execution failed"
++        
++        return True, None
++        
++    except asyncio.TimeoutError:
++        return False, "timeout"
++    
++    except Exception as e:
++        return False, str(e)

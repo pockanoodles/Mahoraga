@@ -1,0 +1,48 @@
+diff --git a/backend/orchestrator/routing/code_judge.py b/backend/orchestrator/routing/code_judge.py
+index 1bff89e..ab26281 100644
+--- a/backend/orchestrator/routing/code_judge.py
++++ b/backend/orchestrator/routing/code_judge.py
+@@ -53,6 +53,7 @@ _HARNESS_TIMEOUT_SECONDS = 10   # matches the bank builder's verify timeout
+ _DUMP_TIMEOUT_SECONDS = 5
+ _MAX_PROGRAM_CHARS = 8000
+ _MAX_CASE_REPR_CHARS = 2000
++_MIN_DISAGREEMENTS = 2
+ 
+ GEN_PROMPT = (
+     "You are given a programming task that asks for a Python function. Write a "
+@@ -209,13 +210,13 @@ async def dump_cases(code: str) -> Optional[list]:
+ 
+ 
+ async def differential_check(
+-    worker, task_prompt: str, candidate: str, *, k: int = GEN_SAMPLES
++    worker, task_prompt: str, candidate: str, *, k: int = GEN_SAMPLES, min_disagreements: int = _MIN_DISAGREEMENTS
+ ) -> tuple[Optional[bool], float, str]:
+     """Generated-test differential check. Returns (verdict, cost_usd, detail).
+ 
+     verdict:
+       False — the candidate disagrees with an executed reference consensus on
+-              at least one generated input (a catch);
++              at least `min_disagreements` generated inputs (a catch);
+       None  — ABSTAIN: no prompt entrypoint, <2 usable references, no
+               consensus input, or the candidate agrees everywhere. Never True —
+               agreement on generated inputs does not prove correctness, so the
+@@ -298,12 +299,18 @@ async def differential_check(
+ 
+     if checked == 0:
+         return None, cost, "no consensus inputs"
+-    if mismatches:
++    if len(mismatches) >= min_disagreements:
+         i, expected, got = mismatches[0]
+         return False, cost, (
+             f"{len(mismatches)}/{checked} consensus inputs disagree — "
+             f"e.g. {entrypoint}(*{pooled[i]!r}): expected {expected!r}, got {got!r}"
+         )
++    if len(mismatches) == 1:
++        i, expected, got = mismatches[0]
++        return None, cost, (
++            f"below reject threshold ({len(mismatches)}/{checked} disagree < {min_disagreements}) — "
++            f"e.g. {entrypoint}(*{pooled[i]!r}): expected {expected!r}, got {got!r}"
++        )
+     return None, cost, f"agrees on {checked} consensus inputs"
+ 
+ 

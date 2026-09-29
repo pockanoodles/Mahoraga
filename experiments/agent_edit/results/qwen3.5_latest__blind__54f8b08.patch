@@ -1,0 +1,78 @@
+diff --git a/backend/orchestrator/workers/postprocess.py b/backend/orchestrator/workers/postprocess.py
+index 060152b..a72bfab 100644
+--- a/backend/orchestrator/workers/postprocess.py
++++ b/backend/orchestrator/workers/postprocess.py
+@@ -1,30 +1,51 @@
+ from __future__ import annotations
+ import re
+ 
+-_PREAMBLE_RE = re.compile(
+-    r"^(here'?s?|sure|below|certainly|of course|let me|i'?ll)",
+-    re.IGNORECASE,
+-)
+-_SIGNOFF_RE = re.compile(
+-    r"^(let me know|hope this|feel free|happy to)",
+-    re.IGNORECASE,
+-)
+-
+ 
+ def extract_code(response: str) -> str:
+-    """Return the first fenced code block content, or the raw response if none found."""
+-    blocks = re.findall(r"```(?:\w*)\n(.*?)```", response, re.DOTALL)
+-    return blocks[0].strip() if blocks else response.strip()
++    """Extract code from a model response, handling fenced blocks.
++    
++    Handles both complete and truncated (unclosed) fenced code blocks.
++    For unclosed/truncated fences, strips the fence markers and returns
++    just the code content to ensure it's runnable.
++    """
++    # Pattern to match fenced code blocks (opening fence + content + optional closing fence)
++    pattern = r'```(?:\w+)?\n(.*?)```'
++    
++    # Try to find a complete fenced block first
++    match = re.search(pattern, response, re.DOTALL)
++    
++    if match:
++        # Extract just the code content (without fences)
++        return match.group(1).strip()
++    
++    # No complete fenced block found - check for unclosed fence
++    # If there's an opening fence but no closing, strip it and return raw content
++    unclosed_pattern = r'```(?:\w+)?\n(.*)'
++    unclosed_match = re.search(unclosed_pattern, response, re.DOTALL)
++    
++    if unclosed_match:
++        # Return just the code content without the opening fence
++        return unclosed_match.group(1).strip()
++    
++    # No fence at all - return raw response
++    return response.strip()
+ 
+ 
+ def strip_preamble(response: str) -> str:
+-    """Remove common LLM preamble and sign-off lines."""
+-    lines = response.strip().splitlines()
+-
+-    while lines and _PREAMBLE_RE.match(lines[0].strip()):
+-        lines.pop(0)
+-
+-    while lines and _SIGNOFF_RE.match(lines[-1].strip()):
+-        lines.pop()
+-
+-    return "\n".join(lines).strip()
++    """Remove conversational preamble and signoff from a model response.
++    
++    Extracts just the core content by removing leading conversational text
++    and trailing sign-off phrases.
++    """
++    # Split on newlines and find the first non-conversational line
++    lines = response.split('\n')
++    
++    for i, line in enumerate(lines):
++        stripped = line.strip()
++        if stripped and not stripped.startswith(('Sure', 'Here', 'Okay', 'Of course', 'Certainly')):
++            # Found the start of actual content
++            return '\n'.join(lines[i:]).strip()
++    
++    # If all lines look conversational, return as-is
++    return response.strip()

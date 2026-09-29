@@ -1,0 +1,118 @@
+diff --git a/backend/orchestrator/workers/ollama.py b/backend/orchestrator/workers/ollama.py
+index 3ef0d0b..b99984c 100644
+--- a/backend/orchestrator/workers/ollama.py
++++ b/backend/orchestrator/workers/ollama.py
+@@ -105,6 +105,113 @@ class OllamaWorker(WorkerAdapter):
+         feedback: str | None = None,
+     ) -> AsyncGenerator[WorkerEvent, None]:
+         user_content = f"Task: {task.title}\n\nGoal: {task.goal}"
++
++        # Retry loop for transient cold-load failures (5xx, ReadError, etc.)
++        last_error: Exception | None = None
++        for attempt_num in range(_MAX_TRANSIENT_RETRIES + 1):
++            try:
++                async with httpx.AsyncClient(timeout=120.0) as client:
++                    async with client.stream(
++                        "POST", f"{self._base_url}/api/chat", json=payload,
++                    ) as response:
++                        if response.status_code != 200:
++                            yield WorkerEvent(
++                                type="attempt.failed",
++                                payload={
++                                    "error_code": "http_error",
++                                    "error": f"Ollama returned HTTP {response.status_code} for {self._model}",
++                                },
++                            )
++                            return
++                        async for line in response.aiter_lines():
++                            if not line:
++                                continue
++                            try:
++                                chunk = json.loads(line)
++                            except json.JSONDecodeError:
++                                continue
++                            msg = chunk.get("message", {})
++                            content = msg.get("content", "")
++                            if content:
++                                full_response.append(content)
++                            if chunk.get("done"):
++                                eval_count = chunk.get("eval_count", 0)
++                                eval_duration_ns = chunk.get("eval_duration", 0)
++                                eval_duration_s = eval_duration_ns / 1e9 if eval_duration_ns else 0.0
++                                tps = round(eval_count / eval_duration_s, 1) if eval_duration_s > 0 else 0.0
++                                _ollama_metrics = {
++                                    "elapsed_s": round(eval_duration_s, 2),
++                                    "tokens": eval_count,
++                                    "throughput_tps": tps,
++                                }
++                                # Input side of the cost counterfactual: the done
++                                # chunk also carries prompt_eval_count/_duration.
++                                prompt_eval_count = chunk.get("prompt_eval_count", 0)
++                                if prompt_eval_count:
++                                    prompt_eval_ns = chunk.get("prompt_eval_duration", 0)
++                                    prompt_eval_s = prompt_eval_ns / 1e9 if prompt_eval_ns else 0.0
++                                    _ollama_metrics["prompt_tokens"] = prompt_eval_count
++                                    _ollama_metrics["prompt_eval_rate"] = (
++                                        round(prompt_eval_count / prompt_eval_s, 1)
++                                        if prompt_eval_s > 0 else 0.0
++                                    )
++                                break
++            except httpx.ConnectError as exc:
++                # Fail fast on ConnectError - server is genuinely down
++                last_error = exc
++                break
++            except (httpx.ReadError, httpx.ReadTimeout, httpx.RemoteProtocolError) as exc:
++                # Transient read errors during model swap/cold-load - retry
++                if attempt_num < _MAX_TRANSIENT_RETRIES:
++                    backoff = _INITIAL_BACKOFF_S * (_MAX_TRANSIENT_RETRIES - attempt_num)
++                    logger.warning(
++                        "OLLAMA RETRY %d/%d after transient read error: %s, backoff %.1fs",
++                        attempt_num + 1, _MAX_TRANSIENT_RETRIES, exc, backoff
++                    )
++                    await asyncio.sleep(backoff)
++                    continue
++                else:
++                    last_error = exc
++                    break
++            except httpx.HTTPStatusError as exc:
++                status = exc.response.status_code
++                if 500 <= status < 600:
++                    # Transient 5xx during cold-load - retry
++                    if attempt_num < _MAX_TRANSIENT_RETRIES:
++                        backoff = _INITIAL_BACKOFF_S * (_MAX_TRANSIENT_RETRIES - attempt_num)
++                        logger.warning(
++                            "OLLAMA RETRY %d/%d after HTTP %d (cold-load), backoff %.1fs",
++                            attempt_num + 1, _MAX_TRANSIENT_RETRIES, status, backoff
++                        )
++                        await asyncio.sleep(backoff)
++                        continue
++                    else:
++                        last_error = exc
++                        break
++                else:
++                    # 4xx client errors - fail fast
++                    last_error = exc
++                    break
++            except Exception as exc:
++                # Catch-all for other exceptions
++                last_error = exc
++                break
++        else:
++            # Only reached if we successfully completed a stream (no break)
++            pass
++
++        if last_error is not None:
++            error_code = "ollama_unreachable" if isinstance(last_error, httpx.ConnectError) else "http_error"
++            yield WorkerEvent(
++                type="attempt.failed",
++                payload={
++                    "error_code": error_code,
++                    "error": f"Ollama failed after retries: {last_error}",
++                },
++            )
++            return
++
++        # Strip any  reasoning chain. Applies regardless of
+         if task.done_criteria:
+             user_content += f"\n\nDone when: {task.done_criteria}"
+         if task.context_refs:

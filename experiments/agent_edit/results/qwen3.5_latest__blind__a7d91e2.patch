@@ -1,0 +1,129 @@
+diff --git a/backend/orchestrator/routing/code_judge.py b/backend/orchestrator/routing/code_judge.py
+index cb57b26..528a8df 100644
+--- a/backend/orchestrator/routing/code_judge.py
++++ b/backend/orchestrator/routing/code_judge.py
+@@ -141,12 +141,20 @@ def values_equal(a: Any, b: Any, *, rtol: float = FLOAT_RTOL, atol: float = FLOA
+     Numbers compare via isclose (bool==int keeps Python semantics); lists and
+     tuples cross-compare elementwise (a correct arm returning a tuple where the
+     references return a list is not a defect worth an escalation); dicts by
+-    keys+values; everything else by ==.
++    keys+values; everything else by ==. Large integers (>1e308) compare exactly
++    without float conversion to avoid OverflowError.
+     """
+     if isinstance(a, bool) != isinstance(b, bool):
+         return a == b
+     if isinstance(a, (int, float)) and isinstance(b, (int, float)):
+-        return math.isclose(float(a), float(b), rel_tol=rtol, abs_tol=atol)
++        # Handle large integers that overflow float() by comparing exactly
++        try:
++            fa = float(a)
++            fb = float(b)
++        except (OverflowError, ValueError):
++            # Integers beyond float range must compare exactly
++            return a == b
++        return math.isclose(fa, fb, rel_tol=rtol, abs_tol=atol)
+     if isinstance(a, (list, tuple)) and isinstance(b, (list, tuple)):
+         return len(a) == len(b) and all(
+             values_equal(x, y, rtol=rtol, atol=atol) for x, y in zip(a, b)
+@@ -278,35 +286,40 @@ async def differential_check(
+         return None, cost, "candidate harness failed"  # timeout/junk -> abstain
+     candidate_outcomes = parse_outcomes(candidate_stdout)
+ 
+-    checked = 0
+-    mismatches: list[tuple[int, Any, Any]] = []
+-    for i in range(len(pooled)):
+-        votes: list[Any] = []
+-        for outcomes in reference_outcomes:
+-            kind, payload = outcomes.get(i, ("MISSING", ""))
++    try:
++        checked = 0
++        mismatches: list[tuple[int, Any, Any]] = []
++        for i in range(len(pooled)):
++            votes: list[Any] = []
++            for outcomes in reference_outcomes:
++                kind, payload = outcomes.get(i, ("MISSING", ""))
++                if kind != "OK":
++                    continue  # an erroring reference cannot vote a value
++                try:
++                    votes.append(ast.literal_eval(payload))
++                except (SyntaxError, ValueError, MemoryError, RecursionError):
++                    continue  # non-literal repr cannot be compared deterministically
++            expected = value_consensus(votes)
++            if expected is _NO_CONSENSUS:
++                continue
++            checked += 1
++            kind, payload = candidate_outcomes.get(i, ("MISSING", ""))
+             if kind != "OK":
+-                continue  # an erroring reference cannot vote a value
++                mismatches.append((i, expected, f"<{kind}: {payload}>"))
++                continue
+             try:
+-                votes.append(ast.literal_eval(payload))
++                got = ast.literal_eval(payload)
+             except (SyntaxError, ValueError, MemoryError, RecursionError):
+-                continue  # non-literal repr cannot be compared deterministically
+-        expected = value_consensus(votes)
+-        if expected is _NO_CONSENSUS:
+-            continue
+-        checked += 1
+-        kind, payload = candidate_outcomes.get(i, ("MISSING", ""))
+-        if kind != "OK":
+-            mismatches.append((i, expected, f"<{kind}: {payload}>"))
+-            continue
+-        try:
+-            got = ast.literal_eval(payload)
+-        except (SyntaxError, ValueError, MemoryError, RecursionError):
+-            continue  # incomparable output -> protect the invariant, skip
+-        if not values_equal(expected, got):
+-            mismatches.append((i, expected, got))
+-
+-    if checked == 0:
+-        return None, cost, "no consensus inputs"
++                continue  # incomparable output -> protect the invariant, skip
++            if not values_equal(expected, got):
++                mismatches.append((i, expected, got))
++
++        if checked == 0:
++            return None, cost, "no consensus inputs"
++    except Exception:
++        # Catch any exception (e.g., OverflowError from huge ints) and abstain
++        return None, cost, "differential check crashed — abstain"
++
+     if len(mismatches) >= min_disagreements:
+         i, expected, got = mismatches[0]
+         return False, cost, (
+diff --git a/backend/orchestrator/routing/live_route.py b/backend/orchestrator/routing/live_route.py
+index faf42f3..681918f 100644
+--- a/backend/orchestrator/routing/live_route.py
++++ b/backend/orchestrator/routing/live_route.py
+@@ -156,15 +156,21 @@ async def route_one(
+     verdict, judge_cost, _raw, judge_err = await judge_one(judge_worker, prompt, local_output)
+     judge_detail = ""
+     if code_judge and verdict is True:
+-        tool_verdict, tool_cost, detail = await differential_check(
+-            judge_worker, prompt, local_output
+-        )
+-        judge_cost += tool_cost
+-        if tool_verdict is False:
+-            verdict = False
+-            judge_detail = f"code-judge override: {detail}"
+-        else:
+-            judge_detail = f"code-judge {'abstain' if tool_verdict is None else 'confirm'}: {detail}"
++        try:
++            tool_verdict, tool_cost, detail = await differential_check(
++                judge_worker, prompt, local_output
++            )
++            judge_cost += tool_cost
++            if tool_verdict is False:
++                verdict = False
++                judge_detail = f"code-judge override: {detail}"
++            else:
++                judge_detail = f"code-judge {'abstain' if tool_verdict is None else 'confirm'}: {detail}"
++        except Exception as e:
++            # Crash-proof: any exception from differential_check degrades to abstain
++            # recall-only invariant preserved — base accept stands
++            verdict = True
++            judge_detail = f"tool crashed: {type(e).__name__}: {e}"
+     escalate = verdict is not True  # False or None → escalate
+ 
+     cloud_output: Optional[str] = None

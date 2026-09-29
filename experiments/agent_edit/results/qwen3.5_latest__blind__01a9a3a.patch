@@ -1,0 +1,22 @@
+diff --git a/backend/orchestrator/store/metrics.py b/backend/orchestrator/store/metrics.py
+index 34d2992..d68ad89 100644
+--- a/backend/orchestrator/store/metrics.py
++++ b/backend/orchestrator/store/metrics.py
+@@ -5,14 +5,14 @@ from typing import Any
+ import aiosqlite
+ 
+ _BUCKET_KEYWORDS: dict[str, list[str]] = {
+-    "code":     ["write", "implement", "function", "class", "script", "module", "def ", "return"],
+     "test":     ["test", "pytest", "unittest", "spec", "assert"],
+     "refactor": ["refactor", "rename", "restructure", "clean up", "simplify"],
+     "debug":    ["debug", "fix", "bug", "error", "traceback", "exception"],
+     "research": ["search", "summarize", "find", "look up", "research", "what is"],
+     "plan":     ["plan", "design", "architect", "outline", "steps", "approach"],
+-    "review":   ["review", "audit", "check", "evaluate", "assess"],
+-    "security": ["security", "vulnerability", "exploit", "auth", "injection"],
++    "review":   ["review", "audit", "evaluate", "assess"],
++    "security": ["security", "vulnerab", "exploit", "auth", "injection", "secret"],
++    "code":     ["write", "implement", "function", "class", "script", "module", "def ", "return"],
+ }
+ 
+ 

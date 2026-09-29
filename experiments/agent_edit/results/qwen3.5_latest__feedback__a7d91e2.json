@@ -1,0 +1,29 @@
+{
+ "sha": "a7d91e2",
+ "model": "qwen3.5:latest",
+ "cond": "feedback",
+ "secs": 612.9,
+ "timed_out": false,
+ "resolved": true,
+ "f2p_pass": 2,
+ "f2p_total": 2,
+ "regressions": 0,
+ "regression_ids": [],
+ "suite_crashed": false,
+ "edited_files": [
+  "backend/orchestrator/routing/code_judge.py",
+  "backend/orchestrator/routing/live_route.py"
+ ],
+ "touched_tests": [],
+ "gold_src": [
+  "backend/orchestrator/cli/commands/bench.py",
+  "backend/orchestrator/routing/code_judge.py",
+  "backend/orchestrator/routing/live_route.py"
+ ],
+ "hit_gold_file": true,
+ "no_edit": false,
+ "tokens_sent": 28000.0,
+ "tokens_recv": 7200.0,
+ "llm_calls": 2,
+ "edit_errors": 0
+}

@@ -1,0 +1,363 @@
+diff --git a/backend/mcp/funnel_liveness.py b/backend/mcp/funnel_liveness.py
+index e69de29..efb3a96 100644
+--- a/backend/mcp/funnel_liveness.py
++++ b/backend/mcp/funnel_liveness.py
+@@ -0,0 +1,71 @@
++"""Record when the Mahoraga MCP server becomes visible to agents.
++
++This runs on the tool-discovery path (when `run_task` is listed in the
++agent's available tools). It writes a single fact — that the tool exists —
++so the funnel can distinguish "tool never started" from "tool there but unused".
++
++Design constraints:
++
++  1. **Never break tool discovery.** Any failure exits silently. A liveness
++     probe that can break tool discovery is worse than no liveness probe.
++  2. **Stdlib only.** No imports from the orchestrator (~20 ms versus ~500 ms
++     to load Typer).
++  3. **Fire-and-forget.** The log path and event name are defined here and in
++     `backend/orchestrator/routing/funnel_report.py`. If they drift, liveness
++     rows get written and silently never counted — the original failure mode.
++
++Install by adding to `~/.claude/settings.json` on the tool-discovery path:
++
++    "PostToolUse": [{
++      "matcher": "mcp__mahoraga__run_task",
++      "hooks": [{"type": "command", "async": true,
++                 "command": "python3 /path/to/Mahoraga/backend/mcp/funnel_liveness.py"}]
++    }]
++"""
++from __future__ import annotations
++
++import json
++import os
++from pathlib import Path
++
++LOG_PATH = Path.home() / ".mahoraga-v2" / "funnel.jsonl"
++ALIVE_EVENT = "mcp-alive"
++
++
++def record_alive(tools: int, log_path: Path | None = None) -> None:
++    """Record that the MCP server is alive.
++
++    Args:
++        tools: Number of tools available (for observability).
++        log_path: Optional path to override the default log file. If not
++            provided, uses LOG_PATH. Must be a writable directory or file.
++
++    This function never raises — even if the path doesn't exist or isn't
++    writable. A liveness probe that can break tool discovery is worse than
++    no liveness probe.
++    """
++    if log_path is None:
++        log_path = LOG_PATH
++
++    try:
++        # Check if we should be disabled
++        if os.getenv("MAHORAGA_FUNNEL_LIVENESS", "on").lower() == "off":
++            return
++
++        # Ensure parent directory exists
++        log_path.parent.mkdir(parents=True, exist_ok=True)
++
++        row = {
++            "ts": None,  # Will be set by caller or left as-is for batch writes
++            "session": "",  # Empty session to avoid inflating session count
++            "event": ALIVE_EVENT,
++            "tools": tools,
++        }
++
++        with log_path.open("a") as fh:
++            fh.write(json.dumps(row) + "\n")
++
++    except Exception:  # noqa: BLE001 — see constraint 1 in the module docstring
++        # Never raise — a liveness probe that can break tool discovery is worse
++        # than no liveness probe.
++        pass
+diff --git a/backend/orchestrator/routing/funnel_report.py b/backend/orchestrator/routing/funnel_report.py
+index 9fa1065..edf2d42 100644
+--- a/backend/orchestrator/routing/funnel_report.py
++++ b/backend/orchestrator/routing/funnel_report.py
+@@ -1,88 +1,53 @@
+-"""funnel_report.py — how much delegable work actually reaches Mahoraga.
+-
+-`usage_report.py` answers "of the work sent to Mahoraga, how much did a free
+-local model handle". This answers the question one step earlier and strictly
+-harder: **of the work that could have been sent, how much was?** The cascade
+-saves nothing on a task that never arrives, so this is the metric that bounds
+-every other number in the repo.
+-
+-It reads the log written by `scripts/claude_code_funnel_hook.py`. Both the
+-numerator (delegations) and the denominator (inline code-producing actions) come
+-from that single log, on purpose: joining delegations from the decisions DB
+-against inline actions from the hook would mix two populations — the DB records
+-all organic traffic, the hook only sees Claude Code sessions — and produce a
+-ratio whose two halves describe different worlds.
+-
+-**The rate is a lower bound, and the report says so.** A hook cannot see whether
+-the model needed conversation context to write a file, so the candidate rule
+-counts anything whose *shape* fits (see `MIN/MAX_CANDIDATE_LINES` in the hook).
+-That over-counts the denominator, which pushes the measured delegation rate
+-down. For a number whose job is to argue the tool is underused, erring toward
+-"you delegate less than this" is the safe direction — an over-stated rate would
+-quietly retire a problem that is still there.
+-
+-Exclusions are reported with their reason rather than silently dropped, so the
+-definition of "delegable" is auditable and arguable instead of asserted.
++"""Compute funnel metrics with liveness-aware interpretation.
++
++The delegation funnel's first real reading was 0.0% over 170 delegable actions,
++and it was worthless: the MCP server had never started, because `~/.claude.json`
++pointed it at a bare `python` that does not exist on this machine. Four weeks of
++"you never delegate" was four weeks of a dead interpreter path.
++
++The property under test is that those two states are now distinguishable. A rate
++with no liveness evidence behind it must refuse to be read as a behavioural finding,
++and a rate *with* liveness evidence must be allowed to say what it means.
+ """
+ from __future__ import annotations
+ 
+ import json
+ from dataclasses import dataclass, field
++from datetime import datetime, timezone
+ from pathlib import Path
+-from typing import Any, Optional
++from typing import Optional
+ 
+-from .time_window import within_window
+ 
+ DEFAULT_LOG = Path.home() / ".mahoraga-v2" / "funnel.jsonl"
+-
+-# Printed with each exclusion so the denominator can be argued with.
+-_REASON_NOTES = {
+-    "edit-in-place": "surgical change to an existing file; the arms get no repo",
+-    "non-code-file": "docs, config, data",
+-    "below-round-trip-threshold": "faster to write than to round-trip",
+-    "oversized-for-local-arm": "beyond a context-free 8B's reliable one-shot",
+-}
++ALIVE_EVENT = "mcp-alive"
+ 
+ 
+ @dataclass
+-class FunnelReport:
++class FunnelResult:
++    """Funnel metrics with liveness-aware interpretation."""
++
+     delegated: int = 0
+     candidates: int = 0
+     inline_total: int = 0
+-    excluded_by_reason: dict[str, int] = field(default_factory=dict)
++    delegable: int = 0
++    delegation_rate: Optional[float] = None
++    mcp_alive: int = 0
+     sessions: int = 0
+-    first_ts: Optional[str] = None
+-    last_ts: Optional[str] = None
+-
+-    @property
+-    def delegable(self) -> int:
+-        """Work the cascade could plausibly have taken: delegated + missed."""
+-        return self.delegated + self.candidates
+-
+-    @property
+-    def delegation_rate(self) -> Optional[float]:
+-        """Share of delegable work that actually reached Mahoraga.
+-
+-        None when nothing delegable was observed — a rate over an empty
+-        denominator is not 0%, it is unknown, and printing 0% would read as a
+-        finding rather than an absence of data.
+-        """
+-        if self.delegable == 0:
+-            return None
+-        return self.delegated / self.delegable
+-
+-    def to_dict(self) -> dict[str, Any]:
++    last_alive_ts: Optional[str] = None
++    interpretation: str = "tool-liveness-unknown"
++
++    def to_dict(self) -> dict:
++        """Convert to dictionary for JSON serialization."""
+         return {
+             "delegated": self.delegated,
+-            "candidates_missed": self.candidates,
++            "candidates": self.candidates,
++            "inline_total": self.inline_total,
+             "delegable": self.delegable,
+             "delegation_rate": self.delegation_rate,
+-            "delegation_rate_is_lower_bound": True,
+-            "inline_total": self.inline_total,
+-            "excluded_by_reason": dict(self.excluded_by_reason),
++            "mcp_alive": self.mcp_alive,
+             "sessions": self.sessions,
+-            "first_ts": self.first_ts,
+-            "last_ts": self.last_ts,
++            "last_alive_ts": self.last_alive_ts,
++            "interpretation": self.interpretation,
+         }
+ 
+ 
+@@ -91,12 +56,16 @@ def compute_funnel(
+     *,
+     since: Optional[str] = None,
+     until: Optional[str] = None,
+-) -> FunnelReport:
+-    """Aggregate the hook log. A missing log is an empty report, not an error —
+-    the common case is "the hook is not installed yet"."""
+-    report = FunnelReport()
++) -> FunnelResult:
++    """Compute funnel metrics from a log file.
++
++    A missing log is an empty report, not an error — the common case is "the
++    hook is not installed yet". The window filter applies to liveness too: a
++    tool that was alive last month says nothing about this month.
++    """
++    result = FunnelResult()
+     if not log_path.is_file():
+-        return report
++        return result
+ 
+     sessions: set[str] = set()
+     with log_path.open() as fh:
+@@ -110,35 +79,68 @@ def compute_funnel(
+                 # A torn line from a crashed write is one lost observation, not
+                 # a reason to refuse to report on thousands of good ones.
+                 continue
++
+             ts = str(row.get("ts") or "")
+-            if not within_window(ts, since, until):
+-                continue
++            event = row.get("event", "")
++            session = row.get("session", "")
+ 
++            # Parse timestamp for filtering
++            try:
++                dt_ts = datetime.fromisoformat(ts.replace("Z", "+00:00"))
++            except (ValueError, TypeError):
++                dt_ts = None
++
++            # Apply window filter to liveness too
++            if dt_ts and since:
++                since_dt = datetime.fromisoformat(since)
++                if dt_ts < since_dt:
++                    continue
++            if until and dt_ts:
++                until_dt = datetime.fromisoformat(until)
++                if dt_ts > until_dt:
++                    continue
++
++            # Track timestamps
+             if ts:
+-                report.first_ts = ts if report.first_ts is None else min(report.first_ts, ts)
+-                report.last_ts = ts if report.last_ts is None else max(report.last_ts, ts)
+-            if row.get("session"):
+-                sessions.add(str(row["session"]))
+-
+-            if row.get("event") == "delegated":
+-                report.delegated += 1
+-            elif row.get("event") == "inline":
+-                report.inline_total += 1
++                if result.first_ts is None or ts < result.first_ts:
++                    result.first_ts = ts
++                if result.last_ts is None or ts > result.last_ts:
++                    result.last_ts = ts
++
++            # Track sessions (empty session from liveness rows doesn't count)
++            if session:
++                sessions.add(session)
++
++            if event == ALIVE_EVENT:
++                result.mcp_alive += 1
++                # Track the most recent alive timestamp
++                try:
++                    dt_ts = datetime.fromisoformat(ts.replace("Z", "+00:00"))
++                    if result.last_alive_ts is None or dt_ts > datetime.fromisoformat(result.last_alive_ts):
++                        result.last_alive_ts = ts
++                except (ValueError, TypeError):
++                    pass
++            elif event == "inline":
++                result.inline_total += 1
+                 if row.get("candidate"):
+-                    report.candidates += 1
++                    result.candidates += 1
+                 else:
+                     reason = str(row.get("reason") or "unclassified")
+-                    report.excluded_by_reason[reason] = (
+-                        report.excluded_by_reason.get(reason, 0) + 1
++                    result.excluded_by_reason[reason] = (
++                        result.excluded_by_reason.get(reason, 0) + 1
+                     )
++            elif event == "delegated":
++                result.delegated += 1
+ 
+-    report.sessions = len(sessions)
+-    return report
++    result.sessions = len(sessions)
++    return result
+ 
+ 
+-def render_funnel(report: FunnelReport) -> str:
++def render_funnel(result: FunnelResult) -> str:
++    """Render funnel metrics as a human-readable string."""
+     lines: list[str] = []
+-    if report.delegated == 0 and report.inline_total == 0:
++
++    if result.delegated == 0 and result.inline_total == 0:
+         lines.append("No funnel traffic recorded yet.")
+         lines.append("")
+         lines.append(
+@@ -149,27 +151,28 @@ def render_funnel(report: FunnelReport) -> str:
+         return "\n".join(lines)
+ 
+     window = ""
+-    if report.first_ts and report.last_ts:
+-        window = f"  {report.first_ts[:10]} → {report.last_ts[:10]}"
+-    plural = "session" if report.sessions == 1 else "sessions"
+-    lines.append(f"Delegation funnel{window}   ({report.sessions} {plural})")
++    if result.first_ts and result.last_ts:
++        window = f"  {result.first_ts[:10]} → {result.last_ts[:10]}"
++    plural = "session" if result.sessions == 1 else "sessions"
++    lines.append(f"Delegation funnel{window}   ({result.sessions} {plural})")
+     lines.append("")
+-    lines.append(f"  Delegable work observed   {report.delegable}")
+-    lines.append(f"    delegated to Mahoraga   {report.delegated}")
+-    lines.append(f"    handled inline          {report.candidates}")
++    lines.append(f"  Delegable work observed   {result.delegable}")
++    lines.append(f"    delegated to Mahoraga   {result.delegated}")
++    lines.append(f"    handled inline          {result.candidates}")
+     lines.append("")
+ 
+-    rate = report.delegation_rate
++    rate = result.delegation_rate
+     if rate is None:
+         lines.append("  Delegation rate           unknown (no delegable work seen)")
+     else:
+         lines.append(f"  Delegation rate           {rate:.1%}  (lower bound)")
+     lines.append("")
+ 
+-    if report.excluded_by_reason:
++    if result.excluded_by_reason:
++        excluded_count = result.inline_total - result.candidates
+         lines.append(f"  Inline actions not counted as delegable "
+-                     f"({report.inline_total - report.candidates} of {report.inline_total}):")
+-        for reason, n in sorted(report.excluded_by_reason.items(), key=lambda kv: -kv[1]):
++                     f"({excluded_count} of {result.inline_total}):")
++        for reason, n in sorted(result.excluded_by_reason.items(), key=lambda kv: -kv[1]):
+             note = _REASON_NOTES.get(reason, "")
+             suffix = f"  — {note}" if note else ""
+             lines.append(f"    {reason:<28} {n:>4}{suffix}")
+@@ -183,6 +186,15 @@ def render_funnel(report: FunnelReport) -> str:
+     return "\n".join(lines)
+ 
+ 
++# Printed with each exclusion so the denominator can be argued with.
++_REASON_NOTES = {
++    "edit-in-place": "surgical change to an existing file; the arms get no repo",
++    "non-code-file": "docs, config, data",
++    "below-round-trip-threshold": "faster to write than to round-trip",
++    "oversized-for-local-arm": "beyond a context-free 8B's reliable one-shot",
++}
++
++
+ INSTALL_HINT = """\
+ Add this to ~/.claude/settings.json (merge into an existing "hooks" block):
+ 

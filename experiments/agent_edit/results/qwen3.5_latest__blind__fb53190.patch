@@ -1,0 +1,114 @@
+diff --git a/backend/orchestrator/workers/ollama.py b/backend/orchestrator/workers/ollama.py
+index 3ef0d0b..c8d6ae3 100644
+--- a/backend/orchestrator/workers/ollama.py
++++ b/backend/orchestrator/workers/ollama.py
+@@ -1,5 +1,6 @@
+ # backend/orchestrator/workers/ollama.py
+ from __future__ import annotations
++import asyncio
+ import json
+ import logging
+ import re
+@@ -127,23 +128,31 @@ class OllamaWorker(WorkerAdapter):
+ 
+         full_response: list[str] = []
+         _ollama_metrics: dict | None = None
+-        try:
+-            async with httpx.AsyncClient(timeout=120.0) as client:
+-                async with client.stream(
+-                    "POST", f"{self._base_url}/api/chat", json=payload,
+-                ) as response:
+-                    if response.status_code != 200:
+-                        yield WorkerEvent(
+-                            type="attempt.failed",
+-                            payload={
+-                                "error_code": "http_error",
+-                                "error": f"Ollama returned HTTP {response.status_code} for {self._model}",
+-                            },
+-                        )
+-                        return
+-                    async for line in response.aiter_lines():
+-                        if not line:
+-                            continue
++        
++        # Transient errors that warrant retry (5xx, stream read errors)
++        transient_errors = (httpx.HTTPStatusError, httpx.ReadError, httpx.ReadTimeout, httpx.RemoteProtocolError)
++        
++        for attempt in range(_MAX_TRANSIENT_RETRIES + 1):
++            try:
++                async with httpx.AsyncClient(timeout=120.0) as client:
++                    async with client.stream(
++                        "POST", f"{self._base_url}/api/chat", json=payload,
++                    ) as response:
++                        if response.status_code != 200:
++                            # 4xx = client error, fail fast; 5xx = server error, retry
++                            is_transient = 500 <= response.status_code < 600
++                            if not is_transient:
++                                yield WorkerEvent(
++                                    type="attempt.failed",
++                                    payload={
++                                        "error_code": "http_error",
++                                        "error": f"Ollama returned HTTP {response.status_code} for {self._model}",
++                                    },
++                                )
++                                return
++                        async for line in response.aiter_lines():
++                            if not line:
++                                continue
+                         try:
+                             chunk = json.loads(line)
+                         except json.JSONDecodeError:
+@@ -174,21 +183,38 @@ class OllamaWorker(WorkerAdapter):
+                                     if prompt_eval_s > 0 else 0.0
+                                 )
+                             break
+-        except httpx.ConnectError:
+-            yield WorkerEvent(
+-                type="attempt.failed",
+-                payload={
+-                    "error_code": "ollama_unreachable",
+-                    "error": f"Ollama is not running at {self._base_url}",
+-                },
+-            )
+-            return
+-        except Exception as exc:
+-            yield WorkerEvent(
+-                type="attempt.failed",
+-                payload={"error_code": "stream_error", "error": f"[ERROR] {exc}"},
+-            )
+-            return
++            except transient_errors as exc:
++                if attempt < _MAX_TRANSIENT_RETRIES:
++                    backoff = _BACKOFF_TIMES[attempt]
++                    logger.warning("OLLAMA RETRY %d/%d after %s: %s", 
++                                   attempt + 1, _MAX_TRANSIENT_RETRIES, type(exc).__name__, exc)
++                    await asyncio.sleep(backoff)
++                    continue
++                else:
++                    yield WorkerEvent(
++                        type="attempt.failed",
++                        payload={
++                            "error_code": "http_error" if isinstance(exc, httpx.HTTPStatusError) 
++                                      else "stream_error",
++                            "error": f"[ERROR] {exc}",
++                        },
++                    )
++                    return
++            except httpx.ConnectError:
++                yield WorkerEvent(
++                    type="attempt.failed",
++                    payload={
++                        "error_code": "ollama_unreachable",
++                        "error": f"Ollama is not running at {self._base_url}",
++                    },
++                )
++                return
++            except Exception as exc:
++                yield WorkerEvent(
++                    type="attempt.failed",
++                    payload={"error_code": "stream_error", "error": f"[ERROR] {exc}"},
++                )
++                return
+ 
+         # Strip any <think>...</think> reasoning chain. Applies regardless of
+         # model — DeepSeek-R1 emits them unconditionally; others don't.

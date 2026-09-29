@@ -1,0 +1,578 @@
+diff --git a/.aider.chat.history.md b/.aider.chat.history.md
+index 73c02da..8f2df79 100644
+--- a/.aider.chat.history.md
++++ b/.aider.chat.history.md
+@@ -494,3 +494,504 @@ This ensures that `text` is not `None` before calling `split()`.
+ > **Example Fix  
+ > Create new file? (Y)es/(N)o [Yes]: y  
+ > Applied edit to **Example Fix  
++
++# aider chat started at 2026-09-28 17:56:14
++
++> /Users/kaitosoeno/.local/bin/aider --model ollama_chat/qwen3.5:latest --edit-format diff --model-settings-file /private/tmp/claude-501/-Users-kaitosoeno-Projects-Mahoraga/9fa9805a-2c5c-48ae-a18d-e09c6c71b8b0/scratchpad/agentedit/model-settings.yml --map-tokens 2048 --yes-always --no-auto-commits --no-gitignore --no-pretty --no-stream --no-show-model-warnings --no-check-update --no-analytics --no-show-release-notes --message Make the following change to this repository.
++
++fix: guarantee log_outcome() fires — close 37% reward leak at gateway/batch sites
++
++
++
++Tests covering this change already exist in: tests/orchestrator_v2/test_e2e_reward_loop.py, tests/orchestrator_v2/test_gateway.py. Do not modify any test files; change the source code so those tests pass without breaking anything else.  
++> Aider v0.86.2  
++> Model: ollama_chat/qwen3.5:latest with diff edit format  
++> Git repo: .git with 342 files  
++> Repo-map: using 2048 tokens, auto refresh  
++
++#### Make the following change to this repository.  
++####   
++#### fix: guarantee log_outcome() fires — close 37% reward leak at gateway/batch sites  
++####   
++####   
++####   
++#### Tests covering this change already exist in: tests/orchestrator_v2/test_e2e_reward_loop.py, tests/orchestrator_v2/test_gateway.py. Do not modify any test files; change the source code so those tests pass without breaking anything else.  
++> tests/orchestrator_v2/test_e2e_reward_loop.py  
++> Add file to the chat? (Y)es/(N)o/(A)ll/(S)kip all/(D)on't ask again [Yes]: y  
++> tests/orchestrator_v2/test_gateway.py  
++> Add file to the chat? (Y)es/(N)o/(A)ll/(S)kip all/(D)on't ask again [Yes]: y  
++> Initial repo scan can be slow in larger repos, but only happens once.  
++
++I need to fix the reward leak by ensuring `log_outcome()` (which calls `router.observe()`) fires even when exceptions occur in batch/gateway code paths. Let me first examine the gateway implementation to find where the issue is.
++
++backend/orchestrator/gateway.py
++```python
++<<<<<<< SEARCH
++=======
++"""Gateway for handling incoming messages and routing tasks."""
++from __future__ import annotations
++
++import asyncio
++import time
++import uuid
++from pathlib import Path
++from typing import AsyncIterator, Optional
++
++from backend.orchestrator.adapters.registry import AdapterRegistry
++from backend.orchestrator.channels.base import ChannelMessage
++from backend.orchestrator.config import MahoragaConfig
++from backend.orchestrator.domain.models import (
++    Mission,
++    Plan,
++    Run,
++    RunMode,
++    Task,
++    TaskStatus,
++    TaskAttempt,
++    AttemptStatus,
++)
++from backend.orchestrator.gateway import Gateway as _GatewayBase
++from backend.orchestrator.planning.planner import Planner
++from backend.orchestrator.routing.bandit_router import BanditRouter
++from backend.orchestrator.routing.reward import TaskOutcome
++from backend.orchestrator.store.base import Store
++from backend.orchestrator.tools.tool_registry import ToolRegistry
++from backend.orchestrator.verifier.verifier import Verifier
++
++
++class Gateway(_GatewayBase):
++    """Gateway that handles incoming messages, creates missions/plans/runs/tasks,
++    and routes them to workers via the bandit router.
++
++    The `observe()` call must fire for every task completion/failure to record
++    rewards in the decision log. Previously, exceptions in `_run_task` could skip
++    this call, leaking ~37% of rewards.
++    """
++
++    def __init__(
++        self,
++        store: Store,
++        registry: AdapterRegistry,
++        verifier: Verifier,
++        adaptive_store: Optional[object] = None,
++        adapter_registry: Optional[AdapterRegistry] = None,
++        config: Optional[MahoragaConfig] = None,
++    ) -> None:
++        self.store = store
++        self.registry = registry
++        self.verifier = verifier
++        self.adaptive_store = adaptive_store
++        self.adapter_registry = adapter_registry
++        self.config = config
++
++        # Bandit router for routing decisions and reward logging
++        self._bandit_router: Optional[BanditRouter] = None
++
++    async def handle_message(
++        self, msg: ChannelMessage
++    ) -> AsyncIterator[str]:
++        """Handle an incoming message by creating a mission/plan/run/task and
++        executing it. Yields response chunks from completed attempts.
++
++        Even if _run_task raises, observe() must be called to log the outcome.
++        """
++        # Create mission for this message
++        mission = Mission.new(title=msg.text[:50], goal=msg.text)
++        await self.store.missions.save(mission)
++
++        try:
++            # Generate tasks from planner (or use provided ones in tests)
++            tasks_from_planner = []
++            if self.config and self.config.active_backend == "ollama":
++                # For ollama, generate a code task
++                tasks_from_planner = [
++                    Task.new(
++                        run_id="__pending__",
++                        title="Write function",
++                        goal="implement fibonacci",
++                    )
++                ]
++
++            if not tasks_from_planner:
++                # Fall back to planner if available
++                from backend.orchestrator.planning import generate_tasks
++                try:
++                    tasks_from_planner = await generate_tasks(msg)
++                except Exception:
++                    pass
++
++            if not tasks_from_planner:
++                return
++
++            # Create plan and run for this mission
++            plan = Plan.new(mission_id=mission.id)
++            run = Run.new(
++                mission_id=mission.id,
++                plan_id=plan.id,
++                mode=RunMode.direct,
++            )
++            await self.store.missions.save_plan(plan)
++            await self.store.missions.save_run(run)
++
++            # Execute each task
++            for task in tasks_from_planner:
++                task.run_id = run.id
++                task.status = TaskStatus.ready
++                task.created_at = time.time()
++                task.updated_at = time.time()
++                await self.store.tasks.save(task)
++
++                try:
++                    # Run the task (may raise on worker failure)
++                    await self._run_task(task)
++                except Exception as e:
++                    # CRITICAL FIX: observe() must fire even on exception
++                    # Previously, a `continue` here would skip observe(), leaking rewards
++                    outcome = TaskOutcome(
++                        success=False,
++                        quality_score=0.0,
++                        latency_ms=None,
++                        cost_usd=0.0,
++                        error=str(e),
++                    )
++                    if self._bandit_router:
++                        self._bandit_router.observe(task.id, outcome)
++
++                # Get attempts for this task
++                attempts = await self.store.tasks.list_attempts(task.id)
++                for attempt in attempts:
++                    yield attempt.summary or attempt.output or ""
++
++        except Exception as e:
++            # Mission was already saved before planner was called
++            # Still need to log outcome if we have a router
++            if self._bandit_router and tasks_from_planner:
++                for task in tasks_from_planner:
++                    outcome = TaskOutcome(
++                        success=False,
++                        quality_score=0.0,
++                        latency_ms=None,
++                        cost_usd=0.0,
++                        error=str(e),
++                    )
++                    self._bandit_router.observe(task.id, outcome)
++
++            # Yield error message
++            yield f"Gateway error: {e}"
++
++    async def _run_task(self, task: Task) -> None:
++        """Run a single task via the worker registry."""
++        if not self.registry:
++            return
++
++        # Find a suitable worker for this task
++        worker = self.registry.get_worker(task)
++        if not worker:
++            raise RuntimeError("No suitable worker found")
++
++        # Create attempt
++        attempt = TaskAttempt.new(
++            task_id=task.id,
++            worker_id=worker.id,
++            status=AttemptStatus.running,
++        )
++        await self.store.tasks.save_attempt(attempt)
++
++        try:
++            # Execute the task via the worker
++            async for event in worker.execute(attempt, task):
++                if event.event_type == "attempt.completed":
++                    attempt.status = AttemptStatus.completed
++                    attempt.summary = event.payload.get("summary", "")
++                    await self.store.tasks.save_attempt(attempt)
++
++                    # Log outcome for successful completion
++                    outcome = TaskOutcome(
++                        success=True,
++                        quality_score=0.75,  # Default quality score
++                        latency_ms=None,
++                        cost_usd=0.0,
++                    )
++                    if self._bandit_router:
++                        self._bandit_router.observe(task.id, outcome)
++
++        except Exception as e:
++            attempt.status = AttemptStatus.failed
++            attempt.error_code = "worker_error"
++            attempt.summary = f"Worker error: {e}"
++            await self.store.tasks.save_attempt(attempt)
++
++            # Log outcome for failure
++            outcome = TaskOutcome(
++                success=False,
++                quality_score=0.0,
++                latency_ms=None,
++                cost_usd=0.0,
++                error=str(e),
++            )
++            if self._bandit_router:
++                self._bandit_router.observe(task.id, outcome)
++
++        finally:
++            # Always log outcome in finally block to guarantee it fires
++            if self._bandit_router and task.status == TaskStatus.ready:
++                # Determine success based on attempt status
++                attempts = await self.store.tasks.list_attempts(task.id)
++                completed = any(a.status == AttemptStatus.completed for a in attempts)
++                outcome = TaskOutcome(
++                    success=completed,
++                    quality_score=0.75 if completed else 0.0,
++                    latency_ms=None,
++                    cost_usd=0.0,
++                )
++                self._bandit_router.observe(task.id, outcome)
++
++    async def set_bandit_router(self, router: BanditRouter) -> None:
++        """Set the bandit router for routing decisions."""
++        self._bandit_router = router
++>>>>>>> REPLACE
++```
++
++> Tokens: 12k sent, 2.1k received.  
++> backend/orchestrator/gateway.py  
++> Add file to the chat? (Y)es/(N)o/(D)on't ask again [Yes]: y  
++
++Looking at the test files, I can see they expect `router.observe()` to be called even when `_run_task` raises an exception. The current gateway.py code has a bug in the exception handler where it yields an error chunk and continues without calling `observe()`.
++
++Let me fix the gateway.py file to ensure `observe()` fires in all cases:
++
++backend/orchestrator/gateway.py
++```python
++<<<<<<< SEARCH
++            try:
++                await run_task(task.id, self._store, self._registry, self._verifier)
++            except Exception as exc:
++                logger.error("gateway: run_task error for %s: %s", task.id, exc)
++                chunk = f"[Task '{task.title}' failed: {exc}]"
++                response_chunks.append(chunk)
++                yield chunk
++                continue
++
++            # Collect the latest completed attempt output as a response chunk.
++=======
++            try:
++                await run_task(task.id, self._store, self._registry, self._verifier)
++            except Exception as exc:
++                logger.error("gateway: run_task error for %s: %s", task.id, exc)
++                # CRITICAL FIX: observe() must fire even on exception to prevent reward leak
++                if self._bandit_router is not None and completed:
++                    attempt = completed[-1]
++                    bandit_outcome = TaskOutcome(
++                        success=False,
++                        latency_s=0.0,
++                        cost_usd=0.0,
++                        quality_score=0.0,
++                        agent_name=attempt.worker_id or "unknown",
++                    )
++                    try:
++                        self._bandit_router.observe(task, bandit_outcome)
++                    except Exception:
++                        pass  # never let observe() break the main flow
++
++                chunk = f"[Task '{task.title}' failed: {exc}]"
++                response_chunks.append(chunk)
++                yield chunk
++                continue
++
++            # Collect the latest completed attempt output as a response chunk.
++>>>>>>> REPLACE
++```
++
++backend/orchestrator/gateway.py
++```python
++<<<<<<< SEARCH
++        # ── 7. Adaptive learning (fire-and-forget) ───────────────────────────
++        full_response = "\n".join(response_chunks)
++        if self._adaptive is not None:
++            try:
++                new_adaptations = await self._learner.analyze_interaction(
++                    user_message=msg.text,
++                    assistant_response=full_response,
++                    existing_adaptations=existing_adaptations,
++                )
++                for raw in new_adaptations:
++                    try:
++                        category = AdaptationCategory(raw["category"])
++                        adapt = UserAdaptation.new(
++                            user_id=msg.user_id,
++                            category=category,
++                            key=raw["key"],
++                            value=raw["value"],
++                            confidence=float(raw.get("confidence", 0.8)),
++                        )
++                        await self._adaptive.save_adaptation(adapt)
++                    except Exception:
++                        pass  # never let a bad adaptation record break anything
++            except Exception:
++                pass  # learning must never break responses
++
++        # ── Persist chat log entry ────────────────────────────────────────────
++=======
++        # ── 7. Adaptive learning (fire-and-forget) ───────────────────────────
++        full_response = "\n".join(response_chunks)
++        if self._adaptive is not None:
++            try:
++                new_adaptations = await self._learner.analyze_interaction(
++                    user_message=msg.text,
++                    assistant_response=full_response,
++                    existing_adaptations=existing_adaptations,
++                )
++                for raw in new_adaptations:
++                    try:
++                        category = AdaptationCategory(raw["category"])
++                        adapt = UserAdaptation.new(
++                            user_id=msg.user_id,
++                            category=category,
++                            key=raw["key"],
++                            value=raw["value"],
++                            confidence=float(raw.get("confidence", 0.8)),
++                        )
++                        await self._adaptive.save_adaptation(adapt)
++                    except Exception:
++                        pass  # never let a bad adaptation record break anything
++            except Exception:
++                pass  # learning must never break responses
++
++        # ── Persist chat log entry ────────────────────────────────────────────
++>>>>>>> REPLACE
++```
++
++> Tokens: 17k sent, 1.2k received.  
++> Applied edit to backend/orchestrator/gateway.py  
++>  
++> # Fix any errors below, if possible.  
++>  
++> ## Running: /Users/kaitosoeno/.local/share/uv/tools/aider-chat/bin/python -m flake8 --select=E9,F821,F823,F831,F406,F407,F701,F702,F704,F706 --show-source --isolated backend/orchestrator/gateway.py  
++>  
++> backend/orchestrator/gateway.py:177:56: F821 undefined name 'completed'  
++> if self._bandit_router is not None and completed:  
++> ^  
++> backend/orchestrator/gateway.py:178:31: F821 undefined name 'completed'  
++> attempt = completed[-1]  
++> ^  
++>  
++> ## See relevant lines below marked with █.  
++>  
++> backend/orchestrator/gateway.py:  
++> ...⋮...  
++> 45│class Gateway:  
++> 46│    """Routes channel messages through Mission → Plan → Run → Tasks pipeline."""  
++> 47│  
++> ...⋮...  
++> 70│    async def handle_message(self, msg: ChannelMessage) -> AsyncGenerator[str, None]:  
++> 71│        """Process a channel message through the full pipeline.  
++> 72│  
++> 73│        Yields response chunks (task summaries) as they complete.  
++> 74│        After all chunks are yielded, runs the adaptive learning loop  
++> 75│        in a fire-and-forget manner (errors are swallowed).  
++> ...⋮...  
++> 163│        for task in saved_tasks:  
++> 164│            # Re-fetch task status — dependency resolution may have updated it  
++> 165│            current = await self._store.tasks.get(task.id)  
++> ...⋮...  
++> 172│            try:  
++> 173│                await run_task(task.id, self._store, self._registry, self._verifier)  
++> 174│            except Exception as exc:  
++> 175│                logger.error("gateway: run_task error for %s: %s", task.id, exc)  
++> 176│                # CRITICAL FIX: observe() must fire even on exception to prevent reward leak  
++> 177█                if self._bandit_router is not None and completed:  
++> 178█                    attempt = completed[-1]  
++> 179│                    bandit_outcome = TaskOutcome(  
++> 180│                        success=False,  
++> 181│                        latency_s=0.0,  
++> ...⋮...  
++>  
++> Attempt to fix lint errors? (Y)es/(N)o [Yes]: y  
++
++I need to fix the error where `completed` is referenced before it's defined in the exception handler. The `completed` list should be defined before the try/except block so it's available in both paths.
++
++backend/orchestrator/gateway.py
++```python
++<<<<<<< SEARCH
++        for task in saved_tasks:
++            # Re-fetch task status — dependency resolution may have updated it
++            current = await self._store.tasks.get(task.id)
++            if current is None:
++                continue
++            if current.status != TaskStatus.ready:
++                # Only execute ready tasks — pending means unmet dependencies
++                continue
++
++            try:
++                await run_task(task.id, self._store, self._registry, self._verifier)
++            except Exception as exc:
++                logger.error("gateway: run_task error for %s: %s", task.id, exc)
++                # CRITICAL FIX: observe() must fire even on exception to prevent reward leak
++                if self._bandit_router is not None and completed:
++                    attempt = completed[-1]
++                    bandit_outcome = TaskOutcome(
++                        success=False,
++                        latency_s=0.0,
++                        cost_usd=0.0,
++                        quality_score=0.0,
++                        agent_name=attempt.worker_id or "unknown",
++                    )
++                    try:
++                        self._bandit_router.observe(task, bandit_outcome)
++                    except Exception:
++                        pass  # never let observe() break the main flow
++
++                chunk = f"[Task '{task.title}' failed: {exc}]"
++                response_chunks.append(chunk)
++                yield chunk
++                continue
++
++            # Collect the latest completed attempt output as a response chunk.
++            # Fall back to summary for legacy DB rows where output column is empty.
++            attempts = await self._store.tasks.list_attempts(task.id)
++            completed = [a for a in attempts if a.status.value == "completed"]
++=======
++        for task in saved_tasks:
++            # Re-fetch task status — dependency resolution may have updated it
++            current = await self._store.tasks.get(task.id)
++            if current is None:
++                continue
++            if current.status != TaskStatus.ready:
++                # Only execute ready tasks — pending means unmet dependencies
++                continue
++
++            # Collect completed attempts upfront so they're available in exception handler
++            attempts = await self._store.tasks.list_attempts(task.id)
++            completed = [a for a in attempts if a.status.value == "completed"]
++
++            try:
++                await run_task(task.id, self._store, self._registry, self._verifier)
++            except Exception as exc:
++                logger.error("gateway: run_task error for %s: %s", task.id, exc)
++                # CRITICAL FIX: observe() must fire even on exception to prevent reward leak
++                if self._bandit_router is not None and completed:
++                    attempt = completed[-1]
++                    bandit_outcome = TaskOutcome(
++                        success=False,
++                        latency_s=0.0,
++                        cost_usd=0.0,
++                        quality_score=0.0,
++                        agent_name=attempt.worker_id or "unknown",
++                    )
++                    try:
++                        self._bandit_router.observe(task, bandit_outcome)
++                    except Exception:
++                        pass  # never let observe() break the main flow
++
++                chunk = f"[Task '{task.title}' failed: {exc}]"
++                response_chunks.append(chunk)
++                yield chunk
++                continue
++
++            # Collect the latest completed attempt output as a response chunk.
++            # Fall back to summary for legacy DB rows where output column is empty.
++>>>>>>> REPLACE
++```
++
++> Tokens: 19k sent, 991 received.  
++> Applied edit to backend/orchestrator/gateway.py  
+diff --git a/.aider.input.history b/.aider.input.history
+index 792c366..867c199 100644
+--- a/.aider.input.history
++++ b/.aider.input.history
+@@ -58,3 +58,21 @@
+ +Explain what causes this error and how to fix it: AttributeError: 'NoneType' obj
+ +
+ +Explain what causes this error and how to fix it: AttributeError: 'NoneType' object has no attribute 'split'
++
++# 2026-09-28 17:56:15.352384
+++Make the following change to this repository.
+++
+++fix: guarantee log_outcome() fires — close 37% reward leak at gateway/batch sites
+++
+++
+++
+++Tests covering this change already exist in: tests/orchestrator_v2/test_e2e_reward_loop.py, tests/orchestrator_v2/test_gateway.py. Do not modify any test files; change the source code so those tests pass without breaking anything else.
++
++# 2026-09-28 17:56:15.352551
+++Make the following change to this repository.
+++
+++fix: guarantee log_outcome() fires — close 37% reward leak at gateway/batch sites
+++
+++
+++
+++Tests covering this change already exist in: tests/orchestrator_v2/test_e2e_reward_loop.py, tests/orchestrator_v2/test_gateway.py. Do not modify any test files; change the source code so those tests pass without breaking anything else.
+diff --git a/backend/orchestrator/gateway.py b/backend/orchestrator/gateway.py
+index 8ec23cb..09b0d07 100644
+--- a/backend/orchestrator/gateway.py
++++ b/backend/orchestrator/gateway.py
+@@ -169,10 +169,29 @@ class Gateway:
+                 # Only execute ready tasks — pending means unmet dependencies
+                 continue
+ 
++            # Collect completed attempts upfront so they're available in exception handler
++            attempts = await self._store.tasks.list_attempts(task.id)
++            completed = [a for a in attempts if a.status.value == "completed"]
++
+             try:
+                 await run_task(task.id, self._store, self._registry, self._verifier)
+             except Exception as exc:
+                 logger.error("gateway: run_task error for %s: %s", task.id, exc)
++                # CRITICAL FIX: observe() must fire even on exception to prevent reward leak
++                if self._bandit_router is not None and completed:
++                    attempt = completed[-1]
++                    bandit_outcome = TaskOutcome(
++                        success=False,
++                        latency_s=0.0,
++                        cost_usd=0.0,
++                        quality_score=0.0,
++                        agent_name=attempt.worker_id or "unknown",
++                    )
++                    try:
++                        self._bandit_router.observe(task, bandit_outcome)
++                    except Exception:
++                        pass  # never let observe() break the main flow
++
+                 chunk = f"[Task '{task.title}' failed: {exc}]"
+                 response_chunks.append(chunk)
+                 yield chunk
+@@ -180,8 +199,6 @@ class Gateway:
+ 
+             # Collect the latest completed attempt output as a response chunk.
+             # Fall back to summary for legacy DB rows where output column is empty.
+-            attempts = await self._store.tasks.list_attempts(task.id)
+-            completed = [a for a in attempts if a.status.value == "completed"]
+             logger.info("GATEWAY ATTEMPT OUTPUT: %s", [a.output[:100] for a in completed])
+             if completed:
+                 attempt = completed[-1]

@@ -1,0 +1,27 @@
+{
+ "sha": "aaa64fd",
+ "model": "qwen3.5:latest",
+ "cond": "blind",
+ "secs": 528.6,
+ "timed_out": false,
+ "resolved": false,
+ "f2p_pass": 0,
+ "f2p_total": 2,
+ "regressions": 0,
+ "regression_ids": [],
+ "suite_crashed": false,
+ "edited_files": [
+  "backend/orchestrator/gateway.py"
+ ],
+ "touched_tests": [],
+ "gold_src": [
+  "backend/orchestrator/gateway.py",
+  "backend/orchestrator/service/app.py"
+ ],
+ "hit_gold_file": true,
+ "no_edit": false,
+ "tokens_sent": 48000.0,
+ "tokens_recv": 4291.0,
+ "llm_calls": 3,
+ "edit_errors": 0
+}

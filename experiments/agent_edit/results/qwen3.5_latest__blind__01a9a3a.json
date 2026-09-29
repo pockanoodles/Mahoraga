@@ -1,0 +1,26 @@
+{
+ "sha": "01a9a3a",
+ "model": "qwen3.5:latest",
+ "cond": "blind",
+ "secs": 239.9,
+ "timed_out": false,
+ "resolved": false,
+ "f2p_pass": 2,
+ "f2p_total": 4,
+ "regressions": 0,
+ "regression_ids": [],
+ "suite_crashed": false,
+ "edited_files": [
+  "backend/orchestrator/store/metrics.py"
+ ],
+ "touched_tests": [],
+ "gold_src": [
+  "backend/orchestrator/store/metrics.py"
+ ],
+ "hit_gold_file": true,
+ "no_edit": false,
+ "tokens_sent": 14900.0,
+ "tokens_recv": 2500.0,
+ "llm_calls": 2,
+ "edit_errors": 0
+}

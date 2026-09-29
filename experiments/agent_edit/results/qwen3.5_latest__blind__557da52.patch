@@ -1,0 +1,89 @@
+diff --git a/backend/orchestrator/routing/execution_gate.py b/backend/orchestrator/routing/execution_gate.py
+index e69de29..f9c48ec 100644
+--- a/backend/orchestrator/routing/execution_gate.py
++++ b/backend/orchestrator/routing/execution_gate.py
+@@ -0,0 +1,84 @@
++"""Live verifiable-reward execution gate for code-producing buckets."""
++from __future__ import annotations
++
++import asyncio
++import os
++import re
++import subprocess
++from typing import Tuple, Optional
++
++
++EXEC_GATE_BUCKETS = {"code", "test", "refactor", "debug"}
++
++
++def exec_gate_enabled() -> bool:
++    """Check if execution gate is enabled via MAHORAGA_EXEC_GATE env var.
++    
++    Disabled by: off, 0, false, NO, Off (case-insensitive)
++    Enabled by default when env var not set or any other value.
++    """
++    val = os.environ.get("MAHORAGA_EXEC_GATE", "")
++    disabled_values = {"off", "0", "false", "no", "off"}
++    return val.lower() not in disabled_values
++
++
++async def check_executes(
++    code: str,
++    timeout: int = 5
++) -> Tuple[bool, Optional[str]]:
++    """Check if code produces valid executable output.
++    
++    Args:
++        code: The model-generated code to validate
++        timeout: Maximum execution time in seconds (default 5)
++    
++    Returns:
++        Tuple of (success, error_message):
++        - (True, None) if code executes successfully
++        - (False, error_message) if code fails or doesn't produce output
++    
++    Catches:
++        - Syntax errors
++        - Runtime errors  
++        - Bad imports
++        - Empty/no code produced
++        - Timeout
++    """
++    # Strip markdown code fences
++    stripped = re.sub(r'^```python\s*$', '', code, flags=re.MULTILINE)
++    stripped = re.sub(r'^```\s*$', '', stripped, flags=re.MULTILINE)
++    
++    # Check if any code remains after stripping
++    if not stripped.strip():
++        return False, "no code produced"
++    
++    try:
++        # Execute in a subprocess with timeout
++        process = await asyncio.wait_for(
++            asyncio.to_thread(subprocess.run, [
++                "python3", "-c", stripped
++            ], capture_output=True, text=True),
++            timeout=timeout
++        )
++        
++        if process.returncode != 0:
++            # Check for specific error types
++            stderr = process.stderr or ""
++            stdout = process.stdout or ""
++            
++            if "SyntaxError" in stderr or "SyntaxError" in stdout:
++                return False, f"SyntaxError: {stderr.strip()}"
++            elif "NameError" in stderr or "NameError" in stdout:
++                return False, f"NameError: {stderr.strip()}"
++            elif "ModuleNotFoundError" in stderr or "ModuleNotFoundError" in stdout:
++                return False, f"ImportError: {stderr.strip()}"
++            else:
++                # Generic runtime error
++                return False, f"RuntimeError: {stderr.strip() or stdout.strip()}"
++        
++        return True, None
++        
++    except asyncio.TimeoutError:
++        return False, "timeout"
++    except Exception as e:
++        return False, str(e)

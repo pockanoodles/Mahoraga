@@ -1,0 +1,73 @@
+diff --git a/backend/orchestrator/routing/code_judge.py b/backend/orchestrator/routing/code_judge.py
+index cb57b26..4a0bf7a 100644
+--- a/backend/orchestrator/routing/code_judge.py
++++ b/backend/orchestrator/routing/code_judge.py
+@@ -142,11 +142,22 @@ def values_equal(a: Any, b: Any, *, rtol: float = FLOAT_RTOL, atol: float = FLOA
+     tuples cross-compare elementwise (a correct arm returning a tuple where the
+     references return a list is not a defect worth an escalation); dicts by
+     keys+values; everything else by ==.
++
++    Integers beyond float range (>1e308) are compared exactly to avoid OverflowError.
+     """
+     if isinstance(a, bool) != isinstance(b, bool):
+         return a == b
+     if isinstance(a, (int, float)) and isinstance(b, (int, float)):
+-        return math.isclose(float(a), float(b), rel_tol=rtol, abs_tol=atol)
++        # Handle integers beyond float range by comparing exactly
++        if isinstance(a, int) and isinstance(b, int):
++            # Both are ints - compare exactly without converting to float
++            return a == b
++        # At least one is float - use tolerance-based comparison
++        try:
++            return math.isclose(float(a), float(b), rel_tol=rtol, abs_tol=atol)
++        except (OverflowError, ValueError):
++            # Overflow on huge ints - fall back to exact comparison
++            return a == b
+     if isinstance(a, (list, tuple)) and isinstance(b, (list, tuple)):
+         return len(a) == len(b) and all(
+             values_equal(x, y, rtol=rtol, atol=atol) for x, y in zip(a, b)
+diff --git a/backend/orchestrator/routing/live_route.py b/backend/orchestrator/routing/live_route.py
+index faf42f3..985b545 100644
+--- a/backend/orchestrator/routing/live_route.py
++++ b/backend/orchestrator/routing/live_route.py
+@@ -156,15 +156,20 @@ async def route_one(
+     verdict, judge_cost, _raw, judge_err = await judge_one(judge_worker, prompt, local_output)
+     judge_detail = ""
+     if code_judge and verdict is True:
+-        tool_verdict, tool_cost, detail = await differential_check(
+-            judge_worker, prompt, local_output
+-        )
+-        judge_cost += tool_cost
+-        if tool_verdict is False:
+-            verdict = False
+-            judge_detail = f"code-judge override: {detail}"
+-        else:
+-            judge_detail = f"code-judge {'abstain' if tool_verdict is None else 'confirm'}: {detail}"
++        try:
++            tool_verdict, tool_cost, detail = await differential_check(
++                judge_worker, prompt, local_output
++            )
++            judge_cost += tool_cost
++            if tool_verdict is False:
++                verdict = False
++                judge_detail = f"code-judge override: {detail}"
++            else:
++                judge_detail = f"code-judge {'abstain' if tool_verdict is None else 'confirm'}: {detail}"
++        except Exception as e:
++            # Crash-proof live runs: degrade any differential_check exception to abstain
++            # (recall-only, so the base accept stands)
++            judge_detail = f"tool crashed: {type(e).__name__}: {e}"
+     escalate = verdict is not True  # False or None → escalate
+ 
+     cloud_output: Optional[str] = None
+@@ -185,6 +190,10 @@ async def route_one(
+     total_cost = judge_cost + (cloud_cost if escalate else 0.0)
+ 
+     errs = [e for e in (local_err, judge_err, cloud_err if escalate else None) if e]
++    # Add tool crash error to the error list if present
++    if "tool crashed" in judge_detail:
++        errs.append(judge_detail)
++
+     return RoutedCase(
+         prompt=prompt,
+         bucket=bucket,

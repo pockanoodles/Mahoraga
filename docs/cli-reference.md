@@ -56,6 +56,7 @@ orch
 │   ├── drift-history
 │   ├── override-roi
 │   └── weekly
+├── agentbench {mine, run, report}
 └── service {install, uninstall, start, stop, status}
 ```
 
@@ -253,6 +254,39 @@ orch brain query "execution gate" --k 5
 
 These commands inspect the repo-local `brain/` notes. They do not append
 journals or decisions.
+
+## Agent bench
+
+`orch agentbench` measures which coding agent + local model can fix bugs in a
+given repo, using that repo's own history. The repo must be a git repo with a
+pytest suite; it is only read, and all state lives under
+`~/.mahoraga-v2/agentbench/`.
+
+```bash
+orch agentbench mine [REPO]                 # commits -> gated tasks
+    [--limit 25] [--max-lines 250] [--rev HEAD] [--commit SHA ...]
+    [--python PATH] [--pytest-arg ARG ...]
+orch agentbench run [REPO] --arm aider:qwen3.5:latest [--arm ...]
+    [--cond blind|feedback|both] [--repeats K] [--task SHA ...] [--timeout SECS]
+orch agentbench report [REPO] [--json]
+```
+
+- **mine** takes commits that changed both source and a test module. The task
+  is the parent plus the commit's test changes. It is kept only if the tests
+  pass at the commit and at least one fails at the base. The full suite at the
+  base becomes the pass-to-pass baseline.
+- **run** resets each task, lets the agent edit, restores the test files, and
+  grades. An attempt is resolved when the commit's tests pass and no
+  pass-to-pass test regressed. `feedback` also passes the task's test command
+  to the agent. Resumable; `--repeats` above 1 records separate attempts per
+  cell.
+- **report** prints resolve rates, multi-file resolve rates, regressions,
+  failure modes (`no-edit`, `wrong-file`, `broke-other`, `partial+broke`,
+  `partial`, `wrong-fix`), stability across repeats, and a per-task matrix.
+
+Arms are `<agent>:<model>`. v1 drives `aider` with local Ollama models only;
+Ollama `-cloud` models are refused, since they would send code off the machine
+outside the audited egress client.
 
 ## Agent and rankings commands
 

@@ -51,14 +51,21 @@ harmlessly, inside the clones.
 
 ## Run it
 
+The probe's scripts became `orch agentbench`, which runs the same method on
+any pytest repo. To rerun this probe:
+
 ```bash
-.venv/bin/python experiments/agent_edit/prepare.py   # build + gate tasks (~25 min)
-zsh experiments/agent_edit/chain.sh                  # all arms, resumable
-.venv/bin/python experiments/agent_edit/report.py    # tables
+orch agentbench mine . --commit 9102955 --commit a7d91e2 ...   # the 18 shas in tasks.jsonl
+                       --pytest-arg=-m --pytest-arg='not slow'
+orch agentbench run . --arm aider:qwen3.5:latest --arm aider:granite4.1:8b --cond both
+orch agentbench report .
 ```
 
-`prepare.py` rewrites `tasks.jsonl`, because each task's base commit is created
-locally. Needs Ollama with the arm models pulled, and `aider` on PATH.
+The scripts that produced the results below are in git history
+(`aa607b7`). One difference from them: `agentbench` runs pytest from the repo
+root rather than `tests/`, so the pass-to-pass baseline also covers
+`benchmark/` and `eval/`. Needs Ollama with the arm models pulled, and `aider`
+on PATH.
 
 ## Results (2026-09-28/29, 16 GB M-series)
 

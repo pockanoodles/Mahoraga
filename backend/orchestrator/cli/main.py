@@ -19,6 +19,7 @@ from .commands.replay import app as replay_app
 from .commands.analyze import app as analyze_app
 from .commands import ops
 from .commands.service import app as service_app
+from .commands.agentbench import app as agentbench_app
 
 app = typer.Typer(
     name="orch",
@@ -59,6 +60,7 @@ app.add_typer(budget_app, name="budget")
 app.add_typer(quarantine_app, name="quarantine")
 app.add_typer(replay_app, name="replay")
 app.add_typer(analyze_app, name="analyze")
+app.add_typer(agentbench_app, name="agentbench")
 
 # Flat commands
 app.add_typer(service_app, name="service")

@@ -5,21 +5,31 @@ clean checkout, the task prompt, and — in the feedback condition — the
 command that runs the task's tests. It edits files in place; scoring reads
 the result from git, so an agent never reports its own success.
 
+Agents: `aider` (search/replace edit blocks over a repo map) and `opencode`
+(a tool loop: read, grep, edit, bash). Same prompt, same models, same
+generation caps, so a difference between them is the agent's.
+
 Models are local Ollama models only. Driving a cloud model through a
 third-party agent would send code to a provider without passing through the
 repo's single audited egress client, so it is refused, not configured.
 """
 from __future__ import annotations
 
+import json
 import os
 import re
 import shlex
+import shutil
+import signal
 import subprocess
 import tempfile
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Protocol
+
+from . import ollama
+from .bank import DEFAULT_ROOT
 
 
 @dataclass
@@ -40,6 +50,40 @@ class Agent(Protocol):
 
     def attempt(self, workdir: Path, prompt: str, *,
                 test_cmd: list[str] | None, timeout: float) -> AgentRun: ...
+
+
+# The agent process group running right now, so a stopped run can take it down.
+_live: set[int] = set()
+
+
+def kill_live_agents() -> None:
+    for pgid in list(_live):
+        try:
+            os.killpg(pgid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        _live.discard(pgid)
+
+
+def _launch(cmd: list[str], cwd: Path, env: dict[str, str],
+            timeout: float) -> tuple[str, bool, float]:
+    """Run an agent in its own process group; returns (output, timed_out, secs).
+    A timeout or a stopped run kills the whole group, so the agent's own
+    children (test runs, shells) can't outlive the attempt."""
+    t0 = time.monotonic()
+    proc = subprocess.Popen(cmd, cwd=cwd, env=env, text=True, stdout=subprocess.PIPE,
+                            stderr=subprocess.STDOUT, start_new_session=True)
+    _live.add(proc.pid)
+    try:
+        out, _ = proc.communicate(timeout=timeout)
+        timed_out = False
+    except subprocess.TimeoutExpired:
+        os.killpg(proc.pid, signal.SIGKILL)
+        out, _ = proc.communicate()
+        timed_out = True
+    finally:
+        _live.discard(proc.pid)
+    return out or "", timed_out, round(time.monotonic() - t0, 1)
 
 
 def _require_local(model: str) -> None:
@@ -88,22 +132,14 @@ class AiderAgent:
                "--no-analytics", "--no-show-release-notes", "--message", prompt]
         if test_cmd:
             cmd += ["--auto-test", "--test-cmd", shlex.join(test_cmd)]
-        env = {**os.environ, "OLLAMA_API_BASE":
-               os.environ.get("OLLAMA_BASE_URL", "http://127.0.0.1:11434")}
-        t0 = time.monotonic()
+        env = {**os.environ, "OLLAMA_API_BASE": ollama.BASE_URL}
         try:
-            r = subprocess.run(cmd, cwd=workdir, capture_output=True, text=True,
-                               timeout=timeout, env=env)
-            log, timed_out = r.stdout + r.stderr, False
-        except subprocess.TimeoutExpired as e:
-            out = e.stdout or ""
-            log = out.decode(errors="replace") if isinstance(out, bytes) else out
-            timed_out = True
+            log, timed_out, secs = _launch(cmd, workdir, env, timeout)
         finally:
             os.unlink(settings)
         tokens = re.findall(r"Tokens: ([\d.]+k?) sent, ([\d.]+k?) received", log)
         return AgentRun(
-            log=log, secs=round(time.monotonic() - t0, 1), timed_out=timed_out,
+            log=log, secs=secs, timed_out=timed_out,
             llm_calls=len(tokens),
             tokens_sent=sum(_num(s) for s, _ in tokens),
             tokens_recv=sum(_num(r) for _, r in tokens),
@@ -120,7 +156,97 @@ def _num(s: str) -> float:
     return float(s[:-1]) * 1000 if s.endswith("k") else float(s)
 
 
-AGENTS = {"aider": AiderAgent}
+class OpenCodeAgent:
+    """opencode (`opencode run`), which reaches Ollama through its
+    OpenAI-compatible endpoint.
+
+    That endpoint ignores per-request options, so the model is served as a
+    derived tag with aider's num_ctx and num_predict baked in; otherwise
+    Ollama's default context would silently truncate opencode's prompt.
+
+    Isolation: opencode runs with its own HOME and XDG dirs under the bench
+    root, so it never sees the user's provider credentials. Only the ollama
+    provider is enabled, web fetch is denied, sharing and autoupdate are off,
+    and it may not touch files outside the checkout.
+
+    The feedback condition has no auto-test hook here: the prompt names the
+    test command, and the agent can run it with its bash tool.
+    """
+
+    name = "opencode"
+
+    def __init__(self, model: str, *, num_ctx: int = 32768, num_predict: int = 8192,
+                 home: Path | None = None) -> None:
+        _require_local(model)
+        self.model, self.num_ctx, self.num_predict = model, num_ctx, num_predict
+        self.home = home or Path(os.environ.get(
+            "MAHORAGA_AGENTBENCH_ROOT", DEFAULT_ROOT)) / "agent-home" / "opencode"
+
+    def _config(self, served: str) -> dict:
+        return {
+            "enabled_providers": ["ollama"], "autoupdate": False, "share": "disabled",
+            "provider": {"ollama": {
+                "npm": "@ai-sdk/openai-compatible", "name": "Ollama",
+                "options": {"baseURL": f"{ollama.BASE_URL}/v1"},
+                "models": {served: {"name": served, "tool_call": True}}}},
+            "model": f"ollama/{served}", "small_model": f"ollama/{served}",
+            "permission": {"edit": "allow", "bash": "allow", "webfetch": "deny",
+                           "external_directory": "deny"},
+        }
+
+    def _env(self, served: str) -> dict[str, str]:
+        h = self.home
+        # Inherited XDG_* (terminals set some) would point back at the user's dirs.
+        inherited = {k: v for k, v in os.environ.items() if not k.startswith("XDG_")}
+        return {**inherited, "HOME": str(h),
+                "XDG_CONFIG_HOME": str(h / ".config"), "XDG_DATA_HOME": str(h / ".local/share"),
+                "XDG_CACHE_HOME": str(h / ".cache"), "XDG_STATE_HOME": str(h / ".local/state"),
+                "OPENCODE_CONFIG_CONTENT": json.dumps(self._config(served)),
+                "OPENCODE_DISABLE_AUTOUPDATE": "1", "OPENCODE_DISABLE_MODELS_FETCH": "1",
+                "OPENCODE_DISABLE_LSP_DOWNLOAD": "1"}
+
+    def attempt(self, workdir: Path, prompt: str, *,
+                test_cmd: list[str] | None, timeout: float) -> AgentRun:
+        binary = shutil.which("opencode")
+        if not binary:
+            raise FileNotFoundError("opencode not on PATH")
+        served = ollama.derive(self.model, {"num_ctx": self.num_ctx,
+                                            "num_predict": self.num_predict})
+        if test_cmd:
+            prompt += f"\n\nYou can check your work by running: {shlex.join(test_cmd)}"
+        self.home.mkdir(parents=True, exist_ok=True)
+        cmd = [binary, "run", "--pure", "--format", "json", "--title", "agentbench",
+               "--model", f"ollama/{served}", prompt]
+        out, timed_out, secs = _launch(cmd, workdir, self._env(served), timeout)
+        run = parse_opencode_events(out)
+        run.log, run.secs, run.timed_out = out, secs, timed_out
+        return run
+
+
+def parse_opencode_events(out: str) -> AgentRun:
+    """`opencode run --format json` emits one event per line: a step_finish
+    per model call (with its token counts) and a tool_use per tool call."""
+    run = AgentRun(log="", secs=0, timed_out=False,
+                   extra={"tool_calls": 0, "tool_errors": 0, "bash_calls": 0})
+    for line in out.splitlines():
+        try:
+            event = json.loads(line)
+        except ValueError:
+            continue
+        part = event.get("part") or {}
+        if event.get("type") == "step_finish":
+            tok = part.get("tokens") or {}
+            run.llm_calls += 1
+            run.tokens_sent += tok.get("input", 0) + (tok.get("cache") or {}).get("read", 0)
+            run.tokens_recv += tok.get("output", 0) + tok.get("reasoning", 0)
+        elif event.get("type") == "tool_use":
+            run.extra["tool_calls"] += 1
+            run.extra["bash_calls"] += part.get("tool") == "bash"
+            run.extra["tool_errors"] += (part.get("state") or {}).get("status") == "error"
+    return run
+
+
+AGENTS = {"aider": AiderAgent, "opencode": OpenCodeAgent}
 
 
 def parse_arm(spec: str) -> Agent:

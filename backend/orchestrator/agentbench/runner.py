@@ -37,7 +37,7 @@ CONDITIONS = ("blind", "feedback")
 DEFAULT_TIMEOUT = 20 * 60
 
 # Files an agent or the grader leaves behind that are not the agent's edit.
-_NOT_AN_EDIT = re.compile(r"(^|/)(\.aider|\.agentbench-junit)")
+_NOT_AN_EDIT = re.compile(r"(^|/)(\.aider|\.opencode|\.agentbench-junit)")
 
 
 @dataclass

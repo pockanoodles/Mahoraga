@@ -23,7 +23,6 @@ clean reading exists, speed is recorded but not judged.
 from __future__ import annotations
 
 import json
-import os
 import shutil
 import threading
 import time
@@ -35,32 +34,7 @@ import httpx
 
 from . import host
 from .agents import Agent
-
-OLLAMA = os.environ.get("OLLAMA_BASE_URL", "http://127.0.0.1:11434")
-_PROBE = "Write a Python function that parses an ISO 8601 date, with a docstring."
-
-
-def pulled_models(base_url: str = OLLAMA) -> dict[str, str]:
-    """Local models, name -> digest. Raises httpx.HTTPError if Ollama is down."""
-    r = httpx.get(f"{base_url}/api/tags", timeout=10)
-    r.raise_for_status()
-    return {m["name"]: m["digest"] for m in r.json().get("models", [])}
-
-
-def generation_speed(model: str, num_ctx: int | None, base_url: str = OLLAMA) -> float:
-    options: dict = {"num_predict": 128, "temperature": 0}
-    if num_ctx:
-        options["num_ctx"] = num_ctx
-    r = httpx.post(f"{base_url}/api/generate", timeout=300, json={
-        "model": model, "prompt": _PROBE, "stream": False, "options": options})
-    r.raise_for_status()
-    body = r.json()
-    secs = body.get("eval_duration", 0) / 1e9
-    return round(body.get("eval_count", 0) / secs, 1) if secs else 0.0
-
-
-def _tagged(model: str) -> str:
-    return model if ":" in model else f"{model}:latest"
+from .ollama import BASE_URL, generation_speed, pulled_models, tagged
 
 
 @dataclass
@@ -101,7 +75,7 @@ class Guard:
     def _key(self, model: str) -> str:
         if self._digests is None:
             self._digests = self._pulled()
-        return f"{_tagged(model)}@{self._digests.get(_tagged(model), '?')[:12]}"
+        return f"{tagged(model)}@{self._digests.get(tagged(model), '?')[:12]}"
 
     def _refs(self) -> dict[str, float]:
         return json.loads(self.path.read_text()) if self.path.exists() else {}
@@ -193,11 +167,11 @@ class Guard:
         try:
             self._digests = self._pulled()
         except httpx.HTTPError as e:
-            checks.append(Check("ollama", False, f"not reachable at {OLLAMA}: {e}"))
+            checks.append(Check("ollama", False, f"not reachable at {BASE_URL}: {e}"))
             return checks
         checks.append(Check("ollama", True, f"{len(self._digests)} models"))
         for a in agents:
-            if _tagged(a.model) not in self._digests:
+            if tagged(a.model) not in self._digests:
                 checks.append(Check(a.model, False, f"not pulled: ollama pull {a.model}"))
                 continue
             s, ref = self.measure(a)

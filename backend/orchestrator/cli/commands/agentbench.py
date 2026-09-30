@@ -18,6 +18,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import signal
 import subprocess
 import sys
 from dataclasses import asdict
@@ -27,7 +28,7 @@ from typing import List, Optional
 
 import typer
 
-from backend.orchestrator.agentbench.agents import parse_arm
+from backend.orchestrator.agentbench.agents import kill_live_agents, parse_arm
 from backend.orchestrator.agentbench.bank import DEFAULT_ROOT, Bench, SuiteConfig
 from backend.orchestrator.agentbench.guard import Guard
 from backend.orchestrator.agentbench.mine import find_candidates, mine
@@ -170,6 +171,13 @@ def run_cmd(
             typer.echo("preflight failed; fix the above or pass --force")
             raise typer.Exit(1)
     _stay_awake()
+
+    def stop(signum, frame):  # take the running agent down with the run
+        kill_live_agents()
+        raise typer.Exit(130)
+
+    signal.signal(signal.SIGTERM, stop)
+    signal.signal(signal.SIGINT, stop)
     if deadline:
         typer.echo(f"no attempt starts after {datetime.fromtimestamp(deadline):%a %H:%M}")
 

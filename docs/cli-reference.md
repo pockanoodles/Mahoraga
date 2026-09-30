@@ -308,9 +308,24 @@ out the agent's calls, and those failures look exactly like model failures.
 `run` holds off sleep with `caffeinate` for its lifetime; closing the lid
 still sleeps the machine. `--until 07:30` starts no attempt after 07:30.
 
-Arms are `<agent>:<model>`. v1 drives `aider` with local Ollama models only;
-Ollama `-cloud` models are refused, since they would send code off the machine
-outside the audited egress client.
+Arms are `<agent>:<model>`, e.g. `aider:qwen3.5:latest` or
+`opencode:qwen3.5:latest`. Both agents get the same prompt and the same
+generation budget (32k context, 8,192 tokens per call), so a difference
+between two arms on the same model is the agent's.
+
+- **aider** edits with search/replace blocks over a repo map. `feedback` uses
+  its `--auto-test`.
+- **opencode** is a tool loop (read, grep, edit, bash). Ollama's
+  OpenAI-compatible endpoint ignores per-request options, so the model is
+  served as a derived tag (`agentbench/<model>:<tag>-num_ctx…-num_predict…`)
+  that shares the base weights. opencode runs with its own HOME under the
+  bench root, so it never sees your provider credentials. Only the ollama
+  provider is enabled, and web fetch and files outside the checkout are
+  denied. `feedback` names the test command in the prompt, and the agent runs
+  it itself.
+
+Models are local Ollama models only; Ollama `-cloud` models are refused, since
+they would send code off the machine outside the audited egress client.
 
 ## Agent and rankings commands
 

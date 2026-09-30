@@ -19,7 +19,9 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
-from backend.orchestrator.agentbench.agents import AgentRun, AiderAgent, parse_arm
+from backend.orchestrator.agentbench.agents import (
+    AgentRun, AiderAgent, OpenCodeAgent, parse_arm, parse_opencode_events,
+)
 from backend.orchestrator.agentbench.bank import Bench, SuiteConfig
 from backend.orchestrator.agentbench.mine import (
     find_candidates, is_test_module, is_test_path, mine,
@@ -453,3 +455,66 @@ def test_parse_until_is_the_next_occurrence():
     late, early = datetime(2026, 9, 29, 23, 0), datetime(2026, 9, 29, 6, 0)
     assert datetime.fromtimestamp(parse_until("07:30", late)) == datetime(2026, 9, 30, 7, 30)
     assert datetime.fromtimestamp(parse_until("07:30", early)) == datetime(2026, 9, 29, 7, 30)
+
+
+# ── opencode ──────────────────────────────────────────────────────────────────
+
+# Shaped like a real `opencode run --format json` transcript (1.18): read,
+# read, edit, then a final answer, three model calls.
+_OPENCODE_EVENTS = "\n".join(json.dumps(e) for e in [
+    {"type": "step_start", "part": {"type": "step-start"}},
+    {"type": "tool_use", "part": {"type": "tool", "tool": "read", "state": {"status": "completed"}}},
+    {"type": "tool_use", "part": {"type": "tool", "tool": "bash", "state": {"status": "error"}}},
+    {"type": "step_finish", "part": {"reason": "tool-calls", "tokens": {
+        "total": 7391, "input": 7175, "output": 216, "reasoning": 0, "cache": {"write": 0, "read": 0}}}},
+    {"type": "tool_use", "part": {"type": "tool", "tool": "edit", "state": {"status": "completed"}}},
+    {"type": "step_finish", "part": {"reason": "tool-calls", "tokens": {
+        "input": 448, "output": 190, "reasoning": 0, "cache": {"read": 7171}}}},
+    {"type": "text", "part": {"type": "text", "text": "Done"}},
+    {"type": "step_finish", "part": {"reason": "stop", "tokens": {
+        "input": 163, "output": 62, "reasoning": 5, "cache": {"read": 7615}}}},
+]) + "\nnot json\n"
+
+
+def test_opencode_events_are_counted():
+    run = parse_opencode_events(_OPENCODE_EVENTS)
+    assert run.llm_calls == 3
+    assert run.tokens_sent == 7175 + 448 + 7171 + 163 + 7615   # cache reads were sent too
+    assert run.tokens_recv == 216 + 190 + 62 + 5
+    assert run.extra == {"tool_calls": 3, "tool_errors": 1, "bash_calls": 1}
+
+
+def test_opencode_is_isolated_from_the_users_setup(tmp_path):
+    agent = OpenCodeAgent("qwen3.5:latest", home=tmp_path / "oc")
+    env = agent._env("agentbench/qwen3.5:latest-num_ctx32768-num_predict8192")
+    assert env["HOME"] == str(tmp_path / "oc")               # no user credentials
+    assert all(env[k].startswith(str(tmp_path)) for k in env if k.startswith("XDG_"))
+    cfg = json.loads(env["OPENCODE_CONFIG_CONTENT"])
+    assert cfg["enabled_providers"] == ["ollama"]
+    assert cfg["provider"]["ollama"]["options"]["baseURL"].startswith("http://127.0.0.1")
+    assert cfg["permission"]["webfetch"] == "deny"
+    assert cfg["permission"]["external_directory"] == "deny"
+    assert cfg["share"] == "disabled" and cfg["autoupdate"] is False
+    assert cfg["model"] == cfg["small_model"]               # titles don't go elsewhere
+
+
+def test_opencode_arm():
+    agent = parse_arm("opencode:granite4.1:8b")
+    assert isinstance(agent, OpenCodeAgent) and agent.model == "granite4.1:8b"
+    assert agent.num_ctx == AiderAgent("x").num_ctx          # same generation budget
+    assert agent.num_predict == AiderAgent("x").num_predict
+    with pytest.raises(ValueError, match="cloud"):
+        parse_arm("opencode:qwen3-coder:480b-cloud")
+
+
+def test_an_agent_timeout_kills_its_children(tmp_path):
+    from backend.orchestrator.agentbench.agents import _launch
+    pidfile = tmp_path / "child.pid"
+    script = f"sleep 60 & echo $! > {pidfile}; wait"
+    out, timed_out, secs = _launch(["sh", "-c", script], tmp_path, {"PATH": "/bin:/usr/bin"}, 1)
+    assert timed_out and secs < 10
+    child = int(pidfile.read_text())
+    time.sleep(0.2)
+    with pytest.raises(ProcessLookupError):
+        import os
+        os.kill(child, 0)

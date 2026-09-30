@@ -87,10 +87,21 @@ def _cell(rows: list[Attempt]) -> str:
     return Counter(outcome(a) for a in rows).most_common(1)[0][0] + f" x{len(rows)}"
 
 
-def render(tasks: list[Task], attempts: list[Attempt]) -> str:
+def degraded_note(degraded: list[Attempt]) -> str | None:
+    """Attempts the guard threw out, and why. They are in no count above."""
+    if not degraded:
+        return None
+    why = Counter(r.split(":")[0].split(" (")[0] for a in degraded for r in a.degraded)
+    return (f"{len(degraded)} degraded attempts excluded (machine unhealthy): " +
+            ", ".join(f"{k} x{v}" for k, v in why.most_common()))
+
+
+def render(tasks: list[Task], attempts: list[Attempt],
+           degraded: list[Attempt] | None = None) -> str:
     summaries = summarise(tasks, attempts)
+    note = degraded_note(degraded or [])
     if not summaries:
-        return "no attempts yet — run `orch agentbench run`"
+        return "\n".join(filter(None, ["no attempts yet — run `orch agentbench run`", note]))
     lines = [f"{'arm':34} {'cond':9} {'resolved':>10} {'multi-file':>10} "
              f"{'broke code':>10} {'median':>7}"]
     for s in summaries:
@@ -123,4 +134,6 @@ def render(tasks: list[Task], attempts: list[Attempt]) -> str:
                      f"{t.subject[:60]}")
     lines.append("")
     lines += [f"  {i + 1} = {arm} / {cond}" for i, (arm, cond) in enumerate(cols)]
+    if note:
+        lines += ["", note]
     return "\n".join(lines)

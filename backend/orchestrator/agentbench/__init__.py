@@ -8,7 +8,8 @@ AND nothing that passed before has regressed across the full suite.
 
     mine     repo history -> gated tasks          (mine.py)
     agents   who attempts them                    (agents.py)
-    scoring  one attempt, isolated and graded     (scoring.py)
+    runner   one attempt, isolated and graded     (runner.py)
+    guard    only a healthy machine's attempts count  (guard.py, host.py)
     report   per-arm and per-task tables          (report.py)
 
 All state lives under ~/.mahoraga-v2/agentbench/<repo>/; the benchmarked repo

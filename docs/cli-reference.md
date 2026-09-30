@@ -266,8 +266,10 @@ pytest suite; it is only read, and all state lives under
 orch agentbench mine [REPO]                 # commits -> gated tasks
     [--limit 25] [--max-lines 250] [--rev HEAD] [--commit SHA ...]
     [--python PATH] [--pytest-arg ARG ...]
+orch agentbench preflight [REPO] --arm aider:qwen3.5:latest [--arm ...]
 orch agentbench run [REPO] --arm aider:qwen3.5:latest [--arm ...]
     [--cond blind|feedback|both] [--repeats K] [--task SHA ...] [--timeout SECS]
+    [--until HH:MM] [--wait-idle MIN] [--min-speed 0.5] [--no-guard] [--force]
 orch agentbench report [REPO] [--json]
 ```
 
@@ -283,6 +285,28 @@ orch agentbench report [REPO] [--json]
 - **report** prints resolve rates, multi-file resolve rates, regressions,
   failure modes (`no-edit`, `wrong-file`, `broke-other`, `partial+broke`,
   `partial`, `wrong-fix`), stability across repeats, and a per-task matrix.
+
+**The guard** (on by default for `run`) keeps results from measuring the
+machine instead of the agent. A throttled local model is slow enough to time
+out the agent's calls, and those failures look exactly like model failures.
+
+- **preflight** checks the charger (AC, at least 60W), the agent binary,
+  Ollama, that each model is pulled, and each model's current generation speed.
+  `run` refuses to start if a check fails, unless `--force` is given.
+- **Before each attempt**, the run waits while the machine is on battery, while
+  it generates under `--min-speed` (default half) of its reference speed, or,
+  with `--wait-idle`, while someone is using it.
+- **After each attempt**, it is marked *degraded* if AC was lost or speed fell
+  under the bar. Degraded attempts go to `attempts/degraded/`: they're kept
+  for audit, excluded from every rate, counted in `report`, and the cell is
+  retried up to twice.
+- **Speed** comes from a fixed 128-token generation, timed by Ollama's eval
+  counters. The reference is the best reading for that model digest taken
+  while the machine had been idle 5+ minutes on AC. Until one exists, speed is
+  recorded but not judged.
+
+`run` holds off sleep with `caffeinate` for its lifetime; closing the lid
+still sleeps the machine. `--until 07:30` starts no attempt after 07:30.
 
 Arms are `<agent>:<model>`. v1 drives `aider` with local Ollama models only;
 Ollama `-cloud` models are refused, since they would send code off the machine

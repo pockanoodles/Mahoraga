@@ -3,13 +3,17 @@
 Everything runs against a tiny synthetic git repo with a real pytest suite,
 and fake agents that stand in for the behaviours that matter: apply the real
 fix, do nothing, cheat by editing the tests, and fix the target while
-breaking something else. No Ollama, no models.
+breaking something else. No Ollama, no models: the machine the guard
+watches is faked too.
 """
 from __future__ import annotations
 
+import itertools
 import json
 import subprocess
 import sys
+import time
+from datetime import datetime
 from pathlib import Path
 
 import pytest
@@ -20,11 +24,13 @@ from backend.orchestrator.agentbench.bank import Bench, SuiteConfig
 from backend.orchestrator.agentbench.mine import (
     find_candidates, is_test_module, is_test_path, mine,
 )
+from backend.orchestrator.agentbench.guard import Guard
+from backend.orchestrator.agentbench.host import Power, parse_idle, parse_power
 from backend.orchestrator.agentbench.report import outcome, render, summarise
 from backend.orchestrator.agentbench.runner import (
-    load_attempts, prompt_for, run_attempt, run_matrix,
+    load_attempts, load_degraded, prompt_for, run_attempt, run_matrix,
 )
-from backend.orchestrator.cli.commands.agentbench import app as agentbench_app
+from backend.orchestrator.cli.commands.agentbench import app as agentbench_app, parse_until
 
 
 # ── A repo with history ───────────────────────────────────────────────────────
@@ -297,3 +303,153 @@ def test_cli_run_rejects_a_bad_condition(repo, tmp_path, monkeypatch):
     r = CliRunner().invoke(agentbench_app, ["run", str(repo["path"]),
                                             "--arm", "aider:qwen3.5:latest", "--cond", "sideways"])
     assert r.exit_code != 0
+
+
+# ── Guard: only attempts on a healthy machine count ───────────────────────────
+
+_AC = "Now drawing from 'AC Power'\n -InternalBattery-0 (id=22937699)\t100%; charged; 0:00 remaining present: true\n"
+_BATT = "Now drawing from 'Battery Power'\n -InternalBattery-0 (id=22937699)\t53%; discharging; 3:10 remaining present: true\n"
+
+
+def test_parse_power():
+    assert parse_power(_AC, " Wattage = 65W\n Current = 3240mA\n") == Power(True, 100, 65)
+    assert parse_power(_BATT, "No adapter attached.\n") == Power(False, 53, None)
+    assert parse_power("", "") == Power(None, None, None)
+
+
+def test_parse_idle():
+    assert parse_idle('    | | |   "HIDIdleTime" = 40958666000\n') == pytest.approx(40.958666)
+    assert parse_idle("") is None
+
+
+class FakeMachine:
+    def __init__(self, speeds=(30.0,)):
+        self.on_ac, self.watts, self.idle = True, 65, 3600.0
+        self.speeds = itertools.cycle(speeds)
+
+    def power(self) -> Power:
+        return Power(self.on_ac, 80, self.watts if self.on_ac else None)
+
+    def speed(self, model, num_ctx) -> float:
+        return next(self.speeds)
+
+
+def _guard(tmp_path, machine, **kw) -> Guard:
+    kw.setdefault("sleep", lambda s: None)
+    return Guard(tmp_path / "guard", power=machine.power, idle=lambda: machine.idle,
+                 speed=machine.speed, pulled=lambda: {"m:latest": "sha256:0123456789abcdef"},
+                 sample_every=0.01, **kw)
+
+
+def test_gate_names_what_is_wrong(tmp_path):
+    m = FakeMachine(speeds=(30.0, 10.0))
+    g, agent = _guard(tmp_path, m, wait_idle=300), FakeAgent("m")
+    m.on_ac = False
+    assert g.problems(agent) == ["on battery (80%)"]
+    m.on_ac, m.watts = True, 30
+    assert "30W charger" in g.problems(agent)[0]
+    m.watts, m.idle = 65, 10
+    assert g.problems(agent)[0].startswith("in use")
+    m.idle = 3600
+    assert g.problems(agent) == []                      # 30 tok/s sets the reference
+    assert g.problems(agent)[0].startswith("slow: 10.0 tok/s")
+
+
+def test_reference_is_the_best_speed_seen_and_persists(tmp_path):
+    m = FakeMachine(speeds=(20.0, 30.0, 25.0))
+    g = _guard(tmp_path, m)
+    for _ in range(3):
+        g.measure(FakeAgent("m"))
+    assert _guard(tmp_path, m).reference("m") == 30.0   # keyed by digest, on disk
+
+
+def test_readings_taken_in_use_never_set_the_bar(tmp_path):
+    m = FakeMachine(speeds=(11.0, 30.0, 10.0))
+    g, agent = _guard(tmp_path, m), FakeAgent("m")
+    m.idle = 20                                         # someone is working
+    assert g.problems(agent) == [] and g.reference("m") is None   # 11 recorded, not judged
+    m.idle = 3600
+    assert g.problems(agent) == [] and g.reference("m") == 30.0   # the idle reading sets it
+    assert g.problems(agent)[0].startswith("slow: 10.0 tok/s")
+
+
+def test_wait_ready_pauses_until_the_machine_recovers(tmp_path):
+    m, logs = FakeMachine(), []
+    m.on_ac = False
+    g = _guard(tmp_path, m, sleep=lambda s: setattr(m, "on_ac", True), log=logs.append)
+    assert g.wait_ready(FakeAgent("m")) is True
+    assert logs == ["paused: on battery (80%)", "resumed"]
+
+
+def test_an_erroring_ollama_pauses_instead_of_crashing(tmp_path):
+    import httpx
+    m = FakeMachine()
+
+    def boom(model, num_ctx):
+        raise httpx.ConnectError("refused")
+
+    g = _guard(tmp_path, m)
+    g._speed = boom
+    assert g.problems(FakeAgent("m")) == ["ollama error: refused"]
+
+
+def test_wait_ready_gives_up_at_the_deadline(tmp_path):
+    m = FakeMachine()
+    m.on_ac = False
+    assert _guard(tmp_path, m).wait_ready(FakeAgent("m"), deadline=time.time() - 1) is False
+
+
+def test_losing_power_mid_attempt_degrades_it(mined, config, repo, tmp_path):
+    m = FakeMachine()
+
+    def unplug(clone, sha):
+        m.on_ac = False
+        apply_gold(clone, sha)
+
+    a = run_attempt(mined, config, _task(mined, repo), FakeAgent("m", unplug), "blind",
+                    guard=_guard(tmp_path, m))
+    assert a.resolved and a.degraded == ["lost AC power during the attempt"]
+    assert load_attempts(mined) == [] and len(load_degraded(mined)) == 1
+
+
+def test_a_degraded_attempt_is_kept_apart_and_the_cell_retried(mined, repo, tmp_path):
+    # gate 30 (reference) -> attempt -> after 10 (slow): degraded; then healthy.
+    m = FakeMachine(speeds=(30.0, 10.0, 30.0, 30.0))
+    run_matrix(mined, [FakeAgent("m", apply_gold)], ["blind"], guard=_guard(tmp_path, m))
+    counted, degraded = load_attempts(mined), load_degraded(mined)
+    assert [a.resolved for a in counted] == [True] and not counted[0].degraded
+    assert counted[0].conditions["tok_s_after"] == 30.0
+    assert degraded[0].degraded[0].startswith("slow: 10.0 tok/s")
+    out = render(mined.load_tasks(), counted, degraded)
+    assert "1 degraded attempts excluded (machine unhealthy): slow x1" in out
+    assert "1/1" in out                                 # the degraded one isn't in the count
+
+
+def test_degraded_retries_are_capped_and_the_cell_left_open(mined, repo, tmp_path):
+    m = FakeMachine(speeds=(30.0, 10.0))                # every attempt ends slow
+    done = run_matrix(mined, [FakeAgent("m", apply_gold)], ["blind"],
+                      guard=_guard(tmp_path, m), max_degraded=1)
+    assert done == [] and load_attempts(mined) == [] and len(load_degraded(mined)) == 2
+
+
+def test_no_attempt_starts_after_the_deadline(mined, repo):
+    agent = FakeAgent("m", apply_gold)
+    assert run_matrix(mined, [agent], ["blind"], deadline=time.time() - 1) == []
+    assert agent.calls == []
+
+
+def test_preflight(tmp_path):
+    m = FakeMachine()
+    m.on_ac = False
+    checks = {c.name: c for c in _guard(tmp_path, m).preflight(
+        [FakeAgent("m"), FakeAgent("absent")])}
+    assert not checks["power"].ok and "on battery" in checks["power"].detail
+    assert not checks["fake"].ok                        # agent binary not on PATH
+    assert checks["m"].ok and "30.0 tok/s" in checks["m"].detail
+    assert not checks["absent"].ok and "ollama pull absent" in checks["absent"].detail
+
+
+def test_parse_until_is_the_next_occurrence():
+    late, early = datetime(2026, 9, 29, 23, 0), datetime(2026, 9, 29, 6, 0)
+    assert datetime.fromtimestamp(parse_until("07:30", late)) == datetime(2026, 9, 30, 7, 30)
+    assert datetime.fromtimestamp(parse_until("07:30", early)) == datetime(2026, 9, 29, 7, 30)

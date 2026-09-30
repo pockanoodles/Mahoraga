@@ -38,7 +38,7 @@ Disabled in agents.yaml: qwen3-14b (dropped 2026-07-26 — Phase 4 bench put it 
 Roster source of truth: `agents.yaml`; current snapshot in `brain/state/current_state.md`
 
 ## Hardware
-MacBook Pro (Nov 2024), M-series, 16 GB unified memory. Qwen3.5 9.7B Q4_K_M at ~30 t/s on Apple Silicon.
+MacBook Pro (Nov 2024), M-series, 16 GB unified memory. Qwen3.5 9.7B Q4_K_M generates at ~14.5 t/s idle on AC, 10–11 t/s while the machine is in use (measured 2026-09-30, Ollama 0.34.4, 32k context; the earlier "~30 t/s" never held on this setup).
 
 ## Brain / Journal
 

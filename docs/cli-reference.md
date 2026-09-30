@@ -318,11 +318,17 @@ between two arms on the same model is the agent's.
 - **opencode** is a tool loop (read, grep, edit, bash). Ollama's
   OpenAI-compatible endpoint ignores per-request options, so the model is
   served as a derived tag (`agentbench/<model>:<tag>-num_ctx…-num_predict…`)
-  that shares the base weights. opencode runs with its own HOME under the
-  bench root, so it never sees your provider credentials. Only the ollama
-  provider is enabled, and web fetch and files outside the checkout are
-  denied. `feedback` names the test command in the prompt, and the agent runs
-  it itself.
+  that shares the base weights. Only the ollama provider is enabled and web
+  fetch is denied. `feedback` names the test command in the prompt, and the
+  agent runs it itself.
+
+**Containment** is enforced by the OS, not requested of the agent. Each agent
+runs with its own HOME under the bench root, so it never sees your config or
+provider credentials. On macOS it also runs under `sandbox-exec`, which lets it
+and its children write only inside the task's checkout, that HOME, and the
+per-user temp area, and open network connections only to localhost (Ollama).
+Your repo is read-only to it. On other platforms only the HOME isolation
+applies.
 
 Models are local Ollama models only; Ollama `-cloud` models are refused, since
 they would send code off the machine outside the audited egress client.

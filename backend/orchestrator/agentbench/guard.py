@@ -1,9 +1,9 @@
 """Keep a run's results valid: count only attempts measured on a healthy machine.
 
 The first run on a second repo showed why this exists. On battery and in use,
-qwen3.5 generated at 3-12 tok/s instead of ~30; aider's calls timed out,
-surfaced as Ollama 500s, and every one of them looked like a model failure.
-None of those attempts measured the agent.
+qwen3.5 generated as slowly as 3 tok/s against ~14.5 on an idle machine on AC;
+aider's calls timed out, surfaced as Ollama 500s, and every one of them looked
+like a model failure. None of those attempts measured the agent.
 
   preflight  before a run: charger, agent binary, Ollama, models, speed
   gate       before each attempt: wait until the machine is on AC, generating
@@ -16,9 +16,9 @@ Speed is measured, not inferred: a fixed short generation, timed by Ollama's
 own eval counters, at the agent's num_ctx (a different num_ctx would make
 Ollama reload the model). The reference is the best speed seen for that model
 digest on this machine *while it was idle on AC*: in use, even on a charger,
-qwen3.5 ran at ~11 tok/s against ~30 idle, so a reading taken while someone
-works would set a bar low enough to wave throttled attempts through. Until a
-clean reading exists, speed is recorded but not judged.
+qwen3.5 ran at 10-11 tok/s against ~14.5 idle, and a reading taken on a
+busier machine would set a bar low enough to wave throttled attempts through.
+Until a clean reading exists, speed is recorded but not judged.
 """
 from __future__ import annotations
 

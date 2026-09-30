@@ -12,6 +12,12 @@ generation caps, so a difference between them is the agent's.
 Models are local Ollama models only. Driving a cloud model through a
 third-party agent would send code to a provider without passing through the
 repo's single audited egress client, so it is refused, not configured.
+
+Containment is enforced by the OS, not asked of the agent. On macOS every
+agent runs under `sandbox-exec`: it can write only inside its checkout, its
+own home, and the temp dir, and can open network connections only to
+localhost. An agent with a shell can `cd` anywhere; one did, into the real
+repo under benchmark, when a bug handed it the wrong working directory.
 """
 from __future__ import annotations
 
@@ -22,6 +28,7 @@ import shlex
 import shutil
 import signal
 import subprocess
+import sys
 import tempfile
 import time
 from dataclasses import dataclass, field
@@ -65,14 +72,43 @@ def kill_live_agents() -> None:
         _live.discard(pgid)
 
 
-def _launch(cmd: list[str], cwd: Path, env: dict[str, str],
-            timeout: float) -> tuple[str, bool, float]:
-    """Run an agent in its own process group; returns (output, timed_out, secs).
-    A timeout or a stopped run kills the whole group, so the agent's own
-    children (test runs, shells) can't outlive the attempt."""
+def agent_home(name: str) -> Path:
+    """An agent's own HOME: none of the user's config or credentials."""
+    return Path(os.environ.get("MAHORAGA_AGENTBENCH_ROOT", DEFAULT_ROOT)) / "agent-home" / name
+
+
+def sandbox_profile(writable: list[Path]) -> str:
+    """Writes only under `writable` and the per-user temp area; network only
+    to localhost (Ollama). Everything else, including the user's repos, is
+    read-only to the agent and its children."""
+    temp = Path(tempfile.gettempdir()).resolve().parent  # .../T, .../C
+    paths = [Path(w).resolve() for w in writable] + [temp]
+    allow = " ".join('(subpath "{}")'.format(str(p).replace('"', '\\"')) for p in paths)
+    return ("(version 1)(allow default)"
+            '(deny file-write* (subpath "/"))'
+            f'(allow file-write* {allow} (subpath "/dev"))'
+            "(deny network-outbound)"
+            '(allow network-outbound (remote ip "localhost:*"))')
+
+
+def sandboxed(cmd: list[str], writable: list[Path]) -> list[str]:
+    if sys.platform == "darwin" and shutil.which("sandbox-exec"):
+        return ["sandbox-exec", "-p", sandbox_profile(writable), *cmd]
+    return cmd  # elsewhere: HOME isolation and permission config only
+
+
+def _launch(cmd: list[str], cwd: Path, env: dict[str, str], timeout: float,
+            writable: list[Path] = ()) -> tuple[str, bool, float]:
+    """Run an agent sandboxed, in its own process group, with `cwd` as its
+    working directory in every sense: some agents resolve it from $PWD rather
+    than the real cwd, which is how one ran in the wrong repo. Returns
+    (output, timed_out, secs). A timeout or a stopped run kills the whole
+    group, so the agent's own children can't outlive the attempt."""
     t0 = time.monotonic()
-    proc = subprocess.Popen(cmd, cwd=cwd, env=env, text=True, stdout=subprocess.PIPE,
-                            stderr=subprocess.STDOUT, start_new_session=True)
+    env = {**env, "PWD": str(cwd)}
+    proc = subprocess.Popen(sandboxed(cmd, [cwd, *writable]), cwd=cwd, env=env, text=True,
+                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                            start_new_session=True)
     _live.add(proc.pid)
     try:
         out, _ = proc.communicate(timeout=timeout)
@@ -110,10 +146,11 @@ class AiderAgent:
     name = "aider"
 
     def __init__(self, model: str, *, num_ctx: int = 32768, num_predict: int = 8192,
-                 map_tokens: int = 2048) -> None:
+                 map_tokens: int = 2048, home: Path | None = None) -> None:
         _require_local(model)
         self.model = model
         self.num_ctx, self.num_predict, self.map_tokens = num_ctx, num_predict, map_tokens
+        self.home = home or agent_home("aider")
 
     def _settings(self) -> str:
         return (f"- name: ollama_chat/{self.model}\n"
@@ -125,16 +162,20 @@ class AiderAgent:
         with tempfile.NamedTemporaryFile("w", suffix=".yml", delete=False) as f:
             f.write(self._settings())
             settings = f.name
-        cmd = ["aider", "--model", f"ollama_chat/{self.model}", "--edit-format", "diff",
+        binary = shutil.which("aider")
+        if not binary:
+            raise FileNotFoundError("aider not on PATH")
+        cmd = [binary, "--model", f"ollama_chat/{self.model}", "--edit-format", "diff",
                "--model-settings-file", settings, "--map-tokens", str(self.map_tokens),
                "--yes-always", "--no-auto-commits", "--no-gitignore", "--no-pretty",
                "--no-stream", "--no-show-model-warnings", "--no-check-update",
                "--no-analytics", "--no-show-release-notes", "--message", prompt]
         if test_cmd:
             cmd += ["--auto-test", "--test-cmd", shlex.join(test_cmd)]
-        env = {**os.environ, "OLLAMA_API_BASE": ollama.BASE_URL}
+        self.home.mkdir(parents=True, exist_ok=True)
+        env = {**os.environ, "HOME": str(self.home), "OLLAMA_API_BASE": ollama.BASE_URL}
         try:
-            log, timed_out, secs = _launch(cmd, workdir, env, timeout)
+            log, timed_out, secs = _launch(cmd, workdir, env, timeout, [self.home])
         finally:
             os.unlink(settings)
         tokens = re.findall(r"Tokens: ([\d.]+k?) sent, ([\d.]+k?) received", log)
@@ -166,8 +207,8 @@ class OpenCodeAgent:
 
     Isolation: opencode runs with its own HOME and XDG dirs under the bench
     root, so it never sees the user's provider credentials. Only the ollama
-    provider is enabled, web fetch is denied, sharing and autoupdate are off,
-    and it may not touch files outside the checkout.
+    provider is enabled, web fetch is denied, sharing and autoupdate are off.
+    The sandbox (see `sandbox_profile`) is what actually confines it.
 
     The feedback condition has no auto-test hook here: the prompt names the
     test command, and the agent can run it with its bash tool.
@@ -179,8 +220,7 @@ class OpenCodeAgent:
                  home: Path | None = None) -> None:
         _require_local(model)
         self.model, self.num_ctx, self.num_predict = model, num_ctx, num_predict
-        self.home = home or Path(os.environ.get(
-            "MAHORAGA_AGENTBENCH_ROOT", DEFAULT_ROOT)) / "agent-home" / "opencode"
+        self.home = home or agent_home("opencode")
 
     def _config(self, served: str) -> dict:
         return {
@@ -216,8 +256,8 @@ class OpenCodeAgent:
             prompt += f"\n\nYou can check your work by running: {shlex.join(test_cmd)}"
         self.home.mkdir(parents=True, exist_ok=True)
         cmd = [binary, "run", "--pure", "--format", "json", "--title", "agentbench",
-               "--model", f"ollama/{served}", prompt]
-        out, timed_out, secs = _launch(cmd, workdir, self._env(served), timeout)
+               "--dir", str(workdir), "--model", f"ollama/{served}", prompt]
+        out, timed_out, secs = _launch(cmd, workdir, self._env(served), timeout, [self.home])
         run = parse_opencode_events(out)
         run.log, run.secs, run.timed_out = out, secs, timed_out
         return run

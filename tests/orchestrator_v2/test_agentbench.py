@@ -518,3 +518,46 @@ def test_an_agent_timeout_kills_its_children(tmp_path):
     with pytest.raises(ProcessLookupError):
         import os
         os.kill(child, 0)
+
+
+_macos_sandbox = pytest.mark.skipif(
+    sys.platform != "darwin" or not __import__("shutil").which("sandbox-exec"),
+    reason="sandbox-exec is macOS only")
+
+
+def test_the_agent_sees_its_checkout_as_pwd(tmp_path):
+    from backend.orchestrator.agentbench.agents import _launch
+    out, _, _ = _launch(["sh", "-c", "echo $PWD"], tmp_path,
+                        {"PATH": "/bin:/usr/bin", "PWD": "/somewhere/else"}, 30)
+    assert out.strip() == str(tmp_path)
+
+
+@_macos_sandbox
+def test_the_sandbox_confines_writes_to_the_checkout(tmp_path):
+    from backend.orchestrator.agentbench.agents import _launch
+    # The temp area is writable by design, so stand in for the user's repo
+    # with this source tree, which is not under it.
+    checkout, repo = tmp_path / "checkout", Path(__file__).parent
+    checkout.mkdir()
+    script = (f"echo ok > {checkout}/edit.py; echo x > {repo}/pwned.py; "
+              f"echo x > {Path.home()}/.agentbench-sandbox-probe")
+    _launch(["sh", "-c", script], checkout, {"PATH": "/bin:/usr/bin"}, 30)
+    assert (checkout / "edit.py").read_text() == "ok\n"
+    assert not (repo / "pwned.py").exists()
+    assert not (Path.home() / ".agentbench-sandbox-probe").exists()
+
+
+@_macos_sandbox
+def test_the_sandbox_allows_localhost_only(tmp_path):
+    from backend.orchestrator.agentbench.agents import _launch
+    probe = ("import socket\n"
+             "def dial(host, port):\n"
+             "    s = socket.socket(); s.settimeout(3)\n"
+             "    try: s.connect((host, port)); return 'open'\n"
+             "    except PermissionError: return 'blocked'\n"
+             "    except OSError: return 'refused'\n"
+             "print(dial('127.0.0.1', 1), dial('1.1.1.1', 443))\n")
+    out, _, _ = _launch([sys.executable, "-c", probe], tmp_path, {"PATH": "/bin:/usr/bin"}, 30)
+    local, external = out.split()
+    assert local == "refused"      # reached the loopback stack (nothing listens on :1)
+    assert external == "blocked"   # denied before it left the machine

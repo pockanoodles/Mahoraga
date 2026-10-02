@@ -22,6 +22,11 @@ experiments/*
 !experiments/prompts_humaneval_plus_refs.jsonl
 !experiments/live_route_humaneval_164.jsonl
 !experiments/repro_2026-08-04.jsonl
+!experiments/build_humaneval_variants.py
+!experiments/humaneval_variants.jsonl
+# NOTE: experiments/prompts_humaneval_variants.jsonl (the built probe bank) still
+# needs its own negation line when the specs reach full size. It is generated, so
+# it stays out of the tree while the spec file is a seed.
 .claude/
 
 # Local AI-call context / build scaffolding — never pushed

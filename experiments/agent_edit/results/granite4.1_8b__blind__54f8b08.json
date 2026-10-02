@@ -1,0 +1,29 @@
+{
+ "sha": "54f8b08",
+ "model": "granite4.1:8b",
+ "cond": "blind",
+ "secs": 201.3,
+ "timed_out": false,
+ "resolved": false,
+ "f2p_pass": 0,
+ "f2p_total": 2,
+ "regressions": 2,
+ "regression_ids": [
+  "tests.orchestrator_v2.test_postprocess::test_extract_code_complete_fenced_block",
+  "tests.orchestrator_v2.test_postprocess::test_extract_code_first_of_multiple_blocks"
+ ],
+ "suite_crashed": false,
+ "edited_files": [
+  "backend/orchestrator/workers/postprocess.py"
+ ],
+ "touched_tests": [],
+ "gold_src": [
+  "backend/orchestrator/workers/postprocess.py"
+ ],
+ "hit_gold_file": true,
+ "no_edit": false,
+ "tokens_sent": 17300.0,
+ "tokens_recv": 937.0,
+ "llm_calls": 3,
+ "edit_errors": 2
+}

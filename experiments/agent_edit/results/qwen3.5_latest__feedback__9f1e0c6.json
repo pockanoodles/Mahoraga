@@ -1,0 +1,26 @@
+{
+ "sha": "9f1e0c6",
+ "model": "qwen3.5:latest",
+ "cond": "feedback",
+ "secs": 587.7,
+ "timed_out": false,
+ "resolved": false,
+ "f2p_pass": 11,
+ "f2p_total": 14,
+ "regressions": 0,
+ "regression_ids": [],
+ "suite_crashed": false,
+ "edited_files": [
+  "backend/orchestrator/cli/commands/service.py"
+ ],
+ "touched_tests": [],
+ "gold_src": [
+  "backend/orchestrator/cli/commands/service.py"
+ ],
+ "hit_gold_file": true,
+ "no_edit": false,
+ "tokens_sent": 44700.0,
+ "tokens_recv": 5726.0,
+ "llm_calls": 4,
+ "edit_errors": 0
+}

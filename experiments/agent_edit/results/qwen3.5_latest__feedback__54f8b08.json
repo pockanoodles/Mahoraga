@@ -1,0 +1,26 @@
+{
+ "sha": "54f8b08",
+ "model": "qwen3.5:latest",
+ "cond": "feedback",
+ "secs": 197.2,
+ "timed_out": false,
+ "resolved": true,
+ "f2p_pass": 2,
+ "f2p_total": 2,
+ "regressions": 0,
+ "regression_ids": [],
+ "suite_crashed": false,
+ "edited_files": [
+  "backend/orchestrator/workers/postprocess.py"
+ ],
+ "touched_tests": [],
+ "gold_src": [
+  "backend/orchestrator/workers/postprocess.py"
+ ],
+ "hit_gold_file": true,
+ "no_edit": false,
+ "tokens_sent": 12100.0,
+ "tokens_recv": 2200.0,
+ "llm_calls": 2,
+ "edit_errors": 0
+}

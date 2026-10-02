@@ -1,0 +1,28 @@
+{
+ "sha": "01a9a3a",
+ "model": "qwen3.5:latest",
+ "cond": "feedback",
+ "secs": 934.6,
+ "timed_out": false,
+ "resolved": false,
+ "f2p_pass": 3,
+ "f2p_total": 4,
+ "regressions": 1,
+ "regression_ids": [
+  "tests.orchestrator_v2.test_classify_bucket::test_pure_code_generation_prompts_still_classify_as_code"
+ ],
+ "suite_crashed": false,
+ "edited_files": [
+  "backend/orchestrator/store/metrics.py"
+ ],
+ "touched_tests": [],
+ "gold_src": [
+  "backend/orchestrator/store/metrics.py"
+ ],
+ "hit_gold_file": true,
+ "no_edit": false,
+ "tokens_sent": 38200.0,
+ "tokens_recv": 11654.0,
+ "llm_calls": 4,
+ "edit_errors": 0
+}

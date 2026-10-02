@@ -1,0 +1,607 @@
+diff --git a/.aider.chat.history.md b/.aider.chat.history.md
+index 73c02da..e19143e 100644
+--- a/.aider.chat.history.md
++++ b/.aider.chat.history.md
+@@ -494,3 +494,576 @@ This ensures that `text` is not `None` before calling `split()`.
+ > **Example Fix  
+ > Create new file? (Y)es/(N)o [Yes]: y  
+ > Applied edit to **Example Fix  
++
++# aider chat started at 2026-09-28 18:05:35
++
++> /Users/kaitosoeno/.local/bin/aider --model ollama_chat/qwen3.5:latest --edit-format diff --model-settings-file /private/tmp/claude-501/-Users-kaitosoeno-Projects-Mahoraga/9fa9805a-2c5c-48ae-a18d-e09c6c71b8b0/scratchpad/agentedit/model-settings.yml --map-tokens 2048 --yes-always --no-auto-commits --no-gitignore --no-pretty --no-stream --no-show-model-warnings --no-check-update --no-analytics --no-show-release-notes --message Make the following change to this repository.
++
++feat: wire MAHORAGA_BANDIT_SEED + MAHORAGA_PROMPT_SEED through bandit routing and bench CLI
++
++
++
++Tests covering this change already exist in: tests/orchestrator_v2/test_bench_runs.py. Do not modify any test files; change the source code so those tests pass without breaking anything else.  
++> Aider v0.86.2  
++> Model: ollama_chat/qwen3.5:latest with diff edit format  
++> Git repo: .git with 345 files  
++> Repo-map: using 2048 tokens, auto refresh  
++
++#### Make the following change to this repository.  
++####   
++#### feat: wire MAHORAGA_BANDIT_SEED + MAHORAGA_PROMPT_SEED through bandit routing and bench CLI  
++####   
++####   
++####   
++#### Tests covering this change already exist in: tests/orchestrator_v2/test_bench_runs.py. Do not modify any test files; change the source code so those tests pass without breaking anything else.  
++> tests/orchestrator_v2/test_bench_runs.py  
++> Add file to the chat? (Y)es/(N)o/(D)on't ask again [Yes]: y  
++> Initial repo scan can be slow in larger repos, but only happens once.  
++
++Looking at the tests, I need to implement several features:
++
++1. `DecisionLogger` with `create_bench_run`, `finalize_bench_run`, `log_decision` methods and migration logic
++2. `_capture_run_context()` function in the bench CLI module
++3. `_build_schedule()` function for bandit routing with seed support
++4. Environment variable `MAHORAGA_BANDIT_SEED` seeding in the app module
++
++Let me start by creating/adding these implementations:
++
++backend/orchestrator/routing/decision_log.py
++```python
++<<<<<<< SEARCH
++class DecisionLogger:
++=======
++import sqlite3
++from pathlib import Path
++from typing import Optional, Any
++from datetime import datetime
++import subprocess
++import socket
++import random
++import numpy as np
++
++class DecisionLogger:
++>>>>>>> REPLACE
++```
++
++backend/orchestrator/routing/decision_log.py
++```python
++<<<<<<< SEARCH
++class DecisionLogger:
++    def __init__(self, db_path: Path | str) -> None:
++        self._conn = sqlite3.connect(str(db_path))
++=======
++class DecisionLogger:
++    def __init__(self, db_path: Path | str) -> None:
++        self._conn = sqlite3.connect(str(db_path))
++        
++        # Create bench_runs table if it doesn't exist
++        self._conn.execute("""
++            CREATE TABLE IF NOT EXISTS bench_runs (
++                id INTEGER PRIMARY KEY AUTOINCREMENT,
++                started_at TEXT NOT NULL,
++                mode TEXT NOT NULL,
++                git_sha TEXT,
++                git_dirty INTEGER,
++                ollama_version TEXT,
++                hostname TEXT NOT NULL,
++                on_charger INTEGER,
++                bandit_seed INTEGER,
++                prompt_seed INTEGER,
++                task_count_planned INTEGER,
++                task_count_completed INTEGER,
++                ended_at TEXT
++            );
++        """)
++        
++        # Create bench_runs index if it doesn't exist
++        self._conn.execute("""
++            CREATE INDEX IF NOT EXISTS idx_bench_runs_started ON bench_runs(started_at);
++        """)
++        
++        # Migrate decisions table to add bench_run_id column
++        self._migrate_decisions_table()
++        
++        # Create index on decisions.bench_run_id if it doesn't exist
++        self._conn.execute("""
++            CREATE INDEX IF NOT EXISTS idx_decisions_bench_run ON decisions(bench_run_id);
++        """)
++>>>>>>> REPLACE
++```
++
++backend/orchestrator/routing/decision_log.py
++```python
++<<<<<<< SEARCH
++class DecisionLogger:
++    def __init__(self, db_path: Path | str) -> None:
++        self._conn = sqlite3.connect(str(db_path))
++=======
++class DecisionLogger:
++    def __init__(self, db_path: Path | str) -> None:
++        self._conn = sqlite3.connect(str(db_path))
++        
++        # Create bench_runs table if it doesn't exist
++        self._conn.execute("""
++            CREATE TABLE IF NOT EXISTS bench_runs (
++                id INTEGER PRIMARY KEY AUTOINCREMENT,
++                started_at TEXT NOT NULL,
++                mode TEXT NOT NULL,
++                git_sha TEXT,
++                git_dirty INTEGER,
++                ollama_version TEXT,
++                hostname TEXT NOT NULL,
++                on_charger INTEGER,
++                bandit_seed INTEGER,
++                prompt_seed INTEGER,
++                task_count_planned INTEGER,
++                task_count_completed INTEGER,
++                ended_at TEXT
++            );
++        """)
++        
++        # Create bench_runs index if it doesn't exist
++        self._conn.execute("""
++            CREATE INDEX IF NOT EXISTS idx_bench_runs_started ON bench_runs(started_at);
++        """)
++        
++        # Migrate decisions table to add bench_run_id column
++        self._migrate_decisions_table()
++        
++        # Create index on decisions.bench_run_id if it doesn't exist
++        self._conn.execute("""
++            CREATE INDEX IF NOT EXISTS idx_decisions_bench_run ON decisions(bench_run_id);
++        """)
++    
++    def _migrate_decisions_table(self) -> None:
++        """Add bench_run_id column to decisions table if it doesn't exist."""
++        cursor = self._conn.execute(
++            "PRAGMA table_info(decisions)"
++        ).fetchall()
++        col_names = {row[1] for row in cursor}
++        
++        if "bench_run_id" not in col_names:
++            # Add bench_run_id column (nullable, default NULL)
++            self._conn.execute("""
++                ALTER TABLE decisions ADD COLUMN bench_run_id INTEGER;
++            """)
++>>>>>>> REPLACE
++```
++
++backend/orchestrator/routing/decision_log.py
++```python
++<<<<<<< SEARCH
++class DecisionLogger:
++    def __init__(self, db_path: Path | str) -> None:
++        self._conn = sqlite3.connect(str(db_path))
++=======
++class DecisionLogger:
++    def __init__(self, db_path: Path | str) -> None:
++        self._conn = sqlite3.connect(str(db_path))
++        
++        # Create bench_runs table if it doesn't exist
++        self._conn.execute("""
++            CREATE TABLE IF NOT EXISTS bench_runs (
++                id INTEGER PRIMARY KEY AUTOINCREMENT,
++                started_at TEXT NOT NULL,
++                mode TEXT NOT NULL,
++                git_sha TEXT,
++                git_dirty INTEGER,
++                ollama_version TEXT,
++                hostname TEXT NOT NULL,
++                on_charger INTEGER,
++                bandit_seed INTEGER,
++                prompt_seed INTEGER,
++                task_count_planned INTEGER,
++                task_count_completed INTEGER,
++                ended_at TEXT
++            );
++        """)
++        
++        # Create bench_runs index if it doesn't exist
++        self._conn.execute("""
++            CREATE INDEX IF NOT EXISTS idx_bench_runs_started ON bench_runs(started_at);
++        """)
++        
++        # Migrate decisions table to add bench_run_id column
++        self._migrate_decisions_table()
++        
++        # Create index on decisions.bench_run_id if it doesn't exist
++        self._conn.execute("""
++            CREATE INDEX IF NOT EXISTS idx_decisions_bench_run ON decisions(bench_run_id);
++        """)
++    
++    def _migrate_decisions_table(self) -> None:
++        """Add bench_run_id column to decisions table if it doesn't exist."""
++        cursor = self._conn.execute(
++            "PRAGMA table_info(decisions)"
++        ).fetchall()
++        col_names = {row[1] for row in cursor}
++        
++        if "bench_run_id" not in col_names:
++            # Add bench_run_id column (nullable, default NULL)
++            self._conn.execute("""
++                ALTER TABLE decisions ADD COLUMN bench_run_id INTEGER;
++            """)
++    
++    def create_bench_run(
++        self,
++        mode: str,
++        git_sha: str | None = None,
++        git_dirty: int | None = None,
++        hostname: str | None = None,
++        prompts_file: str | None = None,
++        agents: str | None = None,
++        repeats: int = 1,
++        task_count_planned: int | None = None,
++    ) -> int:
++        """Create a new bench run and return its ID."""
++        started_at = datetime.utcnow().isoformat()
++        
++        # Capture run context if not provided
++        ctx = {
++            "git_sha": git_sha,
++            "git_dirty": git_dirty,
++            "ollama_version": None,
++            "hostname": hostname or socket.gethostname(),
++            "on_charger": None,
++            "bandit_seed": None,
++            "prompt_seed": None,
++        }
++        
++        # Try to get git info
++        if git_sha is None:
++            try:
++                result = subprocess.run(
++                    ["git", "rev-parse", "HEAD"],
++                    capture_output=True,
++                    text=True,
++                    check=False
++                )
++                if result.returncode == 0:
++                    ctx["git_sha"] = result.stdout.strip()
++                
++                dirty_result = subprocess.run(
++                    ["git", "diff-index", "--quiet", "--exit-code", "HEAD"],
++                    capture_output=True,
++                    text=True,
++                    check=False
++                )
++                ctx["git_dirty"] = 1 if dirty_result.returncode != 0 else 0
++            except (FileNotFoundError, OSError):
++                pass
++        
++        # Try to get Ollama version
++        try:
++            import httpx
++            with httpx.AsyncClient() as client:
++                async with client.stream("GET", "http://localhost:11434/api/version") as response:
++                    if response.status_code == 200:
++                        data = await response.aread()
++                        ctx["ollama_version"] = (data or b"{}").decode().get("version", None)
++        except Exception:
++            pass
++        
++        # Try to get charger status
++        try:
++            import psutil
++            ctx["on_charger"] = 1 if psutil.battery_status() == "charging" else 0
++        except (ImportError, AttributeError):
++            pass
++        
++        # Get seeds from environment
++        import os
++        bandit_seed_env = os.environ.get("MAHORAGA_BANDIT_SEED")
++        prompt_seed_env = os.environ.get("MAHORAGA_PROMPT_SEED")
++        
++        if bandit_seed_env:
++            ctx["bandit_seed"] = int(bandit_seed_env)
++        if prompt_seed_env:
++            ctx["prompt_seed"] = int(prompt_seed_env)
++        
++        # Insert bench run
++        self._conn.execute("""
++            INSERT INTO bench_runs (
++                started_at, mode, git_sha, git_dirty, ollama_version,
++                hostname, on_charger, bandit_seed, prompt_seed,
++                task_count_planned
++            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
++        """, (
++            started_at, mode, ctx["git_sha"], ctx["git_dirty"],
++            ctx["ollama_version"], ctx["hostname"], ctx["on_charger"],
++            ctx["bandit_seed"], ctx["prompt_seed"], task_count_planned
++        ))
++        
++        run_id = self._conn.lastrowid
++        return run_id
++    
++    def finalize_bench_run(self, run_id: int, task_count_completed: int) -> None:
++        """Finalize a bench run."""
++        ended_at = datetime.utcnow().isoformat()
++        self._conn.execute("""
++            UPDATE bench_runs SET ended_at=?, task_count_completed=? WHERE id=?
++        """, (ended_at, task_count_completed, run_id))
++    
++    def log_decision(
++        self,
++        task: Any,
++        context: Any,
++        selected_agent: str,
++        available_agents: list[str],
++        strategy: str,
++        bench_run_id: int | None = None,
++    ) -> int:
++        """Log a decision and return the row ID."""
++        self._conn.execute("""
++            INSERT INTO decisions (
++                timestamp, task_id, task_goal, strategy, selected_agent,
++                available_agents, context_vector, scores, success,
++                latency_s, cost_usd, quality_score, reward, error_message,
++                bench_run_id
++            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
++        """, (
++            datetime.utcnow().isoformat(),
++            getattr(task, "id", None),
++            getattr(task, "goal", ""),
++            strategy,
++            selected_agent,
++            str(available_agents),
++            context.to_vector() if hasattr(context, "to_vector") else None,
++            None,  # scores
++            None,  # success
++            None,  # latency_s
++            None,  # cost_usd
++            None,  # quality_score
++            None,  # reward
++            None,  # error_message
++            bench_run_id,
++        ))
++        
++        return self._conn.lastrowid
++    
++    def close(self) -> None:
++        """Close the connection."""
++        self._conn.close()
++>>>>>>> REPLACE
++```
++
++Now let me create the bench CLI module with `_capture_run_context` and `_build_schedule`:
++
++backend/orchestrator/cli/commands/bench.py
++```python
++<<<<<<< SEARCH
++=======
++"""Bench run CLI commands."""
++from __future__ import annotations
++
++import os
++import random
++import subprocess
++import socket
++from typing import Any
++from datetime import datetime
++
++import numpy as np
++
++# Try to import psutil, but it's optional
++try:
++    import psutil
++except ImportError:
++    _psutil = None
++
++
++async def _capture_run_context() -> dict[str, Any]:
++    """Capture run context information."""
++    ctx = {
++        "git_sha": None,
++        "git_dirty": None,
++        "ollama_version": None,
++        "hostname": socket.gethostname(),
++        "on_charger": None,
++    }
++    
++    # Try to get git info
++    try:
++        result = subprocess.run(
++            ["git", "rev-parse", "HEAD"],
++            capture_output=True,
++            text=True,
++            check=False
++        )
++        if result.returncode == 0:
++            ctx["git_sha"] = result.stdout.strip()
++        
++        dirty_result = subprocess.run(
++            ["git", "diff-index", "--quiet", "--exit-code", "HEAD"],
++            capture_output=True,
++            text=True,
++            check=False
++        )
++        ctx["git_dirty"] = 1 if dirty_result.returncode != 0 else 0
++    except (FileNotFoundError, OSError):
++        pass
++    
++    # Try to get Ollama version
++    try:
++        import httpx
++        
++        class _OllamaClient:
++            def __init__(self):
++                self._response = None
++            
++            async def __aenter__(self):
++                return self
++            
++            async def __aexit__(self, *a):
++                pass
++            
++            async def get(self, url):
++                try:
++                    response = await httpx.AsyncClient().get(url)
++                    if response.status_code == 200:
++                        data = await response.aread()
++                        self._response = {"version": (data or b"{}").decode()}
++                except Exception:
++                    pass
++                return self._response or {}
++        
++        with _OllamaClient() as client:
++            ctx["ollama_version"] = client.get("http://localhost:11434/api/version")
++    except Exception:
++        pass
++    
++    # Try to get charger status
++    if _psutil is not None:
++        try:
++            ctx["on_charger"] = 1 if _psutil.battery_status() == "charging" else 0
++        except (AttributeError, RuntimeError):
++            pass
++    
++    return ctx
++
++
++def _build_schedule(
++    prompts: list[dict],
++    agents: list[str],
++    mode: str,
++    repeats: int,
++    prompt_seed: int | None = None,
++) -> list[tuple[dict, dict, str]]:
++    """Build a schedule for bench runs."""
++    # Set seeds if provided
++    if prompt_seed is not None:
++        random.seed(prompt_seed)
++        np.random.seed(prompt_seed)
++    
++    # Build schedule based on mode
++    if mode == "force-explore":
++        # Agent-major ordering with shuffled prompts within each agent block
++        schedule = []
++        for agent in agents:
++            # Shuffle prompts for this agent
++            shuffled_prompts = prompts.copy()
++            random.shuffle(shuffled_prompts)
++            
++            for prompt in shuffled_prompts:
++                schedule.append((prompt, {}, agent))
++        
++        # Repeat if needed
++        if repeats > 1:
++            schedule = schedule * repeats
++    
++    elif mode == "bandit":
++        # Keep prompts in original file order
++        schedule = []
++        for prompt in prompts:
++            for _ in range(repeats):
++                schedule.append((prompt, {}, agents[0] if agents else ""))
++    
++    return schedule
++>>>>>>> REPLACE
++```
++
++Now let me create the app module with `_bandit_seed`:
++
++backend/orchestrator/service/app.py
++```python
++<<<<<<< SEARCH
++=======
++"""App module with bandit seed handling."""
++from __future__ import annotations
++
++import os
++import random
++import numpy as np
++
++
++def _get_bandit_seed() -> int | None:
++    """Get the bandit seed from environment variable."""
++    seed_env = os.environ.get("MAHORAGA_BANDIT_SEED")
++    if seed_env:
++        return int(seed_env)
++    return None
++
++
++# Set module-level variable after reading env
++_bandit_seed = _get_bandit_seed()
++
++# Seed RNGs if bandit seed is set
++if _bandit_seed is not None:
++    random.seed(_bandit_seed)
++    np.random.seed(_bandit_seed)
++>>>>>>> REPLACE
++```
++
++> Tokens: 8.7k sent, 4.1k received.  
++> backend/orchestrator/cli/commands/bench.py  
++> Add file to the chat? (Y)es/(N)o/(A)ll/(S)kip all/(D)on't ask again [Yes]: y  
++> backend/orchestrator/routing/decision_log.py  
++> Add file to the chat? (Y)es/(N)o/(A)ll/(S)kip all/(D)on't ask again [Yes]: y  
++> backend/orchestrator/service/app.py  
++> Add file to the chat? (Y)es/(N)o/(A)ll/(S)kip all/(D)on't ask again [Yes]: y  
++> Warning: it's best to only add files that need changes to the chat.  
++> https://aider.chat/docs/troubleshooting/edit-errors.html  
++
++Looking at the tests, I need to implement:
++
++1. `DecisionLogger.create_bench_run()`, `finalize_bench_run()`, `log_decision()` with migration logic
++2. `_capture_run_context()` in bench CLI module  
++3. `_build_schedule()` function for bandit routing with seed support
++4. `MAHORAGA_BANDIT_SEED` seeding in app module
++
++Let me create the SEARCH/REPLACE blocks:
++
++backend/orchestrator/routing/decision_log.py
++```python
++<<<<<<< SEARCH
++"""
++SQLite-backed decision logger for bandit routing.
++Records every
++
++> Tokens: 32k sent, 476 received.  
++> The LLM did not conform to the edit format.  
++> https://aider.chat/docs/troubleshooting/edit-errors.html  
++> Looking at the tests, I need to implement:
++
++1. `DecisionLogger.create_bench_run()`, `finalize_bench_run()`, `log_decision()` with migration logic
++2. `_capture_run_context()` in bench CLI module  
++3. `_build_schedule()` function for bandit routing with seed support
++4. `MAHORAGA_BANDIT_SEED` seeding in app module
++
++Let me create the SEARCH/REPLACE blocks:
++
++backend/orchestrator/routing/decision_log.py
++```python
++<<<<<<< SEARCH
++"""
++SQLite-backed decision logger for bandit routing.
++Records every
++^^^ Expected `=======`  
++
++I need to implement the missing functionality based on the tests. Let me create proper SEARCH/REPLACE blocks:
++
++## 1. Add `create_bench_run`, `finalize_bench_run`, `log_decision` and migration to DecisionLogger
++
++backend/orchestrator
++
++> Tokens: 33k sent, 213 received.  
+diff --git a/.aider.input.history b/.aider.input.history
+index 792c366..bb80646 100644
+--- a/.aider.input.history
++++ b/.aider.input.history
+@@ -58,3 +58,21 @@
+ +Explain what causes this error and how to fix it: AttributeError: 'NoneType' obj
+ +
+ +Explain what causes this error and how to fix it: AttributeError: 'NoneType' object has no attribute 'split'
++
++# 2026-09-28 18:05:36.788195
+++Make the following change to this repository.
+++
+++feat: wire MAHORAGA_BANDIT_SEED + MAHORAGA_PROMPT_SEED through bandit routing and bench CLI
+++
+++
+++
+++Tests covering this change already exist in: tests/orchestrator_v2/test_bench_runs.py. Do not modify any test files; change the source code so those tests pass without breaking anything else.
++
++# 2026-09-28 18:05:36.790496
+++Make the following change to this repository.
+++
+++feat: wire MAHORAGA_BANDIT_SEED + MAHORAGA_PROMPT_SEED through bandit routing and bench CLI
+++
+++
+++
+++Tests covering this change already exist in: tests/orchestrator_v2/test_bench_runs.py. Do not modify any test files; change the source code so those tests pass without breaking anything else.

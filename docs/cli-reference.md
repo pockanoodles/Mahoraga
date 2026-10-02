@@ -56,6 +56,7 @@ orch
 │   ├── drift-history
 │   ├── override-roi
 │   └── weekly
+├── agentbench {mine, run, report}
 └── service {install, uninstall, start, stop, status}
 ```
 
@@ -254,6 +255,84 @@ orch brain query "execution gate" --k 5
 
 These commands inspect the repo-local `brain/` notes. They do not append
 journals or decisions.
+
+## Agent bench
+
+`orch agentbench` measures which coding agent + local model can fix bugs in a
+given repo, using that repo's own history. The repo must be a git repo with a
+pytest suite; it is only read, and all state lives under
+`~/.mahoraga-v2/agentbench/`.
+
+```bash
+orch agentbench mine [REPO]                 # commits -> gated tasks
+    [--limit 25] [--max-lines 250] [--rev HEAD] [--commit SHA ...]
+    [--python PATH] [--pytest-arg ARG ...]
+orch agentbench preflight [REPO] --arm aider:qwen3.5:latest [--arm ...]
+orch agentbench run [REPO] --arm aider:qwen3.5:latest [--arm ...]
+    [--cond blind|feedback|both] [--repeats K] [--task SHA ...] [--timeout SECS]
+    [--until HH:MM] [--wait-idle MIN] [--min-speed 0.5] [--no-guard] [--force]
+orch agentbench report [REPO] [--json]
+```
+
+- **mine** takes commits that changed both source and a test module. The task
+  is the parent plus the commit's test changes. It is kept only if the tests
+  pass at the commit and at least one fails at the base. The full suite at the
+  base becomes the pass-to-pass baseline.
+- **run** resets each task, lets the agent edit, restores the test files, and
+  grades. An attempt is resolved when the commit's tests pass and no
+  pass-to-pass test regressed. `feedback` also passes the task's test command
+  to the agent. Resumable; `--repeats` above 1 records separate attempts per
+  cell.
+- **report** prints resolve rates, multi-file resolve rates, regressions,
+  failure modes (`no-edit`, `wrong-file`, `broke-other`, `partial+broke`,
+  `partial`, `wrong-fix`), stability across repeats, and a per-task matrix.
+
+**The guard** (on by default for `run`) keeps results from measuring the
+machine instead of the agent. A throttled local model is slow enough to time
+out the agent's calls, and those failures look exactly like model failures.
+
+- **preflight** checks the charger (AC, at least 60W), the agent binary,
+  Ollama, that each model is pulled, and each model's current generation speed.
+  `run` refuses to start if a check fails, unless `--force` is given.
+- **Before each attempt**, the run waits while the machine is on battery, while
+  it generates under `--min-speed` (default half) of its reference speed, or,
+  with `--wait-idle`, while someone is using it.
+- **After each attempt**, it is marked *degraded* if AC was lost or speed fell
+  under the bar. Degraded attempts go to `attempts/degraded/`: they're kept
+  for audit, excluded from every rate, counted in `report`, and the cell is
+  retried up to twice.
+- **Speed** comes from a fixed 128-token generation, timed by Ollama's eval
+  counters. The reference is the best reading for that model digest taken
+  while the machine had been idle 5+ minutes on AC. Until one exists, speed is
+  recorded but not judged.
+
+`run` holds off sleep with `caffeinate` for its lifetime; closing the lid
+still sleeps the machine. `--until 07:30` starts no attempt after 07:30.
+
+Arms are `<agent>:<model>`, e.g. `aider:qwen3.5:latest` or
+`opencode:qwen3.5:latest`. Both agents get the same prompt and the same
+generation budget (32k context, 8,192 tokens per call), so a difference
+between two arms on the same model is the agent's.
+
+- **aider** edits with search/replace blocks over a repo map. `feedback` uses
+  its `--auto-test`.
+- **opencode** is a tool loop (read, grep, edit, bash). Ollama's
+  OpenAI-compatible endpoint ignores per-request options, so the model is
+  served as a derived tag (`agentbench/<model>:<tag>-num_ctx…-num_predict…`)
+  that shares the base weights. Only the ollama provider is enabled and web
+  fetch is denied. `feedback` names the test command in the prompt, and the
+  agent runs it itself.
+
+**Containment** is enforced by the OS, not requested of the agent. Each agent
+runs with its own HOME under the bench root, so it never sees your config or
+provider credentials. On macOS it also runs under `sandbox-exec`, which lets it
+and its children write only inside the task's checkout, that HOME, and the
+per-user temp area, and open network connections only to localhost (Ollama).
+Your repo is read-only to it. On other platforms only the HOME isolation
+applies.
+
+Models are local Ollama models only; Ollama `-cloud` models are refused, since
+they would send code off the machine outside the audited egress client.
 
 ## Agent and rankings commands
 

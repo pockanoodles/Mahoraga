@@ -1,0 +1,517 @@
+diff --git a/.aider.chat.history.md b/.aider.chat.history.md
+index 73c02da..a5abe3c 100644
+--- a/.aider.chat.history.md
++++ b/.aider.chat.history.md
+@@ -494,3 +494,374 @@ This ensures that `text` is not `None` before calling `split()`.
+ > **Example Fix  
+ > Create new file? (Y)es/(N)o [Yes]: y  
+ > Applied edit to **Example Fix  
++
++# aider chat started at 2026-09-28 17:48:32
++
++> /Users/kaitosoeno/.local/bin/aider --model ollama_chat/qwen3.5:latest --edit-format diff --model-settings-file /private/tmp/claude-501/-Users-kaitosoeno-Projects-Mahoraga/9fa9805a-2c5c-48ae-a18d-e09c6c71b8b0/scratchpad/agentedit/model-settings.yml --map-tokens 2048 --yes-always --no-auto-commits --no-gitignore --no-pretty --no-stream --no-show-model-warnings --no-check-update --no-analytics --no-show-release-notes --message Make the following change to this repository.
++
++fix: preserve agent attribution on gateway failure path
++
++When run_task raises, derive bandit TaskOutcome.agent_name from the
++most recent attempt's worker_id instead of hardcoding 'unknown'. Without
++this, the bandit can't penalize the actually-selected agent for the failure.
++
++Tests covering this change already exist in: tests/orchestrator_v2/test_gateway.py. Do not modify any test files; change the source code so those tests pass without breaking anything else.  
++> Aider v0.86.2  
++> Model: ollama_chat/qwen3.5:latest with diff edit format  
++> Git repo: .git with 342 files  
++> Repo-map: using 2048 tokens, auto refresh  
++
++#### Make the following change to this repository.  
++####   
++#### fix: preserve agent attribution on gateway failure path  
++####   
++#### When run_task raises, derive bandit TaskOutcome.agent_name from the  
++#### most recent attempt's worker_id instead of hardcoding 'unknown'. Without  
++#### this, the bandit can't penalize the actually-selected agent for the failure.  
++####   
++#### Tests covering this change already exist in: tests/orchestrator_v2/test_gateway.py. Do not modify any test files; change the source code so those tests pass without breaking anything else.  
++> tests/orchestrator_v2/test_gateway.py  
++> Add file to the chat? (Y)es/(N)o/(D)on't ask again [Yes]: y  
++> Initial repo scan can be slow in larger repos, but only happens once.  
++
++I need to see the gateway implementation to fix the agent attribution issue. The test file shows that when `run_task` raises an exception, the gateway should derive `TaskOutcome.agent_name` from the most recent attempt's `worker_id` instead of hardcoding 'unknown'.
++
++However, I don't see `backend/orchestrator/gateway.py` in the files you've added to the chat. Could you please add that file so I can edit it?
++
++> Tokens: 8.7k sent, 675 received.  
++> backend/orchestrator/gateway.py  
++> Add file to the chat? (Y)es/(N)o/(D)on't ask again [Yes]: y  
++
++Looking at the test file, I can see the issue. When `run_task` raises an exception, the current code doesn't collect attempts to get the agent name for the bandit's `TaskOutcome`. The tests expect that even on failure, we should derive `agent_name` from the most recent attempt's `worker_id`.
++
++I need to modify the exception handling section in `gateway.py` to:
++1. Collect attempts even when there's an exception
++2. Use the most recent attempt's worker_id for agent attribution
++
++Here are the changes:
++
++backend/orchestrator/gateway.py
++```python
++<<<<<<< SEARCH
++            _run_task_exc: Exception | None = None
++            try:
++                await run_task(task.id, self._store, self._registry, self._verifier)
++            except Exception as exc:
++                _run_task_exc = exc
++                logger.error("gateway: run_task error for %s: %s", task.id, exc)
++                chunk = f"[Task '{task.title}' failed: {exc}]"
++                response_chunks.append(chunk)
++                yield chunk
++
++            # Collect the latest completed attempt output as a response chunk.
++            # Fall back to summary for legacy DB rows where output column is empty.
++            completed: list = []
++            if _run_task_exc is None:
++                attempts = await self._store.tasks.list_attempts(task.id)
++                completed = [a for a in attempts if a.status.value == "completed"]
++=======
++            _run_task_exc: Exception | None = None
++            try:
++                await run_task(task.id, self._store, self._registry, self._verifier)
++            except Exception as exc:
++                _run_task_exc = exc
++                logger.error("gateway: run_task error for %s: %s", task.id, exc)
++                chunk = f"[Task '{task.title}' failed: {exc}]"
++                response_chunks.append(chunk)
++                yield chunk
++
++            # Collect the latest completed attempt output as a response chunk.
++            # Fall back to summary for legacy DB rows where output column is empty.
++            attempts = await self._store.tasks.list_attempts(task.id)
++            completed = [a for a in attempts if a.status.value == "completed"]
++>>>>>>> REPLACE
++```
++
++backend/orchestrator/gateway.py
++```python
++<<<<<<< SEARCH
++                except Exception:
++                    pass  # never let bandit updates break responses
++
++            if _run_task_exc is not None:
++                continue
++=======
++                except Exception:
++                    pass  # never let bandit updates break responses
++
++            # Determine agent_name for bandit observe() — use most recent attempt's worker_id
++            # even on failure, so the bandit can penalize the actually-selected agent.
++            if completed:
++                agent_name = completed[-1].worker_id or "unknown"
++            elif _run_task_exc is not None and attempts:
++                # On failure, use the most recent attempt (even if failed) for attribution
++                agent_name = attempts[-1].worker_id or "unknown"
++            else:
++                agent_name = "unknown"
++
++            if self._bandit_router is not None:
++                if completed:
++                    attempt = completed[-1]
++                    bandit_outcome = TaskOutcome(
++                        success=(attempt.status.value == "completed"),
++                        latency_s=0.0,
++                        cost_usd=0.0,
++                        quality_score=1.0 if attempt.status.value == "completed" else 0.0,
++                        agent_name=agent_name,
++                    )
++                else:
++                    # Exception in run_task or no completed attempt (escalated/blocked/retry-exhausted)
++                    bandit_outcome = TaskOutcome(
++                        success=False,
++                        latency_s=0.0,
++                        cost_usd=0.0,
++                        quality_score=0.0,
++                        agent_name=agent_name,
++                    )
++                try:
++                    self._bandit_router.observe(task, bandit_outcome)
++                except Exception:
++                    pass  # never let bandit updates break responses
++
++            if _run_task_exc is not None:
++                continue
++>>>>>>> REPLACE
++```
++
++> Tokens: 12k sent, 1.4k received.  
++> Applied edit to backend/orchestrator/gateway.py  
++>  
++> # Fix any errors below, if possible.  
++>  
++> Traceback (most recent call last):  
++> File "/private/tmp/claude-501/-Users-kaitosoeno-Projects-Mahoraga/9fa9805a-2c5c-48ae-a18d-e09c6c71b8b0/scratchpad/agentedit/work/d8126d9/backend/orchestrator/gateway.py", line 186  
++> logger.info("GATEWAY ATTEMPT OUTPUT: %s", [a.output[:100] for a in completed])  
++> IndentationError: unexpected indent  
++>  
++> ## Running: /Users/kaitosoeno/.local/share/uv/tools/aider-chat/bin/python -m flake8 --select=E9,F821,F823,F831,F406,F407,F701,F702,F704,F706 --show-source --isolated backend/orchestrator/gateway.py  
++>  
++> backend/orchestrator/gateway.py:186:17: E999 IndentationError: unexpected indent  
++> logger.info("GATEWAY ATTEMPT OUTPUT: %s", [a.output[:100] for a in completed])  
++> ^  
++>  
++> ## See relevant line below marked with █.  
++>  
++> backend/orchestrator/gateway.py:  
++> ...⋮...  
++> 45│class Gateway:  
++> 46│    """Routes channel messages through Mission → Plan → Run → Tasks pipeline."""  
++> 47│  
++> ...⋮...  
++> 70│    async def handle_message(self, msg: ChannelMessage) -> AsyncGenerator[str, None]:  
++> 71│        """Process a channel message through the full pipeline.  
++> 72│  
++> 73│        Yields response chunks (task summaries) as they complete.  
++> 74│        After all chunks are yielded, runs the adaptive learning loop  
++> 75│        in a fire-and-forget manner (errors are swallowed).  
++> ...⋮...  
++> 163│        for task in saved_tasks:  
++> 164│            # Re-fetch task status — dependency resolution may have updated it  
++> 165│            current = await self._store.tasks.get(task.id)  
++> ...⋮...  
++> 183│            # Fall back to summary for legacy DB rows where output column is empty.  
++> 184│            attempts = await self._store.tasks.list_attempts(task.id)  
++> 185│            completed = [a for a in attempts if a.status.value == "completed"]  
++> 186█                logger.info("GATEWAY ATTEMPT OUTPUT: %s", [a.output[:100] for a in completed])  
++> 187│                if completed:  
++> 188│                    attempt = completed[-1]  
++> 189│                    output = attempt.output or attempt.summary  
++> ...⋮...  
++>  
++> Attempt to fix lint errors? (Y)es/(N)o [Yes]: y  
++
++I see the issue - there's an indentation error on line 186 and beyond. The code block after collecting attempts has extra indentation. Let me fix that:
++
++backend/orchestrator/gateway.py
++```python
++<<<<<<< SEARCH
++            # Collect the latest completed attempt output as a response chunk.
++            # Fall back to summary for legacy DB rows where output column is empty.
++            attempts = await self._store.tasks.list_attempts(task.id)
++            completed = [a for a in attempts if a.status.value == "completed"]
++                logger.info("GATEWAY ATTEMPT OUTPUT: %s", [a.output[:100] for a in completed])
++                if completed:
++                    attempt = completed[-1]
++                    output = attempt.output or attempt.summary
++                    if output:
++                        response_chunks.append(output)
++                        yield output
++                        try:
++                            _duration = (
++                                attempt.ended_at - attempt.started_at
++                                if attempt.started_at is not None and attempt.ended_at is not None
++                                else None
++                            )
++                            _quality = 1.0 if attempt.status.value == "completed" else 0.0
++                            log_task_completion(
++                                task_title=task.title or mission.title,
++                                task_goal=task.goal or "",
++                                agent_used=attempt.worker_id or "unknown",
++                                output_preview=output[:500] if output else "",
++                                cost=0.0,
++                                quality_score=_quality,
++                                duration_seconds=_duration,
++                            )
++                        except Exception:
++                            pass  # Never let logging break the main flow
++
++            if self._bandit_router is not None:
++                if completed:
++                    attempt = completed[-1]
++                    bandit_outcome = TaskOutcome(
++                        success=(attempt.status.value == "completed"),
++                        latency_s=0.0,
++                        cost_usd=0.0,
++                        quality_score=1.0 if attempt.status.value == "completed" else 0.0,
++                        agent_name=attempt.worker_id or "unknown",
++                    )
++                else:
++                    # Exception in run_task or no completed attempt (escalated/blocked/retry-exhausted)
++                    bandit_outcome = TaskOutcome(
++                        success=False,
++                        latency_s=0.0,
++                        cost_usd=0.0,
++                        quality_score=0.0,
++                        agent_name="unknown",
++                    )
++                try:
++                    self._bandit_router.observe(task, bandit_outcome)
++                except Exception:
++                    pass  # never let bandit updates break responses
++
++            # Determine agent_name for bandit observe() — use most recent attempt's worker_id
++            # even on failure, so the bandit can penalize the actually-selected agent.
++            if completed:
++                agent_name = completed[-1].worker_id or "unknown"
++            elif _run_task_exc is not None and attempts:
++                # On failure, use the most recent attempt (even if failed) for attribution
++                agent_name = attempts[-1].worker_id or "unknown"
++            else:
++                agent_name = "unknown"
++
++            if self._bandit_router is not None:
++                if completed:
++                    attempt = completed[-1]
++                    bandit_outcome = TaskOutcome(
++                        success=(attempt.status.value == "completed"),
++                        latency_s=0.0,
++                        cost_usd=0.0,
++                        quality_score=1.0 if attempt.status.value == "completed" else 0.0,
++                        agent_name=agent_name,
++                    )
++                else:
++                    # Exception in run_task or no completed attempt (escalated/blocked/retry-exhausted)
++                    bandit_outcome = TaskOutcome(
++                        success=False,
++                        latency_s=0.0,
++                        cost_usd=0.0,
++                        quality_score=0.0,
++                        agent_name=agent_name,
++                    )
++                try:
++                    self._bandit_router.observe(task, bandit_outcome)
++                except Exception:
++                    pass  # never let bandit updates break responses
++
++            if _run_task_exc is not None:
++                continue
++=======
++            # Collect the latest completed attempt output as a response chunk.
++            # Fall back to summary for legacy DB rows where output column is empty.
++            attempts = await self._store.tasks.list_attempts(task.id)
++            completed = [a for a in attempts if a.status.value == "completed"]
++            logger.info("GATEWAY ATTEMPT OUTPUT: %s", [a.output[:100] for a in completed])
++            if completed:
++                attempt = completed[-1]
++                output = attempt.output or attempt.summary
++                if output:
++                    response_chunks.append(output)
++                    yield output
++                    try:
++                        _duration = (
++                            attempt.ended_at - attempt.started_at
++                            if attempt.started_at is not None and attempt.ended_at is not None
++                            else None
++                        )
++                        _quality = 1.0 if attempt.status.value == "completed" else 0.0
++                        log_task_completion(
++                            task_title=task.title or mission.title,
++                            task_goal=task.goal or "",
++                            agent_used=attempt.worker_id or "unknown",
++                            output_preview=output[:500] if output else "",
++                            cost=0.0,
++                            quality_score=_quality,
++                            duration_seconds=_duration,
++                        )
++                    except Exception:
++                        pass  # Never let logging break the main flow
++
++            if self._bandit_router is not None:
++                if completed:
++                    attempt = completed[-1]
++                    bandit_outcome = TaskOutcome(
++                        success=(attempt.status.value == "completed"),
++                        latency_s=0.0,
++                        cost_usd=0.0,
++                        quality_score=1.0 if attempt.status.value == "completed" else 0.0,
++                        agent_name=attempt.worker_id or "unknown",
++                    )
++                else:
++                    # Exception in run_task or no completed attempt (escalated/blocked/retry-exhausted)
++                    bandit_outcome = TaskOutcome(
++                        success=False,
++                        latency_s=0.0,
++                        cost_usd=0.0,
++                        quality_score=0.0,
++                        agent_name="unknown",
++                    )
++                try:
++                    self._bandit_router.observe(task, bandit_outcome)
++                except Exception:
++                    pass  # never let bandit updates break responses
++
++            # Determine agent_name for bandit observe() — use most recent attempt's worker_id
++            # even on failure, so the bandit can penalize the actually-selected agent.
++            if completed:
++                agent_name = completed[-1].worker_id or "unknown"
++            elif _run_task_exc is not None and attempts:
++                # On failure, use the most recent attempt (even if failed) for attribution
++                agent_name = attempts[-1].worker_id or "unknown"
++            else:
++                agent_name = "unknown"
++
++            if self._bandit_router is not None:
++                if completed:
++                    attempt = completed[-1]
++                    bandit_outcome = TaskOutcome(
++                        success=(attempt.status.value == "completed"),
++                        latency_s=0.0,
++                        cost_usd=0.0,
++                        quality_score=1.0 if attempt.status.value == "completed" else 0.0,
++                        agent_name=agent_name,
++                    )
++                else:
++                    # Exception in run_task or no completed attempt (escalated/blocked/retry-exhausted)
++                    bandit_outcome = TaskOutcome(
++                        success=False,
++                        latency_s=0.0,
++                        cost_usd=0.0,
++                        quality_score=0.0,
++                        agent_name=agent_name,
++                    )
++                try:
++                    self._bandit_router.observe(task, bandit_outcome)
++                except Exception:
++                    pass  # never let bandit updates break responses
++
++            if _run_task_exc is not None:
++                continue
++>>>>>>> REPLACE
++```
++
++> Tokens: 14k sent, 2.0k received.  
++> Applied edit to backend/orchestrator/gateway.py  
+diff --git a/.aider.input.history b/.aider.input.history
+index 792c366..f756c14 100644
+--- a/.aider.input.history
++++ b/.aider.input.history
+@@ -58,3 +58,25 @@
+ +Explain what causes this error and how to fix it: AttributeError: 'NoneType' obj
+ +
+ +Explain what causes this error and how to fix it: AttributeError: 'NoneType' object has no attribute 'split'
++
++# 2026-09-28 17:48:33.696580
+++Make the following change to this repository.
+++
+++fix: preserve agent attribution on gateway failure path
+++
+++When run_task raises, derive bandit TaskOutcome.agent_name from the
+++most recent attempt's worker_id instead of hardcoding 'unknown'. Without
+++this, the bandit can't penalize the actually-selected agent for the failure.
+++
+++Tests covering this change already exist in: tests/orchestrator_v2/test_gateway.py. Do not modify any test files; change the source code so those tests pass without breaking anything else.
++
++# 2026-09-28 17:48:33.696755
+++Make the following change to this repository.
+++
+++fix: preserve agent attribution on gateway failure path
+++
+++When run_task raises, derive bandit TaskOutcome.agent_name from the
+++most recent attempt's worker_id instead of hardcoding 'unknown'. Without
+++this, the bandit can't penalize the actually-selected agent for the failure.
+++
+++Tests covering this change already exist in: tests/orchestrator_v2/test_gateway.py. Do not modify any test files; change the source code so those tests pass without breaking anything else.
+diff --git a/backend/orchestrator/gateway.py b/backend/orchestrator/gateway.py
+index ba703dc..aa8af7d 100644
+--- a/backend/orchestrator/gateway.py
++++ b/backend/orchestrator/gateway.py
+@@ -181,35 +181,33 @@ class Gateway:
+ 
+             # Collect the latest completed attempt output as a response chunk.
+             # Fall back to summary for legacy DB rows where output column is empty.
+-            completed: list = []
+-            if _run_task_exc is None:
+-                attempts = await self._store.tasks.list_attempts(task.id)
+-                completed = [a for a in attempts if a.status.value == "completed"]
+-                logger.info("GATEWAY ATTEMPT OUTPUT: %s", [a.output[:100] for a in completed])
+-                if completed:
+-                    attempt = completed[-1]
+-                    output = attempt.output or attempt.summary
+-                    if output:
+-                        response_chunks.append(output)
+-                        yield output
+-                        try:
+-                            _duration = (
+-                                attempt.ended_at - attempt.started_at
+-                                if attempt.started_at is not None and attempt.ended_at is not None
+-                                else None
+-                            )
+-                            _quality = 1.0 if attempt.status.value == "completed" else 0.0
+-                            log_task_completion(
+-                                task_title=task.title or mission.title,
+-                                task_goal=task.goal or "",
+-                                agent_used=attempt.worker_id or "unknown",
+-                                output_preview=output[:500] if output else "",
+-                                cost=0.0,
+-                                quality_score=_quality,
+-                                duration_seconds=_duration,
+-                            )
+-                        except Exception:
+-                            pass  # Never let logging break the main flow
++            attempts = await self._store.tasks.list_attempts(task.id)
++            completed = [a for a in attempts if a.status.value == "completed"]
++            logger.info("GATEWAY ATTEMPT OUTPUT: %s", [a.output[:100] for a in completed])
++            if completed:
++                attempt = completed[-1]
++                output = attempt.output or attempt.summary
++                if output:
++                    response_chunks.append(output)
++                    yield output
++                    try:
++                        _duration = (
++                            attempt.ended_at - attempt.started_at
++                            if attempt.started_at is not None and attempt.ended_at is not None
++                            else None
++                        )
++                        _quality = 1.0 if attempt.status.value == "completed" else 0.0
++                        log_task_completion(
++                            task_title=task.title or mission.title,
++                            task_goal=task.goal or "",
++                            agent_used=attempt.worker_id or "unknown",
++                            output_preview=output[:500] if output else "",
++                            cost=0.0,
++                            quality_score=_quality,
++                            duration_seconds=_duration,
++                        )
++                    except Exception:
++                        pass  # Never let logging break the main flow
+ 
+             if self._bandit_router is not None:
+                 if completed:
+@@ -235,6 +233,40 @@ class Gateway:
+                 except Exception:
+                     pass  # never let bandit updates break responses
+ 
++            # Determine agent_name for bandit observe() — use most recent attempt's worker_id
++            # even on failure, so the bandit can penalize the actually-selected agent.
++            if completed:
++                agent_name = completed[-1].worker_id or "unknown"
++            elif _run_task_exc is not None and attempts:
++                # On failure, use the most recent attempt (even if failed) for attribution
++                agent_name = attempts[-1].worker_id or "unknown"
++            else:
++                agent_name = "unknown"
++
++            if self._bandit_router is not None:
++                if completed:
++                    attempt = completed[-1]
++                    bandit_outcome = TaskOutcome(
++                        success=(attempt.status.value == "completed"),
++                        latency_s=0.0,
++                        cost_usd=0.0,
++                        quality_score=1.0 if attempt.status.value == "completed" else 0.0,
++                        agent_name=agent_name,
++                    )
++                else:
++                    # Exception in run_task or no completed attempt (escalated/blocked/retry-exhausted)
++                    bandit_outcome = TaskOutcome(
++                        success=False,
++                        latency_s=0.0,
++                        cost_usd=0.0,
++                        quality_score=0.0,
++                        agent_name=agent_name,
++                    )
++                try:
++                    self._bandit_router.observe(task, bandit_outcome)
++                except Exception:
++                    pass  # never let bandit updates break responses
++
+             if _run_task_exc is not None:
+                 continue
+ 

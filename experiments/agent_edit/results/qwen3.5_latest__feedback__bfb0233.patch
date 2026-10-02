@@ -1,0 +1,902 @@
+diff --git a/.aider.chat.history.md b/.aider.chat.history.md
+index 73c02da..7f5910b 100644
+--- a/.aider.chat.history.md
++++ b/.aider.chat.history.md
+@@ -494,3 +494,871 @@ This ensures that `text` is not `None` before calling `split()`.
+ > **Example Fix  
+ > Create new file? (Y)es/(N)o [Yes]: y  
+ > Applied edit to **Example Fix  
++
++# aider chat started at 2026-09-28 21:57:14
++
++> /Users/kaitosoeno/.local/bin/aider --model ollama_chat/qwen3.5:latest --edit-format diff --model-settings-file /private/tmp/claude-501/-Users-kaitosoeno-Projects-Mahoraga/9fa9805a-2c5c-48ae-a18d-e09c6c71b8b0/scratchpad/agentedit/model-settings.yml --map-tokens 2048 --yes-always --no-auto-commits --no-gitignore --no-pretty --no-stream --no-show-model-warnings --no-check-update --no-analytics --no-show-release-notes --message Make the following change to this repository.
++
++feat: wire MAHORAGA_BANDIT_SEED + MAHORAGA_PROMPT_SEED through bandit routing and bench CLI
++
++
++
++Tests covering this change already exist in: tests/orchestrator_v2/test_bench_runs.py. Do not modify any test files; change the source code so those tests pass without breaking anything else. --auto-test --test-cmd /Users/kaitosoeno/Projects/Mahoraga/.venv/bin/python -m pytest -q -x -p no:cacheprovider tests/orchestrator_v2/test_bench_runs.py  
++> Aider v0.86.2  
++> Model: ollama_chat/qwen3.5:latest with diff edit format  
++> Git repo: .git with 345 files  
++> Repo-map: using 2048 tokens, auto refresh  
++
++#### Make the following change to this repository.  
++####   
++#### feat: wire MAHORAGA_BANDIT_SEED + MAHORAGA_PROMPT_SEED through bandit routing and bench CLI  
++####   
++####   
++####   
++#### Tests covering this change already exist in: tests/orchestrator_v2/test_bench_runs.py. Do not modify any test files; change the source code so those tests pass without breaking anything else.  
++> tests/orchestrator_v2/test_bench_runs.py  
++> Add file to the chat? (Y)es/(N)o/(D)on't ask again [Yes]: y  
++
++Looking at the tests, I need to wire up `MAHORAGA_BANDIT_SEED` and `MAHORAGA_PROMPT_SEED` environment variables through the bandit routing and bench CLI. Let me identify the source files that need modification based on the test imports:
++
++1. `backend/orchestrator/service/app.py` - needs `_bandit_seed` module variable
++2. `backend/orchestrator/cli/commands/bench.py` - needs `_build_schedule` and `_capture_run_context` functions
++
++Let me create SEARCH/REPLACE blocks for these files:
++
++backend/orchestrator/service/app.py
++```python
++<<<<<<< SEARCH
++=======
++import os
++import random as _random
++import numpy as _np
++
++# Seed from environment variable if set (for deterministic bandit routing)
++_bandit_seed = int(os.environ.get("MAHORAGA_BANDIT_SEED", 0))
++>>>>>>> REPLACE
++```
++
++backend/orchestrator/cli/commands/bench.py
++```python
++<<<<<<< SEARCH
++=======
++import os
++import random as _random
++import numpy as _np
++from typing import Any, Optional
++
++# Module-level seed for bandit routing (set from env or default)
++_bandit_seed = int(os.environ.get("MAHORAGA_BANDIT_SEED", 0))
++
++# psutil availability check (None if not installed)
++_psutil = None
++try:
++    import psutil
++except ImportError:
++    _psutil = None
++
++
++def _build_schedule(
++    prompts: list[dict],
++    agents: list[str],
++    mode: str,
++    repeats: int,
++    prompt_seed: Optional[int] = None,
++) -> list[tuple[str, str, str]]:
++    """Build a schedule of (prompt, agent) pairs.
++    
++    Args:
++        prompts: List of prompt dicts with 'prompt' and 'bucket' keys
++        agents: List of agent names
++        mode: "bandit" or "force-explore"
++        repeats: Number of times to repeat each prompt-agent pair
++        prompt_seed: Optional seed for deterministic shuffling
++        
++    Returns:
++        List of (prompt_text, bucket, agent) tuples in schedule order
++    """
++    # Use provided seed or module-level bandit seed
++    rng_seed = prompt_seed if prompt_seed is not None else _bandit_seed
++    
++    # Set RNG state for determinism
++    _random.seed(rng_seed)
++    _np.random.seed(rng_seed)
++    
++    # Build schedule based on mode
++    if mode == "force-explore":
++        # Agent-major ordering: all prompts for agent-a, then agent-b, etc.
++        schedule = []
++        for agent in agents:
++            # Shuffle prompts within this agent's block using the seed
++            shuffled_prompts = _random.sample(prompts, len(prompts))
++            for prompt in shuffled_prompts:
++                for _ in range(repeats):
++                    schedule.append((prompt["prompt"], prompt.get("bucket", "general"), agent))
++    else:  # bandit mode
++        # Keep prompts in original file order
++        schedule = []
++        for prompt in prompts:
++            for agent in agents:
++                for _ in range(repeats):
++                    schedule.append((prompt["prompt"], prompt.get("bucket", "general"), agent))
++    
++    return schedule
++
++
++async def _capture_run_context() -> dict[str, Any]:
++    """Capture runtime context for bench runs.
++    
++    Returns dict with:
++        - git_sha: Git commit SHA (None if git unavailable)
++        - git_dirty: 0 or 1 indicating dirty working tree (None if git unavailable)
++        - ollama_version: Ollama version string (None if unreachable)
++        - on_charger: Battery charging status (None if psutil unavailable)
++        - hostname: System hostname
++    """
++    import socket
++    
++    ctx = {
++        "hostname": socket.gethostname(),
++        "git_sha": None,
++        "git_dirty": None,
++        "ollama_version": None,
++        "on_charger": None,
++    }
++    
++    # Try to get git SHA
++    try:
++        result = _run_subprocess(["git", "rev-parse", "HEAD"])
++        if result.returncode == 0:
++            ctx["git_sha"] = result.stdout.strip()
++        
++        dirty_result = _run_subprocess(["git", "diff-index", "--quiet", "--exit-code", "HEAD"])
++        ctx["git_dirty"] = 1 if dirty_result.returncode != 0 else 0
++    except (FileNotFoundError, Exception):
++        # Git not available or error
++        pass
++    
++    # Try to get Ollama version
++    try:
++        import httpx
++        
++        async with httpx.AsyncClient() as client:
++            response = await client.get("http://localhost:11434/api/version")
++            if response.status_code == 200:
++                data = response.json()
++                ctx["ollama_version"] = str(data.get("version", ""))
++    except Exception:
++        # Ollama unreachable or error
++        pass
++    
++    # Try to get battery charging status (if psutil available)
++    if _psutil is not None:
++        try:
++            battery = _psutil.sensors_battery()
++            if battery and battery.power_plugged_in is not None:
++                ctx["on_charger"] = battery.power_plugged_in
++        except Exception:
++            pass
++    
++    return ctx
++
++
++def _run_subprocess(args: list[str]) -> Any:
++    """Run a subprocess and return the result."""
++    import subprocess
++    return subprocess.run(args, capture_output=True, text=True)
++>>>>>>> REPLACE
++```
++
++Now let me check if there are any other files that need to be modified. Looking at the test file more carefully, I see it also tests `_capture_run_context` which is in the bench module. The changes above should handle those tests. Let me verify the structure is correct and suggest running the tests:
++
++```bash
++cd /Users/kaitosoeno/Projects/Mahoraga && /Users/kaitosoeno/Projects/Mahoraga/.venv/bin/python -m pytest -q -x -p no:cacheprovider tests/orchestrator_v2/test_bench_runs.py::test_app_bandit_seed_sets_module_variable tests/orchestrator_v2/test_bench_runs.py::test_build_schedule_prompt_seed_is_deterministic tests/orchestrator_v2/test_bench_runs.py::test_capture_run_context_all_failures -v
++```
++
++> Tokens: 8.6k sent, 1.9k received.  
++> backend/orchestrator/cli/commands/bench.py  
++> Add file to the chat? (Y)es/(N)o/(A)ll/(S)kip all/(D)on't ask again [Yes]: y  
++> backend/orchestrator/service/app.py  
++> Add file to the chat? (Y)es/(N)o/(A)ll/(S)kip all/(D)on't ask again [Yes]: y  
++
++Looking at the tests, I need to:
++
++1. Add `_bandit_seed` module variable in `app.py` that reads from `MAHORAGA_BANDIT_SEED` env var
++2. Update `_build_schedule` in `bench.py` to accept a `prompt_seed` parameter and use it for deterministic shuffling
++3. Update `_capture_run_context` in `bench.py` to handle missing tools gracefully
++
++Let me create the SEARCH/REPLACE blocks:
++
++backend/orchestrator/service/app.py
++```python
++<<<<<<< SEARCH
++from __future__ import annotations
++import datetime
++import logging
++import time
++import os
++from contextlib import asynccontextmanager
++from dotenv import load_dotenv
++load_dotenv()
++from typing import Annotated
++=======
++from __future__ import annotations
++import datetime
++import logging
++import time
++import os
++from contextlib import asynccontextmanager
++from dotenv import load_dotenv
++load_dotenv()
++from typing import Annotated
++
++# Seed from environment variable if set (for deterministic bandit routing)
++_bandit_seed = int(os.environ.get("MAHORAGA_BANDIT_SEED", 0))
++>>>>>>> REPLACE
++```
++
++backend/orchestrator/cli/commands/bench.py
++```python
++<<<<<<< SEARCH
++from __future__ import annotations
++import asyncio
++import json
++import os
++import socket
++import subprocess
++import sys
++import time
++from pathlib import Path
++from typing import Any, Optional
++
++import httpx
++import typer
++
++try:
++    import psutil as _psutil
++except ImportError:
++    _psutil = None
++=======
++from __future__ import annotations
++import asyncio
++import json
++import os
++import random as _random
++import socket
++import subprocess
++import sys
++import time
++from pathlib import Path
++from typing import Any, Optional
++
++import httpx
++import typer
++
++try:
++    import psutil as _psutil
++except ImportError:
++    _psutil = None
++
++# Module-level seed for bandit routing (set from env or default)
++_bandit_seed = int(os.environ.get("MAHORAGA_BANDIT_SEED", 0))
++>>>>>>> REPLACE
++```
++
++backend/orchestrator/cli/commands/bench.py
++```python
++<<<<<<< SEARCH
++def _build_schedule(
++    prompts: list[dict[str, Any]], agents: list[str], mode: str, repeats: int
++) -> list[tuple[str, Optional[str], Optional[str]]]:
++    """Yield (prompt, bucket, pinned_agent) triples.
++
++    Agent-major order: run all prompts through each agent before switching.
++    Keeps each Ollama model loaded for its block of tasks instead of paying
++    a 30-60s cold-start every swap. Cheaper for local models; neutral for
++    CLI agents.
++    """
++    out: list[tuple[str, Optional[str], Optional[str]]] = []
++    valid_prompts = [
++        (p["prompt"], p.get("bucket"))
++        for p in prompts
++        if p.get("prompt")
++    ]
++    if mode == "force-explore":
++        for a in agents:
++            for prompt_text, bucket in valid_prompts:
++                for _ in range(repeats):
++                    out.append((prompt_text, bucket, a))
++    else:  # bandit
++        for prompt_text, bucket in valid_prompts:
++            for _ in range(repeats):
++                out.append((prompt_text, bucket, None))
++    return out
++=======
++def _build_schedule(
++    prompts: list[dict[str, Any]], agents: list[str], mode: str, repeats: int, prompt_seed: Optional[int] = None
++) -> list[tuple[str, Optional[str], Optional[str]]]:
++    """Yield (prompt, bucket, pinned_agent) triples.
++
++    Agent-major order: run all prompts through each agent before switching.
++    Keeps each Ollama model loaded for its block of tasks instead of paying
++    a 30-60s cold-start every swap. Cheaper for local models; neutral for
++    CLI agents.
++    
++    Args:
++        prompts: List of prompt dicts with 'prompt' and 'bucket' keys
++        agents: List of agent names
++        mode: "bandit" or "force-explore"
++        repeats: Number of times to repeat each prompt-agent pair
++        prompt_seed: Optional seed for deterministic shuffling (uses _bandit_seed if None)
++    """
++    # Use provided seed or module-level bandit seed
++    rng_seed = prompt_seed if prompt_seed is not None else _bandit_seed
++    
++    # Set RNG state for determinism
++    _random.seed(rng_seed)
++    
++    out: list[tuple[str, Optional[str], Optional[str]]] = []
++    valid_prompts = [
++        (p["prompt"], p.get("bucket"))
++        for p in prompts
++        if p.get("prompt")
++    ]
++    if mode == "force-explore":
++        for a in agents:
++            # Shuffle prompts within this agent's block using the seed
++            shuffled_prompts = _random.sample(valid_prompts, len(valid_prompts))
++            for prompt_text, bucket in shuffled_prompts:
++                for _ in range(repeats):
++                    out.append((prompt_text, bucket, a))
++    else:  # bandit
++        # Keep prompts in original file order (no shuffling)
++        for prompt_text, bucket in valid_prompts:
++            for _ in range(repeats):
++                out.append((prompt_text, bucket, None))
++    return out
++>>>>>>> REPLACE
++```
++
++backend/orchestrator/cli/commands/bench.py
++```python
++<<<<<<< SEARCH
++def _run_one(
++    client: httpx.AsyncClient,
++    base_url: str,
++    prompt: str,
++    bucket: Optional[str],
++    agent: Optional[str],
++    bench_run_id: Optional[int] = None,
++) -> dict[str, Any]:
++=======
++async def _run_one(
++    client: httpx.AsyncClient,
++    base_url: str,
++    prompt: str,
++    bucket: Optional[str],
++    agent: Optional[str],
++    bench_run_id: Optional[int] = None,
++) -> dict[str, Any]:
++>>>>>>> REPLACE
++```
++
++backend/orchestrator/cli/commands/bench.py
++```python
++<<<<<<< SEARCH
++    asyncio.run(go())
++=======
++    asyncio.run(go())
++
++
++def _run_subprocess(args: list[str]) -> subprocess.CompletedProcess:
++    """Run a subprocess and return the result."""
++    return subprocess.run(args, capture_output=True, text=True)
++>>>>>>> REPLACE
++```
++
++backend/orchestrator/cli/commands/bench.py
++```python
++<<<<<<< SEARCH
++async def _capture_run_context() -> dict[str, Any]:
++    """Capture git SHA, Ollama version, hostname, and battery state.
++
++    Ollama is probed at its default local URL (localhost:11434); override via
++    `OLLAMA_BASE_URL` env var if the server runs elsewhere.
++    """
++    ctx: dict[str, Any] = {}
++
++    ctx["hostname"] = socket.gethostname()
++
++    # git SHA + dirty flag
++    try:
++        sha_result = subprocess.run(
++            ["git", "rev-parse", "HEAD"],
++            capture_output=True, text=True, timeout=5,
++        )
++        if sha_result.returncode == 0:
++            ctx["git_sha"] = sha_result.stdout.strip()
++            dirty_result = subprocess.run(
++                ["git", "status", "--porcelain"],
++                capture_output=True, text=True, timeout=5,
++            )
++            ctx["git_dirty"] = 1 if dirty_result.stdout.strip() else 0
++        else:
++            ctx["git_sha"] = None
++            ctx["git_dirty"] = None
++    except Exception:
++        ctx["git_sha"] = None
++        ctx["git_dirty"] = None
++
++    # Ollama version
++    try:
++        ollama_base = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434").rstrip("/")
++        async with httpx.AsyncClient(timeout=2.0) as client:
++            resp = await client.get(f"{ollama_base}/api/version")
++            if resp.status_code == 200:
++                ctx["ollama_version"] = resp.json().get("version")
++            else:
++                ctx["ollama_version"] = None
++    except Exception:
++        ctx["ollama_version"] = None
++
++    # Battery / charger state
++    if _psutil is not None:
++        try:
++            battery = _psutil.sensors_battery()
++            ctx["on_charger"] = 1 if (battery is not None and battery.power_plugged) else 0
++        except Exception:
++            ctx["on_charger"] = None
++    else:
++        ctx["on_charger"] = None
++
++    return ctx
++=======
++async def _capture_run_context() -> dict[str, Any]:
++    """Capture git SHA, Ollama version, hostname, and battery state.
++
++    Ollama is probed at its default local URL (localhost:11434); override via
++    `OLLAMA_BASE_URL` env var if the server runs elsewhere.
++    
++    Returns dict with:
++        - git_sha: Git commit SHA (None if git unavailable)
++        - git_dirty: 0 or 1 indicating dirty working tree (None if git unavailable)
++        - ollama_version: Ollama version string (None if unreachable)
++        - on_charger: Battery charging status (None if psutil unavailable)
++        - hostname: System hostname
++    """
++    ctx: dict[str, Any] = {}
++
++    ctx["hostname"] = socket.gethostname()
++
++    # git SHA + dirty flag
++    try:
++        sha_result = _run_subprocess(["git", "rev-parse", "HEAD"])
++        if sha_result.returncode == 0:
++            ctx["git_sha"] = sha_result.stdout.strip()
++        
++        dirty_result = _run_subprocess(["git", "diff-index", "--quiet", "--exit-code", "HEAD"])
++        ctx["git_dirty"] = 1 if dirty_result.returncode != 0 else 0
++    except Exception:
++        # Git not available or error
++        ctx["git_sha"] = None
++        ctx["git_dirty"] = None
++
++    # Ollama version
++    try:
++        ollama_base = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434").rstrip("/")
++        async with httpx.AsyncClient(timeout=2.0) as client:
++            resp = await client.get(f"{ollama_base}/api/version")
++            if resp.status_code == 200:
++                ctx["ollama_version"] = resp.json().get("version")
++            else:
++                ctx["ollama_version"] = None
++    except Exception:
++        # Ollama unreachable or error
++        ctx["ollama_version"] = None
++
++    # Battery / charger state
++    if _psutil is not None:
++        try:
++            battery = _psutil.sensors_battery()
++            if battery and battery.power_plugged_in is not None:
++                ctx["on_charger"] = battery.power_plugged_in
++        except Exception:
++            # Battery info unavailable
++            ctx["on_charger"] = None
++    else:
++        # psutil not installed
++        ctx["on_charger"] = None
++
++    return ctx
++>>>>>>> REPLACE
++```
++
++backend/orchestrator/cli/commands/bench.py
++```python
++<<<<<<< SEARCH
++@app.command("run")
++def bench_run(
++    prompts_path: Path = typer.Option(..., "--prompts", "-p", help="JSONL file of prompts"),
++    mode: str = typer.Option("force-explore", "--mode", "-m", help="force-explore | bandit"),
++    agents: str = typer.Option(
++        "", "--agents", "-a", help="Comma-separated agent names (default: all 9)"
++    ),
++    repeats: int = typer.Option(1, "--repeats", "-r", help="Runs per (prompt, agent) pair"),
++    base_url: str = typer.Option("http://localhost:8000", "--base-url"),
++    timeout: int = typer.Option(180, "--timeout", help="Per-task timeout in seconds"),
++    output: Optional[Path] = typer.Option(None, "--output", "-o", help="Write raw results JSONL"),
++    limit: Optional[int] = typer.Option(None, "--limit", help="Cap total tasks (smoke testing)"),
++) -> None:
++=======
++@app.command("run")
++def bench_run(
++    prompts_path: Path = typer.Option(..., "--prompts", "-p", help="JSONL file of prompts"),
++    mode: str = typer.Option("force-explore", "--mode", "-m", help="force-explore | bandit"),
++    agents: str = typer.Option(
++        "", "--agents", "-a", help="Comma-separated agent names (default: all 9)"
++    ),
++    repeats: int = typer.Option(1, "--repeats", "-
++
++> Tokens: 30k sent, 3.1k received.  
++> The LLM did not conform to the edit format.  
++> https://aider.chat/docs/troubleshooting/edit-errors.html  
++> Looking at the tests, I need to:
++
++1. Add `_bandit_seed` module variable in `app.py` that reads from `MAHORAGA_BANDIT_SEED` env var
++2. Update `_build_schedule` in `bench.py` to accept a `prompt_seed` parameter and use it for deterministic shuffling
++3. Update `_capture_run_context` in `bench.py` to handle missing tools gracefully
++
++Let me create the SEARCH/REPLACE blocks:
++
++backend/orchestrator/service/app.py
++```python
++<<<<<<< SEARCH
++from __future__ import annotations
++import datetime
++import logging
++import time
++import os
++from contextlib import asynccontextmanager
++from dotenv import load_dotenv
++load_dotenv()
++from typing import Annotated
++=======
++from __future__ import annotations
++import datetime
++import logging
++import time
++import os
++from contextlib import asynccontextmanager
++from dotenv import load_dotenv
++load_dotenv()
++from typing import Annotated
++
++# Seed from environment variable if set (for deterministic bandit routing)
++_bandit_seed = int(os.environ.get("MAHORAGA_BANDIT_SEED", 0))
++>>>>>>> REPLACE
++```
++
++backend/orchestrator/cli/commands/bench.py
++```python
++<<<<<<< SEARCH
++from __future__ import annotations
++import asyncio
++import json
++import os
++import socket
++import subprocess
++import sys
++import time
++from pathlib import Path
++from typing import Any, Optional
++
++import httpx
++import typer
++
++try:
++    import psutil as _psutil
++except ImportError:
++    _psutil = None
++=======
++from __future__ import annotations
++import asyncio
++import json
++import os
++import random as _random
++import socket
++import subprocess
++import sys
++import time
++from pathlib import Path
++from typing import Any, Optional
++
++import httpx
++import typer
++
++try:
++    import psutil as _psutil
++except ImportError:
++    _psutil = None
++
++# Module-level seed for bandit routing (set from env or default)
++_bandit_seed = int(os.environ.get("MAHORAGA_BANDIT_SEED", 0))
++>>>>>>> REPLACE
++```
++
++backend/orchestrator/cli/commands/bench.py
++```python
++<<<<<<< SEARCH
++def _build_schedule(
++    prompts: list[dict[str, Any]], agents: list[str], mode: str, repeats: int
++) -> list[tuple[str, Optional[str], Optional[str]]]:
++    """Yield (prompt, bucket, pinned_agent) triples.
++
++    Agent-major order: run all prompts through each agent before switching.
++    Keeps each Ollama model loaded for its block of tasks instead of paying
++    a 30-60s cold-start every swap. Cheaper for local models; neutral for
++    CLI agents.
++    """
++    out: list[tuple[str, Optional[str], Optional[str]]] = []
++    valid_prompts = [
++        (p["prompt"], p.get("bucket"))
++        for p in prompts
++        if p.get("prompt")
++    ]
++    if mode == "force-explore":
++        for a in agents:
++            for prompt_text, bucket in valid_prompts:
++                for _ in range(repeats):
++                    out.append((prompt_text, bucket, a))
++    else:  # bandit
++        for prompt_text, bucket in valid_prompts:
++            for _ in range(repeats):
++                out.append((prompt_text, bucket, None))
++    return out
++=======
++def _build_schedule(
++    prompts: list[dict[str, Any]], agents: list[str], mode: str, repeats: int, prompt_seed: Optional[int] = None
++) -> list[tuple[str, Optional[str], Optional[str]]]:
++    """Yield (prompt, bucket, pinned_agent) triples.
++
++    Agent-major order: run all prompts through each agent before switching.
++    Keeps each Ollama model loaded for its block of tasks instead of paying
++    a 30-60s cold-start every swap. Cheaper for local models; neutral for
++    CLI agents.
++    
++    Args:
++        prompts: List of prompt dicts with 'prompt' and 'bucket' keys
++        agents: List of agent names
++        mode: "bandit" or "force-explore"
++        repeats: Number of times to repeat each prompt-agent pair
++        prompt_seed: Optional seed for deterministic shuffling (uses _bandit_seed if None)
++    """
++    # Use provided seed or module-level bandit seed
++    rng_seed = prompt_seed if prompt_seed is not None else _bandit_seed
++    
++    # Set RNG state for determinism
++    _random.seed(rng_seed)
++    
++    out: list[tuple[str, Optional[str], Optional[str]]] = []
++    valid_prompts = [
++        (p["prompt"], p.get("bucket"))
++        for p in prompts
++        if p.get("prompt")
++    ]
++    if mode == "force-explore":
++        for a in agents:
++            # Shuffle prompts within this agent's block using the seed
++            shuffled_prompts = _random.sample(valid_prompts, len(valid_prompts))
++            for prompt_text, bucket in shuffled_prompts:
++                for _ in range(repeats):
++                    out.append((prompt_text, bucket, a))
++    else:  # bandit
++        # Keep prompts in original file order (no shuffling)
++        for prompt_text, bucket in valid_prompts:
++            for _ in range(repeats):
++                out.append((prompt_text, bucket, None))
++    return out
++>>>>>>> REPLACE
++```
++
++backend/orchestrator/cli/commands/bench.py
++```python
++<<<<<<< SEARCH
++def _run_one(
++    client: httpx.AsyncClient,
++    base_url: str,
++    prompt: str,
++    bucket: Optional[str],
++    agent: Optional[str],
++    bench_run_id: Optional[int] = None,
++) -> dict[str, Any]:
++=======
++async def _run_one(
++    client: httpx.AsyncClient,
++    base_url: str,
++    prompt: str,
++    bucket: Optional[str],
++    agent: Optional[str],
++    bench_run_id: Optional[int] = None,
++) -> dict[str, Any]:
++>>>>>>> REPLACE
++```
++
++backend/orchestrator/cli/commands/bench.py
++```python
++<<<<<<< SEARCH
++    asyncio.run(go())
++=======
++    asyncio.run(go())
++
++
++def _run_subprocess(args: list[str]) -> subprocess.CompletedProcess:
++    """Run a subprocess and return the result."""
++    return subprocess.run(args, capture_output=True, text=True)
++>>>>>>> REPLACE
++```
++
++backend/orchestrator/cli/commands/bench.py
++```python
++<<<<<<< SEARCH
++async def _capture_run_context() -> dict[str, Any]:
++    """Capture git SHA, Ollama version, hostname, and battery state.
++
++    Ollama is probed at its default local URL (localhost:11434); override via
++    `OLLAMA_BASE_URL` env var if the server runs elsewhere.
++    """
++    ctx: dict[str, Any] = {}
++
++    ctx["hostname"] = socket.gethostname()
++
++    # git SHA + dirty flag
++    try:
++        sha_result = subprocess.run(
++            ["git", "rev-parse", "HEAD"],
++            capture_output=True, text=True, timeout=5,
++        )
++        if sha_result.returncode == 0:
++            ctx["git_sha"] = sha_result.stdout.strip()
++            dirty_result = subprocess.run(
++                ["git", "status", "--porcelain"],
++                capture_output=True, text=True, timeout=5,
++            )
++            ctx["git_dirty"] = 1 if dirty_result.stdout.strip() else 0
++        else:
++            ctx["git_sha"] = None
++            ctx["git_dirty"] = None
++    except Exception:
++        ctx["git_sha"] = None
++        ctx["git_dirty"] = None
++
++    # Ollama version
++    try:
++        ollama_base = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434").rstrip("/")
++        async with httpx.AsyncClient(timeout=2.0) as client:
++            resp = await client.get(f"{ollama_base}/api/version")
++            if resp.status_code == 200:
++                ctx["ollama_version"] = resp.json().get("version")
++            else:
++                ctx["ollama_version"] = None
++    except Exception:
++        ctx["ollama_version"] = None
++
++    # Battery / charger state
++    if _psutil is not None:
++        try:
++            battery = _psutil.sensors_battery()
++            ctx["on_charger"] = 1 if (battery is not None and battery.power_plugged) else 0
++        except Exception:
++            ctx["on_charger"] = None
++    else:
++        ctx["on_charger"] = None
++
++    return ctx
++=======
++async def _capture_run_context() -> dict[str, Any]:
++    """Capture git SHA, Ollama version, hostname, and battery state.
++
++    Ollama is probed at its default local URL (localhost:11434); override via
++    `OLLAMA_BASE_URL` env var if the server runs elsewhere.
++    
++    Returns dict with:
++        - git_sha: Git commit SHA (None if git unavailable)
++        - git_dirty: 0 or 1 indicating dirty working tree (None if git unavailable)
++        - ollama_version: Ollama version string (None if unreachable)
++        - on_charger: Battery charging status (None if psutil unavailable)
++        - hostname: System hostname
++    """
++    ctx: dict[str, Any] = {}
++
++    ctx["hostname"] = socket.gethostname()
++
++    # git SHA + dirty flag
++    try:
++        sha_result = _run_subprocess(["git", "rev-parse", "HEAD"])
++        if sha_result.returncode == 0:
++            ctx["git_sha"] = sha_result.stdout.strip()
++        
++        dirty_result = _run_subprocess(["git", "diff-index", "--quiet", "--exit-code", "HEAD"])
++        ctx["git_dirty"] = 1 if dirty_result.returncode != 0 else 0
++    except Exception:
++        # Git not available or error
++        ctx["git_sha"] = None
++        ctx["git_dirty"] = None
++
++    # Ollama version
++    try:
++        ollama_base = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434").rstrip("/")
++        async with httpx.AsyncClient(timeout=2.0) as client:
++            resp = await client.get(f"{ollama_base}/api/version")
++            if resp.status_code == 200:
++                ctx["ollama_version"] = resp.json().get("version")
++            else:
++                ctx["ollama_version"] = None
++    except Exception:
++        # Ollama unreachable or error
++        ctx["ollama_version"] = None
++
++    # Battery / charger state
++    if _psutil is not None:
++        try:
++            battery = _psutil.sensors_battery()
++            if battery and battery.power_plugged_in is not None:
++                ctx["on_charger"] = battery.power_plugged_in
++        except Exception:
++            # Battery info unavailable
++            ctx["on_charger"] = None
++    else:
++        # psutil not installed
++        ctx["on_charger"] = None
++
++    return ctx
++>>>>>>> REPLACE
++```
++
++backend/orchestrator/cli/commands/bench.py
++```python
++<<<<<<< SEARCH
++@app.command("run")
++def bench_run(
++    prompts_path: Path = typer.Option(..., "--prompts", "-p", help="JSONL file of prompts"),
++    mode: str = typer.Option("force-explore", "--mode", "-m", help="force-explore | bandit"),
++    agents: str = typer.Option(
++        "", "--agents", "-a", help="Comma-separated agent names (default: all 9)"
++    ),
++    repeats: int = typer.Option(1, "--repeats", "-r", help="Runs per (prompt, agent) pair"),
++    base_url: str = typer.Option("http://localhost:8000", "--base-url"),
++    timeout: int = typer.Option(180, "--timeout", help="Per-task timeout in seconds"),
++    output: Optional[Path] = typer.Option(None, "--output", "-o", help="Write raw results JSONL"),
++    limit: Optional[int] = typer.Option(None, "--limit", help="Cap total tasks (smoke testing)"),
++) -> None:
++=======
++@app.command("run")
++def bench_run(
++    prompts_path: Path = typer.Option(..., "--prompts", "-p", help="JSONL file of prompts"),
++    mode: str = typer.Option("force-explore", "--mode", "-m", help="force-explore | bandit"),
++    agents: str = typer.Option(
++        "", "--agents", "-a", help="Comma-separated agent names (default: all 9)"
++    ),
++    repeats: int = typer.Option(1, "--repeats", "-
++^^^ Expected `>>>>>>> REPLACE` or `=======`  
++> Tokens: 33k sent, 175 received.  
+diff --git a/.aider.input.history b/.aider.input.history
+index 792c366..4406371 100644
+--- a/.aider.input.history
++++ b/.aider.input.history
+@@ -58,3 +58,21 @@
+ +Explain what causes this error and how to fix it: AttributeError: 'NoneType' obj
+ +
+ +Explain what causes this error and how to fix it: AttributeError: 'NoneType' object has no attribute 'split'
++
++# 2026-09-28 21:57:15.957088
+++Make the following change to this repository.
+++
+++feat: wire MAHORAGA_BANDIT_SEED + MAHORAGA_PROMPT_SEED through bandit routing and bench CLI
+++
+++
+++
+++Tests covering this change already exist in: tests/orchestrator_v2/test_bench_runs.py. Do not modify any test files; change the source code so those tests pass without breaking anything else.
++
++# 2026-09-28 21:57:15.957310
+++Make the following change to this repository.
+++
+++feat: wire MAHORAGA_BANDIT_SEED + MAHORAGA_PROMPT_SEED through bandit routing and bench CLI
+++
+++
+++
+++Tests covering this change already exist in: tests/orchestrator_v2/test_bench_runs.py. Do not modify any test files; change the source code so those tests pass without breaking anything else.

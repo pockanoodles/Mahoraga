@@ -1,0 +1,47 @@
+{
+ "sha": "9f1e0c6",
+ "model": "qwen3.5:latest",
+ "cond": "blind",
+ "secs": 1200.1,
+ "timed_out": true,
+ "resolved": false,
+ "f2p_pass": 0,
+ "f2p_total": 14,
+ "regressions": 74,
+ "regression_ids": [
+  "tests.orchestrator_v2.test_bench_report::test_bench_run_id_filters_correctly",
+  "tests.orchestrator_v2.test_bench_report::test_code_judge_fresh_check_populates_cache",
+  "tests.orchestrator_v2.test_bench_report::test_compat_matrix_aggregates_correctly",
+  "tests.orchestrator_v2.test_bench_report::test_cost_cloud_actual_beats_token_repricing",
+  "tests.orchestrator_v2.test_bench_report::test_cost_csv_output",
+  "tests.orchestrator_v2.test_bench_report::test_cost_empty_db_no_error",
+  "tests.orchestrator_v2.test_bench_report::test_cost_json_shape",
+  "tests.orchestrator_v2.test_bench_report::test_cost_missing_prompt_counted_and_rendered",
+  "tests.orchestrator_v2.test_bench_report::test_cost_reference_model_changes_counterfactual",
+  "tests.orchestrator_v2.test_bench_report::test_cost_totals_and_savings",
+  "tests.orchestrator_v2.test_bench_report::test_cost_unknown_reference_model_errors",
+  "tests.orchestrator_v2.test_bench_report::test_cost_unpriced_detects_zeros",
+  "tests.orchestrator_v2.test_bench_report::test_csv_output",
+  "tests.orchestrator_v2.test_bench_report::test_empty_db_no_error",
+  "tests.orchestrator_v2.test_bench_report::test_iso_to_epoch_offsets_and_day_bounds",
+  "tests.orchestrator_v2.test_bench_report::test_json_output_valid",
+  "tests.orchestrator_v2.test_bench_report::test_min_samples_suppresses_cells",
+  "tests.orchestrator_v2.test_bench_report::test_since_filter",
+  "tests.orchestrator_v2.test_bench_report::test_until_includes_whole_day",
+  "tests.orchestrator_v2.test_bench_repro::test_all_problems_reported_together"
+ ],
+ "suite_crashed": false,
+ "edited_files": [
+  "backend/orchestrator/cli/commands/service.py"
+ ],
+ "touched_tests": [],
+ "gold_src": [
+  "backend/orchestrator/cli/commands/service.py"
+ ],
+ "hit_gold_file": true,
+ "no_edit": false,
+ "tokens_sent": 27000.0,
+ "tokens_recv": 11900.0,
+ "llm_calls": 3,
+ "edit_errors": 0
+}

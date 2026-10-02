@@ -1,0 +1,49 @@
+{
+ "sha": "aaa64fd",
+ "model": "qwen3.5:latest",
+ "cond": "feedback",
+ "secs": 1200.0,
+ "timed_out": true,
+ "resolved": false,
+ "f2p_pass": 0,
+ "f2p_total": 2,
+ "regressions": 40,
+ "regression_ids": [
+  "tests.orchestrator_v2.test_app::test_approve_task",
+  "tests.orchestrator_v2.test_app::test_cost_summary_empty",
+  "tests.orchestrator_v2.test_app::test_create_mission",
+  "tests.orchestrator_v2.test_app::test_create_plan",
+  "tests.orchestrator_v2.test_app::test_create_plan_mission_not_found",
+  "tests.orchestrator_v2.test_app::test_execute_task_non_ready_returns_409",
+  "tests.orchestrator_v2.test_app::test_execute_task_queued",
+  "tests.orchestrator_v2.test_app::test_generate_plan_creates_tasks",
+  "tests.orchestrator_v2.test_app::test_generate_plan_mission_not_found",
+  "tests.orchestrator_v2.test_app::test_get_mission_not_found",
+  "tests.orchestrator_v2.test_app::test_get_run_events",
+  "tests.orchestrator_v2.test_app::test_get_task_attempts",
+  "tests.orchestrator_v2.test_app::test_get_task_events",
+  "tests.orchestrator_v2.test_app::test_get_task_not_found",
+  "tests.orchestrator_v2.test_app::test_get_task_returns_task",
+  "tests.orchestrator_v2.test_app::test_list_missions_empty",
+  "tests.orchestrator_v2.test_app::test_list_tasks_for_run",
+  "tests.orchestrator_v2.test_app::test_logs_recent_empty",
+  "tests.orchestrator_v2.test_app::test_missions_active_none",
+  "tests.orchestrator_v2.test_app::test_missions_active_returns_tasks"
+ ],
+ "suite_crashed": false,
+ "edited_files": [
+  "backend/orchestrator/gateway.py",
+  "backend/orchestrator/service/app.py"
+ ],
+ "touched_tests": [],
+ "gold_src": [
+  "backend/orchestrator/gateway.py",
+  "backend/orchestrator/service/app.py"
+ ],
+ "hit_gold_file": true,
+ "no_edit": false,
+ "tokens_sent": 82800.0,
+ "tokens_recv": 6027.0,
+ "llm_calls": 4,
+ "edit_errors": 0
+}

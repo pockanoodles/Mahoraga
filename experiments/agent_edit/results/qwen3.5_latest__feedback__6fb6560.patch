@@ -1,0 +1,97 @@
+diff --git a/backend/orchestrator/routing/bandit_router.py b/backend/orchestrator/routing/bandit_router.py
+index 58a4b78..489e098 100644
+--- a/backend/orchestrator/routing/bandit_router.py
++++ b/backend/orchestrator/routing/bandit_router.py
+@@ -311,27 +311,31 @@ class BanditRouter:
+ 
+         # Load tuned hyperparameters from pareto-sweep if available.
+         # Applied before warm-start so the injected pseudo-obs use the tuned alpha.
+-        if isinstance(self.strategy, LinUCBRouter) and TUNED_HYPERPARAMS_PATH.exists():
+-            try:
+-                tuned = json.loads(TUNED_HYPERPARAMS_PATH.read_text())
+-                if "alpha" in tuned:
+-                    self.strategy.alpha = float(tuned["alpha"])
+-                if "gamma" in tuned:
+-                    self.strategy.decay = float(tuned["gamma"])
+-                _log.info(
+-                    "bandit_router: loaded tuned hyperparams (alpha=%.2f, gamma=%.2f)",
+-                    self.strategy.alpha, self.strategy.decay,
+-                )
+-            except Exception as exc:
+-                _log.warning("bandit_router: failed to load tuned_hyperparams.json (%s)", exc)
+-
+-        # Auto-warm-start: if this is a fresh LinUCB bandit (no arms yet) and a
+-        # compatibility matrix exists from a previous benchmark run, inject it as
+-        # pseudo-observations to skip the cold-start exploration phase.
+-        if isinstance(self.strategy, LinUCBRouter) and not self.strategy.A:
+-            matrix = load_compatibility_matrix()
+-            if matrix:
+-                warm_start_from_matrix(self.strategy, matrix)
++        # Duck-typing: check for inject_pseudo_obs and alpha/decay attributes
++        # so LinUCBPerBucketRouter (and any future per-bucket strategies) receive
++        # warm-start and tuned hyperparams on startup.
++        if hasattr(self.strategy, "inject_pseudo_obs") and hasattr(self.strategy, "alpha"):
++            if TUNED_HYPERPARAMS_PATH.exists():
++                try:
++                    tuned = json.loads(TUNED_HYPERPARAMS_PATH.read_text())
++                    if "alpha" in tuned:
++                        self.strategy.alpha = float(tuned["alpha"])
++                    if "gamma" in tuned and hasattr(self.strategy, "decay"):
++                        self.strategy.decay = float(tuned["gamma"])
++                    _log.info(
++                        "bandit_router: loaded tuned hyperparams (alpha=%.2f, gamma=%.2f)",
++                        self.strategy.alpha, getattr(self.strategy, "decay", 0.98),
++                    )
++                except Exception as exc:
++                    _log.warning("bandit_router: failed to load tuned_hyperparams.json (%s)", exc)
++
++            # Auto-warm-start: if this is a fresh bandit (no arms yet) and a
++            # compatibility matrix exists from a previous benchmark run, inject it as
++            # pseudo-observations to skip the cold-start exploration phase.
++            if not self.strategy.A:
++                matrix = load_compatibility_matrix()
++                if matrix:
++                    warm_start_from_matrix(self.strategy, matrix)
+ 
+ 
+     def route(
+diff --git a/backend/orchestrator/routing/strategies/linucb_per_bucket.py b/backend/orchestrator/routing/strategies/linucb_per_bucket.py
+index 2fb24e6..0595586 100644
+--- a/backend/orchestrator/routing/strategies/linucb_per_bucket.py
++++ b/backend/orchestrator/routing/strategies/linucb_per_bucket.py
+@@ -289,6 +289,11 @@ class LinUCBPerBucketRouter(RoutingStrategy):
+           broadcast across every existing bucket. Broadcast is the
+           conservative choice for v1/v2-style global compatibility
+           matrices that pre-date per-bucket awareness.
++
++        Note: For LinUCBPerBucketRouter, warm_start_from_matrix always passes
++        an explicit bucket name so pseudo-observations land in the correct
++        A[bucket][agent] slot. This method is also used by v1 LinUCBRouter
++        where bucket=None (v1 is bucket-unaware).
+         """
+         x_col = x.reshape(-1, 1)
+         if bucket is not None:
+diff --git a/backend/orchestrator/routing/warm_start.py b/backend/orchestrator/routing/warm_start.py
+index ea83999..e888b5d 100644
+--- a/backend/orchestrator/routing/warm_start.py
++++ b/backend/orchestrator/routing/warm_start.py
+@@ -54,7 +54,7 @@ def warm_start_from_matrix(
+         {"ollama": {"code": 0.72, "plan": 0.65, ...}, "aider": {...}, ...}
+ 
+     For each (agent, bucket, reward) triple, calls router.inject_pseudo_obs
+-    with the bucket's representative context vector.
++    with the bucket's representative context vector and explicit bucket name.
+ 
+     lambda_prior=1.0 means one pseudo-observation per cell.
+     Higher values = stronger prior, slower adaptation.
+@@ -67,7 +67,9 @@ def warm_start_from_matrix(
+         for bucket, reward in bucket_rewards.items():
+             x = bucket_context_vector(bucket)
+             reward = float(max(0.0, min(1.0, reward)))
+-            router.inject_pseudo_obs(agent, x, reward, lambda_prior=lambda_prior)
++            # Pass explicit bucket name so per-bucket strategies populate the
++            # correct A[bucket][agent] slot rather than falling back to _LEGACY_BUCKET.
++            router.inject_pseudo_obs(agent, x, reward, lambda_prior=lambda_prior, bucket=bucket)
+ 
+ 
+ def load_compatibility_matrix() -> dict | None:

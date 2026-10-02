@@ -1,0 +1,13 @@
+diff --git a/backend/orchestrator/routing/reward_learner.py b/backend/orchestrator/routing/reward_learner.py
+index 2a60d44..0e6f617 100644
+--- a/backend/orchestrator/routing/reward_learner.py
++++ b/backend/orchestrator/routing/reward_learner.py
+@@ -173,7 +173,7 @@ class RewardWeightLearner:
+                 self._save()
+ 
+     def _save(self) -> None:
+-        import os
++        from backend.orchestrator.routing import BUCKET_WEIGHTS
+         state = {"learned": {b: list(w) for b, w in self._learned.items()}}
+         tmp = str(self._learner_path) + ".tmp"
+         Path(tmp).write_text(json.dumps(state, indent=2), encoding="utf-8")

@@ -1,0 +1,28 @@
+{
+ "sha": "512b8e8",
+ "model": "granite4.1:8b",
+ "cond": "blind",
+ "secs": 1145.6,
+ "timed_out": false,
+ "resolved": false,
+ "f2p_pass": 0,
+ "f2p_total": 12,
+ "regressions": 0,
+ "regression_ids": [],
+ "suite_crashed": false,
+ "edited_files": [
+  "backend/orchestrator/cli/commands/repro.py"
+ ],
+ "touched_tests": [],
+ "gold_src": [
+  "backend/orchestrator/cli/commands/bench.py",
+  "backend/orchestrator/routing/cascade.py",
+  "backend/orchestrator/routing/live_route.py"
+ ],
+ "hit_gold_file": false,
+ "no_edit": false,
+ "tokens_sent": 60200.0,
+ "tokens_recv": 4328.0,
+ "llm_calls": 4,
+ "edit_errors": 15
+}

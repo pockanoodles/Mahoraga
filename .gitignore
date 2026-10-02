@@ -27,6 +27,12 @@ experiments/*
 # NOTE: experiments/prompts_humaneval_variants.jsonl (the built probe bank) still
 # needs its own negation line when the specs reach full size. It is generated, so
 # it stays out of the tree while the spec file is a seed.
+# Agent-edit probe: harness, tasks, per-attempt scores and diffs. Aider logs
+# and chat transcripts stay local (large, and mostly echoed repo source).
+!experiments/agent_edit/
+!experiments/agent_edit/tasks.jsonl
+experiments/agent_edit/results/*.log
+experiments/agent_edit/results/*.chat.md
 .claude/
 
 # Local AI-call context / build scaffolding — never pushed

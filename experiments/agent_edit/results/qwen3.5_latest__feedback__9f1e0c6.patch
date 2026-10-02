@@ -1,0 +1,209 @@
+diff --git a/backend/orchestrator/cli/commands/service.py b/backend/orchestrator/cli/commands/service.py
+index b3e8936..85dc929 100644
+--- a/backend/orchestrator/cli/commands/service.py
++++ b/backend/orchestrator/cli/commands/service.py
+@@ -1,6 +1,8 @@
+ """orch service — manage Mahoraga as a macOS launchd background service."""
+ from __future__ import annotations
+ 
++import os
++import re
+ import subprocess
+ from pathlib import Path
+ 
+@@ -14,6 +16,7 @@ _PROJECT_ROOT = Path(__file__).parents[4]
+ _ORCH_BIN = _PROJECT_ROOT / ".venv" / "bin" / "orch"
+ _LOG_DIR = Path.home() / ".mahoraga-v2"
+ _LOG_FILE = _LOG_DIR / "server.log"
++_SERVICE_ENV_FILE = _LOG_DIR / "service.env"
+ 
+ _PLIST_TEMPLATE = """\
+ <?xml version="1.0" encoding="UTF-8"?>
+@@ -54,11 +57,132 @@ _PLIST_TEMPLATE = """\
+ 
+     <key>ThrottleInterval</key>
+     <integer>10</integer>
++
++    <key>EnvironmentVariables</key>
++    <dict>
++{env_entries}
++    </dict>
+ </dict>
+ </plist>
+ """
+ 
+ 
++def _parse_env_file(path: Path) -> dict[str, str]:
++    """Parse KEY=VALUE lines from a service.env file."""
++    env = {}
++    if not path.exists():
++        return env
++
++    for line in path.read_text().splitlines():
++        line = line.strip()
++        # Skip empty lines and comments
++        if not line or line.startswith("#"):
++            continue
++        # Skip lines without an equals sign
++        if "=" not in line:
++            continue
++        key, _, value = line.partition("=")
++        key = key.strip()
++        # Skip lines with empty keys (e.g., "=novalue")
++        if not key:
++            continue
++        value = value.strip()
++        # Strip surrounding quotes if present
++        if (value.startswith('"') and value.endswith('"')) or \
++           (value.startswith("'") and value.endswith("'")):
++            value = value[1:-1]
++        env[key] = value
++
++    return env
++
++
++def _build_environment() -> dict[str, str]:
++    """Build the environment dict for the launchd job."""
++    # Start with defaults
++    env: dict[str, str] = {
++        "PATH": os.environ.get("PATH", "/usr/bin:/bin:/usr/sbin:/sbin"),
++        "HOME": str(Path.home()),
++    }
++
++    # Parse service.env if it exists
++    parsed_env = _parse_env_file(_SERVICE_ENV_FILE)
++    env.update(parsed_env)
++
++    # Build PATH: respect user's choice, but ensure required dirs are present
++    path_entries = []
++    for entry in env["PATH"].split(":"):
++        path_entries.append(entry)
++
++    # Add ~/.local/bin (where `claude` CLI lives) — only if not already present
++    local_bin = Path.home() / ".local" / "bin"
++    if str(local_bin) not in path_entries:
++        path_entries.insert(0, str(local_bin))
++
++    # Add venv bin — only if not already present
++    venv_bin = _PROJECT_ROOT / ".venv" / "bin"
++    if str(venv_bin) not in path_entries:
++        path_entries.insert(0, str(venv_bin))
++
++    # Add Homebrew bin — only if not already present
++    homebrew_bin = "/opt/homebrew/bin"
++    if homebrew_bin not in path_entries:
++        path_entries.insert(0, homebrew_bin)
++
++    env["PATH"] = ":".join(path_entries)
++
++    return env
++
++
++def _render_env_entries(env: dict[str, str]) -> str:
++    """Render environment variables as XML plist entries."""
++    lines = []
++    for key, value in sorted(env.items()):
++        # Escape XML special characters
++        escaped_value = value.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
++        lines.append(f'        <key>{key}</key>')
++        lines.append(f'        <string>{escaped_value}</string>')
++
++    return "\n".join(lines)
++
++
++def _load_job() -> tuple[bool, str]:
++    """Load the launchd job, handling disabled state and error messages."""
++    # Check if disabled in launchd's database
++    result = subprocess.run(
++        ["launchctl", "isenabled", _LABEL],
++        capture_output=True,
++        text=True,
++        check=False
++    )
++    if result.returncode == 0 and result.stdout.strip() == "false":
++        # Label is disabled — enable it first
++        enable_result = subprocess.run(
++            ["launchctl", "enable", _LABEL],
++            capture_output=True,
++            text=True,
++            check=False
++        )
++
++    # Load the job
++    load_result = subprocess.run(
++        ["launchctl", "load", str(_PLIST_PATH)],
++        capture_output=True,
++        text=True,
++        check=False
++    )
++
++    # Verify via `list` since `load` can exit 0 even on failure
++    list_result = _launchctl("list", _LABEL)
++    if list_result.returncode != 0:
++        return False, f"Service not running: {list_result.stderr.strip() or 'Load failed'}"
++
++    # Check for "Input/output error" in load output
++    if "Input/output error" in load_result.stdout:
++        return False, f"Load failed: {load_result.stdout.strip()}"
++
++    return True, ""
++
++
+ def _launchctl(*args: str) -> subprocess.CompletedProcess[str]:
+     return subprocess.run(["launchctl", *args], capture_output=True, text=True, check=False)
+ 
+@@ -77,21 +201,26 @@ def install() -> None:
+ 
+     _LOG_DIR.mkdir(parents=True, exist_ok=True)
+ 
++    env = _build_environment()
++    typer.echo("Environment settings for daemon:")
++    typer.echo(f"  PATH={env['PATH']}")
++    for key, value in sorted(env.items()):
++        if key != "PATH":
++            typer.echo(f"  {key}={value}")
++
+     plist_content = _PLIST_TEMPLATE.format(
+         label=_LABEL,
+         orch_bin=str(_ORCH_BIN),
+         workdir=str(_PROJECT_ROOT),
+         log=str(_LOG_FILE),
++        env_entries=_render_env_entries(env),
+     )
+     _PLIST_PATH.write_text(plist_content)
+     typer.echo(f"Wrote plist → {_PLIST_PATH}")
+ 
+-    if _is_loaded():
+-        _launchctl("unload", str(_PLIST_PATH))
+-
+-    result = _launchctl("load", str(_PLIST_PATH))
+-    if result.returncode != 0:
+-        typer.echo(f"launchctl load failed:\n{result.stderr}", err=True)
++    loaded, detail = _load_job()
++    if not loaded:
++        typer.echo(f"Failed to start service:\n{detail}", err=True)
+         raise typer.Exit(1)
+ 
+     typer.echo("Service installed and started.")
+@@ -120,16 +249,12 @@ def start() -> None:
+     if not _PLIST_PATH.exists():
+         typer.echo("Service not installed. Run `orch service install` first.", err=True)
+         raise typer.Exit(1)
+-    # `stop` below unloads the job entirely, so the common case here is
+-    # "not loaded" — load it fresh (RunAtLoad + KeepAlive bring it up).
+-    # Fall back to `launchctl start` only if it's somehow loaded-but-stopped.
+-    if not _is_loaded():
+-        result = _launchctl("load", str(_PLIST_PATH))
+-    else:
+-        result = _launchctl("start", _LABEL)
+-    if result.returncode != 0:
+-        typer.echo(f"Failed to start: {result.stderr.strip() or 'already running?'}", err=True)
++
++    loaded, detail = _load_job()
++    if not loaded:
++        typer.echo(f"Failed to start service:\n{detail}", err=True)
+         raise typer.Exit(1)
++
+     typer.echo("Service started.")
+ 
+ 

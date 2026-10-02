@@ -1,0 +1,41 @@
+diff --git a/backend/orchestrator/routing/bandit_router.py b/backend/orchestrator/routing/bandit_router.py
+index 58a4b78..3773eff 100644
+--- a/backend/orchestrator/routing/bandit_router.py
++++ b/backend/orchestrator/routing/bandit_router.py
+@@ -325,10 +325,12 @@ class BanditRouter:
+             except Exception as exc:
+                 _log.warning("bandit_router: failed to load tuned_hyperparams.json (%s)", exc)
+ 
+-        # Auto-warm-start: if this is a fresh LinUCB bandit (no arms yet) and a
++        # Auto-warm-start: if this is a fresh bandit (no arms yet) and a
+         # compatibility matrix exists from a previous benchmark run, inject it as
+         # pseudo-observations to skip the cold-start exploration phase.
+-        if isinstance(self.strategy, LinUCBRouter) and not self.strategy.A:
++        # Duck-typing: check for inject_pseudo_obs + alpha/decay attributes
++        # so LinUCBPerBucketRouter also receives warm-start (not just LinUCBRouter).
++        if not self.strategy.A and hasattr(self.strategy, "inject_pseudo_obs"):
+             matrix = load_compatibility_matrix()
+             if matrix:
+                 warm_start_from_matrix(self.strategy, matrix)
+diff --git a/backend/orchestrator/routing/warm_start.py b/backend/orchestrator/routing/warm_start.py
+index ea83999..4e3e4da 100644
+--- a/backend/orchestrator/routing/warm_start.py
++++ b/backend/orchestrator/routing/warm_start.py
+@@ -54,7 +54,7 @@ def warm_start_from_matrix(
+         {"ollama": {"code": 0.72, "plan": 0.65, ...}, "aider": {...}, ...}
+ 
+     For each (agent, bucket, reward) triple, calls router.inject_pseudo_obs
+-    with the bucket's representative context vector.
++    with the bucket's representative context vector and explicit bucket name.
+ 
+     lambda_prior=1.0 means one pseudo-observation per cell.
+     Higher values = stronger prior, slower adaptation.
+@@ -67,7 +67,7 @@ def warm_start_from_matrix(
+         for bucket, reward in bucket_rewards.items():
+             x = bucket_context_vector(bucket)
+             reward = float(max(0.0, min(1.0, reward)))
+-            router.inject_pseudo_obs(agent, x, reward, lambda_prior=lambda_prior)
++            router.inject_pseudo_obs(agent, x, reward, lambda_prior=lambda_prior, bucket=bucket)
+ 
+ 
+ def load_compatibility_matrix() -> dict | None:

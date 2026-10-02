@@ -1,0 +1,1065 @@
+diff --git a/.aider.chat.history.md b/.aider.chat.history.md
+index 73c02da..ebb1eaa 100644
+--- a/.aider.chat.history.md
++++ b/.aider.chat.history.md
+@@ -494,3 +494,959 @@ This ensures that `text` is not `None` before calling `split()`.
+ > **Example Fix  
+ > Create new file? (Y)es/(N)o [Yes]: y  
+ > Applied edit to **Example Fix  
++
++# aider chat started at 2026-09-28 21:36:42
++
++> /Users/kaitosoeno/.local/bin/aider --model ollama_chat/qwen3.5:latest --edit-format diff --model-settings-file /private/tmp/claude-501/-Users-kaitosoeno-Projects-Mahoraga/9fa9805a-2c5c-48ae-a18d-e09c6c71b8b0/scratchpad/agentedit/model-settings.yml --map-tokens 2048 --yes-always --no-auto-commits --no-gitignore --no-pretty --no-stream --no-show-model-warnings --no-check-update --no-analytics --no-show-release-notes --message Make the following change to this repository.
++
++fix: guarantee log_outcome() fires — close 37% reward leak at gateway/batch sites
++
++
++
++Tests covering this change already exist in: tests/orchestrator_v2/test_e2e_reward_loop.py, tests/orchestrator_v2/test_gateway.py. Do not modify any test files; change the source code so those tests pass without breaking anything else. --auto-test --test-cmd /Users/kaitosoeno/Projects/Mahoraga/.venv/bin/python -m pytest -q -x -p no:cacheprovider tests/orchestrator_v2/test_e2e_reward_loop.py tests/orchestrator_v2/test_gateway.py  
++> Aider v0.86.2  
++> Model: ollama_chat/qwen3.5:latest with diff edit format  
++> Git repo: .git with 342 files  
++> Repo-map: using 2048 tokens, auto refresh  
++
++#### Make the following change to this repository.  
++####   
++#### fix: guarantee log_outcome() fires — close 37% reward leak at gateway/batch sites  
++####   
++####   
++####   
++#### Tests covering this change already exist in: tests/orchestrator_v2/test_e2e_reward_loop.py, tests/orchestrator_v2/test_gateway.py. Do not modify any test files; change the source code so those tests pass without breaking anything else.  
++> tests/orchestrator_v2/test_e2e_reward_loop.py  
++> Add file to the chat? (Y)es/(N)o/(A)ll/(S)kip all/(D)on't ask again [Yes]: y  
++> tests/orchestrator_v2/test_gateway.py  
++> Add file to the chat? (Y)es/(N)o/(A)ll/(S)kip all/(D)on't ask again [Yes]: y  
++
++Looking at the test files, I can see they're testing for a 37% reward leak where `observe()` (which calls `log_outcome()`) was being skipped when exceptions occurred. The tests reference:
++
++- `backend.orchestrator.gateway.Gateway` 
++- `backend.orchestrator.service.app._run_task`, `_bandit_router`, etc.
++
++These source files are not in the list of files you added to the chat. I need to see them to make the fix.
++
++Could you please add these files to the chat:
++- `backend/orchestrator/gateway.py`
++- `backend/orchestrator/service/app.py`
++
++> Tokens: 12k sent, 627 received.  
++> backend/orchestrator/gateway.py  
++> Add file to the chat? (Y)es/(N)o/(A)ll/(S)kip all/(D)on't ask again [Yes]: y  
++> backend/orchestrator/service/app.py  
++> Add file to the chat? (Y)es/(N)o/(A)ll/(S)kip all/(D)on't ask again [Yes]: y  
++> Warning: it's best to only add files that need changes to the chat.  
++> https://aider.chat/docs/troubleshooting/edit-errors.html  
++
++Looking at the test files, I can see they're testing for a 37% reward leak where `observe()` was being skipped when exceptions occurred. The tests expect that even when `run_task` raises an exception, `bandit_router.observe()` must still be called with `success=False`.
++
++In both `gateway.py` and `app.py`, the current code has a `continue` statement in the except block that skips calling `observe()`. I need to fix this by ensuring `observe()` is always called.
++
++Let me make the necessary changes:
++
++backend/orchestrator/gateway.py
++```python
++<<<<<<< SEARCH
++        for task in saved_tasks:
++            # Re-fetch task status — dependency resolution may have updated it
++            current = await self._store.tasks.get(task.id)
++            if current is None:
++                continue
++            if current.status != TaskStatus.ready:
++                # Only execute ready tasks — pending means unmet dependencies
++                continue
++
++            try:
++                await run_task(task.id, self._store, self._registry, self._verifier)
++            except Exception as exc:
++                logger.error("gateway: run_task error for %s: %s", task.id, exc)
++                chunk = f"[Task '{task.title}' failed: {exc}]"
++                response_chunks.append(chunk)
++                yield chunk
++                continue
++
++            # Collect the latest completed attempt output as a response chunk.
++=======
++        for task in saved_tasks:
++            # Re-fetch task status — dependency resolution may have updated it
++            current = await self._store.tasks.get(task.id)
++            if current is None:
++                continue
++            if current.status != TaskStatus.ready:
++                # Only execute ready tasks — pending means unmet dependencies
++                continue
++
++            try:
++                await run_task(task.id, self._store, self._registry, self._verifier)
++            except Exception as exc:
++                logger.error("gateway: run_task error for %s: %s", task.id, exc)
++                chunk = f"[Task '{task.title}' failed: {exc}]"
++                response_chunks.append(chunk)
++                yield chunk
++
++            # Collect the latest completed attempt output as a response chunk.
++>>>>>>> REPLACE
++```
++
++backend/orchestrator/gateway.py
++```python
++<<<<<<< SEARCH
++            if self._bandit_router is not None and completed:
++                attempt = completed[-1]
++                bandit_outcome = TaskOutcome(
++                    success=(attempt.status.value == "completed"),
++                    latency_s=0.0,
++                    cost_usd=0.0,
++                    quality_score=1.0 if attempt.status.value == "completed" else 0.0,
++                    agent_name=attempt.worker_id or "unknown",
++                )
++                try:
++                    self._bandit_router.observe(task, bandit_outcome)
++                except Exception:
++                    pass  # never let bandit updates break responses
++=======
++            if self._bandit_router is not None and completed:
++                attempt = completed[-1]
++                bandit_outcome = TaskOutcome(
++                    success=(attempt.status.value == "completed"),
++                    latency_s=0.0,
++                    cost_usd=0.0,
++                    quality_score=1.0 if attempt.status.value == "completed" else 0.0,
++                    agent_name=attempt.worker_id or "unknown",
++                )
++                try:
++                    self._bandit_router.observe(task, bandit_outcome)
++                except Exception:
++                    pass  # never let bandit updates break responses
++            elif self._bandit_router is not None and not completed:
++                # Task failed (no completed attempts) — still need to observe with success=False
++                try:
++                    self._bandit_router.observe(task, TaskOutcome(
++                        success=False,
++                        latency_s=0.0,
++                        cost_usd=0.0,
++                        quality_score=0.0,
++                        agent_name=current.worker_id or "unknown",
++                    ))
++                except Exception:
++                    pass  # never let bandit updates break responses
++>>>>>>> REPLACE
++```
++
++backend/orchestrator/service/app.py
++```python
++<<<<<<< SEARCH
++    t0 = _time.monotonic()
++    await _run_task(task.id, store, registry, verifier)
++    wall_time_ms = (_time.monotonic() - t0) * 1000
++    elapsed = round(wall_time_ms / 1000, 2)
++
++    # Collect result
++=======
++    try:
++        t0 = _time.monotonic()
++        await _run_task(task.id, store, registry, verifier)
++        wall_time_ms = (_time.monotonic() - t0) * 1000
++        elapsed = round(wall_time_ms / 1000, 2)
++
++        # Collect result
++>>>>>>> REPLACE
++```
++
++backend/orchestrator/service/app.py
++```python
++<<<<<<< SEARCH
++    output = next(
++        (a.location.get("content", "") for a in artifacts if a.type == "text_output"), ""
++    )
++    used_worker = attempts[-1].worker_id if attempts else selected_agent
++    status = "success" if task.status == TaskStatus.completed else "failed"
++    success = status == "success"
++
++    # Pull Ollama token metrics captured by executor side-channel
++=======
++    output = next(
++        (a.location.get("content", "") for a in artifacts if a.type == "text_output"), ""
++    )
++    used_worker = attempts[-1].worker_id if attempts else selected_agent
++    status = "success" if task.status == TaskStatus.completed else "failed"
++    success
++
++> Tokens: 31k sent, 1.7k received.  
++> The LLM did not conform to the edit format.  
++> https://aider.chat/docs/troubleshooting/edit-errors.html  
++> Looking at the test files, I can see they're testing for a 37% reward leak where `observe()` was being skipped when exceptions occurred. The tests expect that even when `run_task` raises an exception, `bandit_router.observe()` must still be called with `success=False`.
++
++In both `gateway.py` and `app.py`, the current code has a `continue` statement in the except block that skips calling `observe()`. I need to fix this by ensuring `observe()` is always called.
++
++Let me make the necessary changes:
++
++backend/orchestrator/gateway.py
++```python
++<<<<<<< SEARCH
++        for task in saved_tasks:
++            # Re-fetch task status — dependency resolution may have updated it
++            current = await self._store.tasks.get(task.id)
++            if current is None:
++                continue
++            if current.status != TaskStatus.ready:
++                # Only execute ready tasks — pending means unmet dependencies
++                continue
++
++            try:
++                await run_task(task.id, self._store, self._registry, self._verifier)
++            except Exception as exc:
++                logger.error("gateway: run_task error for %s: %s", task.id, exc)
++                chunk = f"[Task '{task.title}' failed: {exc}]"
++                response_chunks.append(chunk)
++                yield chunk
++                continue
++
++            # Collect the latest completed attempt output as a response chunk.
++=======
++        for task in saved_tasks:
++            # Re-fetch task status — dependency resolution may have updated it
++            current = await self._store.tasks.get(task.id)
++            if current is None:
++                continue
++            if current.status != TaskStatus.ready:
++                # Only execute ready tasks — pending means unmet dependencies
++                continue
++
++            try:
++                await run_task(task.id, self._store, self._registry, self._verifier)
++            except Exception as exc:
++                logger.error("gateway: run_task error for %s: %s", task.id, exc)
++                chunk = f"[Task '{task.title}' failed: {exc}]"
++                response_chunks.append(chunk)
++                yield chunk
++
++            # Collect the latest completed attempt output as a response chunk.
++>>>>>>> REPLACE
++```
++
++backend/orchestrator/gateway.py
++```python
++<<<<<<< SEARCH
++            if self._bandit_router is not None and completed:
++                attempt = completed[-1]
++                bandit_outcome = TaskOutcome(
++                    success=(attempt.status.value == "completed"),
++                    latency_s=0.0,
++                    cost_usd=0.0,
++                    quality_score=1.0 if attempt.status.value == "completed" else 0.0,
++                    agent_name=attempt.worker_id or "unknown",
++                )
++                try:
++                    self._bandit_router.observe(task, bandit_outcome)
++                except Exception:
++                    pass  # never let bandit updates break responses
++=======
++            if self._bandit_router is not None and completed:
++                attempt = completed[-1]
++                bandit_outcome = TaskOutcome(
++                    success=(attempt.status.value == "completed"),
++                    latency_s=0.0,
++                    cost_usd=0.0,
++                    quality_score=1.0 if attempt.status.value == "completed" else 0.0,
++                    agent_name=attempt.worker_id or "unknown",
++                )
++                try:
++                    self._bandit_router.observe(task, bandit_outcome)
++                except Exception:
++                    pass  # never let bandit updates break responses
++            elif self._bandit_router is not None and not completed:
++                # Task failed (no completed attempts) — still need to observe with success=False
++                try:
++                    self._bandit_router.observe(task, TaskOutcome(
++                        success=False,
++                        latency_s=0.0,
++                        cost_usd=0.0,
++                        quality_score=0.0,
++                        agent_name=current.worker_id or "unknown",
++                    ))
++                except Exception:
++                    pass  # never let bandit updates break responses
++>>>>>>> REPLACE
++```
++
++backend/orchestrator/service/app.py
++```python
++<<<<<<< SEARCH
++    t0 = _time.monotonic()
++    await _run_task(task.id, store, registry, verifier)
++    wall_time_ms = (_time.monotonic() - t0) * 1000
++    elapsed = round(wall_time_ms / 1000, 2)
++
++    # Collect result
++=======
++    try:
++        t0 = _time.monotonic()
++        await _run_task(task.id, store, registry, verifier)
++        wall_time_ms = (_time.monotonic() - t0) * 1000
++        elapsed = round(wall_time_ms / 1000, 2)
++
++        # Collect result
++>>>>>>> REPLACE
++```
++
++backend/orchestrator/service/app.py
++```python
++<<<<<<< SEARCH
++    output = next(
++        (a.location.get("content", "") for a in artifacts if a.type == "text_output"), ""
++    )
++    used_worker = attempts[-1].worker_id if attempts else selected_agent
++    status = "success" if task.status == TaskStatus.completed else "failed"
++    success = status == "success"
++
++    # Pull Ollama token metrics captured by executor side-channel
++=======
++    output = next(
++        (a.location.get("content", "") for a in artifacts if a.type == "text_output"), ""
++    )
++    used_worker = attempts[-1].worker_id if attempts else selected_agent
++    status = "success" if task.status == TaskStatus.completed else "failed"
++    success
++^^^ Expected `>>>>>>> REPLACE` or `=======`  
++
++Looking at the test files, I can see they're testing for a 37% reward leak where `observe()` was being skipped when exceptions occurred. The tests expect that even when `run_task` raises an exception, `bandit_router.observe()` must still be called with `success=False`.
++
++Let me fix both files to ensure `observe()` is always called:
++
++backend/orchestrator/gateway.py
++```python
++<<<<<<< SEARCH
++            try:
++                await run_task(task.id, self._store, self._registry, self._verifier)
++            except Exception as exc:
++                logger.error("gateway: run_task error for %s: %s", task.id, exc)
++                chunk = f"[Task '{task.title}' failed: {exc}]"
++                response_chunks.append(chunk)
++                yield chunk
++                continue
++
++            # Collect the latest completed attempt output as a response chunk.
++=======
++            try:
++                await run_task(task.id, self._store, self._registry, self._verifier)
++            except Exception as exc:
++                logger.error("gateway: run_task error for %s: %s", task.id, exc)
++                chunk = f"[Task '{task.title}' failed: {exc}]"
++                response_chunks.append(chunk)
++                yield chunk
++
++            # Collect the latest completed attempt output as a response chunk.
++>>>>>>> REPLACE
++```
++
++backend/orchestrator/gateway.py
++```python
++<<<<<<< SEARCH
++            if self._bandit_router is not None and completed:
++                attempt = completed[-1]
++                bandit_outcome = TaskOutcome(
++                    success=(attempt.status.value == "completed"),
++                    latency_s=0.0,
++                    cost_usd=0.0,
++                    quality_score=1.0 if attempt.status.value == "completed" else 0.0,
++                    agent_name=attempt.worker_id or "unknown",
++                )
++                try:
++                    self._bandit_router.observe(task, bandit_outcome)
++                except Exception:
++                    pass  # never let bandit updates break responses
++
++        # ── 7. Adaptive learning (fire-and-forget) ───────────────────────────
++=======
++            if self._bandit_router is not None and completed:
++                attempt = completed[-1]
++                bandit_outcome = TaskOutcome(
++                    success=(attempt.status.value == "completed"),
++                    latency_s=0.0,
++                    cost_usd=0.0,
++                    quality_score=1.0 if attempt.status.value == "completed" else 0.0,
++                    agent_name=attempt.worker_id or "unknown",
++                )
++                try:
++                    self._bandit_router.observe(task, bandit_outcome)
++                except Exception:
++                    pass  # never let bandit updates break responses
++            elif self._bandit_router is not None and not completed:
++                # Task failed (no completed attempts) — still need to observe with success=False
++                try:
++                    self._bandit_router.observe(task, TaskOutcome(
++                        success=False,
++                        latency_s=0.0,
++                        cost_usd=0.0,
++                        quality_score=0.0,
++                        agent_name=current.worker_id or "unknown",
++                    ))
++                except Exception:
++                    pass  # never let bandit updates break responses
++
++        # ── 7. Adaptive learning (fire-and-forget) ───────────────────────────
++>>>>>>> REPLACE
++```
++
++backend/orchestrator/service/app.py
++```python
++<<<<<<< SEARCH
++    t0 = _time.monotonic()
++    await _run_task(task.id, store, registry, verifier)
++    wall_time_ms = (_time.monotonic() - t0) * 1000
++    elapsed = round(wall_time_ms / 1000, 2)
++
++    # Collect result
++=======
++    try:
++        t0 = _time.monotonic()
++        await _run_task(task.id, store, registry, verifier)
++        wall_time_ms = (_time.monotonic() - t0) * 1000
++        elapsed = round(wall_time_ms / 1000, 2)
++
++        # Collect result
++>>>>>>> REPLACE
++```
++
++backend/orchestrator/service/app.py
++```python
++<<<<<<< SEARCH
++    output = next(
++        (a.location.get("content", "") for a in artifacts if a.type == "text_output"), ""
++    )
++    used_worker = attempts[-1].worker_id if attempts else selected_agent
++    status = "success" if task.status == TaskStatus.completed else "failed"
++    success = status == "success"
++
++    # Pull Ollama token metrics captured by executor side-channel
++=======
++    output = next(
++        (a.location.get("content", "") for a in artifacts if a.type == "text_output"), ""
++    )
++    used_worker = attempts[-1].worker_id if attempts else selected_agent
++    status = "success" if task.status == TaskStatus.completed else "failed"
++    success = status == "success"
++
++    # Pull Ollama token metrics captured by executor side-channel
++>>>>>>> REPLACE
++```
++
++backend/orchestrator/service/app.py
++```python
++<<<<<<< SEARCH
++    quality_score = (await _score_quality(req.prompt, output, bucket)) if success else 0.0
++
++    # Update bandit with the outcome
++    outcome = TaskOutcome(
++        success=success,
++        latency_s=elapsed,
++        cost_usd=0.0,
++        quality_score=quality_score,
++        agent_name=selected_agent,
++        bucket=bucket,
++        spawn_time_ms=agent_spawn_ms,
++    )
++    router.observe(task, outcome)
++    reward = router.reward_calc.compute(outcome)
++
++    # Write to task_metrics
++=======
++    quality_score = (await _score_quality(req.prompt, output, bucket)) if success else 0.0
++
++    # Update bandit with the outcome — always call observe() even on failure
++    outcome = TaskOutcome(
++        success=success,
++        latency_s=elapsed,
++        cost_usd=0.0,
++        quality_score=quality_score,
++        agent_name=selected_agent,
++        bucket=bucket,
++        spawn_time_ms=agent_spawn_ms,
++    )
++    try:
++        router.observe(task, outcome)
++    except Exception as exc:
++        logger.error("api/task: observe() failed for task %s: %s", task.id, exc)
++    reward = router.reward_calc.compute(outcome)
++
++    # Write to task_metrics
++>>>>>>> REPLACE
++```
++
++backend/orchestrator/service/app.py
++```python
++<<<<<<< SEARCH
++    ucb_score = scores.get(selected_agent, {}).get("ucb", 0.0) if scores else 0.0
++    from hashlib import sha256 as _sha
++    _prompt_hash = _sha(req.prompt.encode()).hexdigest()[:16]
++    await store.metrics.record(
++        task_id=task.id,
++        task_hash=_prompt_hash,
++        agent_name=selected_agent,
++        capability_bucket=_classify_bucket(req.prompt, hint=req.capability_hint),
++        wall_time_ms=round(wall_time_ms, 2),
++        routing_time_ms=round(routing_time_ms, 2),
++        agent_spawn_time_ms=round(agent_spawn_ms, 2),
++        tokens_generated=tokens_generated,
++        tokens_per_second=tokens_per_second,
++        prompt_tokens=prompt_tokens,
++        prompt_eval_rate=prompt_eval_rate,
++        model_was_warm=model_was_warm,
++        bandit_ucb_score=ucb_score,
++        bandit_exploration_flag=exploration_flag,
++        reward_score=reward,
++        success=success,
++        quality_score=quality_score,
++        cost_usd=0.0,
++    )
++
++    # implicit quality tracking
++=======
++    ucb_score = scores.get(selected_agent, {}).get("ucb", 0.0) if scores else 0.0
++    from hashlib import sha256 as _sha
++    _prompt_hash = _sha(req.prompt.encode()).hexdigest()[:16]
++    await store.metrics.record(
++        task_id=task.id,
++        task_hash=_prompt_hash,
++        agent_name=selected_agent,
++        capability_bucket=_classify_bucket(req.prompt, hint=req.capability_hint),
++        wall_time_ms=round(wall_time_ms, 2),
++        routing_time_ms=round(routing_time_ms, 2),
++        agent_spawn_time_ms=round(agent_spawn_ms, 2),
++        tokens_generated=tokens_generated,
++        tokens_per_second=tokens_per_second,
++        prompt_tokens=prompt_tokens,
++        prompt_eval_rate=prompt_eval_rate,
++        model_was_warm=model_was_warm,
++        bandit_ucb_score=ucb_score,
++        bandit_exploration_flag=exploration_flag,
++        reward_score=reward,
++        success=success,
++        quality
++
++> Tokens: 31k sent, 2.1k received.  
++> The LLM did not conform to the edit format.  
++> https://aider.chat/docs/troubleshooting/edit-errors.html  
++> Looking at the test files, I can see they're testing for a 37% reward leak where `observe()` was being skipped when exceptions occurred. The tests expect that even when `run_task` raises an exception, `bandit_router.observe()` must still be called with `success=False`.
++
++Let me fix both files to ensure `observe()` is always called:
++
++backend/orchestrator/gateway.py
++```python
++<<<<<<< SEARCH
++            try:
++                await run_task(task.id, self._store, self._registry, self._verifier)
++            except Exception as exc:
++                logger.error("gateway: run_task error for %s: %s", task.id, exc)
++                chunk = f"[Task '{task.title}' failed: {exc}]"
++                response_chunks.append(chunk)
++                yield chunk
++                continue
++
++            # Collect the latest completed attempt output as a response chunk.
++=======
++            try:
++                await run_task(task.id, self._store, self._registry, self._verifier)
++            except Exception as exc:
++                logger.error("gateway: run_task error for %s: %s", task.id, exc)
++                chunk = f"[Task '{task.title}' failed: {exc}]"
++                response_chunks.append(chunk)
++                yield chunk
++
++            # Collect the latest completed attempt output as a response chunk.
++>>>>>>> REPLACE
++```
++
++backend/orchestrator/gateway.py
++```python
++<<<<<<< SEARCH
++            if self._bandit_router is not None and completed:
++                attempt = completed[-1]
++                bandit_outcome = TaskOutcome(
++                    success=(attempt.status.value == "completed"),
++                    latency_s=0.0,
++                    cost_usd=0.0,
++                    quality_score=1.0 if attempt.status.value == "completed" else 0.0,
++                    agent_name=attempt.worker_id or "unknown",
++                )
++                try:
++                    self._bandit_router.observe(task, bandit_outcome)
++                except Exception:
++                    pass  # never let bandit updates break responses
++
++        # ── 7. Adaptive learning (fire-and-forget) ───────────────────────────
++=======
++            if self._bandit_router is not None and completed:
++                attempt = completed[-1]
++                bandit_outcome = TaskOutcome(
++                    success=(attempt.status.value == "completed"),
++                    latency_s=0.0,
++                    cost_usd=0.0,
++                    quality_score=1.0 if attempt.status.value == "completed" else 0.0,
++                    agent_name=attempt.worker_id or "unknown",
++                )
++                try:
++                    self._bandit_router.observe(task, bandit_outcome)
++                except Exception:
++                    pass  # never let bandit updates break responses
++            elif self._bandit_router is not None and not completed:
++                # Task failed (no completed attempts) — still need to observe with success=False
++                try:
++                    self._bandit_router.observe(task, TaskOutcome(
++                        success=False,
++                        latency_s=0.0,
++                        cost_usd=0.0,
++                        quality_score=0.0,
++                        agent_name=current.worker_id or "unknown",
++                    ))
++                except Exception:
++                    pass  # never let bandit updates break responses
++
++        # ── 7. Adaptive learning (fire-and-forget) ───────────────────────────
++>>>>>>> REPLACE
++```
++
++backend/orchestrator/service/app.py
++```python
++<<<<<<< SEARCH
++    t0 = _time.monotonic()
++    await _run_task(task.id, store, registry, verifier)
++    wall_time_ms = (_time.monotonic() - t0) * 1000
++    elapsed = round(wall_time_ms / 1000, 2)
++
++    # Collect result
++=======
++    try:
++        t0 = _time.monotonic()
++        await _run_task(task.id, store, registry, verifier)
++        wall_time_ms = (_time.monotonic() - t0) * 1000
++        elapsed = round(wall_time_ms / 1000, 2)
++
++        # Collect result
++>>>>>>> REPLACE
++```
++
++backend/orchestrator/service/app.py
++```python
++<<<<<<< SEARCH
++    output = next(
++        (a.location.get("content", "") for a in artifacts if a.type == "text_output"), ""
++    )
++    used_worker = attempts[-1].worker_id if attempts else selected_agent
++    status = "success" if task.status == TaskStatus.completed else "failed"
++    success = status == "success"
++
++    # Pull Ollama token metrics captured by executor side-channel
++=======
++    output = next(
++        (a.location.get("content", "") for a in artifacts if a.type == "text_output"), ""
++    )
++    used_worker = attempts[-1].worker_id if attempts else selected_agent
++    status = "success" if task.status == TaskStatus.completed else "failed"
++    success = status == "success"
++
++    # Pull Ollama token metrics captured by executor side-channel
++>>>>>>> REPLACE
++```
++
++backend/orchestrator/service/app.py
++```python
++<<<<<<< SEARCH
++    quality_score = (await _score_quality(req.prompt, output, bucket)) if success else 0.0
++
++    # Update bandit with the outcome
++    outcome = TaskOutcome(
++        success=success,
++        latency_s=elapsed,
++        cost_usd=0.0,
++        quality_score=quality_score,
++        agent_name=selected_agent,
++        bucket=bucket,
++        spawn_time_ms=agent_spawn_ms,
++    )
++    router.observe(task, outcome)
++    reward = router.reward_calc.compute(outcome)
++
++    # Write to task_metrics
++=======
++    quality_score = (await _score_quality(req.prompt, output, bucket)) if success else 0.0
++
++    # Update bandit with the outcome — always call observe() even on failure
++    outcome = TaskOutcome(
++        success=success,
++        latency_s=elapsed,
++        cost_usd=0.0,
++        quality_score=quality_score,
++        agent_name=selected_agent,
++        bucket=bucket,
++        spawn_time_ms=agent_spawn_ms,
++    )
++    try:
++        router.observe(task, outcome)
++    except Exception as exc:
++        logger.error("api/task: observe() failed for task %s: %s", task.id, exc)
++    reward = router.reward_calc.compute(outcome)
++
++    # Write to task_metrics
++>>>>>>> REPLACE
++```
++
++backend/orchestrator/service/app.py
++```python
++<<<<<<< SEARCH
++    ucb_score = scores.get(selected_agent, {}).get("ucb", 0.0) if scores else 0.0
++    from hashlib import sha256 as _sha
++    _prompt_hash = _sha(req.prompt.encode()).hexdigest()[:16]
++    await store.metrics.record(
++        task_id=task.id,
++        task_hash=_prompt_hash,
++        agent_name=selected_agent,
++        capability_bucket=_classify_bucket(req.prompt, hint=req.capability_hint),
++        wall_time_ms=round(wall_time_ms, 2),
++        routing_time_ms=round(routing_time_ms, 2),
++        agent_spawn_time_ms=round(agent_spawn_ms, 2),
++        tokens_generated=tokens_generated,
++        tokens_per_second=tokens_per_second,
++        prompt_tokens=prompt_tokens,
++        prompt_eval_rate=prompt_eval_rate,
++        model_was_warm=model_was_warm,
++        bandit_ucb_score=ucb_score,
++        bandit_exploration_flag=exploration_flag,
++        reward_score=reward,
++        success=success,
++        quality_score=quality_score,
++        cost_usd=0.0,
++    )
++
++    # implicit quality tracking
++=======
++    ucb_score = scores.get(selected_agent, {}).get("ucb", 0.0) if scores else 0.0
++    from hashlib import sha256 as _sha
++    _prompt_hash = _sha(req.prompt.encode()).hexdigest()[:16]
++    await store.metrics.record(
++        task_id=task.id,
++        task_hash=_prompt_hash,
++        agent_name=selected_agent,
++        capability_bucket=_classify_bucket(req.prompt, hint=req.capability_hint),
++        wall_time_ms=round(wall_time_ms, 2),
++        routing_time_ms=round(routing_time_ms, 2),
++        agent_spawn_time_ms=round(agent_spawn_ms, 2),
++        tokens_generated=tokens_generated,
++        tokens_per_second=tokens_per_second,
++        prompt_tokens=prompt_tokens,
++        prompt_eval_rate=prompt_eval_rate,
++        model_was_warm=model_was_warm,
++        bandit_ucb_score=ucb_score,
++        bandit_exploration_flag=exploration_flag,
++        reward_score=reward,
++        success=success,
++        quality
++^^^ Expected `>>>>>>> REPLACE` or `=======`  
++
++Looking at the test files, I need to fix the reward leak by ensuring `observe()` is always called even when exceptions occur. Let me create proper SEARCH/REPLACE blocks:
++
++backend/orchestrator/gateway.py
++```python
++<<<<<<< SEARCH
++            try:
++                await run_task(task.id, self._store, self._registry, self._verifier)
++            except Exception as exc:
++                logger.error("gateway: run_task error for %s: %s", task.id, exc)
++                chunk = f"[Task '{task.title}' failed: {exc}]"
++                response_chunks.append(chunk)
++                yield chunk
++                continue
++
++            # Collect the latest completed attempt output as a response chunk.
++=======
++            try:
++                await run_task(task.id, self._store, self._registry, self._verifier)
++            except Exception as exc:
++                logger.error("gateway: run_task error for %s: %s", task.id, exc)
++                chunk = f"[Task '{task.title}' failed: {exc}]"
++                response_chunks.append(chunk)
++                yield chunk
++
++            # Collect the latest completed attempt output as a response chunk.
++>>>>>>> REPLACE
++```
++
++backend/orchestrator/gateway.py
++```python
++<<<<<<< SEARCH
++            if self._bandit_router is not None and completed:
++                attempt = completed[-1]
++                bandit_outcome = TaskOutcome(
++                    success=(attempt.status.value == "completed"),
++                    latency_s=0.0,
++                    cost_usd=0.0,
++                    quality_score=1.0 if attempt.status.value == "completed" else 0.0,
++                    agent_name=attempt.worker_id or "unknown",
++                )
++                try:
++                    self._bandit_router.observe(task, bandit_outcome)
++                except Exception:
++                    pass  # never let bandit updates break responses
++
++        # ── 7. Adaptive learning (fire-and-forget) ───────────────────────────
++=======
++            if self._bandit_router is not None and completed:
++                attempt = completed[-1]
++                bandit_outcome = TaskOutcome(
++                    success=(attempt.status.value == "completed"),
++                    latency_s=0.0,
++                    cost_usd=0.0,
++                    quality_score=1.0 if attempt.status.value == "completed" else 0.0,
++                    agent_name=attempt.worker_id or "unknown",
++                )
++                try:
++                    self._bandit_router.observe(task, bandit_outcome)
++                except Exception:
++                    pass  # never let bandit updates break responses
++            elif self._bandit_router is not None and not completed:
++                # Task failed (no completed attempts) — still need to observe with success=False
++                try:
++                    self._bandit_router.observe(task, TaskOutcome(
++                        success=False,
++                        latency_s=0.0,
++                        cost_usd=0.0,
++                        quality_score=0.0,
++                        agent_name=current.worker_id or "unknown",
++                    ))
++                except Exception:
++                    pass  # never let bandit updates break responses
++
++        # ── 7. Adaptive learning (fire-and-forget) ───────────────────────────
++>>>>>>> REPLACE
++```
++
++backend/orchestrator/service/app.py
++```python
++<<<<<<< SEARCH
++    t0 = _time.monotonic()
++    await _run_task(task.id, store, registry, verifier)
++    wall_time_ms = (_time.monotonic() - t0) * 1000
++    elapsed = round(wall_time_ms / 1000, 2)
++
++    # Collect result
++=======
++    try:
++        t0 = _time.monotonic()
++        await _run_task(task.id, store, registry, verifier)
++        wall_time_ms = (_time.monotonic() - t0) * 1000
++        elapsed = round(wall_time_ms / 1000, 2)
++
++        # Collect result
++>>>>>>> REPLACE
++```
++
++backend/orchestrator/service/app.py
++```python
++<<<<<<< SEARCH
++    output = next(
++        (a.location.get("content", "") for a in artifacts if a.type == "text_output"), ""
++    )
++    used_worker = attempts[-1].worker_id if attempts else selected_agent
++    status = "success" if task.status == TaskStatus.completed else "failed"
++    success = status == "success"
++
++    # Pull Ollama token metrics captured by executor side-channel
++=======
++    output = next(
++        (a.location.get("content", "") for a in artifacts if a.type == "text_output"), ""
++    )
++    used_worker = attempts[-1].worker_id if attempts else selected_agent
++    status = "success" if task.status == TaskStatus.completed else "failed"
++    success = status == "success"
++
++    # Pull Ollama token metrics captured by executor side-channel
++>>>>>>> REPLACE
++```
++
++backend/orchestrator/service/app.py
++```python
++<<<<<<< SEARCH
++    quality_score = (await _score_quality(req.prompt, output, bucket)) if success else 0.0
++
++    # Update bandit with the outcome
++    outcome = TaskOutcome(
++        success=success,
++        latency_s=elapsed,
++        cost_usd=0.0,
++        quality_score=quality_score,
++        agent_name=selected_agent,
++        bucket=bucket,
++        spawn_time_ms=agent_spawn_ms,
++    )
++    router.observe(task, outcome)
++    reward = router.reward_calc.compute(outcome)
++
++    # Write to task_metrics
++=======
++    quality_score = (await _score_quality(req.prompt, output, bucket)) if success else 0.0
++
++    # Update bandit with the outcome — always call observe() even on failure
++    outcome = TaskOutcome(
++        success=success,
++        latency_s=elapsed,
++        cost_usd=0.0,
++        quality_score=quality_score,
++        agent_name=selected_agent,
++        bucket=bucket,
++        spawn_time_ms=agent_spawn_ms,
++    )
++    try:
++        router.observe(task, outcome)
++    except Exception as exc:
++        logger.error("api/task: observe() failed for task %s: %s", task.id, exc)
++    reward = router.reward_calc.compute(outcome)
++
++    # Write to task_metrics
++>>>>>>> REPLACE
++```
++
++> Tokens: 8.8k sent, 1.6k received.  
++> Applied edit to backend/orchestrator/service/app.py  
++> Applied edit to backend/orchestrator/gateway.py  
++>  
++> # Fix any errors below, if possible.  
++>  
++> Traceback (most recent call last):  
++> File "/private/tmp/claude-501/-Users-kaitosoeno-Projects-Mahoraga/9fa9805a-2c5c-48ae-a18d-e09c6c71b8b0/scratchpad/agentedit/work/aaa64fd/backend/orchestrator/service/app.py", line 1442  
++> task = await store.tasks.get(task.id)  
++> ^^^^  
++> SyntaxError: expected 'except' or 'finally' block  
++>  
++> ## Running: /Users/kaitosoeno/.local/share/uv/tools/aider-chat/bin/python -m flake8 --select=E9,F821,F823,F831,F406,F407,F701,F702,F704,F706 --show-source --isolated backend/orchestrator/service/app.py  
++>  
++> backend/orchestrator/service/app.py:1442:6: E999 SyntaxError: expected 'except' or 'finally' block  
++> task = await store.tasks.get(task.id)  
++> ^  
++>  
++> ## See relevant line below marked with █.  
++>  
++> backend/orchestrator/service/app.py:  
++> ...⋮...  
++> 1355│@app.post("/api/task")  
++> 1356│async def run_api_task(  
++> 1357│    req: TaskRequest,  
++> 1358│    store: StoreDep,  
++> 1359│    registry: RegistryDep,  
++> 1360│    verifier: VerifierDep,  
++> 1361│):  
++> 1362│    """Execute a single task synchronously. Waits for completion (up to 5 min)."""  
++> ...⋮...  
++> 1439│        elapsed = round(wall_time_ms / 1000, 2)  
++> 1440│  
++> 1441│        # Collect result  
++> 1442█    task = await store.tasks.get(task.id)  
++> 1443│    attempts = await store.tasks.list_attempts(task.id)  
++> 1444│    artifacts = await store.artifacts.list_by_task(task.id)  
++> 1445│  
++> ...⋮...  
++>  
++> Attempt to fix lint errors? (Y)es/(N)o [Yes]: y  
++> Only 3 reflections allowed, stopping.  
+diff --git a/.aider.input.history b/.aider.input.history
+index 792c366..4a3f524 100644
+--- a/.aider.input.history
++++ b/.aider.input.history
+@@ -58,3 +58,21 @@
+ +Explain what causes this error and how to fix it: AttributeError: 'NoneType' obj
+ +
+ +Explain what causes this error and how to fix it: AttributeError: 'NoneType' object has no attribute 'split'
++
++# 2026-09-28 21:36:43.499827
+++Make the following change to this repository.
+++
+++fix: guarantee log_outcome() fires — close 37% reward leak at gateway/batch sites
+++
+++
+++
+++Tests covering this change already exist in: tests/orchestrator_v2/test_e2e_reward_loop.py, tests/orchestrator_v2/test_gateway.py. Do not modify any test files; change the source code so those tests pass without breaking anything else.
++
++# 2026-09-28 21:36:43.499875
+++Make the following change to this repository.
+++
+++fix: guarantee log_outcome() fires — close 37% reward leak at gateway/batch sites
+++
+++
+++
+++Tests covering this change already exist in: tests/orchestrator_v2/test_e2e_reward_loop.py, tests/orchestrator_v2/test_gateway.py. Do not modify any test files; change the source code so those tests pass without breaking anything else.
+diff --git a/backend/orchestrator/gateway.py b/backend/orchestrator/gateway.py
+index 8ec23cb..7e1c0fc 100644
+--- a/backend/orchestrator/gateway.py
++++ b/backend/orchestrator/gateway.py
+@@ -176,7 +176,6 @@ class Gateway:
+                 chunk = f"[Task '{task.title}' failed: {exc}]"
+                 response_chunks.append(chunk)
+                 yield chunk
+-                continue
+ 
+             # Collect the latest completed attempt output as a response chunk.
+             # Fall back to summary for legacy DB rows where output column is empty.
+@@ -221,6 +220,18 @@ class Gateway:
+                     self._bandit_router.observe(task, bandit_outcome)
+                 except Exception:
+                     pass  # never let bandit updates break responses
++            elif self._bandit_router is not None and not completed:
++                # Task failed (no completed attempts) — still need to observe with success=False
++                try:
++                    self._bandit_router.observe(task, TaskOutcome(
++                        success=False,
++                        latency_s=0.0,
++                        cost_usd=0.0,
++                        quality_score=0.0,
++                        agent_name=current.worker_id or "unknown",
++                    ))
++                except Exception:
++                    pass  # never let bandit updates break responses
+ 
+         # ── 7. Adaptive learning (fire-and-forget) ───────────────────────────
+         full_response = "\n".join(response_chunks)
+diff --git a/backend/orchestrator/service/app.py b/backend/orchestrator/service/app.py
+index f3b2248..5fda87a 100644
+--- a/backend/orchestrator/service/app.py
++++ b/backend/orchestrator/service/app.py
+@@ -1432,12 +1432,13 @@ async def run_api_task(
+     # Transition task to ready so executor can pick it up
+     await store.tasks.update_status(task.id, TaskStatus.ready)
+ 
+-    t0 = _time.monotonic()
+-    await _run_task(task.id, store, registry, verifier)
+-    wall_time_ms = (_time.monotonic() - t0) * 1000
+-    elapsed = round(wall_time_ms / 1000, 2)
++    try:
++        t0 = _time.monotonic()
++        await _run_task(task.id, store, registry, verifier)
++        wall_time_ms = (_time.monotonic() - t0) * 1000
++        elapsed = round(wall_time_ms / 1000, 2)
+ 
+-    # Collect result
++        # Collect result
+     task = await store.tasks.get(task.id)
+     attempts = await store.tasks.list_attempts(task.id)
+     artifacts = await store.artifacts.list_by_task(task.id)
+@@ -1461,7 +1462,7 @@ async def run_api_task(
+     from ..routing.quality import score_quality as _score_quality
+     quality_score = (await _score_quality(req.prompt, output, bucket)) if success else 0.0
+ 
+-    # Update bandit with the outcome
++    # Update bandit with the outcome — always call observe() even on failure
+     outcome = TaskOutcome(
+         success=success,
+         latency_s=elapsed,
+@@ -1471,7 +1472,10 @@ async def run_api_task(
+         bucket=bucket,
+         spawn_time_ms=agent_spawn_ms,
+     )
+-    router.observe(task, outcome)
++    try:
++        router.observe(task, outcome)
++    except Exception as exc:
++        logger.error("api/task: observe() failed for task %s: %s", task.id, exc)
+     reward = router.reward_calc.compute(outcome)
+ 
+     # Write to task_metrics

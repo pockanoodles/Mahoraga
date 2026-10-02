@@ -1,0 +1,25 @@
+{
+ "sha": "5ad756f",
+ "model": "qwen3.5:latest",
+ "cond": "feedback",
+ "secs": 322.1,
+ "timed_out": false,
+ "resolved": false,
+ "f2p_pass": 0,
+ "f2p_total": 3,
+ "regressions": 0,
+ "regression_ids": [],
+ "suite_crashed": false,
+ "edited_files": [],
+ "touched_tests": [],
+ "gold_src": [
+  "backend/orchestrator/routing/reward_learner.py",
+  "backend/orchestrator/service/app.py"
+ ],
+ "hit_gold_file": false,
+ "no_edit": true,
+ "tokens_sent": 31800.0,
+ "tokens_recv": 1796.0,
+ "llm_calls": 3,
+ "edit_errors": 0
+}

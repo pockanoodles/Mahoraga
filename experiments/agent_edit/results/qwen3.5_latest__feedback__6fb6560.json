@@ -1,0 +1,30 @@
+{
+ "sha": "6fb6560",
+ "model": "qwen3.5:latest",
+ "cond": "feedback",
+ "secs": 519.4,
+ "timed_out": false,
+ "resolved": true,
+ "f2p_pass": 6,
+ "f2p_total": 6,
+ "regressions": 0,
+ "regression_ids": [],
+ "suite_crashed": false,
+ "edited_files": [
+  "backend/orchestrator/routing/bandit_router.py",
+  "backend/orchestrator/routing/strategies/linucb_per_bucket.py",
+  "backend/orchestrator/routing/warm_start.py"
+ ],
+ "touched_tests": [],
+ "gold_src": [
+  "backend/orchestrator/routing/bandit_router.py",
+  "backend/orchestrator/routing/strategies/linucb.py",
+  "backend/orchestrator/routing/warm_start.py"
+ ],
+ "hit_gold_file": true,
+ "no_edit": false,
+ "tokens_sent": 35400.0,
+ "tokens_recv": 3871.0,
+ "llm_calls": 2,
+ "edit_errors": 0
+}

@@ -1,0 +1,25 @@
+{
+ "sha": "85d6a46",
+ "model": "granite4.1:8b",
+ "cond": "blind",
+ "secs": 1200.0,
+ "timed_out": true,
+ "resolved": false,
+ "f2p_pass": 0,
+ "f2p_total": 3,
+ "regressions": 0,
+ "regression_ids": [],
+ "suite_crashed": false,
+ "edited_files": [],
+ "touched_tests": [],
+ "gold_src": [
+  "backend/orchestrator/cli/commands/bench.py",
+  "backend/orchestrator/routing/decision_log.py"
+ ],
+ "hit_gold_file": false,
+ "no_edit": true,
+ "tokens_sent": 42000.0,
+ "tokens_recv": 3200.0,
+ "llm_calls": 2,
+ "edit_errors": 4
+}

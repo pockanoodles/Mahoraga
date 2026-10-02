@@ -1,0 +1,45 @@
+diff --git a/backend/orchestrator/routing/code_judge.py b/backend/orchestrator/routing/code_judge.py
+index 1bff89e..eec02c0 100644
+--- a/backend/orchestrator/routing/code_judge.py
++++ b/backend/orchestrator/routing/code_judge.py
+@@ -53,6 +53,7 @@ _HARNESS_TIMEOUT_SECONDS = 10   # matches the bank builder's verify timeout
+ _DUMP_TIMEOUT_SECONDS = 5
+ _MAX_PROGRAM_CHARS = 8000
+ _MAX_CASE_REPR_CHARS = 2000
++MIN_DISAGREEMENTS = 2  # reject only on >=2 disagreeing consensus inputs
+ 
+ GEN_PROMPT = (
+     "You are given a programming task that asks for a Python function. Write a "
+@@ -209,7 +210,7 @@ async def dump_cases(code: str) -> Optional[list]:
+ 
+ 
+ async def differential_check(
+-    worker, task_prompt: str, candidate: str, *, k: int = GEN_SAMPLES
++    worker, task_prompt: str, candidate: str, *, k: int = GEN_SAMPLES, min_disagreements: int = MIN_DISAGREEMENTS
+ ) -> tuple[Optional[bool], float, str]:
+     """Generated-test differential check. Returns (verdict, cost_usd, detail).
+ 
+@@ -299,11 +300,18 @@ async def differential_check(
+     if checked == 0:
+         return None, cost, "no consensus inputs"
+     if mismatches:
+-        i, expected, got = mismatches[0]
+-        return False, cost, (
+-            f"{len(mismatches)}/{checked} consensus inputs disagree — "
+-            f"e.g. {entrypoint}(*{pooled[i]!r}): expected {expected!r}, got {got!r}"
+-        )
++        # Apply threshold: reject only if disagreements >= min_disagreements
++        if len(mismatches) >= min_disagreements:
++            i, expected, got = mismatches[0]
++            return False, cost, (
++                f"{len(mismatches)}/{checked} consensus inputs disagree — "
++                f"e.g. {entrypoint}(*{pooled[i]!r}): expected {expected!r}, got {got!r}"
++            )
++        else:
++            # Below threshold -> abstain (recall-only invariant)
++            return None, cost, (
++                f"{len(mismatches)}/{checked} consensus inputs disagree — below reject threshold"
++            )
+     return None, cost, f"agrees on {checked} consensus inputs"
+ 
+ 

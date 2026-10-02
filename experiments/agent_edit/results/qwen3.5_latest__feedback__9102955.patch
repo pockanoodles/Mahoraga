@@ -1,0 +1,12 @@
+diff --git a/backend/orchestrator/cli/commands/bench_report.py b/backend/orchestrator/cli/commands/bench_report.py
+index f8462c8..40da0b7 100644
+--- a/backend/orchestrator/cli/commands/bench_report.py
++++ b/backend/orchestrator/cli/commands/bench_report.py
+@@ -1444,6 +1444,7 @@ def code_judge_cmd(
+             verdict, _cost, detail = await differential_check(
+                 worker, prompt, row["local_output"], k=gen_samples, min_disagreements=1
+             )
++            verdict_effective = _apply_threshold(verdict, detail)
+             tool_verdicts[prompt] = verdict_effective
+             tool_details[prompt] = detail
+             slot[prompt] = {"verdict": verdict, "detail": detail}

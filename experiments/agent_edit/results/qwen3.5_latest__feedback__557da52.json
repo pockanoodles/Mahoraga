@@ -1,0 +1,27 @@
+{
+ "sha": "557da52",
+ "model": "qwen3.5:latest",
+ "cond": "feedback",
+ "secs": 1200.0,
+ "timed_out": true,
+ "resolved": false,
+ "f2p_pass": 9,
+ "f2p_total": 14,
+ "regressions": 0,
+ "regression_ids": [],
+ "suite_crashed": false,
+ "edited_files": [
+  "backend/orchestrator/routing/execution_gate.py"
+ ],
+ "touched_tests": [],
+ "gold_src": [
+  "backend/orchestrator/routing/execution_gate.py",
+  "backend/orchestrator/service/app.py"
+ ],
+ "hit_gold_file": true,
+ "no_edit": false,
+ "tokens_sent": 21500.0,
+ "tokens_recv": 10176.0,
+ "llm_calls": 3,
+ "edit_errors": 0
+}

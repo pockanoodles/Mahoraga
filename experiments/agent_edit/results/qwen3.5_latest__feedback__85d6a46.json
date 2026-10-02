@@ -1,0 +1,32 @@
+{
+ "sha": "85d6a46",
+ "model": "qwen3.5:latest",
+ "cond": "feedback",
+ "secs": 876.7,
+ "timed_out": false,
+ "resolved": false,
+ "f2p_pass": 3,
+ "f2p_total": 3,
+ "regressions": 3,
+ "regression_ids": [
+  "tests.orchestrator_v2.test_bench_runs::test_create_bench_run_returns_int_id",
+  "tests.orchestrator_v2.test_bench_runs::test_finalize_bench_run",
+  "tests.orchestrator_v2.test_bench_runs::test_log_decision_stores_bench_run_id"
+ ],
+ "suite_crashed": false,
+ "edited_files": [
+  "backend/orchestrator/cli/commands/bench.py",
+  "backend/orchestrator/routing/decision_log.py"
+ ],
+ "touched_tests": [],
+ "gold_src": [
+  "backend/orchestrator/cli/commands/bench.py",
+  "backend/orchestrator/routing/decision_log.py"
+ ],
+ "hit_gold_file": true,
+ "no_edit": false,
+ "tokens_sent": 74000.0,
+ "tokens_recv": 6893.0,
+ "llm_calls": 4,
+ "edit_errors": 3
+}

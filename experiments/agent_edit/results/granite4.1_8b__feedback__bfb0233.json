@@ -1,0 +1,25 @@
+{
+ "sha": "bfb0233",
+ "model": "granite4.1:8b",
+ "cond": "feedback",
+ "secs": 1040.1,
+ "timed_out": false,
+ "resolved": false,
+ "f2p_pass": 0,
+ "f2p_total": 4,
+ "regressions": 0,
+ "regression_ids": [],
+ "suite_crashed": false,
+ "edited_files": [],
+ "touched_tests": [],
+ "gold_src": [
+  "backend/orchestrator/cli/commands/bench.py",
+  "backend/orchestrator/service/app.py"
+ ],
+ "hit_gold_file": false,
+ "no_edit": true,
+ "tokens_sent": 59100.0,
+ "tokens_recv": 5400.0,
+ "llm_calls": 4,
+ "edit_errors": 8
+}

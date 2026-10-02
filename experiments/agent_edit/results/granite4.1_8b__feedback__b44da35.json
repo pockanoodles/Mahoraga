@@ -1,0 +1,26 @@
+{
+ "sha": "b44da35",
+ "model": "granite4.1:8b",
+ "cond": "feedback",
+ "secs": 707.3,
+ "timed_out": false,
+ "resolved": false,
+ "f2p_pass": 0,
+ "f2p_total": 13,
+ "regressions": 0,
+ "regression_ids": [],
+ "suite_crashed": false,
+ "edited_files": [],
+ "touched_tests": [],
+ "gold_src": [
+  "backend/mcp/funnel_liveness.py",
+  "backend/mcp/server.py",
+  "backend/orchestrator/routing/funnel_report.py"
+ ],
+ "hit_gold_file": false,
+ "no_edit": true,
+ "tokens_sent": 47000.0,
+ "tokens_recv": 2827.0,
+ "llm_calls": 4,
+ "edit_errors": 6
+}

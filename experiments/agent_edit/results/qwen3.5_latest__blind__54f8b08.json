@@ -1,0 +1,28 @@
+{
+ "sha": "54f8b08",
+ "model": "qwen3.5:latest",
+ "cond": "blind",
+ "secs": 211.5,
+ "timed_out": false,
+ "resolved": false,
+ "f2p_pass": 2,
+ "f2p_total": 2,
+ "regressions": 1,
+ "regression_ids": [
+  "tests.orchestrator_v2.test_postprocess::test_strip_preamble_removes_lead_in_and_signoff"
+ ],
+ "suite_crashed": false,
+ "edited_files": [
+  "backend/orchestrator/workers/postprocess.py"
+ ],
+ "touched_tests": [],
+ "gold_src": [
+  "backend/orchestrator/workers/postprocess.py"
+ ],
+ "hit_gold_file": true,
+ "no_edit": false,
+ "tokens_sent": 11400.0,
+ "tokens_recv": 2400.0,
+ "llm_calls": 2,
+ "edit_errors": 0
+}

@@ -1,0 +1,58 @@
+diff --git a/backend/orchestrator/workers/postprocess.py b/backend/orchestrator/workers/postprocess.py
+index 060152b..dbce5a2 100644
+--- a/backend/orchestrator/workers/postprocess.py
++++ b/backend/orchestrator/workers/postprocess.py
+@@ -12,9 +12,50 @@ _SIGNOFF_RE = re.compile(
+ 
+ 
+ def extract_code(response: str) -> str:
+-    """Return the first fenced code block content, or the raw response if none found."""
+-    blocks = re.findall(r"```(?:\w*)\n(.*?)```", response, re.DOTALL)
+-    return blocks[0].strip() if blocks else response.strip()
++    """Extract Python code from model response, handling fenced blocks.
++    
++    Handles truncated responses where closing fence is missing by stripping
++    opening fence markers and returning just the code content.
++    """
++    lines = response.split('\n')
++    
++    # Find first fenced block
++    in_fence = False
++    fence_start = -1
++    code_lines = []
++    
++    for i, line in enumerate(lines):
++        stripped = line.strip()
++        
++        if not in_fence:
++            # Look for opening fence
++            if stripped.startswith('```'):
++                in_fence = True
++                fence_start = i
++                continue
++        
++        if in_fence:
++            # Check for closing fence
++            if stripped == '```':
++                # End of fenced block - return content without the closing fence
++                return '\n'.join(code_lines).strip()
++            
++            # Collect code lines (skip empty lines that are just fence markers)
++            if stripped and not stripped.startswith('```'):
++                code_lines.append(line)
++    
++    # If we exit loop without finding closing fence, strip opening fence markers
++    # and return just the content
++    result = []
++    for i in range(fence_start + 1, len(lines)):
++        line = lines[i]
++        stripped = line.strip()
++        # Skip closing fence if present (even if unclosed)
++        if stripped == '```':
++            continue
++        result.append(line)
++    
++    return '\n'.join(result).strip() if result else response.strip()
+ 
+ 
+ def strip_preamble(response: str) -> str:

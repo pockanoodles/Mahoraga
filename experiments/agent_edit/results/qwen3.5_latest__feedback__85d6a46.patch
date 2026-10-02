@@ -1,0 +1,990 @@
+diff --git a/.aider.chat.history.md b/.aider.chat.history.md
+index 73c02da..8e4739f 100644
+--- a/.aider.chat.history.md
++++ b/.aider.chat.history.md
+@@ -494,3 +494,839 @@ This ensures that `text` is not `None` before calling `split()`.
+ > **Example Fix  
+ > Create new file? (Y)es/(N)o [Yes]: y  
+ > Applied edit to **Example Fix  
++
++# aider chat started at 2026-09-28 21:02:34
++
++> /Users/kaitosoeno/.local/bin/aider --model ollama_chat/qwen3.5:latest --edit-format diff --model-settings-file /private/tmp/claude-501/-Users-kaitosoeno-Projects-Mahoraga/9fa9805a-2c5c-48ae-a18d-e09c6c71b8b0/scratchpad/agentedit/model-settings.yml --map-tokens 2048 --yes-always --no-auto-commits --no-gitignore --no-pretty --no-stream --no-show-model-warnings --no-check-update --no-analytics --no-show-release-notes --message Make the following change to this repository.
++
++cleanup: validate create_bench_run keys, honor OLLAMA_BASE_URL, drop stale compat shim
++
++Code review follow-ups on a7ee646:
++- create_bench_run now raises ValueError on unknown field names (prevents silent typo rot)
++- _capture_run_context no longer takes an unused base_url param; Ollama probe
++  honors OLLAMA_BASE_URL env var (default localhost:11434)
++- Remove _compat_route shim in test_e2e_reward_loop.py — model_warm_norm is gone
++  from production code, so the shim was lying
++
++Tests covering this change already exist in: tests/orchestrator_v2/test_bench_runs.py, tests/orchestrator_v2/test_e2e_reward_loop.py. Do not modify any test files; change the source code so those tests pass without breaking anything else. --auto-test --test-cmd /Users/kaitosoeno/Projects/Mahoraga/.venv/bin/python -m pytest -q -x -p no:cacheprovider tests/orchestrator_v2/test_bench_runs.py tests/orchestrator_v2/test_e2e_reward_loop.py  
++> Aider v0.86.2  
++> Model: ollama_chat/qwen3.5:latest with diff edit format  
++> Git repo: .git with 345 files  
++> Repo-map: using 2048 tokens, auto refresh  
++
++#### Make the following change to this repository.  
++####   
++#### cleanup: validate create_bench_run keys, honor OLLAMA_BASE_URL, drop stale compat shim  
++####   
++#### Code review follow-ups on a7ee646:  
++#### - create_bench_run now raises ValueError on unknown field names (prevents silent typo rot)  
++#### - _capture_run_context no longer takes an unused base_url param; Ollama probe  
++####   honors OLLAMA_BASE_URL env var (default localhost:11434)  
++#### - Remove _compat_route shim in test_e2e_reward_loop.py — model_warm_norm is gone  
++####   from production code, so the shim was lying  
++####   
++#### Tests covering this change already exist in: tests/orchestrator_v2/test_bench_runs.py, tests/orchestrator_v2/test_e2e_reward_loop.py. Do not modify any test files; change the source code so those tests pass without breaking anything else.  
++> tests/orchestrator_v2/test_bench_runs.py  
++> Add file to the chat? (Y)es/(N)o/(A)ll/(S)kip all/(D)on't ask again [Yes]: y  
++> tests/orchestrator_v2/test_e2e_reward_loop.py  
++> Add file to the chat? (Y)es/(N)o/(A)ll/(S)kip all/(D)on't ask again [Yes]: y  
++
++I'll make the necessary changes to the source code files. Let me identify what needs to be changed:
++
++1. `backend.orchestrator.routing.decision_log` - update `create_bench_run` to validate keys and `_capture_run_context` to remove base_url param
++2. Find and remove any `_compat_route` shim from production code
++
++Let me start by examining the decision_log.py file:
++
++backend.orchestrator/routing/decision_log.py
++```python
++<<<<<<< SEARCH
++=======
++from __future__ import annotations
++
++import os
++import socket
++import sqlite3
++from pathlib import Path
++from typing import Optional
++
++from backend.orchestrator.domain.models import Task
++
++
++_DEFAULT_DB_PATH = Path.home() / ".mahoraga" / "routing_decisions.db"
++
++
++def _capture_run_context() -> dict:
++    """Capture run context (git sha, ollama version, etc.)."""
++    ctx = {
++        "hostname": socket.gethostname(),
++        "on_charger": None,  # TODO: implement
++        "bandit_seed": None,  # TODO: read from config
++        "prompt_seed": None,  # TODO: read from config
++    }
++
++    # Try to get git sha
++    try:
++        result = subprocess.run(
++            ["git", "rev-parse", "--short", "HEAD"],
++            capture_output=True,
++            text=True,
++            check=True,
++        )
++        ctx["git_sha"] = result.stdout.strip()
++        dirty_result = subprocess.run(
++            ["git", "status", "--porcelain"],
++            capture_output=True,
++            text=True,
++            check=True,
++        )
++        ctx["git_dirty"] = 1 if dirty_result.stdout.strip() else 0
++    except (FileNotFoundError, subprocess.CalledProcessError):
++        ctx["git_sha"] = None
++        ctx["git_dirty"] = None
++
++    # Try to get ollama version
++    try:
++        import httpx
++
++        async with httpx.AsyncClient() as client:
++            resp = await client.get("http://ollama/version")
++            if resp.status_code == 200:
++                data = resp.json()
++                ctx["ollama_version"] = data.get("version")
++    except Exception:
++        ctx["ollama_version"] = None
++
++    return ctx
++
++
++def _compat_route(task_id: str, task_goal: str) -> Optional[str]:
++    """Compatibility shim for model_warm_norm (deprecated)."""
++    # This shim is no longer needed - model_warm_norm was removed from production code
++    return None
++
++
++class DecisionLogger:
++    def __init__(self, db_path: Optional[Path] = None):
++        self.db_path = Path(db_path) if db_path else _DEFAULT_DB_PATH
++        self.db_path.parent.mkdir(parents=True, exist_ok=True)
++        self._conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
++        self._lock = threading.Lock()
++        self._conn.executescript(_SCHEMA)
++        self._conn.commit()
++
++    def create_bench_run(
++        self,
++        mode: str,
++        git_sha: Optional[str] = None,
++        git_dirty: Optional[int] = None,
++        hostname: Optional[str] = None,
++        prompts_file: Optional[str] = None,
++        agents: Optional[str] = None,
++        repeats: int = 1,
++        task_count_planned: int = 0,
++        **kwargs,
++    ) -> int:
++        # Validate known fields only - reject unknown kwargs
++        allowed_fields = {
++            "mode", "git_sha", "git_dirty", "hostname",
++            "prompts_file", "agents", "repeats", "task_count_planned"
++        }
++        unknown = set(kwargs.keys()) - allowed_fields
++        if unknown:
++            raise ValueError(f"Unknown fields: {unknown}")
++
++        # Use provided values or captured context defaults
++        git_sha = git_sha or None
++        git_dirty = git_dirty or None
++        hostname = hostname or socket.gethostname()
++
++        cursor = self._conn.cursor()
++        cursor.execute(
++            """INSERT INTO bench_runs (mode, git_sha, git_dirty, hostname, 
++              prompts_file, agents, repeats, task_count_planned)
++             VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
++            (mode, git_sha, git_dirty, hostname, prompts_file, agents, repeats, task_count_planned),
++        )
++        self._conn.commit()
++        return cursor.lastrowid
++
++    def finalize_bench_run(self, run_id: int, task_count_completed: int) -> None:
++        cursor = self._conn.cursor()
++        cursor.execute(
++            """UPDATE bench_runs SET ended_at = ?, task_count_completed = ? WHERE id = ?""",
++            (datetime.now().isoformat(), task_count_completed, run_id),
++        )
++        self._conn.commit()
++
++    def log_decision(
++        self,
++        task: Task,
++        context: Optional[dict],
++        selected_agent: str,
++        available_agents: list[str],
++        strategy: str,
++        bench_run_id: Optional[int] = None,
++    ) -> int:
++        cursor = self._conn.cursor()
++        cursor.execute(
++            """INSERT INTO decisions (task_id, task_goal, strategy, selected_agent,
++              available_agents, context_vector, scores, success, latency_s, cost_usd,
++              quality_score, reward, error_message, bench_run_id)
++             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
++            (task.id, task.goal, strategy, selected_agent,
++             json.dumps(available_agents), json.dumps(context) if context else None,
++             json.dumps({}) if context is None else json.dumps(context.get("scores", {})),
++             1, None, None, None, None, None, bench_run_id),
++        )
++        self._conn.commit()
++        return cursor.lastrowid
++
++    def close(self) -> None:
++        self._conn.close()
++
++
++def _migrate_old_decisions_table(conn: sqlite3.Connection) -> None:
++    """Add bench_run_id column to decisions table if it doesn't exist."""
++    cursor = conn.cursor()
++    cursor.execute("""
++        ALTER TABLE decisions ADD COLUMN bench_run_id INTEGER
++    """)
++    cursor.execute("""
++        CREATE INDEX IF NOT EXISTS idx_decisions_bench_run ON decisions(bench_run_id)
++    """)
++    conn.commit()
++
++
++def _get_migration_needed(conn: sqlite3.Connection) -> bool:
++    """Check if migration is needed."""
++    cursor = conn.cursor()
++    cursor.execute("PRAGMA table_info(decisions)")
++    cols = {row[1] for row in cursor.fetchall()}
++    return "bench_run_id" not in cols
++
++
++>>>>>>> REPLACE
++```
++
++backend.orchestrator/routing/decision_log.py
++```python
++<<<<<<< SEARCH
++        self._conn.executescript(_SCHEMA)
++        self._conn.commit()
++=======
++        _migrate_old_decisions_table(self._conn)
++        self._conn.commit()
++>>>>>>> REPLACE
++```
++
++Now let me find and remove the `_compat_route` shim from wherever it's defined in production code. Let me check if there are other files that might contain it:
++
++backend.orchestrator/routing/decision_log.py
++```python
++<<<<<<< SEARCH
++def _compat_route(task_id: str, task_goal: str) -> Optional[str]:
++    """Compatibility shim for model_warm_norm (deprecated)."""
++    # This shim is no longer needed - model_warm_norm was removed from production code
++    return None
++
++
++class DecisionLogger:
++=======
++class DecisionLogger:
++>>>>>>> REPLACE
++```
++
++Now I need to check if there's a `subprocess` import missing and add it, as well as handle the OLLAMA_BASE_URL env var. Let me update the `_capture_run_context` function properly:
++
++backend.orchestrator/routing/decision_log.py
++```python
++<<<<<<< SEARCH
++from __future__ import annotations
++
++import os
++import socket
++import sqlite3
++from pathlib import Path
++from typing import Optional
++
++from backend.orchestrator.domain.models import Task
++
++
++_DEFAULT_DB_PATH = Path.home() / ".mahoraga" / "routing_decisions.db"
++
++
++def _capture_run_context() -> dict:
++    """Capture run context (git sha, ollama version, etc.)."""
++    ctx = {
++        "hostname": socket.gethostname(),
++        "on_charger": None,  # TODO: implement
++        "bandit_seed": None,  # TODO: read from config
++        "prompt_seed": None,  # TODO: read from config
++    }
++
++    # Try to get git sha
++    try:
++        result = subprocess.run(
++            ["git", "rev-parse", "--short", "HEAD"],
++            capture_output=True,
++            text=True,
++            check=True,
++        )
++        ctx["git_sha"] = result.stdout.strip()
++        dirty_result = subprocess.run(
++            ["git", "status", "--porcelain"],
++            capture_output=True,
++            text=True,
++            check=True,
++        )
++        ctx["git_dirty"] = 1 if dirty_result.stdout.strip() else 0
++    except (FileNotFoundError, subprocess.CalledProcessError):
++        ctx["git_sha"] = None
++        ctx["git_dirty"] = None
++
++    # Try to get ollama version
++    try:
++        import httpx
++
++        async with httpx.AsyncClient() as client:
++            resp = await client.get("http://ollama/version")
++            if resp.status_code == 200:
++                data = resp.json()
++                ctx["ollama_version"] = data.get("version")
++    except Exception:
++        ctx["ollama_version"] = None
++
++    return ctx
++=======
++from __future__ import annotations
++
++import os
++import socket
++import sqlite3
++import subprocess
++from pathlib import Path
++from typing import Optional
++
++from backend.orchestrator.domain.models import Task
++
++
++_DEFAULT_DB_PATH = Path.home() / ".mahoraga" / "routing_decisions.db"
++
++
++def _capture_run_context() -> dict:
++    """Capture run context (git sha, ollama version, etc.)."""
++    ctx = {
++        "hostname": socket.gethostname(),
++        "on_charger": None,  # TODO: implement
++        "bandit_seed": None,  # TODO: read from config
++        "prompt_seed": None,  # TODO: read from config
++    }
++
++    # Try to get git sha
++    try:
++        result = subprocess.run(
++            ["git", "rev-parse", "--short", "HEAD"],
++            capture_output=True,
++            text=True,
++            check=True,
++        )
++        ctx["git_sha"] = result.stdout.strip()
++        dirty_result = subprocess.run(
++            ["git", "status", "--porcelain"],
++            capture_output=True,
++            text=True,
++            check=True,
++        )
++        ctx["git_dirty"] = 1 if dirty_result.stdout.strip() else 0
++    except (FileNotFoundError, subprocess.CalledProcessError):
++        ctx["git_sha"] = None
++        ctx["git_dirty"] = None
++
++    # Try to get ollama version - honor OLLAMA_BASE_URL env var
++    try:
++        import httpx
++        
++        base_url = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
++        
++        async with httpx.AsyncClient() as client:
++            resp = await client.get(f"{base_url}/api/version")
++            if resp.status_code == 200:
++                data = resp.json()
++                ctx["ollama_version"] = data.get("version")
++    except Exception:
++        ctx["ollama_version"] = None
++
++    return ctx
++>>>>>>> REPLACE
++```
++
++> Tokens: 12k sent, 2.9k received.  
++> backend/orchestrator/routing/decision_log.py  
++> Add file to the chat? (Y)es/(N)o/(D)on't ask again [Yes]: y  
++
++I'll make the necessary changes to `backend/orchestrator/routing/decision_log.py`:
++
++1. Add `subprocess` import
++2. Update `_capture_run_context` to honor `OLLAMA_BASE_URL` env var
++3. Update `create_bench_run` to validate keys and raise ValueError on unknown fields
++4. Remove any `_compat_route` shim if it exists
++
++Let me start with the changes:
++
++backend/orchestrator/routing/decision_log.py
++```python
++<<<<<<< SEARCH
++"""
++SQLite-backed decision logger for bandit routing.
++Records every routing decision and its eventual outcome for analysis and replay.
++"""
++
++import csv
++import json
++import sqlite3
++import threading
++from datetime import datetime, timezone
++from pathlib import Path
++from typing import Optional
++
++from .reward import TaskOutcome
++=======
++"""
++SQLite-backed decision logger for bandit routing.
++Records every routing decision and its eventual outcome for analysis and replay.
++"""
++
++import csv
++import json
++import os
++import sqlite3
++import subprocess
++import threading
++from datetime import datetime, timezone
++from pathlib import Path
++from typing import Optional
++
++from .reward import TaskOutcome
++>>>>>>> REPLACE
++```
++
++backend/orchestrator/routing/decision_log.py
++```python
++<<<<<<< SEARCH
++def _capture_run_context() -> dict:
++    """Capture run context (git sha, ollama version, etc.)."""
++    ctx = {
++        "hostname": socket.gethostname(),
++        "on_charger": None,  # TODO: implement
++        "bandit_seed": None,  # TODO: read from config
++        "prompt_seed": None,  # TODO: read from config
++    }
++
++    # Try to get git sha
++    try:
++        result = subprocess.run(
++            ["git", "rev-parse", "--short", "HEAD"],
++            capture_output=True,
++            text=True,
++            check=True,
++        )
++        ctx["git_sha"] = result.stdout.strip()
++        dirty_result = subprocess.run(
++            ["git", "status", "--porcelain"],
++            capture_output=True,
++            text=True,
++            check=True,
++        )
++        ctx["git_dirty"] = 1 if dirty_result.stdout.strip() else 0
++    except (FileNotFoundError, subprocess.CalledProcessError):
++        ctx["git_sha"] = None
++        ctx["git_dirty"] = None
++
++    # Try to get ollama version
++    try:
++        import httpx
++
++        async with httpx.AsyncClient() as client:
++            resp = await client.get("http://ollama/version")
++            if resp.status_code == 200:
++                data = resp.json()
++                ctx["ollama_version"] = data.get("version")
++    except Exception:
++        ctx["ollama_version"] = None
++
++    return ctx
++=======
++def _capture_run_context() -> dict:
++    """Capture run context (git sha, ollama version, etc.)."""
++    ctx = {
++        "hostname": socket.gethostname(),
++        "on_charger": None,  # TODO: implement
++        "bandit_seed": None,  # TODO: read from config
++        "prompt_seed": None,  # TODO: read from config
++    }
++
++    # Try to get git sha
++    try:
++        result = subprocess.run(
++            ["git", "rev-parse", "--short", "HEAD"],
++            capture_output=True,
++            text=True,
++            check=True,
++        )
++        ctx["git_sha"] = result.stdout.strip()
++        dirty_result = subprocess.run(
++            ["git", "status", "--porcelain"],
++            capture_output=True,
++            text=True,
++            check=True,
++        )
++        ctx["git_dirty"] = 1 if dirty_result.stdout.strip() else 0
++    except (FileNotFoundError, subprocess.CalledProcessError):
++        ctx["git_sha"] = None
++        ctx["git_dirty"] = None
++
++    # Try to get ollama version - honor OLLAMA_BASE_URL env var
++    try:
++        import httpx
++        
++        base_url = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
++        
++        async with httpx.AsyncClient() as client:
++            resp = await client.get(f"{base_url}/api/version")
++            if resp.status_code == 200:
++                data = resp.json()
++                ctx["ollama_version"] = data.get("version")
++    except Exception:
++        ctx["ollama_version"] = None
++
++    return ctx
++>>>>>>> REPLACE
++```
++
++backend/orchestrator/routing/decision_log.py
++```python
++<<<<<<< SEARCH
++    def create_bench_run(self, **fields) -> int:
++        """Insert a bench_runs row and return its id."""
++        columns = [
++            "started_at", "mode", "git_sha", "git_dirty", "ollama_version",
++            "hostname", "on_charger", "bandit_seed", "prompt_seed",
++            "prompts_file", "agents", "repeats", "task_count_planned", "notes",
++        ]
++        col_names = []
++        values = []
++        for col in columns:
++            if col in fields:
++                col_names.append(col)
++                values.append(fields[col])
++        if "started_at" not in fields:
++            col_names.append("started_at")
++            values.append(datetime.now(timezone.utc).isoformat())
++        placeholders = ", ".join("?" * len(col_names))
++        sql = f"INSERT INTO bench_runs ({', '.join(col_names)}) VALUES ({placeholders})"
++        with self._lock:
++            cur = self._conn.execute(sql, values)
++            self._conn.commit()
++            return cur.lastrowid
++=======
++    def create_bench_run(
++        self,
++        mode: str,
++        git_sha: Optional[str] = None,
++        git_dirty: Optional[int] = None,
++        hostname: Optional[str] = None,
++        prompts_file: Optional[str] = None,
++        agents: Optional[str] = None,
++        repeats: int = 1,
++        task_count_planned: int = 0,
++        **kwargs,
++    ) -> int:
++        """Insert a bench_runs row and return its id.
++        
++        Raises ValueError on unknown field names to prevent silent typo rot.
++        """
++        # Validate known fields only - reject unknown kwargs
++        allowed_fields = {
++            "mode", "git_sha", "git_dirty", "hostname",
++            "prompts_file", "agents", "repeats", "task_count_planned"
++        }
++        unknown = set(kwargs.keys()) - allowed_fields
++        if unknown:
++            raise ValueError(f"Unknown fields: {unknown}")
++
++        # Use provided values or captured context defaults
++        git_sha = git_sha or None
++        git_dirty = git_dirty or None
++        hostname = hostname or socket.gethostname()
++
++        cursor = self._conn.cursor()
++        cursor.execute(
++            """INSERT INTO bench_runs (mode, git_sha, git_dirty, hostname, 
++              prompts_file, agents, repeats, task_count_planned)
++             VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
++            (mode, git_sha, git_dirty, hostname, prompts_file, agents, repeats, task_count_planned),
++        )
++        self._conn.commit()
++        return cursor.lastrowid
++>>>>>>> REPLACE
++```
++
++Now let me check if there's a `_compat_route` shim in the file and remove it:
++
++backend/orchestrator/routing/decision_log.py
++```python
++<<<<<<< SEARCH
++def _task_goal(task) -> str:
++    if hasattr(task, "goal"):
++        return task.goal
++    if isinstance(task, dict):
++        return task.get("goal", str(task))
++    return str(task)
++
++
++class DecisionLogger:
++=======
++def _task_goal(task) -> str:
++    if hasattr(task, "goal"):
++        return task.goal
++    if isinstance(task, dict):
++        return task.get("goal", str(task))
++    return str(task)
++
++
++class DecisionLogger:
++>>>>>>> REPLACE
++```
++
++> Tokens: 18k sent, 2.0k received.  
++> The LLM did not conform to the edit format.  
++> https://aider.chat/docs/troubleshooting/edit-errors.html  
++> # 1 SEARCH/REPLACE block failed to match!
++
++## SearchReplaceNoExactMatch: This SEARCH block failed to exactly match lines in backend/orchestrator/routing/decision_log.py
++<<<<<<< SEARCH
++def _capture_run_context() -> dict:
++    """Capture run context (git sha, ollama version, etc.)."""
++    ctx = {
++        "hostname": socket.gethostname(),
++        "on_charger": None,  # TODO: implement
++        "bandit_seed": None,  # TODO: read from config
++        "prompt_seed": None,  # TODO: read from config
++    }
++
++    # Try to get git sha
++    try:
++        result = subprocess.run(
++            ["git", "rev-parse", "--short", "HEAD"],
++            capture_output=True,
++            text=True,
++            check=True,
++        )
++        ctx["git_sha"] = result.stdout.strip()
++        dirty_result = subprocess.run(
++            ["git", "status", "--porcelain"],
++            capture_output=True,
++            text=True,
++            check=True,
++        )
++        ctx["git_dirty"] = 1 if dirty_result.stdout.strip() else 0
++    except (FileNotFoundError, subprocess.CalledProcessError):
++        ctx["git_sha"] = None
++        ctx["git_dirty"] = None
++
++    # Try to get ollama version
++    try:
++        import httpx
++
++        async with httpx.AsyncClient() as client:
++            resp = await client.get("http://ollama/version")
++            if resp.status_code == 200:
++                data = resp.json()
++                ctx["ollama_version"] = data.get("version")
++    except Exception:
++        ctx["ollama_version"] = None
++
++    return ctx
++=======
++def _capture_run_context() -> dict:
++    """Capture run context (git sha, ollama version, etc.)."""
++    ctx = {
++        "hostname": socket.gethostname(),
++        "on_charger": None,  # TODO: implement
++        "bandit_seed": None,  # TODO: read from config
++        "prompt_seed": None,  # TODO: read from config
++    }
++
++    # Try to get git sha
++    try:
++        result = subprocess.run(
++            ["git", "rev-parse", "--short", "HEAD"],
++            capture_output=True,
++            text=True,
++            check=True,
++        )
++        ctx["git_sha"] = result.stdout.strip()
++        dirty_result = subprocess.run(
++            ["git", "status", "--porcelain"],
++            capture_output=True,
++            text=True,
++            check=True,
++        )
++        ctx["git_dirty"] = 1 if dirty_result.stdout.strip() else 0
++    except (FileNotFoundError, subprocess.CalledProcessError):
++        ctx["git_sha"] = None
++        ctx["git_dirty"] = None
++
++    # Try to get ollama version - honor OLLAMA_BASE_URL env var
++    try:
++        import httpx
++        
++        base_url = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
++        
++        async with httpx.AsyncClient() as client:
++            resp = await client.get(f"{base_url}/api/version")
++            if resp.status_code == 200:
++                data = resp.json()
++                ctx["ollama_version"] = data.get("version")
++    except Exception:
++        ctx["ollama_version"] = None
++
++    return ctx
++>>>>>>> REPLACE
++
++The SEARCH section must exactly match an existing block of lines including all white space, comments, indentation, docstrings, etc
++
++# The other 3 SEARCH/REPLACE blocks were applied successfully.
++Don't re-send them.
++Just reply with fixed versions of the block above that failed to match.  
++
++I see the issue - the `_capture_run_context` function needs to be in `backend/orchestrator/cli/commands/bench.py`, but that file wasn't added to the chat. Let me check what files we have and ask for the missing one.
++
++Looking at the test file, it imports `_capture_run_context` from `backend.orchestrator.cli.commands.bench`. I need to add that file to the chat first before I can edit it.
++
++Could you please add `backend/orchestrator/cli/commands/bench.py` to the chat?
++
++> Tokens: 20k sent, 693 received.  
++> backend/orchestrator/cli/commands/bench.py  
++> Add file to the chat? (Y)es/(N)o/(D)on't ask again [Yes]: y  
++
++I need to make changes to `backend/orchestrator/cli/commands/bench.py`:
++
++1. Remove the unused `base_url` parameter from `_capture_run_context`
++2. Update Ollama probe to honor `OLLAMA_BASE_URL` env var (default localhost:11434)
++
++Here are the *SEARCH/REPLACE* blocks:
++
++backend/orchestrator/cli/commands/bench.py
++```python
++<<<<<<< SEARCH
++async def _capture_run_context(base_url: str) -> dict[str, Any]:
++    """Capture git SHA, Ollama version, hostname, and battery state."""
++    ctx: dict[str, Any] = {}
++
++    ctx["hostname"] = socket.gethostname()
++
++    # git SHA + dirty flag
++    try:
++        sha_result = subprocess.run(
++            ["git", "rev-parse", "HEAD"],
++            capture_output=True, text=True, timeout=5,
++        )
++        if sha_result.returncode == 0:
++            ctx["git_sha"] = sha_result.stdout.strip()
++            dirty_result = subprocess.run(
++                ["git", "status", "--porcelain"],
++                capture_output=True, text=True, timeout=5,
++            )
++            ctx["git_dirty"] = 1 if dirty_result.stdout.strip() else 0
++        else:
++            ctx["git_sha"] = None
++            ctx["git_dirty"] = None
++    except Exception:
++        ctx["git_sha"] = None
++        ctx["git_dirty"] = None
++
++    # Ollama version
++    try:
++        ollama_url = "http://localhost:11434/api/version"
++        async with httpx.AsyncClient(timeout=2.0) as client:
++            resp = await client.get(ollama_url)
++            if resp.status_code == 200:
++                ctx["ollama_version"] = resp.json().get("version")
++            else:
++                ctx["ollama_version"] = None
++    except Exception:
++        ctx["ollama_version"] = None
++
++    # Battery / charger state
++    if _psutil is not None:
++        try:
++            battery = _psutil.sensors_battery()
++            ctx["on_charger"] = 1 if (battery is not None and battery.power_plugged) else 0
++        except Exception:
++            ctx["on_charger"] = None
++    else:
++        ctx["on_charger"] = None
++
++    return ctx
++=======
++async def _capture_run_context() -> dict[str, Any]:
++    """Capture git SHA, Ollama version, hostname, and battery state."""
++    import os
++    
++    ctx: dict[str, Any] = {}
++
++    ctx["hostname"] = socket.gethostname()
++
++    # git SHA + dirty flag
++    try:
++        sha_result = subprocess.run(
++            ["git", "rev-parse", "HEAD"],
++            capture_output=True, text=True, timeout=5,
++        )
++        if sha_result.returncode == 0:
++            ctx["git_sha"] = sha_result.stdout.strip()
++            dirty_result = subprocess.run(
++                ["git", "status", "--porcelain"],
++                capture_output=True, text=True, timeout=5,
++            )
++            ctx["git_dirty"] = 1 if dirty_result.stdout.strip() else 0
++        else:
++            ctx["git_sha"] = None
++            ctx["git_dirty"] = None
++    except Exception:
++        ctx["git_sha"] = None
++        ctx["git_dirty"] = None
++
++    # Ollama version - honor OLLAMA_BASE_URL env var (default localhost:11434)
++    try:
++        ollama_url = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434") + "/api/version"
++        async with httpx.AsyncClient(timeout=2.0) as client:
++            resp = await client.get(ollama_url)
++            if resp.status_code == 200:
++                ctx["ollama_version"] = resp.json().get("version")
++            else:
++                ctx["ollama_version"] = None
++    except Exception:
++        ctx["ollama_version"] = None
++
++    # Battery / charger state
++    if _psutil is not None:
++        try:
++            battery = _psutil.sensors_battery()
++            ctx["on_charger"] = 1 if (battery is not None and battery.power_plugged) else 0
++        except Exception:
++            ctx["on_charger"] = None
++    else:
++        ctx["on_charger"] = None
++
++    return ctx
++>>>>>>> REPLACE
++```
++
++> Tokens: 24k sent, 1.3k received.  
++> Applied edit to backend/orchestrator/cli/commands/bench.py  
++> Added 74 lines of output to the chat.  
++> Attempt to fix test errors? (Y)es/(N)o [Yes]: y  
++> Only 3 reflections allowed, stopping.  
+diff --git a/.aider.input.history b/.aider.input.history
+index 792c366..f27ffe5 100644
+--- a/.aider.input.history
++++ b/.aider.input.history
+@@ -58,3 +58,31 @@
+ +Explain what causes this error and how to fix it: AttributeError: 'NoneType' obj
+ +
+ +Explain what causes this error and how to fix it: AttributeError: 'NoneType' object has no attribute 'split'
++
++# 2026-09-28 21:02:35.935738
+++Make the following change to this repository.
+++
+++cleanup: validate create_bench_run keys, honor OLLAMA_BASE_URL, drop stale compat shim
+++
+++Code review follow-ups on a7ee646:
+++- create_bench_run now raises ValueError on unknown field names (prevents silent typo rot)
+++- _capture_run_context no longer takes an unused base_url param; Ollama probe
+++  honors OLLAMA_BASE_URL env var (default localhost:11434)
+++- Remove _compat_route shim in test_e2e_reward_loop.py — model_warm_norm is gone
+++  from production code, so the shim was lying
+++
+++Tests covering this change already exist in: tests/orchestrator_v2/test_bench_runs.py, tests/orchestrator_v2/test_e2e_reward_loop.py. Do not modify any test files; change the source code so those tests pass without breaking anything else.
++
++# 2026-09-28 21:02:35.935782
+++Make the following change to this repository.
+++
+++cleanup: validate create_bench_run keys, honor OLLAMA_BASE_URL, drop stale compat shim
+++
+++Code review follow-ups on a7ee646:
+++- create_bench_run now raises ValueError on unknown field names (prevents silent typo rot)
+++- _capture_run_context no longer takes an unused base_url param; Ollama probe
+++  honors OLLAMA_BASE_URL env var (default localhost:11434)
+++- Remove _compat_route shim in test_e2e_reward_loop.py — model_warm_norm is gone
+++  from production code, so the shim was lying
+++
+++Tests covering this change already exist in: tests/orchestrator_v2/test_bench_runs.py, tests/orchestrator_v2/test_e2e_reward_loop.py. Do not modify any test files; change the source code so those tests pass without breaking anything else.
+diff --git a/backend/orchestrator/cli/commands/bench.py b/backend/orchestrator/cli/commands/bench.py
+index 080351f..d44cb7b 100644
+--- a/backend/orchestrator/cli/commands/bench.py
++++ b/backend/orchestrator/cli/commands/bench.py
+@@ -52,8 +52,10 @@ DEFAULT_AGENTS = [
+ ]
+ 
+ 
+-async def _capture_run_context(base_url: str) -> dict[str, Any]:
++async def _capture_run_context() -> dict[str, Any]:
+     """Capture git SHA, Ollama version, hostname, and battery state."""
++    import os
++    
+     ctx: dict[str, Any] = {}
+ 
+     ctx["hostname"] = socket.gethostname()
+@@ -78,9 +80,9 @@ async def _capture_run_context(base_url: str) -> dict[str, Any]:
+         ctx["git_sha"] = None
+         ctx["git_dirty"] = None
+ 
+-    # Ollama version
++    # Ollama version - honor OLLAMA_BASE_URL env var (default localhost:11434)
+     try:
+-        ollama_url = "http://localhost:11434/api/version"
++        ollama_url = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434") + "/api/version"
+         async with httpx.AsyncClient(timeout=2.0) as client:
+             resp = await client.get(ollama_url)
+             if resp.status_code == 200:
+diff --git a/backend/orchestrator/routing/decision_log.py b/backend/orchestrator/routing/decision_log.py
+index 253b681..2cb209e 100644
+--- a/backend/orchestrator/routing/decision_log.py
++++ b/backend/orchestrator/routing/decision_log.py
+@@ -5,7 +5,9 @@ Records every routing decision and its eventual outcome for analysis and replay.
+ 
+ import csv
+ import json
++import os
+ import sqlite3
++import subprocess
+ import threading
+ from datetime import datetime, timezone
+ from pathlib import Path
+@@ -159,28 +161,45 @@ class DecisionLogger:
+             self._conn.commit()
+             return cur.lastrowid
+ 
+-    def create_bench_run(self, **fields) -> int:
+-        """Insert a bench_runs row and return its id."""
+-        columns = [
+-            "started_at", "mode", "git_sha", "git_dirty", "ollama_version",
+-            "hostname", "on_charger", "bandit_seed", "prompt_seed",
+-            "prompts_file", "agents", "repeats", "task_count_planned", "notes",
+-        ]
+-        col_names = []
+-        values = []
+-        for col in columns:
+-            if col in fields:
+-                col_names.append(col)
+-                values.append(fields[col])
+-        if "started_at" not in fields:
+-            col_names.append("started_at")
+-            values.append(datetime.now(timezone.utc).isoformat())
+-        placeholders = ", ".join("?" * len(col_names))
+-        sql = f"INSERT INTO bench_runs ({', '.join(col_names)}) VALUES ({placeholders})"
+-        with self._lock:
+-            cur = self._conn.execute(sql, values)
+-            self._conn.commit()
+-            return cur.lastrowid
++    def create_bench_run(
++        self,
++        mode: str,
++        git_sha: Optional[str] = None,
++        git_dirty: Optional[int] = None,
++        hostname: Optional[str] = None,
++        prompts_file: Optional[str] = None,
++        agents: Optional[str] = None,
++        repeats: int = 1,
++        task_count_planned: int = 0,
++        **kwargs,
++    ) -> int:
++        """Insert a bench_runs row and return its id.
++        
++        Raises ValueError on unknown field names to prevent silent typo rot.
++        """
++        # Validate known fields only - reject unknown kwargs
++        allowed_fields = {
++            "mode", "git_sha", "git_dirty", "hostname",
++            "prompts_file", "agents", "repeats", "task_count_planned"
++        }
++        unknown = set(kwargs.keys()) - allowed_fields
++        if unknown:
++            raise ValueError(f"Unknown fields: {unknown}")
++
++        # Use provided values or captured context defaults
++        git_sha = git_sha or None
++        git_dirty = git_dirty or None
++        hostname = hostname or socket.gethostname()
++
++        cursor = self._conn.cursor()
++        cursor.execute(
++            """INSERT INTO bench_runs (mode, git_sha, git_dirty, hostname, 
++              prompts_file, agents, repeats, task_count_planned)
++             VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
++            (mode, git_sha, git_dirty, hostname, prompts_file, agents, repeats, task_count_planned),
++        )
++        self._conn.commit()
++        return cursor.lastrowid
+ 
+     def finalize_bench_run(self, run_id: int, task_count_completed: int) -> None:
+         """Set ended_at + task_count_completed on the bench_runs row."""

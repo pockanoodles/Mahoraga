@@ -38,6 +38,11 @@ from backend.orchestrator.routing.funnel_report import (
     install_hint,
     render_funnel,
 )
+from backend.orchestrator.routing.resource_report import (
+    DEFAULT_LOG as DEFAULT_RESOURCE_LOG,
+    compute_resource_report,
+    render_resource_report,
+)
 
 # The recorder ships in the repo so its log schema and this reader cannot drift.
 FUNNEL_HOOK_SCRIPT = (
@@ -450,3 +455,29 @@ def funnel(
         typer.echo(json.dumps(report.to_dict(), indent=2))
     else:
         typer.echo(render_funnel(report))
+
+
+@app.command()
+def resource(
+    since: Optional[str] = typer.Option(
+        None, "--since", help="Start date, inclusive (YYYY-MM-DD)."
+    ),
+    until: Optional[str] = typer.Option(
+        None, "--until", help="End date, inclusive (YYYY-MM-DD)."
+    ),
+    log: Path = typer.Option(DEFAULT_RESOURCE_LOG, help="Path to resource.jsonl"),
+    json_out: bool = typer.Option(
+        False, "--json", help="Emit raw JSON instead of formatted text.",
+    ),
+) -> None:
+    """Is Mahoraga straining this machine — CPU/thermal, not memory.
+
+    Log-only: nothing here feeds routing, escalation, or model-unload
+    decisions yet. Requires MAHORAGA_RESOURCE_LOG=1 to have been set when
+    `orch serve` started; otherwise the log is empty.
+    """
+    report = compute_resource_report(log, since=since, until=until)
+    if json_out:
+        typer.echo(json.dumps(report.to_dict(), indent=2))
+    else:
+        typer.echo(render_resource_report(report))

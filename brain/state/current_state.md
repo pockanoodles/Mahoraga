@@ -1,6 +1,89 @@
-# Current State — 2026-08-12
+# Current State — 2026-10-02
 
-## Read this first — 2026-08-12 (latest): the funnel has a meter, and the repro has no subscription footnote
+## Read this first — 2026-10-02 (latest): Mahoraga is a local-vs-cloud audit of your own code
+
+**Direction:** `brain/decisions/2026-10-02-local-audit-product.md`. The product
+question is *"is local coding AI worth it for my code, on my hardware, and what
+would change that?"* It has two layers: a dated public report (*"Is local
+coding AI worth it on a 16 GB Mac? — October 2026"*) and a tool that runs the
+same measurement on the reader's own repo overnight. The architecture is one
+pipeline, `TaskSource → Runner → Grader → Ledger → Verdict`.
+- **v1 (wall Oct 15):** commit source, test-graded, 2–3 outside repos,
+  verdict engine (stay / split / switch with sensitivity, API and subscription
+  pricing).
+- **v2 (→ mid-Nov):** Claude Code and Codex transcript replay, the grading
+  ladder, and an opt-in same-vendor judge that counts only if κ ≥ 0.6 against
+  hand labels.
+- **Routing:** the cascade, bandit and MCP layer become the last stage,
+  acting on the verdict. The bandit research line stays parked.
+
+**Where things actually are (verified 2026-10-02):**
+- **The three-week landing backlog is cleared (Phase 0, 10-02).** PRs #40,
+  #41, #42 and #43 are merged. #44 was retargeted to main and synced with it.
+  The agent-edit probe and agentbench are pushed as #45. #38 is closed.
+- **The 09-11 consolidated HumanEval+ run (granite 4.1 / 4.2 / ornith) was
+  never executed.** It is scheduled first in the new plan.
+- **Agent-edit results** (PR #45):
+  - qwen3.5: 5/18 blind and 5/18 with feedback on Mahoraga, 1/9 and 1/9 on
+    ops
+  - granite4.1-8b: 0/18 and 1/18; it can't produce search/replace edits
+  - all 17 opencode attempts are void (wrong cwd), fixed by sandboxing in
+    `fea67a4` and still to be rerun
+  - real qwen3.5 speed is ~14.5 tok/s idle and 10–11 while the machine is in
+    use
+- **Claude Code transcript retention** was raised to 3650 days in
+  `~/.claude/settings.json`. Before that, history was deleted on a rolling
+  30-day basis (the oldest Mahoraga transcript is from 09-10).
+
+The execution plan is local-only: `docs/plans/2026-10-local-audit.md`.
+
+## 2026-09-10: the meter read 0%, the tool was unplugged, and the thesis went longitudinal
+
+**Four weeks dormant** (last commit and last organic decision both 2026-08-12).
+`main` is now at `7583594` — **PR #39 merged after sitting green and mergeable
+for 29 days**. Suite **1719 green** (`.venv/bin/python -m pytest -m "not slow"`,
+62s).
+
+**The funnel's first reading is 0.0%** — 170 delegable actions, 0 delegated, 44
+sessions. **It is not what it looks like.** The MCP integration last worked
+2026-08-11 21:33; the hook started recording 2026-08-12 05:52. *The meter has
+never once observed a working tool.* Root cause: `~/.claude.json` registered
+`command: "python"` and no bare `python` exists on this machine. Fixed — both
+entries (`Projects/Mahoraga` and `Projects/ops` scopes) now pin
+`/Users/kaitosoeno/Projects/Mahoraga/.venv/bin/python`. **The Aug 12 → Sep 10
+delegation window is void as evidence; the clock restarts 2026-09-10.**
+
+**Two corrections to what the ledger says.** (1) **A1 semantic routing is
+already built** — `MEMORY_MODE_SEMANTIC` is the shipped default
+(`bandit_router.py:62-66`), embeddings/dual-HNSW/`orch memory` CLI/per-bucket
+bandits all landed — and already evaluated at **+0.35 reward, ~0.25σ**. It was
+named "the next lever, never started" four times; that is wrong. (2) **The
+README opens with the bandit claim `docs/RESULTS.md:113` explicitly refutes.**
+
+**Direction changed — read `brain/decisions/2026-09-10-longitudinal-thesis.md`.**
+The headline question is now *"does local-first routing still pay as the
+frontier moves?"* — re-measure August's cascade result against current local
+models and current frontier pricing, same bank, same method, and publish the
+**trend**. The bandit research line is **parked** (architecture, honestly
+labelled — not deleted). Deliverable is a break-even decision framework, not
+another benchmark. Publish the answer even if unfavourable.
+
+**Delegable work is narrower and more spread out than assumed.** `edit-in-place`
+is literally `tool == "Edit"` (80.5% of actions); candidates are 100% `Write`,
+median 86 lines. Work spans **nine repos across 44 sessions with Mahoraga at 2%
+of rows** — cross-repo is required, not optional.
+
+**Uncommitted in the tree:** the resource meter (`orch metrics resource` —
+CPU/thermal, log-only; `routing/resource_sampler.py`, `routing/resource_report.py`,
+`tests/orchestrator_v2/test_resource_report.py` + modified `metrics.py`/`app.py`).
+Feature-complete, 13 tests green, in no journal entry. Gaps: `sampler_loop`
+untested, `_thermal_level` parsing untested, `resource_report.py:108` uses a
+brittle `"￿"` sentinel.
+
+Execution plan for the next five weeks is local-only at `docs/plans/` (build
+plans are not committed — see `~/CLAUDE.md` Code Standards).
+
+## 2026-08-12: the funnel has a meter, and the repro has no subscription footnote
 
 **`orch metrics funnel` measures the denominator.** A PostToolUse hook
 (`scripts/claude_code_funnel_hook.py`) records one line per code-producing

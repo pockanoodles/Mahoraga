@@ -210,6 +210,13 @@ def test_evidence_refuses_a_missing_arm_and_mixed_tiers(tmp_path):
         from_benches([a, b], "fake:m", "feedback")
 
 
+def _plain(output: str) -> str:
+    """CLI error text without colour codes, box borders or wrapping, which
+    differ between a terminal and CI."""
+    import re
+    return re.sub(r"[\s│╭╮╰╯─]+", "", re.sub(r"\x1b\[[0-9;]*m", "", output))
+
+
 def test_cli_verdict(tmp_path, monkeypatch):
     from typer.testing import CliRunner
 
@@ -224,7 +231,7 @@ def test_cli_verdict(tmp_path, monkeypatch):
     both = CliRunner().invoke(app, ["verdict", str(tmp_path / "one"), "--arm", "fake:m",
                                     "--tasks-per-month", "200", "--api-spend", "150",
                                     "--plan", "claude-pro"])
-    assert both.exit_code != 0 and "exactly one" in both.output
+    assert both.exit_code != 0 and "exactlyone" in _plain(both.output)
     unverified = CliRunner().invoke(app, ["verdict", str(tmp_path / "one"), "--arm", "fake:m",
                                           "--tasks-per-month", "200", "--plan", "claude-max-20x"])
-    assert unverified.exit_code != 0 and "--plan-price" in unverified.output
+    assert unverified.exit_code != 0 and "--plan-price" in _plain(unverified.output)

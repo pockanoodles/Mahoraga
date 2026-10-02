@@ -35,6 +35,31 @@ pipeline, `TaskSource → Runner → Grader → Ledger → Verdict`.
   `~/.claude/settings.json`. Before that, history was deleted on a rolling
   30-day basis (the oldest Mahoraga transcript is from 09-10).
 
+**Built the same day (PR #47, merged):**
+- grading tiers (`agentbench/grade.py`)
+- per-run manifests (`agentbench/manifest.py`)
+- task-weighted Wilson intervals with a nights-to-precision planner
+  (`agentbench/stats.py`)
+- the verdict engine (`audit/verdict.py`, `orch agentbench verdict`, with dated
+  sourced prices in `audit/pricing.json`)
+- `orch agentbench doctor`
+- `MAHORAGA_AGENTS_YAML`
+- the src-layout mining fix
+
+Findings are in Eras 34–35. The first verdict is that triage time, not
+electricity, sets the API break-even: ≥ 77% resolve is needed at $0.75 a cloud
+task, against a measured 11% [2%–43%] on ops.
+
+**Outside repos are mined** under `~/.mahoraga-v2/agentbench-repos/`:
+more-itertools 28 tasks, click 26, attrs 19. That's about 100 tasks with
+Mahoraga and ops.
+
+**The report draft is PR #48** (draft). Its PENDING sections wait on runs.
+
+**Tonight's run:** `~/.mahoraga-v2/night/2026-10-02.sh`. It parks the dogfood
+daemon, runs the HumanEval+ 3-arm run on a clean env, then agentbench on
+more-itertools until 08:00, then restores the daemon.
+
 The execution plan is local-only: `docs/plans/2026-10-local-audit.md`.
 
 ## 2026-09-10: the meter read 0%, the tool was unplugged, and the thesis went longitudinal

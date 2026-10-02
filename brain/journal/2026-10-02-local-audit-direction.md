@@ -97,3 +97,32 @@ Landed the backlog:
 
 ADR: `brain/decisions/2026-10-02-local-audit-product.md`. Plan (local):
 `docs/plans/2026-10-local-audit.md`.
+
+## The build, same day
+
+Once the plan was rewritten, Kaito said to start building. These went in, in
+order, each with tests (suite 1828 green at #47):
+
+1. **Grading became a stage of its own,** with a tier on every attempt, so the
+   v2 reference grader and the judge plug in without touching the runner. The
+   report refuses to add tiers together.
+2. **Every run writes a manifest:** model digests, agent and Ollama versions,
+   harness commit, task and prompt hashes, machine and power. Without one, a
+   published rate can't be tied to the setup that produced it.
+3. **Intervals count tasks, not attempts.** This decision changed the
+   measurement plan. Repeats can't narrow a rate's interval, so the plan
+   shifted toward more repositories over more repeats.
+4. **The verdict engine,** with prices only as dated, sourced observations.
+   The pricing page didn't print Max 20x's price and chatgpt.com refused the
+   fetch, so those plans require `--plan-price` rather than a remembered number.
+5. **A screening agent mined four outside repos in parallel.** Three yielded
+   73 tasks. The fourth exposed tqdm's test naming, and two exposed a
+   src-layout bug that the gates had caught by dropping everything.
+6. **`doctor`, the `MAHORAGA_AGENTS_YAML` override** (so the night run doesn't
+   edit a tracked file), and tonight's script. The script deliberately strips
+   the daemon's cascade and escalation env, so the October run matches
+   August's method.
+
+**The finding that most changes the story:** for an API user the dominant
+cost of local is the developer's minutes on a failed attempt. That makes the
+realistic customer a team paying per token for long tasks, not a subscriber.

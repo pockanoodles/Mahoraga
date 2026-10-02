@@ -227,3 +227,53 @@ def report_cmd(
         }, indent=2))
         return
     typer.echo(render(tasks, attempts, degraded))
+
+
+@app.command("verdict")
+def verdict_cmd(
+    repos: List[Path] = typer.Argument(..., help="Benched repos to pool evidence from."),
+    arm: str = typer.Option(..., "--arm", help="The one arm to judge, <agent>:<model>."),
+    cond: str = typer.Option("feedback", "--cond", help="blind or feedback (a real queue can run tests)."),
+    tasks_per_month: int = typer.Option(..., "--tasks-per-month", help="Coding tasks you give cloud agents a month."),
+    api_spend: Optional[float] = typer.Option(None, "--api-spend", help="Monthly API spend, USD (API billing)."),
+    plan_id: Optional[str] = typer.Option(None, "--plan", help="Subscription plan id from audit/pricing.json, e.g. claude-max-5x."),
+    plan_price: Optional[float] = typer.Option(None, "--plan-price", help="Your plan's monthly price, if it isn't verified in pricing.json."),
+    usage_of_cap: float = typer.Option(1.0, "--usage-of-cap", help="Share of your plan's cap you use (1.0 = you hit it)."),
+    deferrable: float = typer.Option(0.25, "--deferrable", help="Share of tasks that could wait for an overnight queue."),
+    hourly: float = typer.Option(50.0, "--hourly", help="Value of your time, USD/h."),
+    triage: float = typer.Option(3.0, "--triage-min", help="Minutes to triage a failed local attempt."),
+    watts: float = typer.Option(40.0, "--watts", help="Machine draw while an attempt runs."),
+    kwh: float = typer.Option(0.30, "--kwh", help="Electricity price, USD/kWh."),
+    json_out: bool = typer.Option(False, "--json"),
+) -> None:
+    """Stay, split, or switch: is local worth it for your work, on this machine?"""
+    from backend.orchestrator.audit import pricing
+    from backend.orchestrator.audit.evidence import from_benches
+    from backend.orchestrator.audit.verdict import Assumptions, Billing, decide, render as render_verdict
+
+    if (api_spend is None) == (plan_id is None):
+        raise typer.BadParameter("give exactly one of --api-spend or --plan")
+    try:
+        ev = from_benches([Bench(r) for r in repos], arm, cond)
+        if plan_id:
+            p = pricing.plan(plan_id, plan_price)
+            billing = Billing.subscription(p, pricing.lower_tier(p))
+        else:
+            billing = Billing.api(api_spend)
+    except (ValueError, KeyError) as e:
+        raise typer.BadParameter(str(e))
+    a = Assumptions(tasks_per_month=tasks_per_month, deferrable_share=deferrable,
+                    triage_minutes=triage, hourly_usd=hourly, watts=watts,
+                    usd_per_kwh=kwh, usage_of_cap=usage_of_cap)
+    v = decide(ev, a, billing)
+    if json_out:
+        typer.echo(json.dumps({
+            "call": v.call, "confident": v.confident, "reason": v.reason,
+            "monthly_usd": v.monthly_usd, "sensitivity": v.sensitivity,
+            "evidence": {"label": ev.label, "rate": ev.rate.point, "lo": ev.rate.lo,
+                         "hi": ev.rate.hi, "tasks": ev.rate.tasks, "tier": ev.tier,
+                         "hardware": ev.hardware},
+            "assumptions": asdict(a),
+        }, indent=2))
+        return
+    typer.echo(render_verdict(v))

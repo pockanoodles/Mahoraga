@@ -6,6 +6,11 @@ from dataclasses import dataclass
 
 from .bank import Task
 from .runner import Attempt
+from .stats import Rate, plan, task_rate
+
+# The precision the report plans toward: ±10 points is the coarsest interval
+# that still separates "local takes a tenth of the work" from "a third".
+TARGET_HALF_WIDTH = 0.10
 
 # Ordered: the first matching label wins, most informative first.
 OUTCOMES = ("resolved", "no-edit", "wrong-file", "broke-other", "partial+broke",
@@ -44,6 +49,16 @@ class ArmSummary:
     tasks_solved_ever: int
     tasks_solved_always: int
     repeats: int
+    # Task-weighted rate and its 95% Wilson interval over tasks (stats.py).
+    # This, not resolved/n, is what the verdict reads.
+    rate: float = 0.0
+    rate_lo: float = 0.0
+    rate_hi: float = 1.0
+    tier: str = "test-verified"
+
+    @property
+    def interval(self) -> Rate:
+        return Rate(self.rate, self.rate_lo, self.rate_hi, self.tasks, self.n)
 
 
 def summarise(tasks: list[Task], attempts: list[Attempt]) -> list[ArmSummary]:
@@ -59,6 +74,10 @@ def summarise(tasks: list[Task], attempts: list[Attempt]) -> list[ArmSummary]:
         per_task: dict[str, list[bool]] = defaultdict(list)
         for a in rows:
             per_task[a.sha].append(a.resolved)
+        r = task_rate(per_task)
+        tiers = {a.tier for a in rows}
+        if len(tiers) > 1:  # grade.py: tiers are evidence of different kinds
+            raise ValueError(f"{arm}/{cond} mixes grading tiers {sorted(tiers)}")
         out.append(ArmSummary(
             arm=arm, cond=cond, n=len(rows),
             resolved=sum(a.resolved for a in rows),
@@ -71,6 +90,7 @@ def summarise(tasks: list[Task], attempts: list[Attempt]) -> list[ArmSummary]:
             tasks_solved_ever=sum(any(v) for v in per_task.values()),
             tasks_solved_always=sum(all(v) for v in per_task.values()),
             repeats=max(len(v) for v in per_task.values()),
+            rate=r.point, rate_lo=r.lo, rate_hi=r.hi, tier=tiers.pop(),
         ))
     return out
 
@@ -102,19 +122,26 @@ def render(tasks: list[Task], attempts: list[Attempt],
     note = degraded_note(degraded or [])
     if not summaries:
         return "\n".join(filter(None, ["no attempts yet — run `orch agentbench run`", note]))
-    lines = [f"{'arm':34} {'cond':9} {'resolved':>10} {'multi-file':>10} "
-             f"{'broke code':>10} {'median':>7}"]
+    lines = [f"{'arm':34} {'cond':9} {'resolved':>10} {'rate [95% CI, by task]':>23} "
+             f"{'multi-file':>10} {'broke code':>10} {'median':>7}"]
     for s in summaries:
         lines.append(
-            f"{s.arm:34} {s.cond:9} {s.resolved:>3}/{s.n:<3} ({s.resolved / s.n:3.0%}) "
+            f"{s.arm:34} {s.cond:9} {s.resolved:>4}/{s.n:<5} {s.interval.fmt():>23} "
             f"{s.multi_file_resolved:>4}/{s.multi_file_n:<5} {s.broke_other_code:>10} "
             f"{s.median_minutes:>5.1f}m")
+    lines.append(f"(grading tier: {', '.join(sorted({s.tier for s in summaries}))}; "
+                 "intervals count tasks, not attempts)")
     if any(s.repeats > 1 for s in summaries):
         lines.append("")
         lines.append("stability across repeats (tasks solved ever / every time):")
         for s in summaries:
             lines.append(f"  {s.arm} / {s.cond}: {s.tasks_solved_ever}/{s.tasks} ever, "
                          f"{s.tasks_solved_always}/{s.tasks} always, up to {s.repeats} repeats")
+    lines.append("")
+    lines.append(f"precision (toward ±{TARGET_HALF_WIDTH:.0%}):")
+    for s in summaries:
+        p = plan(s.interval, TARGET_HALF_WIDTH, s.median_minutes or 1.0, cells=1)
+        lines.append(f"  {s.arm} / {s.cond}: ±{s.interval.half_width:.0%} now. {p.fmt()}")
     lines.append("")
     lines.append("failure modes: " + "  ".join(OUTCOMES[1:]))
     for s in summaries:

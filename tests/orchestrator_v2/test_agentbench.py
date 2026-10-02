@@ -16,9 +16,11 @@ import time
 from datetime import datetime
 from pathlib import Path
 
+import httpx
 import pytest
 from typer.testing import CliRunner
 
+from backend.orchestrator.agentbench import manifest
 from backend.orchestrator.agentbench.agents import (
     AgentRun, AiderAgent, OpenCodeAgent, parse_arm, parse_opencode_events,
 )
@@ -26,7 +28,9 @@ from backend.orchestrator.agentbench.bank import Bench, SuiteConfig
 from backend.orchestrator.agentbench.mine import (
     find_candidates, is_test_module, is_test_path, mine,
 )
+from backend.orchestrator.agentbench.grade import TEST_VERIFIED, Grade
 from backend.orchestrator.agentbench.guard import Guard
+from backend.orchestrator.agentbench.stats import plan, task_rate, tasks_needed, wilson
 from backend.orchestrator.agentbench.host import Power, parse_idle, parse_power
 from backend.orchestrator.agentbench.report import outcome, render, summarise
 from backend.orchestrator.agentbench.runner import (
@@ -262,6 +266,111 @@ def test_report(mined, repo):
     assert by_arm["fake:bad"].outcomes == {"broke-other": 1}
     text = render(mined.load_tasks(), load_attempts(mined))
     assert "fake:good" in text and "feat: add mul" in text
+
+
+# ── Grading tiers, run manifests, intervals ───────────────────────────────────
+
+
+def test_attempts_record_their_tier_and_run(mined):
+    (a,) = run_matrix(mined, [FakeAgent("m", apply_gold)], ["blind"], run_id="R1")
+    assert (a.tier, a.run_id) == (TEST_VERIFIED, "R1")
+    assert load_attempts(mined)[0].run_id == "R1"
+
+
+def test_attempts_recorded_before_tiers_existed_still_load(mined):
+    run_matrix(mined, [FakeAgent("m", apply_gold)], ["blind"])
+    (p,) = mined.attempts.glob("*.json")
+    old = json.loads(p.read_text())
+    del old["tier"], old["run_id"]
+    p.write_text(json.dumps(old))
+    (a,) = load_attempts(mined)
+    assert (a.tier, a.run_id) == (TEST_VERIFIED, "")
+
+
+def test_a_custom_grader_decides_the_attempt(mined, config):
+    class Never:
+        tier = "judge-graded"
+
+        def grade(self, clone, task, config, home):
+            return Grade(tier=self.tier, resolved=False)
+
+    (task,) = [t for t in mined.load_tasks()]
+    a = run_attempt(mined, config, task, FakeAgent("m", apply_gold), "blind", grader=Never())
+    assert (a.resolved, a.tier) == (False, "judge-graded")
+
+
+def test_the_report_refuses_to_blend_tiers(mined):
+    run_matrix(mined, [FakeAgent("m", apply_gold)], ["blind"], repeats=2)
+    attempts = load_attempts(mined)
+    attempts[1].tier = "judge-graded"
+    with pytest.raises(ValueError, match="mixes grading tiers"):
+        summarise(mined.load_tasks(), attempts)
+
+
+def test_wilson_matches_known_values():
+    lo, hi = wilson(1, 9)
+    assert (round(lo, 3), round(hi, 3)) == (0.020, 0.435)
+    lo, hi = wilson(0, 18)
+    assert lo == 0 and round(hi, 3) == 0.176  # granite's 0/18 is not "0%, done"
+    assert wilson(0, 0) == (0.0, 1.0)
+
+
+def test_repeats_do_not_narrow_the_interval_tasks_do():
+    once = task_rate({f"t{i}": [i < 3] for i in range(9)})
+    thrice = task_rate({f"t{i}": [i < 3] * 3 for i in range(9)})
+    assert (once.lo, once.hi) == (thrice.lo, thrice.hi)
+    assert thrice.attempts == 27 and thrice.tasks == 9
+    more = task_rate({f"t{i}": [i % 3 == 0] for i in range(36)})
+    assert more.half_width < once.half_width
+
+
+def test_rate_is_task_weighted():
+    r = task_rate({"a": [True, True, True, True], "b": [False]})
+    assert r.point == 0.5  # not 4/5: one task solved, one not
+
+
+def test_tasks_needed_and_the_plan():
+    assert 85 <= tasks_needed(0.5, 0.10) <= 100
+    assert tasks_needed(0.1, 0.10) < tasks_needed(0.5, 0.10)
+    r = task_rate({f"t{i}": [i == 0] for i in range(9)})
+    p = plan(r, 0.10, minutes_per_attempt=10, cells=2)
+    assert p.tasks_have == 9 and p.tasks_needed > 9
+    assert p.attempts_needed == (p.tasks_needed - 9) * 2
+    assert p.nights == -(-p.attempts_needed // 48)  # 8 h / 10 min
+    assert "will not get there" in p.fmt()
+    enough = task_rate({f"t{i}": [i % 10 == 0] for i in range(200)})
+    assert plan(enough, 0.10, 10, 1).nights == 0
+
+
+def test_the_report_shows_intervals_and_precision(mined):
+    run_matrix(mined, [FakeAgent("m", apply_gold)], ["blind"])
+    text = render(mined.load_tasks(), load_attempts(mined))
+    assert "100% [" in text and "intervals count tasks" in text and "precision" in text
+
+
+def test_a_manifest_survives_a_dead_ollama_and_is_stamped_at_the_end(mined, monkeypatch):
+    def down(*a, **k):
+        raise httpx.ConnectError("refused")
+
+    monkeypatch.setattr("backend.orchestrator.agentbench.ollama.pulled_models", down)
+    agent = FakeAgent("qwen3.5:latest")
+    m = manifest.build(mined, [agent], mined.load_tasks(), run_id="R1",
+                       settings={"repeats": 1})
+    assert "refused" in m["models"]["error"]
+    assert m["arms"] == ["fake:qwen3.5:latest"]
+    assert m["tasks"]["n"] == 1 and len(m["tasks"]["prompts_sha256"]) == 64
+    assert m["agents"]["fake"].startswith("error")  # no `fake` binary
+    manifest.write(mined, m)
+    manifest.finish(mined, "R1", attempts=3, stopped="deadline")
+    (saved,) = manifest.load_all(mined)
+    assert (saved["attempts"], saved["stopped"]) == (3, "deadline") and saved["ended_at"]
+
+
+def test_the_prompt_hash_changes_when_the_prompts_do(mined):
+    tasks = mined.load_tasks()
+    a = manifest.tasks_fingerprint(mined, tasks)["prompts_sha256"]
+    tasks[0].subject += " (edited)"
+    assert manifest.tasks_fingerprint(mined, tasks)["prompts_sha256"] != a
 
 
 # ── Agents ────────────────────────────────────────────────────────────────────

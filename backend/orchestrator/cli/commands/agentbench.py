@@ -28,6 +28,7 @@ from typing import List, Optional
 
 import typer
 
+from backend.orchestrator.agentbench import manifest
 from backend.orchestrator.agentbench.agents import kill_live_agents, parse_arm
 from backend.orchestrator.agentbench.bank import DEFAULT_ROOT, Bench, SuiteConfig
 from backend.orchestrator.agentbench.guard import Guard
@@ -187,9 +188,27 @@ def run_cmd(
                    f"f2p={a.f2p_pass}/{a.f2p_total} regressions={a.regressions} "
                    f"{a.secs / 60:.1f}m")
 
-    done = run_matrix(bench, agents, conds, set(tasks) if tasks else None, timeout,
-                      repeats, guard=guard, deadline=deadline, progress=progress)
-    typer.echo(f"{len(done)} attempts run")
+    only = set(tasks) if tasks else None
+    run_id = manifest.new_run_id()
+    manifest.write(bench, manifest.build(
+        bench, agents, [t for t in bench.load_tasks() if not only or t.sha in only],
+        run_id=run_id,
+        settings={"conds": list(conds), "repeats": repeats, "timeout": timeout,
+                  "until": until, "wait_idle_min": wait_idle, "guarded": guarded,
+                  "min_speed_ratio": ratio, "forced": force},
+        speed_refs=guard.references() if guard else None,
+    ))
+    typer.echo(f"run {run_id} (manifest: {manifest.path(bench, run_id)})")
+    done: list = []
+    stopped = "interrupted"
+    try:
+        done = run_matrix(bench, agents, conds, only, timeout, repeats, guard=guard,
+                          deadline=deadline, run_id=run_id, progress=progress)
+        stopped = ("deadline" if deadline and datetime.now().timestamp() >= deadline
+                   else "completed")
+    finally:
+        manifest.finish(bench, run_id, len(done), stopped)
+    typer.echo(f"{len(done)} attempts run ({stopped})")
 
 
 @app.command("report")

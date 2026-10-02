@@ -26,7 +26,7 @@ from backend.orchestrator.agentbench.agents import (
 )
 from backend.orchestrator.agentbench.bank import Bench, SuiteConfig
 from backend.orchestrator.agentbench.mine import (
-    find_candidates, is_test_module, is_test_path, mine,
+    find_candidates, is_test_module, is_test_path, layout_pytest_args, mine,
 )
 from backend.orchestrator.agentbench.grade import TEST_VERIFIED, Grade
 from backend.orchestrator.agentbench.guard import Guard
@@ -137,6 +137,7 @@ def test_test_path_rules():
     assert is_test_path("tests/helpers.py") and not is_test_module("tests/helpers.py")
     assert is_test_module("pkg/test_x.py") and is_test_module("pkg/x_test.py")
     assert is_test_path("conftest.py") and not is_test_module("conftest.py")
+    assert is_test_module("tests/tests_tqdm.py")  # tqdm's naming
     assert not is_test_path("calc/ops.py")
 
 
@@ -266,6 +267,33 @@ def test_report(mined, repo):
     assert by_arm["fake:bad"].outcomes == {"broke-other": 1}
     text = render(mined.load_tasks(), load_attempts(mined))
     assert "fake:good" in text and "feat: add mul" in text
+
+
+def test_layout_args_detect_a_src_layout(tmp_path):
+    flat = tmp_path / "flat"
+    (flat / "pkg").mkdir(parents=True)
+    assert layout_pytest_args(flat) == []
+    (tmp_path / "srcl" / "src" / "pkg").mkdir(parents=True)
+    (tmp_path / "srcl" / "src" / "pkg" / "__init__.py").write_text("")
+    assert layout_pytest_args(tmp_path / "srcl") == ["-o", "pythonpath=src"]
+
+
+def test_cli_mines_a_src_layout_repo_against_the_clone(tmp_path, monkeypatch):
+    # Without pythonpath=src the tests can't import the clone's package at all,
+    # and every candidate is dropped at gate A, which is what click and attrs did.
+    r = tmp_path / "srcrepo"
+    r.mkdir()
+    _git(r, "init", "-q")
+    _commit(r, "init", {"src/calc/__init__.py": "", "src/calc/ops.py": OPS,
+                        "tests/test_ops.py": TESTS})
+    _commit(r, "feat: add mul", {
+        "src/calc/ops.py": OPS + "\n\ndef mul(a, b):\n    return a * b\n",
+        "tests/test_mul.py": "from calc.ops import mul\n\n\ndef test_mul():\n"
+                             "    assert mul(3, 4) == 12\n"})
+    monkeypatch.setenv("MAHORAGA_AGENTBENCH_ROOT", str(tmp_path / "state"))
+    out = CliRunner().invoke(agentbench_app, ["mine", str(r), "--python", sys.executable])
+    assert out.exit_code == 0, out.output
+    assert "src layout" in out.output and "1 tasks in the bench" in out.output
 
 
 # ── Grading tiers, run manifests, intervals ───────────────────────────────────

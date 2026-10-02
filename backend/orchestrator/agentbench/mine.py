@@ -32,7 +32,25 @@ def is_test_path(path: str) -> bool:
 
 def is_test_module(path: str) -> bool:
     name = path.rsplit("/", 1)[-1]
-    return name.endswith(".py") and (name.startswith("test_") or name.endswith("_test.py"))
+    # tests_*.py: tqdm's convention; pytest collects it only when configured to.
+    return name.endswith(".py") and (name.startswith(("test_", "tests_"))
+                                     or name.endswith("_test.py"))
+
+
+def layout_pytest_args(repo: Path) -> list[str]:
+    """Pytest args the repo's layout needs for tests to import the *task's*
+    code.
+
+    In a src layout, the package isn't at the repo root, so `python -m pytest`
+    in a task clone can't find it there. It falls through to the editable
+    install, which points at the original checkout, so every gate quietly tests
+    the wrong tree (click and attrs mined 0 of 30 that way). Putting src/ on
+    the path makes the clone's own copy win.
+    """
+    src = repo / "src"
+    if src.is_dir() and any((d / "__init__.py").exists() for d in src.iterdir() if d.is_dir()):
+        return ["-o", "pythonpath=src"]
+    return []
 
 
 @dataclass

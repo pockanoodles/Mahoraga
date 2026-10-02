@@ -32,7 +32,7 @@ from backend.orchestrator.agentbench import manifest
 from backend.orchestrator.agentbench.agents import kill_live_agents, parse_arm
 from backend.orchestrator.agentbench.bank import DEFAULT_ROOT, Bench, SuiteConfig
 from backend.orchestrator.agentbench.guard import Guard
-from backend.orchestrator.agentbench.mine import find_candidates, mine
+from backend.orchestrator.agentbench.mine import find_candidates, layout_pytest_args, mine
 from backend.orchestrator.agentbench.report import degraded_note, outcome, render, summarise
 from backend.orchestrator.agentbench.runner import (
     CONDITIONS, DEFAULT_TIMEOUT, load_attempts, load_degraded, run_matrix,
@@ -105,9 +105,13 @@ def mine_cmd(
         prior = bench.load_config()
     except FileNotFoundError:
         prior = None
+    args = (list(pytest_args) if pytest_args
+            else prior.pytest_args if prior else layout_pytest_args(bench.repo))
+    if args and not pytest_args and not prior:
+        typer.echo(f"src layout: testing the task's code with pytest {' '.join(args)}")
     config = SuiteConfig(
         python=python or (prior.python if prior else _default_python(bench.repo)),
-        pytest_args=list(pytest_args) if pytest_args else (prior.pytest_args if prior else []),
+        pytest_args=args,
     )
     shas = list(commits) if commits else [
         c.sha for c in find_candidates(bench.repo, rev, limit, max_lines)]

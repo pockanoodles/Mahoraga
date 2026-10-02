@@ -1,28 +1,41 @@
 # Mahoraga
 
-Mahoraga is a local-first LLM orchestrator that learns which agent to use for
-each task. It classifies the task, selects an agent with a contextual bandit,
-executes the work, scores the result, and uses the outcome to improve later
-routing decisions.
+Mahoraga is a local-first LLM orchestrator. It answers a task with a free local
+model, has a second free local model read that answer and judge whether it is
+wrong, and pays a frontier model only for the tasks that failed.
 
 [![CI](https://github.com/pockanoodles/Mahoraga/actions/workflows/ci.yml/badge.svg)](https://github.com/pockanoodles/Mahoraga/actions/workflows/ci.yml)
 ![Python 3.12](https://img.shields.io/badge/python-3.12-blue)
 ![License: MIT](https://img.shields.io/badge/license-MIT-green)
 ![Last commit](https://img.shields.io/github/last-commit/pockanoodles/Mahoraga)
 
-On the 164-task HumanEval+ benchmark, run live end to end, Mahoraga's
-local → judge → cloud escalation cascade reached a verified pass@1 of 0.921 at
-23.5% of an always-cloud policy's cost — $8.47 vs $35.97 per 1,000 tasks, a
-76.5% cost cut — with a free local model serving as the escalation judge.
-Check it in one second with `orch bench verify`, which recomputes every figure
-below from the per-case results committed to this repo; reproduce it on your
-own hardware with [`orch bench repro`](#reproduce-the-benchmark). Full method,
-replication, and limits: [`docs/RESULTS.md`](docs/RESULTS.md).
+## What this is, in 30 seconds
+
+Strong cloud models answer coding tasks well and charge for every call. Small
+models run free on a laptop and get more of the hard ones wrong. Choosing
+between them means either paying for every task, or accepting the worse
+answers.
+
+Mahoraga does not choose. It runs the free local model first, checks the answer
+with a free local judge, and escalates to the paid model only when the judge
+rejects. The bill then scales with how often the local model actually fails
+rather than with how many tasks there are.
+
+**Measured live, end to end, on the 164-task HumanEval+ benchmark:** the
+cascade reached a verified pass@1 of **0.921** — **94.4% of what the cloud
+model scored on its own** — at **$8.47 per 1,000 tasks instead of $35.97, a
+76.5% cost cut.** On a 16 GB laptop, with the judge running free and local.
+
+Every figure in this README is recomputed from the per-case results committed
+to this repo by `orch bench verify`, in about a second, with no models, no
+network, no API key and no GPU. Reproduce the run itself on your own hardware
+with [`orch bench repro`](#reproduce-the-benchmark). Full method, replication,
+and limits: [`docs/RESULTS.md`](docs/RESULTS.md).
 
 ![orch bench verify recomputing every published figure from committed per-case results](docs/assets/verify.gif)
 
-That runs on a fresh clone with no models, no network, no API key and no GPU —
-regenerate the recording with `vhs demo/verify.tape`.
+That runs on a fresh clone — regenerate the recording with
+`vhs demo/verify.tape`.
 
 Mahoraga currently runs two local Ollama arms:
 
@@ -38,12 +51,25 @@ configuration.
 
 ## How it works
 
-1. A keyword classifier assigns the task to a capability bucket such as
-   `code`, `debug`, `plan`, `research`, or `review`.
-2. A per-bucket discounted LinUCB policy selects from the healthy agents.
-3. The selected worker executes the task.
-4. Mahoraga computes a reward from success, quality, speed, and cost.
-5. The policy and episodic memory are updated for the next decision.
+The serving path has two tiers, and they do not carry equal weight in this
+repo. **The verification cascade is the tier that carries the numbers.** Agent
+selection is architecture — see the honest accounting below.
+
+### The cascade
+
+On code-like buckets, an answer known to be bad is not served:
+
+1. A free local arm answers the task.
+2. The **execution gate** tries to run the output. Code that does not execute
+   is rejected before it can be served or rewarded. This is a conservative
+   runnable-code check, not a proof of correctness.
+3. A **free local judge** reads the prompt and the output and returns a
+   verdict.
+4. Either rejection re-runs the task on an **escalation arm** (`claude-cli` by
+   default) and serves *that* answer instead of the known-bad one.
+
+Both triggers matter: the execution gate catches output the judge never sees,
+because a failure to run flips the task to failed before the judge is reached.
 
 ```mermaid
 flowchart LR
@@ -51,36 +77,53 @@ flowchart LR
     Classifier --> Bandit[Per-bucket dLinUCB]
     Memory[Episodic memory] --> Bandit
     Bandit --> Pool[Agent pool]
-    Pool --> Worker[Selected worker]
-    Worker --> Gate[Validation and execution gate]
+    Pool --> Worker[Selected local worker]
+    Worker --> Gate[Execution gate]
+    Gate -->|runs| Judge[Free local judge]
+    Gate -->|does not run| Escalate[Escalation arm]
+    Judge -->|accept| Served([Answer served])
+    Judge -->|reject| Escalate
+    Escalate --> Served
     Gate --> Reward[Composite reward]
+    Judge --> Reward
     Reward --> Bandit
     Reward --> Log[(Decision log)]
     Reward --> Memory
 ```
 
-The default strategy is `linucb_per_bucket`, with a nine-dimensional context
-vector and discounted updates for non-stationary agent performance. Semantic
-episodic memory uses `all-MiniLM-L6-v2` when its optional dependency is
-installed, and falls back to handcrafted context retrieval otherwise.
-
-For code-like buckets, the execution gate is enabled by default. It rejects
-outputs that do not execute before they can receive a successful reward. This
-is a conservative runnable-code check, not a proof that the answer is
-functionally correct.
-
-Also on code-like buckets, an answer known to be bad is not served. Two signals
-trigger escalation: the execution gate failing to run the output at all, and a
-free local judge reading the output and rejecting it. Either one re-runs the
-task on an escalation arm (`claude-cli` by default) and serves that answer
-instead — the benchmark cascade, on the live path.
-
-The escalation arm sits outside the bandit's action space, so the policy can
-never route to it on its own; only a rejection reaches it. The bandit still
+Two invariants, both test-pinned. The escalation arm sits **outside** the
+bandit's action space, so the policy can never route to it on its own — only a
+rejection reaches it. And escalation never re-attributes: the bandit still
 observes the local arm's own output, and escalation spend is recorded against
-the escalation arm rather than the local one, so a second tier never launders a
+the escalation arm rather than the local one, so a second tier cannot launder a
 failure into a reward. Configure with `MAHORAGA_CASCADE=off`,
 `MAHORAGA_ESCALATE_TO`, and `MAHORAGA_ESCALATE_MAX_PER_DAY` (default 25).
+
+### Agent selection, and what it does not claim
+
+Which local arm answers first is chosen online:
+
+1. A keyword classifier assigns the task to a capability bucket such as
+   `code`, `debug`, `plan`, `research`, or `review`.
+2. A per-bucket discounted LinUCB policy (`linucb_per_bucket`) selects from the
+   healthy agents, using a nine-dimensional context vector and discounted
+   updates for non-stationary agent performance.
+3. Mahoraga computes a reward from success, quality, speed, and cost, and
+   updates the policy and episodic memory for the next decision. Semantic
+   episodic memory uses `all-MiniLM-L6-v2` when its optional dependency is
+   installed, and falls back to handcrafted context retrieval otherwise.
+
+**This repo does not claim the bandit improves routing.** In head-to-head
+evaluation it never beat round-robin between the two local arms — the arms are
+not separable *as arms* on these banks, and the reward was independently
+verified not to be the cause. It is architecture here, not a result, and
+[`docs/RESULTS.md`](docs/RESULTS.md) says so in the same words.
+
+It is kept for two reasons. The measurement it produces is itself a finding
+(the per-prompt oracle beats the best single arm by 11.6 points, which is what a
+*semantic* router would have to capture), and the reward path, decision log and
+per-task cost accounting it requires are what make the cascade measurable at
+all.
 
 The reading judge adds a few seconds per task. The generated-test check
 (`MAHORAGA_REWARD_JUDGE=code`) raises fail-recall from 0.688 to 0.784 but costs
@@ -407,6 +450,16 @@ branches, validated in CI, and merged through pull requests.
 
 ## Limitations
 
+- **The contextual bandit is not shown to improve routing.** Across three
+  evaluations it never beat round-robin between the two local arms. The
+  learning machinery is real and running; the claim that it routes better is
+  not supported, and nothing in this repo depends on it. The cascade carries
+  every published number.
+- **Every headline figure is a 16 GB result**, which bounds who it generalises
+  to. The local arms and the judge are all models that fit in 16 GB of unified
+  memory alongside the OS — a machine with more memory would be running
+  different, better models on both tiers, and the cost-quality tradeoff would
+  move.
 - The committed roster expects local Ollama models and is tuned for a single
   16 GB development machine.
 - State is global to one local user; there is no multi-tenant isolation.
@@ -435,7 +488,9 @@ The LLM tooling ecosystem has three established layers, each solving a different
 
 **Orchestration frameworks** (CrewAI, LangGraph, Microsoft Agent Framework) coordinate multi-agent workflows — they define what agents *do*, not which agent to dispatch for a given task.
 
-The gap: no existing system learns *online* which heterogeneous agent to route to, across a pool that spans local models at zero marginal cost alongside cloud APIs.
+The gap Mahoraga was built to probe: no existing system learns *online* which heterogeneous agent to route to, across a pool that spans local models at zero marginal cost alongside cloud APIs.
+
+**What came back is worth stating plainly.** Online *selection between arms* did not pay — the two local arms are not separable as arms on these banks, and the per-prompt oracle's 11.6-point margin over the best single arm says the remaining signal is per-prompt, not per-arm. What did pay was the tier below selection: **verify the free answer, and buy the expensive one only when verification fails.** The interesting question turned out to be not *which model* but *whether this one's answer is good enough* — and answering that locally, for free, is where the cost cut comes from.
 
 Mahoraga extends the trained-router category in three ways: online feedback rather than offline training, N heterogeneous agents (CLI tools, local models, cloud APIs) rather than two model endpoints, and local inference as the default cost tier rather than cloud escalation. The bandit accumulates experience from every routing decision and gets incrementally better — no retraining step, no deployment cycle.
 

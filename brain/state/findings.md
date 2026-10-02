@@ -1352,3 +1352,96 @@ vendor-reported figures, and this is the first of its recommendations to be
 tested locally. One for one, the local test contradicted the desk research's
 implied readiness. Weight the rest of that map accordingly — particularly
 ornith's claimed 70.6, which is now the only untested high-stakes item on it.
+
+## Era 34 — local agents on real repos: about one edit in four, and the interface decides the ranking (2026-09-28 → 09-30)
+
+Full record: `brain/journal/2026-09-29-agent-edit-probe.md`, PR #45. The
+question came from the funnel. 1,299 of 1,613 logged actions were excluded as
+`edit-in-place`, so the binding constraint looked like arm *context*, not arm
+*selection*. Aider drives a local model against real commits: the source change
+is reverted, the tests are kept, and resolution requires every fail-to-pass
+test to pass and no pass-to-pass test to regress.
+
+| Arm (Mahoraga, 18 tasks) | Resolved | Broke other code | Median |
+| --- | --- | --- | --- |
+| aider:qwen3.5, blind | 5/18 | 7 | 8.4 min |
+| aider:qwen3.5, feedback | 5/18 | 5 | 13.1 min |
+| aider:granite4.1-8b, blind | 0/18 | 1 | 12.9 min |
+| aider:granite4.1-8b, feedback | 1/18 | 0 | 11.8 min |
+
+On ops (9 tasks, run via `orch agentbench`): qwen3.5 resolved **1/9 blind and
+1/9 with feedback, with 0 regressions**. 9 of the 18 attempts hit the 20-minute
+timeout.
+
+**What holds:**
+1. **About one real edit in four lands** on Mahoraga, including two three-file
+   changes. That's not the default path, but it isn't zero.
+2. **The test gate caught every failure**, so a test-gated queue can't ship a
+   bad local edit.
+3. **Over-reach into neighbouring code is the commonest failure.** The
+   full-suite pass-to-pass check is the half of "resolved" that matters.
+4. **Arm rankings don't carry over from one interface to another.** granite was
+   the best prompt-routing arm and is the worst editing arm. In 27 of its 36
+   attempts it wrote search blocks for code that isn't in the file (qwen: 4/36).
+5. **Single attempts are noisy.** qwen gave pass/pass/no-edit/wrong-fix on
+   identical inputs, which is why `--repeats` exists.
+6. **Attempts take 8–13 minutes,** which rules out interactive use. The viable
+   shape is an async queue.
+
+**Two measurement corrections from the same window:**
+- **"~30 tok/s" was never true.** qwen3.5 runs at ~14.5 tok/s idle and 10–11
+  while the machine is in use. The speed gate now only takes reference readings
+  after 5+ idle minutes.
+- **All 17 opencode attempts are void.** opencode inherited `$PWD`, ran in the
+  Mahoraga worktree, and one attempt touched the real `~/Projects/ops`. Every
+  agent now runs under `sandbox-exec`: writes only to its checkout, its home and
+  temp; network only to localhost. The voided attempts are kept under
+  `attempts-invalid-2026-09-30-opencode-wrong-cwd/`, not deleted.
+
+## Era 35 — the first verdict: failed attempts cost your time, and only more tasks narrow the interval (2026-10-02)
+
+Direction: `brain/decisions/2026-10-02-local-audit-product.md`. PR #47 adds
+task-level intervals, run manifests, grading tiers, and
+`orch agentbench verdict`.
+
+**1. The interval counts tasks, not attempts.** Repeats of one task are not
+independent evidence, so rates are task-weighted with Wilson intervals over
+tasks. ops reads **11% [2%–43%]**. At that rate ±10% needs ~40 tasks, and no
+number of repeats over 9 tasks reaches it. That one fact reshapes the
+measurement plan: breadth (more repos) beats depth (more repeats).
+
+**2. Triage time, not electricity, sets the bar.** For an API user at $0.75 a
+cloud task (200 tasks, $150/mo), local pays only once it resolves **≥ 77%** of
+queued tasks. A failed local attempt costs ~3 minutes of a $50/h developer
+(~$2.50). Electricity is ~$0.003 an attempt. The break-even is
+(local + triage) / (cloud + triage), so local pays at realistic resolve rates
+only when cloud tasks are expensive. At the measured 11%, the cloud price
+where it would pay is **≥ $20.04 a task**. The verdict on ops: **STAY**, with
+confidence (even the optimistic end saves under the materiality bar).
+
+**3. On a flat subscription, local can't save money per task.** It can only
+buy a lower tier, which on Max 5x at 60% cap use would need local to take more
+than the whole queueable share, or headroom under a cap the user hits. The
+engine says "you're not wasting money", which is the honest answer for most
+subscribers.
+
+**4. Three outside repos are ready.** Screened 2026-10-02:
+- **more-itertools:** 28 tasks, 9 s suite
+- **click:** 26 tasks, 3 s suite
+- **attrs:** 19 tasks, 4 s suite
+- **tqdm:** 0 tasks (its `tests_*.py` naming wasn't recognised; now fixed)
+
+None needs the network. Along with Mahoraga (18) and ops (9) that's ~100
+tasks, which is the ~90–100 that ±10% needs at a rate near 50%.
+
+**5. A silent mining bug, caught by its own gates.** In src-layout repos
+(click, attrs), pytest in a task clone imported the *original* checkout
+through the editable install, so every gate tested the wrong tree. Gates A and
+B dropped all 30 candidates rather than admitting false tasks. That's the
+gates working, though only by accident of their design. `mine` now detects a
+src/ package and passes `-o pythonpath=src`.
+
+**Prices:** Pro $20 and Max 5x $100 were read from claude.com/pricing on
+2026-10-02. Max 20x's price isn't printed on that page, and chatgpt.com
+returned 403, so those plans are refused without `--plan-price`. No price in
+the verdict was taken from memory.

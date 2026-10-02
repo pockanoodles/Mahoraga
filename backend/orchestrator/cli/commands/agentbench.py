@@ -143,6 +143,31 @@ def preflight_cmd(
     raise typer.Exit(0 if ok and n else 1)
 
 
+@app.command("doctor")
+def doctor_cmd(
+    repo: Path = _REPO,
+    arms: List[str] = _ARMS,
+    cond: str = typer.Option("feedback", "--cond", help="blind, feedback, or both."),
+    repeats: int = typer.Option(1, "--repeats", min=1),
+    ratio: float = _RATIO,
+) -> None:
+    """Machine + bench checks, and how many nights an answer will take."""
+    from backend.orchestrator.agentbench.doctor import bench_checks, estimate
+
+    conds = list(CONDITIONS) if cond == "both" else [cond]
+    agents = _agents(arms)
+    bench = Bench(repo)
+    typer.echo("machine")
+    machine_ok = _print_checks(Guard(_root(), ratio=ratio).preflight(agents))
+    typer.echo("bench")
+    bench_ok = _print_checks(bench_checks(bench))
+    if bench.load_tasks():
+        typer.echo("")
+        typer.echo(estimate(bench, agents, conds, repeats).fmt())
+    if not (machine_ok and bench_ok):
+        raise typer.Exit(1)
+
+
 @app.command("run")
 def run_cmd(
     repo: Path = _REPO,

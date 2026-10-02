@@ -401,6 +401,38 @@ def test_the_prompt_hash_changes_when_the_prompts_do(mined):
     assert manifest.tasks_fingerprint(mined, tasks)["prompts_sha256"] != a
 
 
+def test_doctor_checks_the_bench(mined, config):
+    from backend.orchestrator.agentbench.doctor import bench_checks
+
+    checks = {c.name: c for c in bench_checks(mined)}
+    assert checks["tasks"].ok and checks["test interpreter"].ok and checks["task clones"].ok
+    (task,) = mined.load_tasks()
+    import shutil as _sh
+    _sh.rmtree(mined.clone(task.sha))
+    assert not {c.name: c for c in bench_checks(mined)}["task clones"].ok
+
+
+def test_doctor_flags_a_missing_test_interpreter(mined, config):
+    from backend.orchestrator.agentbench.doctor import bench_checks
+
+    mined.save_config(SuiteConfig(python="/nonexistent/python"))
+    assert not {c.name: c for c in bench_checks(mined)}["test interpreter"].ok
+
+
+def test_doctor_estimate_uses_measured_minutes_once_there_are_attempts(mined):
+    from backend.orchestrator.agentbench.doctor import DEFAULT_MINUTES, estimate
+
+    agent = FakeAgent("m", apply_gold)
+    before = estimate(mined, [agent], ["blind", "feedback"], repeats=2)
+    assert before.pending == 4 and not before.measured_minutes
+    assert before.minutes_per_attempt == DEFAULT_MINUTES
+    run_matrix(mined, [agent], ["blind"])
+    after = estimate(mined, [agent], ["blind", "feedback"], repeats=2)
+    assert after.pending == 3 and after.measured_minutes
+    assert after.minutes_per_attempt == pytest.approx(1 / 60)  # FakeAgent: 1 s
+    assert "3 attempts left" in after.fmt()
+
+
 # ── Agents ────────────────────────────────────────────────────────────────────
 
 

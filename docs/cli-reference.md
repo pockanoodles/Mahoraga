@@ -56,7 +56,7 @@ orch
 │   ├── drift-history
 │   ├── override-roi
 │   └── weekly
-├── agentbench {mine, preflight, run, report, verdict}
+├── agentbench {mine, preflight, doctor, run, report, verdict}
 └── service {install, uninstall, start, stop, status}
 ```
 
@@ -268,6 +268,7 @@ orch agentbench mine [REPO]                 # commits -> gated tasks
     [--limit 25] [--max-lines 250] [--rev HEAD] [--commit SHA ...]
     [--python PATH] [--pytest-arg ARG ...]
 orch agentbench preflight [REPO] --arm aider:qwen3.5:latest [--arm ...]
+orch agentbench doctor [REPO] --arm aider:qwen3.5:latest [--cond feedback|blind|both] [--repeats K]
 orch agentbench run [REPO] --arm aider:qwen3.5:latest [--arm ...]
     [--cond blind|feedback|both] [--repeats K] [--task SHA ...] [--timeout SECS]
     [--until HH:MM] [--wait-idle MIN] [--min-speed 0.5] [--no-guard] [--force]
@@ -287,6 +288,10 @@ orch agentbench verdict REPO [REPO ...] --arm aider:qwen3.5:latest --tasks-per-m
   pass-to-pass test regressed. `feedback` also passes the task's test command
   to the agent. Resumable; `--repeats` above 1 records separate attempts per
   cell.
+- **doctor** runs preflight's machine checks, then checks the bench (tasks
+  mined, test interpreter present, task clones in place, disk space), then
+  estimates the attempts left, the nights they'll take, and the interval
+  they'll buy. It uses this bench's own median attempt time once there is one.
 - **run** also writes a manifest per run (`runs/<run_id>.json`) recording
   model digests, Ollama and agent versions, the harness commit, hashes of the
   tasks and prompts, the machine and its power state. Every attempt records

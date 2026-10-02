@@ -42,12 +42,15 @@ def load_agent_pool(
     """Parse agents.yaml and return (workers, adapters) ready to register.
 
     Args:
-        config_path: Path to agents.yaml. Defaults to project root.
+        config_path: Path to agents.yaml. Defaults to $MAHORAGA_AGENTS_YAML,
+            then the project root. The env var lets a bench run serve its own
+            roster (e.g. bench-only arms enabled) without editing the tracked
+            file.
         workdir: CWD passed to file-writing CLI workers (codex, aider).
         ollama_url_override: Overrides the base_url in the yaml (e.g. from
             MahoragaConfig or OLLAMA_BASE_URL env var).
     """
-    path = Path(config_path) if config_path else _DEFAULT_CONFIG
+    path = Path(config_path or os.environ.get("MAHORAGA_AGENTS_YAML") or _DEFAULT_CONFIG)
     if not path.exists():
         logger.warning("agents.yaml not found at %s — no agents loaded from config", path)
         return [], []

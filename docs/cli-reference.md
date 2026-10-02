@@ -56,7 +56,7 @@ orch
 │   ├── drift-history
 │   ├── override-roi
 │   └── weekly
-├── agentbench {mine, run, report}
+├── agentbench {mine, preflight, doctor, run, report, verdict}
 └── service {install, uninstall, start, stop, status}
 ```
 
@@ -268,10 +268,15 @@ orch agentbench mine [REPO]                 # commits -> gated tasks
     [--limit 25] [--max-lines 250] [--rev HEAD] [--commit SHA ...]
     [--python PATH] [--pytest-arg ARG ...]
 orch agentbench preflight [REPO] --arm aider:qwen3.5:latest [--arm ...]
+orch agentbench doctor [REPO] --arm aider:qwen3.5:latest [--cond feedback|blind|both] [--repeats K]
 orch agentbench run [REPO] --arm aider:qwen3.5:latest [--arm ...]
     [--cond blind|feedback|both] [--repeats K] [--task SHA ...] [--timeout SECS]
     [--until HH:MM] [--wait-idle MIN] [--min-speed 0.5] [--no-guard] [--force]
 orch agentbench report [REPO] [--json]
+orch agentbench verdict REPO [REPO ...] --arm aider:qwen3.5:latest --tasks-per-month N
+    (--api-spend USD | --plan claude-pro|claude-max-5x|... [--plan-price USD] [--usage-of-cap 1.0])
+    [--cond feedback] [--deferrable 0.25] [--hourly 50] [--triage-min 3]
+    [--watts 40] [--kwh 0.30] [--json]
 ```
 
 - **mine** takes commits that changed both source and a test module. The task
@@ -283,9 +288,29 @@ orch agentbench report [REPO] [--json]
   pass-to-pass test regressed. `feedback` also passes the task's test command
   to the agent. Resumable; `--repeats` above 1 records separate attempts per
   cell.
+- **doctor** runs preflight's machine checks, then checks the bench (tasks
+  mined, test interpreter present, task clones in place, disk space), then
+  estimates the attempts left, the nights they'll take, and the interval
+  they'll buy. It uses this bench's own median attempt time once there is one.
+- **run** also writes a manifest per run (`runs/<run_id>.json`) recording
+  model digests, Ollama and agent versions, the harness commit, hashes of the
+  tasks and prompts, the machine and its power state. Every attempt records
+  the `run_id` it came from and the grading tier that decided it.
 - **report** prints resolve rates, multi-file resolve rates, regressions,
   failure modes (`no-edit`, `wrong-file`, `broke-other`, `partial+broke`,
   `partial`, `wrong-fix`), stability across repeats, and a per-task matrix.
+  Rates are weighted by task, with 95% Wilson intervals over *tasks*:
+  repeats of one task aren't independent, so only more tasks narrow an
+  interval. A precision line says how many tasks and nights ±10% would take.
+- **verdict** pools one arm's evidence across repos and answers *stay*,
+  *split* or *switch* for your billing. On API billing it weighs cloud cost
+  per task against electricity and your time to triage a failed local
+  attempt. On a subscription the only gains are a lower tier or headroom
+  under a cap you hit. The call is made at both ends of the interval, so it
+  is marked not yet decided when the interval spans the threshold. Every
+  unmeasured input is printed with it. Prices come from the dated,
+  sourced `backend/orchestrator/audit/pricing.json`. A plan whose price
+  wasn't read from the vendor's page is refused unless you pass `--plan-price`.
 
 **The guard** (on by default for `run`) keeps results from measuring the
 machine instead of the agent. A throttled local model is slow enough to time

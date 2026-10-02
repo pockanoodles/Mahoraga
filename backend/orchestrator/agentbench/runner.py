@@ -1,14 +1,14 @@
 """Run and grade attempts.
 
 One attempt = reset the task's clone to its base, let the agent edit, restore
-the test files, then grade:
-
-  resolved     every F2P test passes AND no P2P test regressed
-  regressions  P2P tests that no longer pass — the "did it break other code"
-               check, run against the full suite, not just the targets
+the test files, then hand the tree to a grader (grade.py). A commit-mined
+task is graded by its tests, and the attempt records which tier graded it.
 
 Tests are restored before grading so an agent can't pass by editing them;
 an attempt that touched them is flagged either way.
+
+Every attempt carries the id of the run that made it; the run's manifest
+(manifest.py) says what machine, models and harness that was.
 
 Attempts are written one file per (arm, condition, task), so a run killed
 mid-way resumes where it stopped. With a guard, an attempt made on an
@@ -27,8 +27,9 @@ from typing import TYPE_CHECKING, Callable, Iterable
 
 from .agents import Agent
 from .bank import Bench, Task, SuiteConfig
+from .grade import TEST_VERIFIED, Grader, TestGrader
 from .mine import is_test_path
-from .proc import CRASH, git, run_pytest
+from .proc import git
 
 if TYPE_CHECKING:
     from .guard import Guard
@@ -64,6 +65,9 @@ class Attempt:
     # Why the machine invalidated this attempt; empty = it counts.
     degraded: list[str] = field(default_factory=list)
     conditions: dict = field(default_factory=dict)
+    # Defaults keep attempts recorded before these fields existed loadable.
+    tier: str = TEST_VERIFIED
+    run_id: str = ""
 
     @property
     def no_edit(self) -> bool:
@@ -109,7 +113,8 @@ def _reset(clone: Path, base: str) -> None:
 
 def run_attempt(bench: Bench, config: SuiteConfig, task: Task, agent: Agent,
                 cond: str, timeout: float = DEFAULT_TIMEOUT, rep: int = 0,
-                guard: Guard | None = None) -> Attempt:
+                guard: Guard | None = None, grader: Grader | None = None,
+                run_id: str = "") -> Attempt:
     if cond not in CONDITIONS:
         raise ValueError(f"condition must be one of {CONDITIONS}")
     clone = bench.clone(task.sha)
@@ -132,28 +137,21 @@ def run_attempt(bench: Bench, config: SuiteConfig, task: Task, agent: Agent,
         else:
             (clone / f).unlink(missing_ok=True)
 
-    def pytest(targets=None):
-        return run_pytest(clone, config.python, bench.home, targets, config.pytest_args)
-
-    targets = pytest(task.test_files)
-    f2p_pass = sum(targets.get(t) == "pass" for t in task.f2p)
-    suite = pytest()
-    crashed = CRASH in suite
-    regressions = sorted(t for t in task.p2p if suite.get(t) != "pass")
+    g = (grader or TestGrader()).grade(clone, task, config, bench.home)
 
     arm = arm_name(agent)
     attempt = Attempt(
         sha=task.sha, arm=arm, cond=cond,
-        resolved=f2p_pass == len(task.f2p) and not regressions and not crashed,
-        f2p_pass=f2p_pass, f2p_total=len(task.f2p),
-        regressions=len(regressions), regression_ids=regressions[:20],
-        suite_crashed=crashed, edited_files=edited, touched_tests=touched_tests,
+        resolved=g.resolved, f2p_pass=g.f2p_pass, f2p_total=g.f2p_total,
+        regressions=g.regressions, regression_ids=g.regression_ids,
+        suite_crashed=g.suite_crashed, edited_files=edited, touched_tests=touched_tests,
         hit_gold_file=bool(set(edited) & set(task.gold_src)),
         secs=run.secs, timed_out=run.timed_out, llm_calls=run.llm_calls,
         tokens_sent=run.tokens_sent, tokens_recv=run.tokens_recv, extra=run.extra,
         rep=rep,
         degraded=watch.degraded if watch else [],
         conditions=watch.conditions if watch else {},
+        tier=g.tier, run_id=run_id,
     )
     if attempt.degraded:
         attempt.conditions["at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
@@ -186,6 +184,7 @@ def run_matrix(bench: Bench, agents: Iterable[Agent], conds: Iterable[str],
                only: set[str] | None = None, timeout: float = DEFAULT_TIMEOUT,
                repeats: int = 1, guard: Guard | None = None,
                deadline: float | None = None, max_degraded: int = 2,
+               run_id: str = "",
                progress: Callable[[Attempt], None] = lambda a: None) -> list[Attempt]:
     """Every (repeat, agent, condition, task) without a recorded attempt.
 
@@ -215,7 +214,7 @@ def run_matrix(bench: Bench, agents: Iterable[Agent], conds: Iterable[str],
                         if deadline is not None and time.time() >= deadline:
                             return done
                         attempt = run_attempt(bench, config, task, agent, cond, timeout,
-                                              rep, guard)
+                                              rep, guard, run_id=run_id)
                         progress(attempt)
                         if not attempt.degraded:
                             done.append(attempt)

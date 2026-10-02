@@ -13,3 +13,6 @@ orch = "backend.orchestrator.cli.main:main"
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["backend*", "benchmark*"]
+
+[tool.setuptools.package-data]
+"backend.orchestrator.audit" = ["*.json"]

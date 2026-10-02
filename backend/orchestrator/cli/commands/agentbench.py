@@ -28,10 +28,11 @@ from typing import List, Optional
 
 import typer
 
+from backend.orchestrator.agentbench import manifest
 from backend.orchestrator.agentbench.agents import kill_live_agents, parse_arm
 from backend.orchestrator.agentbench.bank import DEFAULT_ROOT, Bench, SuiteConfig
 from backend.orchestrator.agentbench.guard import Guard
-from backend.orchestrator.agentbench.mine import find_candidates, mine
+from backend.orchestrator.agentbench.mine import find_candidates, layout_pytest_args, mine
 from backend.orchestrator.agentbench.report import degraded_note, outcome, render, summarise
 from backend.orchestrator.agentbench.runner import (
     CONDITIONS, DEFAULT_TIMEOUT, load_attempts, load_degraded, run_matrix,
@@ -104,9 +105,13 @@ def mine_cmd(
         prior = bench.load_config()
     except FileNotFoundError:
         prior = None
+    args = (list(pytest_args) if pytest_args
+            else prior.pytest_args if prior else layout_pytest_args(bench.repo))
+    if args and not pytest_args and not prior:
+        typer.echo(f"src layout: testing the task's code with pytest {' '.join(args)}")
     config = SuiteConfig(
         python=python or (prior.python if prior else _default_python(bench.repo)),
-        pytest_args=list(pytest_args) if pytest_args else (prior.pytest_args if prior else []),
+        pytest_args=args,
     )
     shas = list(commits) if commits else [
         c.sha for c in find_candidates(bench.repo, rev, limit, max_lines)]
@@ -136,6 +141,31 @@ def preflight_cmd(
     n = len(Bench(repo).load_tasks())
     typer.echo(f"  {'ok  ' if n else 'FAIL'}  {'tasks':24} {n or 'none — run `orch agentbench mine`'}")
     raise typer.Exit(0 if ok and n else 1)
+
+
+@app.command("doctor")
+def doctor_cmd(
+    repo: Path = _REPO,
+    arms: List[str] = _ARMS,
+    cond: str = typer.Option("feedback", "--cond", help="blind, feedback, or both."),
+    repeats: int = typer.Option(1, "--repeats", min=1),
+    ratio: float = _RATIO,
+) -> None:
+    """Machine + bench checks, and how many nights an answer will take."""
+    from backend.orchestrator.agentbench.doctor import bench_checks, estimate
+
+    conds = list(CONDITIONS) if cond == "both" else [cond]
+    agents = _agents(arms)
+    bench = Bench(repo)
+    typer.echo("machine")
+    machine_ok = _print_checks(Guard(_root(), ratio=ratio).preflight(agents))
+    typer.echo("bench")
+    bench_ok = _print_checks(bench_checks(bench))
+    if bench.load_tasks():
+        typer.echo("")
+        typer.echo(estimate(bench, agents, conds, repeats).fmt())
+    if not (machine_ok and bench_ok):
+        raise typer.Exit(1)
 
 
 @app.command("run")
@@ -187,9 +217,27 @@ def run_cmd(
                    f"f2p={a.f2p_pass}/{a.f2p_total} regressions={a.regressions} "
                    f"{a.secs / 60:.1f}m")
 
-    done = run_matrix(bench, agents, conds, set(tasks) if tasks else None, timeout,
-                      repeats, guard=guard, deadline=deadline, progress=progress)
-    typer.echo(f"{len(done)} attempts run")
+    only = set(tasks) if tasks else None
+    run_id = manifest.new_run_id()
+    manifest.write(bench, manifest.build(
+        bench, agents, [t for t in bench.load_tasks() if not only or t.sha in only],
+        run_id=run_id,
+        settings={"conds": list(conds), "repeats": repeats, "timeout": timeout,
+                  "until": until, "wait_idle_min": wait_idle, "guarded": guarded,
+                  "min_speed_ratio": ratio, "forced": force},
+        speed_refs=guard.references() if guard else None,
+    ))
+    typer.echo(f"run {run_id} (manifest: {manifest.path(bench, run_id)})")
+    done: list = []
+    stopped = "interrupted"
+    try:
+        done = run_matrix(bench, agents, conds, only, timeout, repeats, guard=guard,
+                          deadline=deadline, run_id=run_id, progress=progress)
+        stopped = ("deadline" if deadline and datetime.now().timestamp() >= deadline
+                   else "completed")
+    finally:
+        manifest.finish(bench, run_id, len(done), stopped)
+    typer.echo(f"{len(done)} attempts run ({stopped})")
 
 
 @app.command("report")
@@ -208,3 +256,53 @@ def report_cmd(
         }, indent=2))
         return
     typer.echo(render(tasks, attempts, degraded))
+
+
+@app.command("verdict")
+def verdict_cmd(
+    repos: List[Path] = typer.Argument(..., help="Benched repos to pool evidence from."),
+    arm: str = typer.Option(..., "--arm", help="The one arm to judge, <agent>:<model>."),
+    cond: str = typer.Option("feedback", "--cond", help="blind or feedback (a real queue can run tests)."),
+    tasks_per_month: int = typer.Option(..., "--tasks-per-month", help="Coding tasks you give cloud agents a month."),
+    api_spend: Optional[float] = typer.Option(None, "--api-spend", help="Monthly API spend, USD (API billing)."),
+    plan_id: Optional[str] = typer.Option(None, "--plan", help="Subscription plan id from audit/pricing.json, e.g. claude-max-5x."),
+    plan_price: Optional[float] = typer.Option(None, "--plan-price", help="Your plan's monthly price, if it isn't verified in pricing.json."),
+    usage_of_cap: float = typer.Option(1.0, "--usage-of-cap", help="Share of your plan's cap you use (1.0 = you hit it)."),
+    deferrable: float = typer.Option(0.25, "--deferrable", help="Share of tasks that could wait for an overnight queue."),
+    hourly: float = typer.Option(50.0, "--hourly", help="Value of your time, USD/h."),
+    triage: float = typer.Option(3.0, "--triage-min", help="Minutes to triage a failed local attempt."),
+    watts: float = typer.Option(40.0, "--watts", help="Machine draw while an attempt runs."),
+    kwh: float = typer.Option(0.30, "--kwh", help="Electricity price, USD/kWh."),
+    json_out: bool = typer.Option(False, "--json"),
+) -> None:
+    """Stay, split, or switch: is local worth it for your work, on this machine?"""
+    from backend.orchestrator.audit import pricing
+    from backend.orchestrator.audit.evidence import from_benches
+    from backend.orchestrator.audit.verdict import Assumptions, Billing, decide, render as render_verdict
+
+    if (api_spend is None) == (plan_id is None):
+        raise typer.BadParameter("give exactly one of --api-spend or --plan")
+    try:
+        ev = from_benches([Bench(r) for r in repos], arm, cond)
+        if plan_id:
+            p = pricing.plan(plan_id, plan_price)
+            billing = Billing.subscription(p, pricing.lower_tier(p))
+        else:
+            billing = Billing.api(api_spend)
+    except (ValueError, KeyError) as e:
+        raise typer.BadParameter(str(e))
+    a = Assumptions(tasks_per_month=tasks_per_month, deferrable_share=deferrable,
+                    triage_minutes=triage, hourly_usd=hourly, watts=watts,
+                    usd_per_kwh=kwh, usage_of_cap=usage_of_cap)
+    v = decide(ev, a, billing)
+    if json_out:
+        typer.echo(json.dumps({
+            "call": v.call, "confident": v.confident, "reason": v.reason,
+            "monthly_usd": v.monthly_usd, "sensitivity": v.sensitivity,
+            "evidence": {"label": ev.label, "rate": ev.rate.point, "lo": ev.rate.lo,
+                         "hi": ev.rate.hi, "tasks": ev.rate.tasks, "tier": ev.tier,
+                         "hardware": ev.hardware},
+            "assumptions": asdict(a),
+        }, indent=2))
+        return
+    typer.echo(render_verdict(v))

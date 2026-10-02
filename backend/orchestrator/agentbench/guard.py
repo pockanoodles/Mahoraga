@@ -80,6 +80,10 @@ class Guard:
     def _refs(self) -> dict[str, float]:
         return json.loads(self.path.read_text()) if self.path.exists() else {}
 
+    def references(self) -> dict[str, float]:
+        """Every model's best clean speed, as the bar each attempt is held to."""
+        return self._refs()
+
     def reference(self, model: str) -> float | None:
         return self._refs().get(self._key(model))
 

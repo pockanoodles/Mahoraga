@@ -1,0 +1,40 @@
+{
+  "_doc": "Cloud coding-agent plans, as dated observations. Each entry records where it came from and whether the price was read from the vendor's own page. Unverified entries are refused unless the caller supplies the price. Add a new dated entry when a price changes; never edit an old one — the longitudinal study needs both.",
+  "plans": [
+    {
+      "id": "claude-pro", "vendor": "anthropic", "name": "Claude Pro",
+      "kind": "subscription", "usd_per_month": 20, "capacity_vs_pro": 1,
+      "includes": ["claude-code"], "as_of": "2026-10-02",
+      "source": "https://claude.com/pricing", "verified": true,
+      "note": "$17/mo billed annually ($200 up front); $20 billed monthly."
+    },
+    {
+      "id": "claude-max-5x", "vendor": "anthropic", "name": "Claude Max 5x",
+      "kind": "subscription", "usd_per_month": 100, "capacity_vs_pro": 5,
+      "includes": ["claude-code"], "as_of": "2026-10-02",
+      "source": "https://claude.com/pricing", "verified": true,
+      "note": "Page: 'From $100 Per month', 'Choose 5x or 20x more usage than Pro', per 5-hour session."
+    },
+    {
+      "id": "claude-max-20x", "vendor": "anthropic", "name": "Claude Max 20x",
+      "kind": "subscription", "usd_per_month": null, "capacity_vs_pro": 20,
+      "includes": ["claude-code"], "as_of": "2026-10-02",
+      "source": "https://claude.com/pricing", "verified": false,
+      "note": "The page states only 'From $100' for Max; the 20x price is not printed on it. Pass --plan-price."
+    },
+    {
+      "id": "chatgpt-plus", "vendor": "openai", "name": "ChatGPT Plus",
+      "kind": "subscription", "usd_per_month": null, "capacity_vs_pro": null,
+      "includes": ["codex"], "as_of": "2026-10-02",
+      "source": "https://chatgpt.com/pricing", "verified": false,
+      "note": "Vendor page returned HTTP 403 to the fetch; not read. Pass --plan-price."
+    },
+    {
+      "id": "chatgpt-pro", "vendor": "openai", "name": "ChatGPT Pro",
+      "kind": "subscription", "usd_per_month": null, "capacity_vs_pro": null,
+      "includes": ["codex"], "as_of": "2026-10-02",
+      "source": "https://chatgpt.com/pricing", "verified": false,
+      "note": "Vendor page returned HTTP 403 to the fetch; not read. Pass --plan-price."
+    }
+  ]
+}

@@ -1,7 +1,7 @@
 # Mahoraga — CLAUDE.md
 
 ## Project
-Agent-agnostic LLM orchestration framework with online bandit routing. FastAPI backend, Python 3.12, vanilla HTML/CSS/JS frontend. GitHub: pockanoodles/Mahoraga
+A local-vs-cloud audit for coding agents (direction set 2026-10-02, ADR `brain/decisions/2026-10-02-local-audit-product.md`). It measures local agents on your own repo, and on your real cloud-agent history once v2 lands, then gives a stay / split / switch verdict. The orchestration layer (cascade, LinUCB bandit, MCP) is the last stage, acting on that verdict. FastAPI backend, Python 3.12, vanilla HTML/CSS/JS frontend. GitHub: pockanoodles/Mahoraga
 
 **Stack:** Python 3.12, FastAPI, aiosqlite, anthropic SDK, httpx  
 **Trunk:** `main` — trunk-based flow: short-lived `feat/`/`fix/`/`chore/` branches → PR → CI (`pytest -m "not slow"`) → merge. Releases are tags (`v2.0`, …), not branches. Semantic-augmented routing spec: `docs/specs/semantic-routing.md`.  

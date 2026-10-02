@@ -1,6 +1,43 @@
-# Current State — 2026-09-10
+# Current State — 2026-10-02
 
-## Read this first — 2026-09-10 (latest): the meter read 0%, the tool was unplugged, and the thesis went longitudinal
+## Read this first — 2026-10-02 (latest): Mahoraga is a local-vs-cloud audit of your own code
+
+**Direction:** `brain/decisions/2026-10-02-local-audit-product.md`. The product
+question is *"is local coding AI worth it for my code, on my hardware, and what
+would change that?"* It has two layers: a dated public report (*"Is local
+coding AI worth it on a 16 GB Mac? — October 2026"*) and a tool that runs the
+same measurement on the reader's own repo overnight. The architecture is one
+pipeline, `TaskSource → Runner → Grader → Ledger → Verdict`.
+- **v1 (wall Oct 15):** commit source, test-graded, 2–3 outside repos,
+  verdict engine (stay / split / switch with sensitivity, API and subscription
+  pricing).
+- **v2 (→ mid-Nov):** Claude Code and Codex transcript replay, the grading
+  ladder, and an opt-in same-vendor judge that counts only if κ ≥ 0.6 against
+  hand labels.
+- **Routing:** the cascade, bandit and MCP layer become the last stage,
+  acting on the verdict. The bandit research line stays parked.
+
+**Where things actually are (verified 2026-10-02):**
+- **The three-week landing backlog is cleared (Phase 0, 10-02).** PRs #40,
+  #41, #42 and #43 are merged. #44 was retargeted to main and synced with it.
+  The agent-edit probe and agentbench are pushed as #45. #38 is closed.
+- **The 09-11 consolidated HumanEval+ run (granite 4.1 / 4.2 / ornith) was
+  never executed.** It is scheduled first in the new plan.
+- **Agent-edit results** (PR #45):
+  - qwen3.5: 5/18 blind and 5/18 with feedback on Mahoraga, 1/9 and 1/9 on
+    ops
+  - granite4.1-8b: 0/18 and 1/18; it can't produce search/replace edits
+  - all 17 opencode attempts are void (wrong cwd), fixed by sandboxing in
+    `fea67a4` and still to be rerun
+  - real qwen3.5 speed is ~14.5 tok/s idle and 10–11 while the machine is in
+    use
+- **Claude Code transcript retention** was raised to 3650 days in
+  `~/.claude/settings.json`. Before that, history was deleted on a rolling
+  30-day basis (the oldest Mahoraga transcript is from 09-10).
+
+The execution plan is local-only: `docs/plans/2026-10-local-audit.md`.
+
+## 2026-09-10: the meter read 0%, the tool was unplugged, and the thesis went longitudinal
 
 **Four weeks dormant** (last commit and last organic decision both 2026-08-12).
 `main` is now at `7583594` — **PR #39 merged after sitting green and mergeable
@@ -46,7 +83,7 @@ brittle `"￿"` sentinel.
 Execution plan for the next five weeks is local-only at `docs/plans/` (build
 plans are not committed — see `~/CLAUDE.md` Code Standards).
 
-## Read this first — 2026-08-12: the funnel has a meter, and the repro has no subscription footnote
+## 2026-08-12: the funnel has a meter, and the repro has no subscription footnote
 
 **`orch metrics funnel` measures the denominator.** A PostToolUse hook
 (`scripts/claude_code_funnel_hook.py`) records one line per code-producing

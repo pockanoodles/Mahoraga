@@ -31,6 +31,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Optional
 
+from .time_window import within_window
+
 DEFAULT_LOG = Path.home() / ".mahoraga-v2" / "funnel.jsonl"
 
 # Printed with each exclusion so the denominator can be argued with.
@@ -109,9 +111,7 @@ def compute_funnel(
                 # a reason to refuse to report on thousands of good ones.
                 continue
             ts = str(row.get("ts") or "")
-            if since and ts < since:
-                continue
-            if until and ts > until + "￿":
+            if not within_window(ts, since, until):
                 continue
 
             if ts:

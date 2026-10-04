@@ -12,9 +12,10 @@ Every attempt carries the id of the run that made it; the run's manifest
 
 Attempts are written one file per (arm, condition, task), so a run killed
 mid-way resumes where it stopped. An attempt that did not measure the agent —
-made on an unhealthy machine (with a guard), or one where the agent itself
-crashed — is filed under `attempts/degraded/` instead, so it is kept but not
-counted, and the cell stays open to be retried.
+the machine lost power, or ran slow and the attempt timed out or had requests
+fail (with a guard), or the agent itself crashed — is filed under
+`attempts/degraded/` instead, so it is kept but not counted, and the cell stays
+open to be retried.
 """
 from __future__ import annotations
 
@@ -26,14 +27,14 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Callable, Iterable
 
-from .agents import Agent
+from .agents import Agent, AgentRun
 from .bank import Bench, Task, SuiteConfig
 from .grade import TEST_VERIFIED, Grader, TestGrader
 from .mine import is_test_path
 from .proc import git
 
 if TYPE_CHECKING:
-    from .guard import Guard
+    from .guard import Guard, Watch
 
 CONDITIONS = ("blind", "feedback")
 DEFAULT_TIMEOUT = 20 * 60
@@ -112,6 +113,19 @@ def _reset(clone: Path, base: str) -> None:
     git("clean", "-qfdx", "-e", ".aider.tags.cache.*", cwd=clone)
 
 
+def _degraded(watch: Watch | None, run: AgentRun) -> list[str]:
+    """Why this attempt did not measure the agent; empty = it counts. A slow
+    machine counts against an attempt only through what slowness does: a
+    timeout, or requests that failed."""
+    out = list(watch.degraded) if watch else []
+    if watch and watch.slow and (run.timed_out or run.request_errors):
+        how = "timed out" if run.timed_out else f"had {run.request_errors} failed requests"
+        out.append(f"{watch.slow}, and the attempt {how}")
+    if run.crashed:
+        out.append(f"agent crashed: {run.crashed}")
+    return out
+
+
 def run_attempt(bench: Bench, config: SuiteConfig, task: Task, agent: Agent,
                 cond: str, timeout: float = DEFAULT_TIMEOUT, rep: int = 0,
                 guard: Guard | None = None, grader: Grader | None = None,
@@ -150,8 +164,7 @@ def run_attempt(bench: Bench, config: SuiteConfig, task: Task, agent: Agent,
         secs=run.secs, timed_out=run.timed_out, llm_calls=run.llm_calls,
         tokens_sent=run.tokens_sent, tokens_recv=run.tokens_recv, extra=run.extra,
         rep=rep,
-        degraded=[*(watch.degraded if watch else []),
-                  *([f"agent crashed: {run.crashed}"] if run.crashed else [])],
+        degraded=_degraded(watch, run),
         conditions=watch.conditions if watch else {},
         tier=g.tier, run_id=run_id,
     )

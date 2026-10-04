@@ -11,9 +11,10 @@ Every attempt carries the id of the run that made it; the run's manifest
 (manifest.py) says what machine, models and harness that was.
 
 Attempts are written one file per (arm, condition, task), so a run killed
-mid-way resumes where it stopped. With a guard, an attempt made on an
-unhealthy machine is filed under `attempts/degraded/` instead, so it is kept
-but not counted, and the cell stays open to be retried.
+mid-way resumes where it stopped. An attempt that did not measure the agent —
+made on an unhealthy machine (with a guard), or one where the agent itself
+crashed — is filed under `attempts/degraded/` instead, so it is kept but not
+counted, and the cell stays open to be retried.
 """
 from __future__ import annotations
 
@@ -149,7 +150,8 @@ def run_attempt(bench: Bench, config: SuiteConfig, task: Task, agent: Agent,
         secs=run.secs, timed_out=run.timed_out, llm_calls=run.llm_calls,
         tokens_sent=run.tokens_sent, tokens_recv=run.tokens_recv, extra=run.extra,
         rep=rep,
-        degraded=watch.degraded if watch else [],
+        degraded=[*(watch.degraded if watch else []),
+                  *([f"agent crashed: {run.crashed}"] if run.crashed else [])],
         conditions=watch.conditions if watch else {},
         tier=g.tier, run_id=run_id,
     )
@@ -194,9 +196,10 @@ def run_matrix(bench: Bench, agents: Iterable[Agent], conds: Iterable[str],
     missed the same task on consecutive runs — so `repeats` > 1 is what
     turns a resolve count into a stability claim.
 
-    With a guard, each attempt waits for a healthy machine, and a degraded
-    attempt is retried up to `max_degraded` times before the cell is left
-    open for the next run. No attempt starts after `deadline` (epoch secs).
+    With a guard, each attempt waits for a healthy machine. A degraded
+    attempt (unhealthy machine, or the agent crashed) is retried up to
+    `max_degraded` times before the cell is left open for the next run. No
+    attempt starts after `deadline` (epoch secs).
     """
     config = bench.load_config()
     tasks = [t for t in bench.load_tasks() if not only or t.sha in only]

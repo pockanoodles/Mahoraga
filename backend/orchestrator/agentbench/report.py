@@ -108,11 +108,12 @@ def _cell(rows: list[Attempt]) -> str:
 
 
 def degraded_note(degraded: list[Attempt]) -> str | None:
-    """Attempts the guard threw out, and why. They are in no count above."""
+    """Attempts thrown out because they did not measure the agent — the machine
+    was unhealthy, or the agent crashed — and why. They are in no count above."""
     if not degraded:
         return None
     why = Counter(r.split(":")[0].split(" (")[0] for a in degraded for r in a.degraded)
-    return (f"{len(degraded)} degraded attempts excluded (machine unhealthy): " +
+    return (f"{len(degraded)} degraded attempts excluded (did not measure the agent): " +
             ", ".join(f"{k} x{v}" for k, v in why.most_common()))
 
 

@@ -35,7 +35,7 @@ from backend.orchestrator.agentbench.stats import plan, task_rate, tasks_needed,
 from backend.orchestrator.agentbench.host import Power, parse_idle, parse_power
 from backend.orchestrator.agentbench.report import outcome, render, summarise
 from backend.orchestrator.agentbench.runner import (
-    load_attempts, load_degraded, prompt_for, run_attempt, run_matrix,
+    arm_name, load_attempts, load_degraded, prompt_for, run_attempt, run_matrix,
 )
 from backend.orchestrator.cli.commands.agentbench import app as agentbench_app, parse_until
 
@@ -438,6 +438,37 @@ def test_doctor_estimate_uses_measured_minutes_once_there_are_attempts(mined):
 
 
 # ── Agents ────────────────────────────────────────────────────────────────────
+
+
+def test_an_arm_names_its_context_and_reads_back():
+    big = parse_arm("aider:gpt-oss:20b@ctx=131072")
+    assert big.model == "gpt-oss:20b" and big.num_ctx == 131072
+    assert "num_ctx: 131072" in big._settings()
+    assert arm_name(big) == "aider:gpt-oss:20b@ctx=131072"
+    assert parse_arm(arm_name(big)).num_ctx == 131072
+    # The default is unnamed, so attempts recorded before contexts keep their cells.
+    assert arm_name(parse_arm("aider:gpt-oss:20b")) == "aider:gpt-oss:20b"
+    assert parse_arm("opencode:qwen3.5:latest@ctx=65536").num_ctx == 65536
+    for bad in ("aider:m@ctx", "aider:m@ctx=", "aider:m@ctx=big", "aider:m@ctx=512",
+                "aider:m@num_ctx=65536"):
+        with pytest.raises(ValueError, match="ctx="):
+            parse_arm(bad)
+
+
+def test_two_contexts_of_one_model_are_two_cells(mined, repo):
+    small, big = FakeAgent("m", apply_gold), FakeAgent("m", apply_gold)
+    big.num_ctx = 131072
+    run_matrix(mined, [small, big], ["blind"])
+    assert sorted(a.arm for a in load_attempts(mined)) == ["fake:m", "fake:m@ctx=131072"]
+
+
+def test_speed_is_kept_per_context(tmp_path):
+    m = FakeMachine(speeds=(50.0, 20.0))
+    g, small, big = _guard(tmp_path, m), FakeAgent("m"), FakeAgent("m")
+    big.num_ctx = 131072
+    g.measure(small)
+    g.measure(big)
+    assert g.reference("m") == 50.0 and g.reference("m", 131072) == 20.0
 
 
 def test_parse_arm():

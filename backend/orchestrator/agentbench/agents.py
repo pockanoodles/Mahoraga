@@ -38,6 +38,11 @@ from typing import Protocol
 from . import ollama
 from .bank import DEFAULT_ROOT
 
+# Context every arm gets unless its spec says otherwise (`@ctx=N`). Sized for
+# a 16 GB machine; a 1,677-line file pulled into aider's chat overflows it, and
+# Ollama truncates the prompt to fit rather than refusing it.
+DEFAULT_NUM_CTX = 32768
+
 
 @dataclass
 class AgentRun:
@@ -156,7 +161,7 @@ class AiderAgent:
 
     name = "aider"
 
-    def __init__(self, model: str, *, num_ctx: int = 32768, num_predict: int = 8192,
+    def __init__(self, model: str, *, num_ctx: int = DEFAULT_NUM_CTX, num_predict: int = 8192,
                  map_tokens: int = 2048, home: Path | None = None) -> None:
         _require_local(model)
         self.model = model
@@ -249,7 +254,7 @@ class OpenCodeAgent:
 
     name = "opencode"
 
-    def __init__(self, model: str, *, num_ctx: int = 32768, num_predict: int = 8192,
+    def __init__(self, model: str, *, num_ctx: int = DEFAULT_NUM_CTX, num_predict: int = 8192,
                  home: Path | None = None) -> None:
         _require_local(model)
         self.model, self.num_ctx, self.num_predict = model, num_ctx, num_predict
@@ -323,9 +328,20 @@ AGENTS = {"aider": AiderAgent, "opencode": OpenCodeAgent}
 
 
 def parse_arm(spec: str) -> Agent:
-    name, sep, model = spec.partition(":")
+    """`<agent>:<model>[@ctx=N]`, e.g. aider:gpt-oss:20b@ctx=131072. The context
+    is part of the arm: the same model at two sizes is two arms, recorded and
+    reported apart. Ollama tags can't contain `@`, so the split is unambiguous."""
+    body, at, opt = spec.partition("@")
+    name, sep, model = body.partition(":")
     if not sep or not model:
         raise ValueError(f"arm {spec!r} must be <agent>:<model>, e.g. aider:qwen3.5:latest")
     if name not in AGENTS:
         raise ValueError(f"unknown agent {name!r}; available: {', '.join(sorted(AGENTS))}")
-    return AGENTS[name](model)
+    num_ctx = DEFAULT_NUM_CTX
+    if at:
+        key, eq, val = opt.partition("=")
+        if key != "ctx" or not eq or not val.isdigit() or int(val) < 2048:
+            raise ValueError(f"arm option {opt!r} must be ctx=<tokens>, at least 2048, "
+                             "e.g. aider:gpt-oss:20b@ctx=131072")
+        num_ctx = int(val)
+    return AGENTS[name](model, num_ctx=num_ctx)

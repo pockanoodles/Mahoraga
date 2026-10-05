@@ -45,8 +45,9 @@ app = typer.Typer(
 )
 
 _REPO = typer.Argument(Path("."), help="Git repo to benchmark (default: cwd).")
-_ARMS = typer.Option(..., "--arm", help="<agent>:<model>, repeatable.")
-_RATIO = typer.Option(0.5, "--min-speed", help="Degrade attempts under this share of the model's best tok/s.")
+_ARMS = typer.Option(..., "--arm", help="<agent>:<model>[@ctx=N], repeatable. "
+                     "Context defaults to 32768 tokens.")
+_RATIO = typer.Option(0.5, "--min-speed", help="Degrade attempts under this share of the model's median idle tok/s.")
 
 
 def _agents(arms: list[str]):

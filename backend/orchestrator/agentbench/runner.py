@@ -27,7 +27,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Callable, Iterable
 
-from .agents import Agent, AgentRun
+from .agents import DEFAULT_NUM_CTX, Agent, AgentRun
 from .bank import Bench, Task, SuiteConfig
 from .grade import TEST_VERIFIED, Grader, TestGrader
 from .mine import is_test_path
@@ -85,7 +85,11 @@ def prompt_for(task: Task) -> str:
 
 
 def arm_name(agent: Agent) -> str:
-    return f"{agent.name}:{agent.model}"
+    """The arm as `parse_arm` reads it back. A non-default context is named, so
+    attempts at two sizes never share a cell; the default isn't, so attempts
+    recorded before arms carried a context keep their names."""
+    ctx = getattr(agent, "num_ctx", DEFAULT_NUM_CTX)
+    return f"{agent.name}:{agent.model}" + (f"@ctx={ctx}" if ctx != DEFAULT_NUM_CTX else "")
 
 
 def _degraded_dir(bench: Bench) -> Path:

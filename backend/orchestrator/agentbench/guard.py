@@ -49,7 +49,7 @@ from typing import Callable
 import httpx
 
 from . import host
-from .agents import Agent
+from .agents import DEFAULT_NUM_CTX, Agent
 from .ollama import BASE_URL, generation_speed, pulled_models, tagged
 
 # Clean readings kept per model; the reference is their median.
@@ -94,10 +94,13 @@ class Guard:
 
     # ── speed ────────────────────────────────────────────────────────────
 
-    def _key(self, model: str) -> str:
+    def _key(self, model: str, num_ctx: int | None = None) -> str:
+        """Model digest, plus the context when it isn't the default: Ollama
+        reloads a model at a new size, so its speed there is its own series."""
         if self._digests is None:
             self._digests = self._pulled()
-        return f"{tagged(model)}@{self._digests.get(tagged(model), '?')[:12]}"
+        key = f"{tagged(model)}@{self._digests.get(tagged(model), '?')[:12]}"
+        return key + (f"@ctx={num_ctx}" if num_ctx and num_ctx != DEFAULT_NUM_CTX else "")
 
     def _refs(self) -> dict[str, list[float]]:
         raw = json.loads(self.path.read_text()) if self.path.exists() else {}
@@ -108,8 +111,8 @@ class Guard:
         """Every model's median clean speed, as the bar each attempt is held to."""
         return {k: statistics.median(v) for k, v in self._refs().items() if v}
 
-    def reference(self, model: str) -> float | None:
-        readings = self._refs().get(self._key(model))
+    def reference(self, model: str, num_ctx: int | None = None) -> float | None:
+        readings = self._refs().get(self._key(model, num_ctx))
         return statistics.median(readings) if readings else None
 
     def _clean(self) -> bool:
@@ -121,8 +124,9 @@ class Guard:
         """(speed now, reference or None). The reference is taken before this
         reading joins it, so a reading is never judged against itself. A clean
         reading is kept; the oldest past `READINGS_KEPT` is dropped."""
-        s = self._speed(agent.model, getattr(agent, "num_ctx", None))
-        refs, key = self._refs(), self._key(agent.model)
+        num_ctx = getattr(agent, "num_ctx", None)
+        s = self._speed(agent.model, num_ctx)
+        refs, key = self._refs(), self._key(agent.model, num_ctx)
         ref = statistics.median(refs[key]) if refs.get(key) else None
         if self._clean():
             refs[key] = [*refs.get(key, []), s][-READINGS_KEPT:]

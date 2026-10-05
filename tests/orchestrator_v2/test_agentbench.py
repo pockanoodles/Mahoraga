@@ -22,7 +22,7 @@ from typer.testing import CliRunner
 
 from backend.orchestrator.agentbench import manifest
 from backend.orchestrator.agentbench.agents import (
-    AgentRun, AiderAgent, OpenCodeAgent, parse_arm, parse_opencode_events,
+    AgentRun, AiderAgent, OpenCodeAgent, _launch, aider_crash, parse_arm, parse_opencode_events,
 )
 from backend.orchestrator.agentbench.bank import Bench, SuiteConfig
 from backend.orchestrator.agentbench.mine import (
@@ -104,15 +104,15 @@ def mined(bench, config, repo) -> Bench:
 class FakeAgent:
     name = "fake"
 
-    def __init__(self, model: str, edit=lambda clone, task_sha: None):
-        self.model, self._edit = model, edit
+    def __init__(self, model: str, edit=lambda clone, task_sha: None, crashed: str = ""):
+        self.model, self._edit, self._crashed = model, edit, crashed
         self.calls: list[dict] = []
 
     def attempt(self, workdir, prompt, *, test_cmd, timeout):
         self.calls.append({"prompt": prompt, "test_cmd": test_cmd})
         sha = _git(workdir, "log", "--all", "--format=%h", "-1", "--grep=feat: add mul")
         self._edit(workdir, sha)
-        return AgentRun(log="", secs=1.0, timed_out=False)
+        return AgentRun(log="", secs=1.0, timed_out=False, crashed=self._crashed)
 
 
 def apply_gold(clone: Path, sha: str) -> None:
@@ -456,6 +456,23 @@ def test_aider_settings_cap_generation():
     assert "ollama_chat/qwen3.5:latest" in s and "num_predict: 8192" in s
 
 
+def test_aider_crash_is_read_from_its_crash_report():
+    # Trimmed from the Studio log: scipy 1.15.3 would not load under macOS 27.
+    log = ("Repo-map: using 2048 tokens, auto refresh\n\n"
+           "# Uncaught ImportError in _svdp.py line 23\n\nAider version: 0.86.2\n\n"
+           "An uncaught exception occurred:\n```\nTraceback ...\n```\n"
+           "Open a GitHub Issue pre-filled with the above error in your browser? (Y/n)")
+    assert aider_crash(log) == "ImportError in _svdp.py line 23"
+    assert aider_crash("An uncaught exception occurred:\n```\n...") == "uncaught exception"
+    assert aider_crash("Applied edit to m.py\nTokens: 2.6k sent, 206 received.") == ""
+
+
+def test_an_agent_that_asks_a_question_gets_eof_not_a_hang(tmp_path):
+    ask = [sys.executable, "-c", "import sys; print('answer=' + repr(sys.stdin.readline()))"]
+    out, timed_out, _ = _launch(ask, tmp_path, {"PATH": "/usr/bin:/bin"}, timeout=10)
+    assert not timed_out and "answer=''" in out
+
+
 # ── CLI ───────────────────────────────────────────────────────────────────────
 
 
@@ -592,7 +609,7 @@ def test_a_degraded_attempt_is_kept_apart_and_the_cell_retried(mined, repo, tmp_
     assert counted[0].conditions["tok_s_after"] == 30.0
     assert degraded[0].degraded[0].startswith("slow: 10.0 tok/s")
     out = render(mined.load_tasks(), counted, degraded)
-    assert "1 degraded attempts excluded (machine unhealthy): slow x1" in out
+    assert "1 degraded attempts excluded (did not measure the agent): slow x1" in out
     assert "1/1" in out                                 # the degraded one isn't in the count
 
 
@@ -601,6 +618,17 @@ def test_degraded_retries_are_capped_and_the_cell_left_open(mined, repo, tmp_pat
     done = run_matrix(mined, [FakeAgent("m", apply_gold)], ["blind"],
                       guard=_guard(tmp_path, m), max_degraded=1)
     assert done == [] and load_attempts(mined) == [] and len(load_degraded(mined)) == 2
+
+
+def test_a_crashed_agent_is_degraded_not_scored_as_no_edit(mined, repo):
+    # No guard: a crash is the agent's harness failing, whatever the machine.
+    crash = FakeAgent("m", crashed="ImportError in _svdp.py line 23")
+    done = run_matrix(mined, [crash], ["blind"], max_degraded=1)
+    degraded = load_degraded(mined)
+    assert done == [] and load_attempts(mined) == [] and len(degraded) == 2
+    assert degraded[0].degraded == ["agent crashed: ImportError in _svdp.py line 23"]
+    out = render(mined.load_tasks(), [], degraded)
+    assert "2 degraded attempts excluded (did not measure the agent): agent crashed x2" in out
 
 
 def test_no_attempt_starts_after_the_deadline(mined, repo):

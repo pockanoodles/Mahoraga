@@ -49,6 +49,9 @@ class AgentRun:
     tokens_recv: float = 0
     # Agent-specific diagnostics, e.g. aider's edit-format failures.
     extra: dict[str, int] = field(default_factory=dict)
+    # The agent itself died, e.g. "ImportError in _svdp.py line 23"; empty = it
+    # ran. A crash is the harness failing, not the model, so it isn't scored.
+    crashed: str = ""
 
 
 class Agent(Protocol):
@@ -103,10 +106,15 @@ def _launch(cmd: list[str], cwd: Path, env: dict[str, str], timeout: float,
     working directory in every sense: some agents resolve it from $PWD rather
     than the real cwd, which is how one ran in the wrong repo. Returns
     (output, timed_out, secs). A timeout or a stopped run kills the whole
-    group, so the agent's own children can't outlive the attempt."""
+    group, so the agent's own children can't outlive the attempt.
+
+    stdin is closed: an agent that asks a question gets EOF at once. Inherited
+    from a terminal, aider's crash handler sat on "Open a GitHub Issue? (Y/n)"
+    until the 20-minute timeout, and each crash was recorded as a no-edit."""
     t0 = time.monotonic()
     env = {**env, "PWD": str(cwd)}
     proc = subprocess.Popen(sandboxed(cmd, [cwd, *writable]), cwd=cwd, env=env, text=True,
+                            stdin=subprocess.DEVNULL,
                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                             start_new_session=True)
     _live.add(proc.pid)
@@ -180,7 +188,7 @@ class AiderAgent:
             os.unlink(settings)
         tokens = re.findall(r"Tokens: ([\d.]+k?) sent, ([\d.]+k?) received", log)
         return AgentRun(
-            log=log, secs=secs, timed_out=timed_out,
+            log=log, secs=secs, timed_out=timed_out, crashed=aider_crash(log),
             llm_calls=len(tokens),
             tokens_sent=sum(_num(s) for s, _ in tokens),
             tokens_recv=sum(_num(r) for _, r in tokens),
@@ -191,6 +199,16 @@ class AiderAgent:
                 "format_errors": log.count("did not conform to the edit format"),
             },
         )
+
+
+def aider_crash(log: str) -> str:
+    """What killed aider, from its crash report ("# Uncaught ImportError in
+    _svdp.py line 23"), or "" if it ran. The first one seen on the Studio was
+    scipy 1.15.3 failing to load under macOS 27, before any model call."""
+    m = re.search(r"^# Uncaught (\w+) in (.+)$", log, re.MULTILINE)
+    if m:
+        return f"{m.group(1)} in {m.group(2).strip()}"
+    return "uncaught exception" if "An uncaught exception occurred" in log else ""
 
 
 def _num(s: str) -> float:

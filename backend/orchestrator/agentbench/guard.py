@@ -13,9 +13,13 @@ like a model failure. None of those attempts measured the agent.
              or had requests fail. Degraded attempts are kept for audit but not
              counted, and the cell is retried
 
-Slowness alone doesn't degrade an attempt. The same prompt under the same
-generation cap yields the same tokens, only later; a slow machine changes an
-outcome through timeouts and failed requests, which is what the first run hit.
+Slowness alone doesn't degrade an attempt. A slow machine changes when tokens
+arrive, not which ones the model can produce: aider samples at temperature 0,
+and where Ollama still isn't bit-for-bit repeatable (the same model solved and
+missed the same task across two runs on the Studio), that variation is the
+model's, at any speed. So counting a slow attempt adds noise, not bias. A slow
+machine reaches an outcome through timeouts and failed requests, which is what
+the first run hit.
 On the Studio, an attempt that resolved in 1.6 of its 20 minutes was thrown out
 for a slow reading taken after it. So a slow reading with neither is recorded
 in the attempt's conditions and the attempt counts.

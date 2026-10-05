@@ -9,21 +9,37 @@ like a model failure. None of those attempts measured the agent.
   gate       before each attempt: wait until the machine is on AC, generating
              at >= `ratio` x its reference speed, and idle if asked
   watch      during and after an attempt: an attempt is *degraded* if AC was
-             lost or speed fell below the bar. Degraded attempts are kept for
-             audit but not counted, and the cell is retried
+             lost, or if speed fell below the bar *and* the attempt timed out
+             or had requests fail. Degraded attempts are kept for audit but not
+             counted, and the cell is retried
+
+Slowness alone doesn't degrade an attempt. A slow machine changes when tokens
+arrive, not which ones the model can produce: aider samples at temperature 0,
+and where Ollama still isn't bit-for-bit repeatable (the same model solved and
+missed the same task across two runs on the Studio), that variation is the
+model's, at any speed. So counting a slow attempt adds noise, not bias. A slow
+machine reaches an outcome through timeouts and failed requests, which is what
+the first run hit.
+On the Studio, an attempt that resolved in 1.6 of its 20 minutes was thrown out
+for a slow reading taken after it. So a slow reading with neither is recorded
+in the attempt's conditions and the attempt counts.
 
 Speed is measured, not inferred: a fixed short generation, timed by Ollama's
 own eval counters, at the agent's num_ctx (a different num_ctx would make
-Ollama reload the model). The reference is the best speed seen for that model
-digest on this machine *while it was idle on AC*: in use, even on a charger,
-qwen3.5 ran at 10-11 tok/s against ~14.5 idle, and a reading taken on a
-busier machine would set a bar low enough to wave throttled attempts through.
-Until a clean reading exists, speed is recorded but not judged.
+Ollama reload the model). The reference is the median of the last
+`READINGS_KEPT` readings for that model digest on this machine *while it was
+idle on AC*: in use, even on a charger, qwen3.5 ran at 10-11 tok/s against
+~14.5 idle, and a reading taken on a busier machine would set a bar low enough
+to wave throttled attempts through. A median rather than the best: gpt-oss:20b
+on the Studio read anywhere from 41 to 116 tok/s in one afternoon, and the best
+of those set a bar most readings fell under. Until a clean reading exists,
+speed is recorded but not judged.
 """
 from __future__ import annotations
 
 import json
 import shutil
+import statistics
 import threading
 import time
 from dataclasses import dataclass, field
@@ -35,6 +51,9 @@ import httpx
 from . import host
 from .agents import Agent
 from .ollama import BASE_URL, generation_speed, pulled_models, tagged
+
+# Clean readings kept per model; the reference is their median.
+READINGS_KEPT = 10
 
 
 @dataclass
@@ -49,6 +68,9 @@ class Watch:
     """What the machine did during one attempt."""
     degraded: list[str] = field(default_factory=list)
     conditions: dict = field(default_factory=dict)
+    # Slow (or Ollama erroring) after the attempt. Whether that degrades it
+    # depends on how the attempt went, which only the runner knows.
+    slow: str = ""
 
 
 class Guard:
@@ -77,15 +99,18 @@ class Guard:
             self._digests = self._pulled()
         return f"{tagged(model)}@{self._digests.get(tagged(model), '?')[:12]}"
 
-    def _refs(self) -> dict[str, float]:
-        return json.loads(self.path.read_text()) if self.path.exists() else {}
+    def _refs(self) -> dict[str, list[float]]:
+        raw = json.loads(self.path.read_text()) if self.path.exists() else {}
+        # A file written before readings were kept holds one number: the best.
+        return {k: v if isinstance(v, list) else [v] for k, v in raw.items()}
 
     def references(self) -> dict[str, float]:
-        """Every model's best clean speed, as the bar each attempt is held to."""
-        return self._refs()
+        """Every model's median clean speed, as the bar each attempt is held to."""
+        return {k: statistics.median(v) for k, v in self._refs().items() if v}
 
     def reference(self, model: str) -> float | None:
-        return self._refs().get(self._key(model))
+        readings = self._refs().get(self._key(model))
+        return statistics.median(readings) if readings else None
 
     def _clean(self) -> bool:
         """Would a reading taken now be a fair best? Idle on AC, or unknowable."""
@@ -93,16 +118,18 @@ class Guard:
         return self._power().on_ac is not False and (idle is None or idle >= self.clean_idle)
 
     def measure(self, agent: Agent) -> tuple[float, float | None]:
-        """(speed now, reference or None). A clean reading that beats the
-        reference becomes it."""
+        """(speed now, reference or None). The reference is taken before this
+        reading joins it, so a reading is never judged against itself. A clean
+        reading is kept; the oldest past `READINGS_KEPT` is dropped."""
         s = self._speed(agent.model, getattr(agent, "num_ctx", None))
         refs, key = self._refs(), self._key(agent.model)
-        if s > refs.get(key, 0) and self._clean():
-            refs[key] = s
+        ref = statistics.median(refs[key]) if refs.get(key) else None
+        if self._clean():
+            refs[key] = [*refs.get(key, []), s][-READINGS_KEPT:]
             self.path.parent.mkdir(parents=True, exist_ok=True)
             self.path.write_text(json.dumps(refs, indent=1, sort_keys=True))
         self.last_speed[agent.model] = s
-        return s, refs.get(key)
+        return s, ref
 
     def _slow(self, agent: Agent) -> str | None:
         try:
@@ -184,7 +211,7 @@ class Guard:
                                     "so speed isn't judged until an idle reading sets one"))
             else:
                 checks.append(Check(a.model, s >= self.ratio * ref,
-                                    f"{s:.1f} tok/s (idle best on this machine {ref:.1f})"))
+                                    f"{s:.1f} tok/s (idle median on this machine {ref:.1f})"))
         return checks
 
 
@@ -221,12 +248,12 @@ class _Watching:
         if any(p.on_ac is False for p, _ in self._samples):
             degraded.append("lost AC power during the attempt")
         slow = self.g._slow(self.agent)
-        if slow:
-            degraded.append(slow + " after the attempt")
+        self.result.slow = slow + " after the attempt" if slow else ""
         idles = [i for _, i in self._samples if i is not None]
         self.result.conditions = {
             "tok_s_before": self._before,
             "tok_s_after": self.g.last_speed.get(self.agent.model),
+            "slow_after": self.result.slow or None,
             "min_battery": min((p.percent for p, _ in self._samples
                                 if p.percent is not None), default=None),
             "in_use_share": round(sum(i < 60 for i in idles) / len(idles), 2) if idles else None,

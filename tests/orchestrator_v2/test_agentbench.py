@@ -22,7 +22,8 @@ from typer.testing import CliRunner
 
 from backend.orchestrator.agentbench import manifest
 from backend.orchestrator.agentbench.agents import (
-    AgentRun, AiderAgent, OpenCodeAgent, _launch, aider_crash, parse_arm, parse_opencode_events,
+    AgentRun, AiderAgent, OpenCodeAgent, _launch, aider_crash, aider_request_errors, parse_arm,
+    parse_opencode_events,
 )
 from backend.orchestrator.agentbench.bank import Bench, SuiteConfig
 from backend.orchestrator.agentbench.mine import (
@@ -104,15 +105,18 @@ def mined(bench, config, repo) -> Bench:
 class FakeAgent:
     name = "fake"
 
-    def __init__(self, model: str, edit=lambda clone, task_sha: None, crashed: str = ""):
+    def __init__(self, model: str, edit=lambda clone, task_sha: None, crashed: str = "",
+                 timed_out: bool = False, request_errors: int = 0):
         self.model, self._edit, self._crashed = model, edit, crashed
+        self._timed_out, self._request_errors = timed_out, request_errors
         self.calls: list[dict] = []
 
     def attempt(self, workdir, prompt, *, test_cmd, timeout):
         self.calls.append({"prompt": prompt, "test_cmd": test_cmd})
         sha = _git(workdir, "log", "--all", "--format=%h", "-1", "--grep=feat: add mul")
         self._edit(workdir, sha)
-        return AgentRun(log="", secs=1.0, timed_out=False, crashed=self._crashed)
+        return AgentRun(log="", secs=1.0, timed_out=self._timed_out, crashed=self._crashed,
+                        request_errors=self._request_errors)
 
 
 def apply_gold(clone: Path, sha: str) -> None:
@@ -467,6 +471,16 @@ def test_aider_crash_is_read_from_its_crash_report():
     assert aider_crash("Applied edit to m.py\nTokens: 2.6k sent, 206 received.") == ""
 
 
+def test_aider_request_errors_count_one_per_failed_request():
+    # From the throttled 2026-09-29 run: one failure names two litellm errors.
+    log = ("tests/test_slack_client.py\n"
+           "litellm.APIConnectionError: Ollama_chatException - litellm.Timeout: Connection \n"
+           "timed out after 600.0 seconds.\nRetrying in 0.2 seconds...\n"
+           "litellm.InternalServerError: Ollama_chatException - model runner stopped\n")
+    assert aider_request_errors(log) == 2
+    assert aider_request_errors("Applied edit to m.py\nTokens: 2.6k sent, 206 received.") == 0
+
+
 def test_an_agent_that_asks_a_question_gets_eof_not_a_hang(tmp_path):
     ask = [sys.executable, "-c", "import sys; print('answer=' + repr(sys.stdin.readline()))"]
     out, timed_out, _ = _launch(ask, tmp_path, {"PATH": "/usr/bin:/bin"}, timeout=10)
@@ -543,12 +557,47 @@ def test_gate_names_what_is_wrong(tmp_path):
     assert g.problems(agent)[0].startswith("slow: 10.0 tok/s")
 
 
-def test_reference_is_the_best_speed_seen_and_persists(tmp_path):
+def test_reference_is_the_median_idle_speed_and_persists(tmp_path):
     m = FakeMachine(speeds=(20.0, 30.0, 25.0))
     g = _guard(tmp_path, m)
     for _ in range(3):
         g.measure(FakeAgent("m"))
-    assert _guard(tmp_path, m).reference("m") == 30.0   # keyed by digest, on disk
+    assert _guard(tmp_path, m).reference("m") == 25.0   # keyed by digest, on disk
+
+
+def test_one_fast_outlier_does_not_set_the_bar(tmp_path):
+    # gpt-oss:20b on the Studio: one 115.6 among readings near 50. The best
+    # would put every typical reading under half of it.
+    m = FakeMachine(speeds=(50.0, 52.0, 115.6, 48.0, 51.0))
+    g, agent = _guard(tmp_path, m), FakeAgent("m")
+    for _ in range(5):
+        g.measure(agent)
+    assert g.reference("m") == 51.0
+    m.speeds = itertools.cycle([47.0])
+    assert g.problems(agent) == []
+
+
+def test_a_reading_is_never_judged_against_itself(tmp_path):
+    m = FakeMachine(speeds=(30.0, 10.0))
+    g, agent = _guard(tmp_path, m), FakeAgent("m")
+    assert g.measure(agent) == (30.0, None)             # first: nothing to judge against
+    assert g.measure(agent) == (10.0, 30.0)             # judged before it joins the median
+
+
+def test_only_the_last_readings_are_kept(tmp_path):
+    from backend.orchestrator.agentbench.guard import READINGS_KEPT
+    m = FakeMachine(speeds=tuple([100.0] * 3 + [40.0] * READINGS_KEPT))
+    g = _guard(tmp_path, m)
+    for _ in range(3 + READINGS_KEPT):
+        g.measure(FakeAgent("m"))
+    assert g.reference("m") == 40.0                     # the old fast ones aged out
+
+
+def test_a_speed_file_from_before_medians_still_loads(tmp_path):
+    g = _guard(tmp_path, FakeMachine())
+    g.path.parent.mkdir(parents=True)
+    g.path.write_text(json.dumps({"m:latest@sha256:01234": 115.6}))
+    assert g.reference("m") == 115.6
 
 
 def test_readings_taken_in_use_never_set_the_bar(tmp_path):
@@ -601,21 +650,40 @@ def test_losing_power_mid_attempt_degrades_it(mined, config, repo, tmp_path):
 
 
 def test_a_degraded_attempt_is_kept_apart_and_the_cell_retried(mined, repo, tmp_path):
-    # gate 30 (reference) -> attempt -> after 10 (slow): degraded; then healthy.
+    # gate 30 (reference) -> attempt with failed requests -> after 10 (slow):
+    # degraded; then healthy.
     m = FakeMachine(speeds=(30.0, 10.0, 30.0, 30.0))
-    run_matrix(mined, [FakeAgent("m", apply_gold)], ["blind"], guard=_guard(tmp_path, m))
+    run_matrix(mined, [FakeAgent("m", apply_gold, request_errors=2)], ["blind"],
+               guard=_guard(tmp_path, m))
     counted, degraded = load_attempts(mined), load_degraded(mined)
     assert [a.resolved for a in counted] == [True] and not counted[0].degraded
     assert counted[0].conditions["tok_s_after"] == 30.0
-    assert degraded[0].degraded[0].startswith("slow: 10.0 tok/s")
+    assert degraded[0].degraded == [
+        "slow: 10.0 tok/s, under 50% of 30.0 after the attempt, and the attempt had 2 failed requests"]
     out = render(mined.load_tasks(), counted, degraded)
     assert "1 degraded attempts excluded (did not measure the agent): slow x1" in out
     assert "1/1" in out                                 # the degraded one isn't in the count
 
 
+def test_slow_and_timed_out_is_degraded(mined, repo, tmp_path):
+    m = FakeMachine(speeds=(30.0, 10.0))
+    run_matrix(mined, [FakeAgent("m", timed_out=True)], ["blind"],
+               guard=_guard(tmp_path, m), max_degraded=0)
+    assert load_degraded(mined)[0].degraded[0].endswith("and the attempt timed out")
+
+
+def test_slow_but_clean_attempt_counts(mined, repo, tmp_path):
+    # The Studio case: resolved in minutes, no timeout, no failed requests, and
+    # a slow reading after. Slowness didn't reach this outcome, so it counts.
+    m = FakeMachine(speeds=(30.0, 10.0))
+    done = run_matrix(mined, [FakeAgent("m", apply_gold)], ["blind"], guard=_guard(tmp_path, m))
+    assert [a.resolved for a in done] == [True] and load_degraded(mined) == []
+    assert done[0].conditions["slow_after"].startswith("slow: 10.0 tok/s")
+
+
 def test_degraded_retries_are_capped_and_the_cell_left_open(mined, repo, tmp_path):
     m = FakeMachine(speeds=(30.0, 10.0))                # every attempt ends slow
-    done = run_matrix(mined, [FakeAgent("m", apply_gold)], ["blind"],
+    done = run_matrix(mined, [FakeAgent("m", apply_gold, request_errors=1)], ["blind"],
                       guard=_guard(tmp_path, m), max_degraded=1)
     assert done == [] and load_attempts(mined) == [] and len(load_degraded(mined)) == 2
 

@@ -52,6 +52,9 @@ class AgentRun:
     # The agent itself died, e.g. "ImportError in _svdp.py line 23"; empty = it
     # ran. A crash is the harness failing, not the model, so it isn't scored.
     crashed: str = ""
+    # Model requests that failed (timeouts, Ollama 500s). The way a slow
+    # machine reaches an outcome: without these or a timeout, it didn't.
+    request_errors: int = 0
 
 
 class Agent(Protocol):
@@ -189,6 +192,7 @@ class AiderAgent:
         tokens = re.findall(r"Tokens: ([\d.]+k?) sent, ([\d.]+k?) received", log)
         return AgentRun(
             log=log, secs=secs, timed_out=timed_out, crashed=aider_crash(log),
+            request_errors=aider_request_errors(log),
             llm_calls=len(tokens),
             tokens_sent=sum(_num(s) for s, _ in tokens),
             tokens_recv=sum(_num(r) for _, r in tokens),
@@ -209,6 +213,17 @@ def aider_crash(log: str) -> str:
     if m:
         return f"{m.group(1)} in {m.group(2).strip()}"
     return "uncaught exception" if "An uncaught exception occurred" in log else ""
+
+
+# One line per failed request, as litellm reports it through aider, e.g. from
+# the throttled 2026-09-29 run: "litellm.APIConnectionError: Ollama_chatException
+# - litellm.Timeout: Connection timed out after 600.0 seconds."
+_REQUEST_ERROR = re.compile(r"litellm\.(?:APIConnectionError|InternalServerError|"
+                            r"ServiceUnavailableError|APIError|Timeout)\b")
+
+
+def aider_request_errors(log: str) -> int:
+    return sum(1 for line in log.splitlines() if _REQUEST_ERROR.search(line))
 
 
 def _num(s: str) -> float:

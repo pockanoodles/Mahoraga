@@ -5,7 +5,7 @@ class Mahoraga < Formula
   homepage "https://kaitosoeno.com/mahoraga"
   # The sdist attached to the GitHub release, not the auto-generated "Source
   # code" archive for the tag: only the sdist has the web UI built into it.
-  url "https://github.com/pockanoodles/Mahoraga/releases/download/v2.1.0/mahoraga-2.1.0.tar.gz"
+  url "https://github.com/pockanoodles/Mahoraga/releases/download/v2.1.0/mahoraga_audit-2.1.0.tar.gz"
   # PLACEHOLDER until v2.1.0 is released: replace with the sdist's sha256
   # (the release job prints it; see README.md in this directory).
   sha256 "0000000000000000000000000000000000000000000000000000000000000000"
@@ -24,7 +24,7 @@ class Mahoraga < Formula
   depends_on "python@3.14"
   depends_on "rpds-py"
 
-  pypi_packages package_name:     "mahoraga",
+  pypi_packages package_name:     "mahoraga-audit",
                 exclude_packages: %w[cffi cryptography numpy pydantic pydantic-core rpds-py]
 
   resource "aiosqlite" do

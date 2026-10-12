@@ -4,7 +4,7 @@ requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "mahoraga"
+name = "mahoraga-audit"
 dynamic = ["version"]
 description = "Is local coding AI worth it for your code? Measure it, then route it."
 readme = "README.md"

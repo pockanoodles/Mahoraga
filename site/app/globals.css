@@ -1664,3 +1664,27 @@ html.js .reveal:not([data-shown]) {
     transition-delay: 0ms !important;
   }
 }
+
+/* ── Not found ────────────────────────────────────────────────────────── */
+
+.lost {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--mh-s-5);
+  min-height: 100svh;
+  padding: var(--mh-s-6) var(--mh-gutter);
+  text-align: center;
+}
+
+.lost .lede {
+  margin-top: 0;
+}
+
+.lost__links {
+  display: flex;
+  align-items: center;
+  gap: var(--mh-s-5);
+  margin-top: var(--mh-s-4);
+}

@@ -25,6 +25,7 @@ from backend.orchestrator.audit.verdict import Assumptions, Billing, decide
 ROOT = Path(__file__).resolve().parents[2]
 CLAIMS = ROOT / "experiments" / "claims.json"
 PROBE_TASKS = ROOT / "experiments" / "agent_edit" / "tasks.jsonl"
+SITE_JSON = ROOT / "docs" / "site" / "site.json"
 COMMIT = "abc1234"
 QWEN_BLIND = ("aider:qwen3.5:latest", "blind")
 
@@ -82,6 +83,16 @@ def test_source_names_the_repo_the_version_and_the_commit(site):
                               "version": declared}
     head = export._git(ROOT, "rev-parse", "--short=7", "HEAD").strip()
     assert export.build_site()["source"]["commit"] == head
+
+
+def test_the_committed_export_is_what_the_exporter_makes_now():
+    text = SITE_JSON.read_text(encoding="utf-8")
+    committed = json.loads(text)
+    fresh = export.build_site(commit=committed["source"]["commit"])  # the one field that moves
+    stale = sorted(k for k in {*committed, *fresh} if committed.get(k) != fresh.get(k))
+    assert not stale, (f"docs/site/site.json is stale in {stale}: run "
+                       "`python scripts/export_site.py` and commit the result")
+    assert text == export.render(committed), "docs/site/site.json was edited by hand"
 
 
 def test_the_private_ops_figures_are_not_exported(site):

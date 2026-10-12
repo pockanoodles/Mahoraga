@@ -1,0 +1,6 @@
+{
+ "727c859": "gate B: no fail-to-pass tests",
+ "46d702c": "gate A: 1 tests fail at C",
+ "dec00d3": "gate B: no fail-to-pass tests",
+ "781385b": "no pass-to-pass baseline (suite crashed at base)"
+}

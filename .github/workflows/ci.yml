@@ -37,3 +37,72 @@ jobs:
         # needs a network download and isn't hermetic). The other ~1263 tests
         # mock Ollama/HTTP, so they run without a live daemon or models.
         run: pytest -m "not slow" -q
+
+  package:
+    # The job above runs from a source checkout. This one builds what users
+    # install, with the web UI inside the wheel, and runs it from a clean
+    # virtualenv, so a packaging mistake fails here and not after a tag.
+    # 3.12 is what the image and CI use; 3.14 is what Homebrew installs.
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    strategy:
+      matrix:
+        python-version: ["3.12", "3.14"]
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: System build deps (hnswlib)
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends build-essential
+
+      - name: Build the UI and the wheel
+        run: |
+          bash scripts/build_ui.sh
+          python -m pip install -U pip build
+          python -m build
+
+      - name: Install the wheel in a clean virtualenv and run it
+        run: python scripts/smoke_wheel.py dist/*.whl
+
+  site:
+    # The landing page (kaitosoeno.com/mahoraga). It renders only numbers from
+    # docs/site/site.json and colours from brand/, so building it here catches a
+    # page that no longer matches the export, and the sweep drives it in a real
+    # browser in both languages.
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: site
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: site/package-lock.json
+
+      - name: Build
+        run: |
+          npm ci
+          npm run typecheck
+          npm run build
+
+      - name: Drive the built page in a browser
+        run: |
+          npx playwright install --with-deps chromium-headless-shell
+          (cd dist && python3 -m http.server 3222 >/dev/null 2>&1 &)
+          sleep 1
+          BASE=http://localhost:3222 npm run verify

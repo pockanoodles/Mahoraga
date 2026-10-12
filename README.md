@@ -1,15 +1,127 @@
-# Mahoraga
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/pockanoodles/Mahoraga/main/brand/mark-dark.svg">
+    <img src="https://raw.githubusercontent.com/pockanoodles/Mahoraga/main/brand/mark-light.svg" width="72" height="72" alt="">
+  </picture>
+</p>
 
-Mahoraga is a local-first LLM orchestrator. It answers a task with a free local
-model, has a second free local model read that answer and judge whether it is
-wrong, and pays a frontier model only for the tasks that failed.
+<h1 align="center">Mahoraga</h1>
+
+<p align="center">
+Is local coding AI worth it for your code? Mahoraga replays your repository's own history
+on a local coding agent, grades every attempt with your own tests, and tells you whether to
+stay on the cloud, split the work, or switch.
+</p>
+
+<p align="center">
+  <a href="https://kaitosoeno.com/mahoraga/">kaitosoeno.com/mahoraga</a> ·
+  <a href="https://github.com/pockanoodles/Mahoraga#install">Install</a> ·
+  <a href="https://github.com/pockanoodles/Mahoraga/blob/main/docs/RESULTS.md">Results</a> ·
+  <a href="https://github.com/pockanoodles/Mahoraga/blob/main/DATAFLOW.md">Data flow</a> ·
+  <a href="https://github.com/pockanoodles/Mahoraga/blob/main/CONTRIBUTING.md">Contributing</a>
+</p>
 
 [![CI](https://github.com/pockanoodles/Mahoraga/actions/workflows/ci.yml/badge.svg)](https://github.com/pockanoodles/Mahoraga/actions/workflows/ci.yml)
 ![Python 3.12](https://img.shields.io/badge/python-3.12-blue)
 ![License: MIT](https://img.shields.io/badge/license-MIT-green)
-![Last commit](https://img.shields.io/github/last-commit/pockanoodles/Mahoraga)
 
-## What this is, in 30 seconds
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/pockanoodles/Mahoraga/main/docs/assets/app/verdict-dark.png">
+  <img src="https://raw.githubusercontent.com/pockanoodles/Mahoraga/main/docs/assets/app/verdict-light.png" alt="The Mahoraga app showing the verdict for the published probe">
+</picture>
+
+## What it does
+
+Leaderboards measure someone else's tasks on someone else's hardware, and a vendor will
+rarely tell you that you don't need its product. Mahoraga measures your own work instead,
+in one pipeline (source, runner, grader, ledger, verdict).
+
+1. **Mine.** Each task is one of your commits with the fix taken out and the tests left
+   in. Only commits whose own tests fail before them and pass after them are kept.
+2. **Run.** A local agent (aider or opencode driving an Ollama model) attempts every task
+   overnight, each time in a fresh copy of the repository, sandboxed on macOS.
+3. **Grade.** The tests are put back and the full suite runs, so an attempt counts only
+   when the target tests pass and nothing that passed before has broken.
+4. **Decide.** The measured rate and its 95% interval, counted over tasks rather than
+   attempts, become stay, split or switch, priced for the way you pay (by the token or by
+   subscription) and for the time a failed attempt costs you.
+
+The verdict checks both ends of the interval, so it calls a split confidently only when
+the pessimistic end still pays, and it is allowed to tell you that you're not wasting
+money. On the published probe, aider and qwen3.5 (9.7B) resolved 5 of 18 real Mahoraga
+commits on a 16 GB Mac, a rate of 28% with an interval of 12% to 51%, which is well short
+of the 77% break-even for a $0.75 cloud task, so the verdict there is to stay.
+
+## Install
+
+The PyPI name is `mahoraga-audit` (the name `mahoraga` belongs to an unrelated project).
+The command you run is `mahoraga`.
+
+| Channel | Command | Status |
+| --- | --- | --- |
+| Homebrew | `brew install pockanoodles/tap/mahoraga` | with the first release |
+| uv | `uv tool install mahoraga-audit` | with the first release |
+| pipx | `pipx install mahoraga-audit` | with the first release |
+| pip | `pip install mahoraga-audit` | with the first release |
+| Docker | `docker run --rm -p 127.0.0.1:8000:8000 ghcr.io/pockanoodles/mahoraga` | with the first release |
+| From source | `uv tool install git+https://github.com/pockanoodles/Mahoraga` | CLI and API, no prebuilt app |
+
+Mahoraga needs Python 3.12 or newer, [Ollama](https://ollama.com), and a C++ toolchain,
+since pip, pipx and uv compile `hnswlib` from source. It runs on macOS and Linux, and it
+was built on a 16 GB Mac. The Docker image serves the engine and the app while Ollama and
+your agents stay on the host (the Dockerfile's header has the full command, including the
+volume that keeps your results).
+
+## Quick start
+
+```bash
+ollama pull qwen3.5:latest
+
+mahoraga demo                                   # the app, on the published probe
+mahoraga audit mine ~/code/app                  # tasks from your own history
+mahoraga audit doctor ~/code/app --arm aider:qwen3.5:latest
+mahoraga audit run ~/code/app --arm aider:qwen3.5:latest --until 07:30
+mahoraga audit verdict ~/code/app --arm aider:qwen3.5:latest \
+    --tasks-per-month 200 --plan claude-max-5x --usage-of-cap 0.6
+```
+
+`mahoraga demo` copies the published 18-commit probe into a scratch directory and opens
+the app on it, so you can look around before a night of runs. `orch` still works as an
+alias for `mahoraga`, and `orch agentbench` for `mahoraga audit`.
+
+To work on Mahoraga itself:
+
+```bash
+git clone https://github.com/pockanoodles/Mahoraga.git mahoraga
+cd mahoraga
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt && pip install -e .
+scripts/build_ui.sh        # builds the app into the package
+mahoraga serve
+```
+
+## Interfaces
+
+The engine is headless. The CLI, the HTTP API and the MCP server are three ways into the
+same code, and the app is one more client of the API.
+
+- **CLI:** `mahoraga --help`
+- **HTTP API and the app:** `mahoraga serve` (add `--headless` to serve the API alone).
+  The app opens at `http://127.0.0.1:8000`, and the audit lives under `/api/audit/`.
+- **MCP:** `mahoraga mcp`, for example `claude mcp add mahoraga -- mahoraga mcp`. The
+  bridge provides nine tools for task execution, route previews, health, agent status,
+  routing statistics, and runtime policy changes. See the [MCP guide](docs/mcp.md).
+- **macOS background service:** `mahoraga service --help`. A launchd job inherits no
+  shell environment, so daemon settings come from `~/.mahoraga-v2/service.env`
+  (`KEY=VALUE` per line), applied by `mahoraga service install`.
+
+## The routing layer
+
+The audit decides what share of your work local can take, and the router is the stage
+that acts on that verdict by serving it. It answers a task with a free local model, has a
+second free local model judge the answer, and pays a frontier model only for the tasks that
+failed.
+
 
 Strong cloud models answer coding tasks well and charge for every call. Small
 models run free on a laptop and get more of the hard ones wrong. Choosing
@@ -49,7 +161,7 @@ adapters — including a `claude-cli` arm that captures real per-task cost for
 benchmarks — remain available but are disabled in the committed
 configuration.
 
-## How it works
+### How it works
 
 The serving path has two tiers, and they do not carry equal weight in this
 repo. **The verification cascade is the tier that carries the numbers.** Agent
@@ -131,69 +243,6 @@ minutes of local inference per task on a 16 GB machine, so it is not a sensible
 global default for interactive use. Request it per task instead with
 `"thorough": true` on `/api/task`, or the `thorough` argument on the MCP
 `run_task` tool.
-
-## Quick start
-
-Requirements:
-
-- Python 3.12+
-- Ollama
-- A C++ toolchain for `hnswlib`
-
-```bash
-git clone https://github.com/pockanoodles/Mahoraga.git
-cd Mahoraga
-
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-pip install -e .
-
-ollama pull qwen3.5:latest
-ollama pull granite4.1:8b
-
-orch serve
-```
-
-The API starts at `http://127.0.0.1:8000`. Check it with:
-
-```bash
-curl http://127.0.0.1:8000/api/health
-```
-
-The React UI is served at `/` after it has been built:
-
-```bash
-cd frontend
-npm ci
-npm run build
-cd ..
-```
-
-Restart `orch serve`, then open `http://127.0.0.1:8000`.
-
-For semantic episodic memory:
-
-```bash
-pip install -r requirements-semantic.txt
-```
-
-See the [getting-started guide](docs/getting-started.md) for development mode,
-health checks, and troubleshooting.
-
-## Interfaces
-
-- **FastAPI and web UI:** `orch serve`
-- **MCP stdio bridge:** `python -m backend.mcp.server`
-- **CLI operations:** `orch --help`
-- **macOS background service:** `orch service --help` — a launchd job inherits
-  no shell environment, so daemon settings come from
-  `~/.mahoraga-v2/service.env` (`KEY=VALUE` per line), applied by
-  `orch service install`
-
-The MCP bridge provides nine tools for task execution, route previews, health,
-agent status, routing statistics, and runtime policy changes. See the
-[MCP guide](docs/mcp.md).
 
 ## Routing and rewards
 

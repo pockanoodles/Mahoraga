@@ -1,0 +1,21 @@
+name: Feature request
+description: Something you wish Mahoraga did
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What you are trying to do
+      description: The situation and what is hard about it today. Start from the problem, not the solution.
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: What you would like
+      description: How you imagine it working, if you have an idea.
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: What you do instead today
+      description: A workaround, or another tool that handles it.

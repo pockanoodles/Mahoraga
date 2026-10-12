@@ -30,7 +30,7 @@ def bench_checks(bench: Bench) -> list[Check]:
     checks: list[Check] = []
     tasks = bench.load_tasks()
     checks.append(Check("tasks", bool(tasks), f"{len(tasks)} mined" if tasks
-                        else "none — run `orch agentbench mine`"))
+                        else "none — run `mahoraga audit mine`"))
     try:
         cfg = bench.load_config()
     except FileNotFoundError:
@@ -42,7 +42,7 @@ def bench_checks(bench: Bench) -> list[Check]:
         checks.append(Check("pytest args", True, " ".join(cfg.pytest_args)))
     missing = [t.sha for t in tasks if not bench.clone(t.sha).exists()]
     checks.append(Check("task clones", not missing, "all present" if not missing
-                        else f"{len(missing)} missing — re-run `orch agentbench mine`"))
+                        else f"{len(missing)} missing — re-run `mahoraga audit mine`"))
     bench.dir.mkdir(parents=True, exist_ok=True)
     free = shutil.disk_usage(bench.dir).free / 2**30
     checks.append(Check("disk", free >= MIN_FREE_GB, f"{free:.0f} GB free"))

@@ -1,0 +1,6 @@
+{
+ "source": "experiments/agent_edit",
+ "dates": "2026-09-28/29",
+ "machine": "16 GB M-series",
+ "note": "This is a recorded run of 18 real commits from Mahoraga's own history, so it shows how the app reads a bench and says nothing about your code. Two local models attempted each commit through aider, once blind and once with test feedback. The probe ran before run manifests existed, which means no machine data was recorded per attempt, and the machine named above is the description in the probe's own README. Every number in the app comes from these attempts through the same code that reads a bench of your own."
+}

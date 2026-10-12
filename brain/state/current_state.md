@@ -1,6 +1,57 @@
-# Current State — 2026-10-02
+# Current State — 2026-10-12
 
-## Read this first — 2026-10-02 (latest): Mahoraga is a local-vs-cloud audit of your own code
+## Read this first — 2026-10-12 (latest): the launch is in review, nothing is published
+
+Branch `feat/app-ui` holds the launch on top of main, and its PR is open against main. It
+adds the audit HTTP API, `mahoraga` CLI names, the rebuilt app, `brand/`, the demo bench,
+`docs/site/site.json`, packaging for PyPI (`mahoraga-audit`), Homebrew, Docker and GHCR,
+`DATAFLOW.md`, a README that starts with the audit, and the landing page in `site/` for
+kaitosoeno.com/mahoraga. The suite passes at 2,024 tests (`.venv/bin/python -m pytest -m
+"not slow"`), and the site's Playwright sweep passes in both languages. Why it is shaped
+this way: `brain/decisions/2026-10-12-launch-shape.md`. What happened:
+`brain/journal/2026-10-12-launch-build.md`.
+
+### Kaito's steps, in order
+
+`packaging/README.md` has the exact clicks and commands for steps 2 to 6.
+
+1. Review and merge the `feat/app-ui` PR and pockanoodles/personal-website#1. The
+   personal-website PR turns the portfolio into an index, points Mahoraga's row at the
+   landing page and retires the old case study page.
+2. Confirm the PyPI name `mahoraga-audit`, since `mahoraga` belongs to an unrelated project
+   (mahoraga-ai, mahoraga-cli and mahoraga-bench were the other candidates). A rename has
+   to touch every file that `git grep mahoraga-audit` lists.
+3. Run the Release workflow on main from the Actions tab (Run workflow). It builds the
+   wheel, the sdist and the two-platform Docker image and publishes nothing, which matters
+   because the image has never been built.
+4. Add the PyPI trusted publisher and the `pypi` environment on GitHub.
+5. Tag `v2.1.0` and watch the run, which publishes to PyPI, GitHub Releases and GHCR.
+6. Make the GHCR package public, create `pockanoodles/homebrew-tap` with the formula, set
+   `live: true` in `site/content/channels.ts` for each channel that works, and try each one
+   from a clean shell.
+7. Deploy kaitosoeno.com, then run `npx wrangler deploy` in `site/` (`site/README.md`),
+   because the route needs the `kaitosoeno.com` zone on the same Cloudflare account as the
+   personal site.
+8. Pick a sponsor platform (GitHub Sponsors, Ko-fi or Liberapay) and set `SPONSOR_URL` in
+   `site/content/channels.ts`, which adds the sponsor link to the page.
+
+The personal site's menu has a small bug, left for later. Its button row is `h-11`, which
+is 2.75rem on that site's fluid root, so it renders 33 to 35px tall instead of 44px.
+Changing `h-11` and `bottom-11` to `h-[44px]` and `bottom-[44px]` in `components/menu.tsx`
+fixes it, and Mahoraga's copy in `site/components/SiteMenu.tsx` already uses a true 44px.
+
+### Known debt, not started
+
+- The top-level package is named `backend` in site-packages, and renaming it to `mahoraga`
+  is a large refactor.
+- About 30 modules hard-code `~/.mahoraga-v2`, so a `MAHORAGA_HOME` override would replace
+  the demo's scratch-HOME trick.
+- A few legacy paths ignore `OLLAMA_BASE_URL`.
+- The web-search and URL tools are unwired dead code, so they should be deleted.
+- `evidence` and `summarise` compute the median attempt time differently (8.3 vs 8.4
+  minutes on the probe).
+
+## 2026-10-02: Mahoraga is a local-vs-cloud audit of your own code
 
 **Direction:** `brain/decisions/2026-10-02-local-audit-product.md`. The product
 question is *"is local coding AI worth it for my code, on my hardware, and what

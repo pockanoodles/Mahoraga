@@ -1,0 +1,27 @@
+{
+ "sha": "bfb0233",
+ "arm": "aider:qwen3.5:latest",
+ "cond": "blind",
+ "resolved": false,
+ "f2p_pass": 0,
+ "f2p_total": 4,
+ "regressions": 0,
+ "regression_ids": [],
+ "suite_crashed": false,
+ "edited_files": [],
+ "touched_tests": [],
+ "hit_gold_file": false,
+ "secs": 720.4,
+ "timed_out": false,
+ "llm_calls": 3,
+ "tokens_sent": 73700.0,
+ "tokens_recv": 4789.0,
+ "extra": {
+  "edit_errors": 0
+ },
+ "rep": 0,
+ "degraded": [],
+ "conditions": {},
+ "tier": "test-verified",
+ "run_id": ""
+}

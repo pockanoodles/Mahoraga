@@ -4,10 +4,18 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 DEFAULT_ROOT = Path.home() / ".mahoraga-v2" / "agentbench"
+
+_HASH_SUFFIX = re.compile(r"-[0-9a-f]{8}$")
+
+
+def bench_root() -> Path:
+    """Where benches live: $MAHORAGA_AGENTBENCH_ROOT, else ~/.mahoraga-v2/agentbench."""
+    return Path(os.environ.get("MAHORAGA_AGENTBENCH_ROOT", DEFAULT_ROOT))
 
 
 @dataclass
@@ -37,20 +45,42 @@ class SuiteConfig:
 
 @dataclass
 class Bench:
-    """Paths for one benchmarked repo. `root` is overridable for tests."""
+    """Paths for one benchmarked repo. `root` is overridable for tests.
 
-    repo: Path
+    A bench found on disk (`from_dir`) has no repo to hash its directory from,
+    so it keeps the directory it was found in, and its repo is None."""
+
+    repo: Path | None
     root: Path = field(default=DEFAULT_ROOT)
+    found_at: Path | None = field(default=None, repr=False)
 
     def __post_init__(self) -> None:
+        if self.found_at is not None:
+            self.found_at = Path(self.found_at)
+            self.root = self.found_at.parent
+            return
         self.repo = Path(self.repo).resolve()
         self.root = Path(os.environ.get("MAHORAGA_AGENTBENCH_ROOT", self.root))
 
+    @classmethod
+    def from_dir(cls, path: str | Path) -> Bench:
+        """A bench already on disk, found by its directory. The directory name
+        hashes the repo's path, which can't be run backwards. Where the repo was
+        is in the run manifests (manifest.py), if the bench has been run."""
+        return cls(repo=None, found_at=Path(path))
+
     @property
     def dir(self) -> Path:
+        if self.found_at is not None:
+            return self.found_at
         # Name for humans, hash so two checkouts called "app" don't collide.
         digest = hashlib.sha1(str(self.repo).encode()).hexdigest()[:8]
         return self.root / f"{self.repo.name}-{digest}"
+
+    @property
+    def name(self) -> str:
+        """The repo's name for people: the directory name without its hash."""
+        return _HASH_SUFFIX.sub("", self.dir.name)
 
     @property
     def tasks_path(self) -> Path:
@@ -83,7 +113,7 @@ class Bench:
     def load_config(self) -> SuiteConfig:
         if not self.config_path.exists():
             raise FileNotFoundError(
-                f"no bench for {self.repo} — run `orch agentbench mine` first")
+                f"no bench for {self.repo or self.name} — run `mahoraga audit mine` first")
         return SuiteConfig(**json.loads(self.config_path.read_text()))
 
     def save_config(self, config: SuiteConfig) -> None:
@@ -99,3 +129,13 @@ class Bench:
     def save_tasks(self, tasks: list[Task]) -> None:
         self.dir.mkdir(parents=True, exist_ok=True)
         self.tasks_path.write_text("".join(t.to_json() + "\n" for t in tasks))
+
+
+def find_benches(root: Path | None = None) -> list[Bench]:
+    """Every bench under `root`: a directory holding a config.json or a tasks.jsonl.
+    Anything else in there (agent-home, a log) is not a bench. In name order."""
+    root = bench_root() if root is None else Path(root)
+    if not root.is_dir():
+        return []
+    return [Bench.from_dir(d) for d in sorted(root.iterdir())
+            if d.is_dir() and ((d / "config.json").is_file() or (d / "tasks.jsonl").is_file())]

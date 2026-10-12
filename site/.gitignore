@@ -1,0 +1,11 @@
+node_modules
+.next
+out
+dist
+.wrangler
+next-env.d.ts
+*.tsbuildinfo
+# Copied from ../brand and ../docs/site by scripts/prepare.mjs on every build
+generated/
+public/brand/
+public/favicon.svg

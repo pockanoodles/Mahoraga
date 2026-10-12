@@ -2,7 +2,9 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import path from "node:path";
 
-const BACKEND = "http://127.0.0.1:8000";
+// The engine. In development the app runs on :5173 and every API call is
+// proxied here; in production the engine serves the built app itself.
+const ENGINE = process.env.MAHORAGA_ENGINE ?? "http://127.0.0.1:8000";
 
 export default defineConfig({
   plugins: [react()],
@@ -11,18 +13,15 @@ export default defineConfig({
   },
   server: {
     port: 5173,
+    // brand/tokens.css lives one level up, shared with the landing page.
+    fs: { allow: [".."] },
     proxy: {
-      "/chat": { target: BACKEND, changeOrigin: true },
-      "/api": { target: BACKEND, changeOrigin: true },
-      "/logs": { target: BACKEND, changeOrigin: true },
-      "/missions": { target: BACKEND, changeOrigin: true },
-      "/runs": { target: BACKEND, changeOrigin: true },
-      "/settings": { target: BACKEND, changeOrigin: true },
+      "/api": { target: ENGINE, changeOrigin: true },
     },
   },
   build: {
     outDir: "dist",
     emptyOutDir: true,
-    sourcemap: true,
+    sourcemap: false,
   },
 });

@@ -1,35 +1,44 @@
-import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
-import Shell from "./components/shell/Shell";
-import ErrorBoundary from "./components/shell/ErrorBoundary";
-import PerformancePage from "./pages/Performance";
-import ObservatoryPage from "./pages/Observatory";
-import PulsePage from "./pages/Pulse";
-import ActivityPage from "./pages/Activity";
-import ChatPage from "./pages/Chat";
-import AgentsPage from "./pages/Agents";
-import RoutingPage from "./pages/Routing";
-
-// Wraps every page so a render-time throw can't white-screen the whole app.
-function Boundary({ children }: { children: React.ReactNode }) {
-  return <ErrorBoundary>{children}</ErrorBoundary>;
-}
+import { BrowserRouter, Link, Route, Routes } from "react-router-dom";
+import { EngineProvider } from "@/lib/engine";
+import { AppShell } from "@/components/shell/AppShell";
+import ArmsPage from "@/pages/Arms";
+import RepositoriesPage from "@/pages/Repositories";
+import RepositoryPage from "@/pages/Repository";
+import RouterPage from "@/pages/Router";
+import { RunPage, RunsPage } from "@/pages/Runs";
+import SettingsPage from "@/pages/Settings";
+import VerdictPage from "@/pages/Verdict";
 
 export default function App() {
   return (
-    <BrowserRouter>
-      <Routes>
-        <Route element={<Shell />}>
-          <Route index element={<Navigate to="/performance" replace />} />
-          <Route path="/performance" element={<Boundary><PerformancePage /></Boundary>} />
-          <Route path="/observatory" element={<Boundary><ObservatoryPage /></Boundary>} />
-          <Route path="/pulse" element={<Boundary><PulsePage /></Boundary>} />
-          <Route path="/activity" element={<Boundary><ActivityPage /></Boundary>} />
-          <Route path="/chat" element={<Boundary><ChatPage /></Boundary>} />
-          <Route path="/agents" element={<Boundary><AgentsPage /></Boundary>} />
-          <Route path="/routing" element={<Boundary><RoutingPage /></Boundary>} />
-          <Route path="*" element={<Navigate to="/performance" replace />} />
-        </Route>
-      </Routes>
-    </BrowserRouter>
+    <EngineProvider>
+      <BrowserRouter>
+        <Routes>
+          <Route element={<AppShell />}>
+            <Route index element={<VerdictPage />} />
+            <Route path="repositories" element={<RepositoriesPage />} />
+            <Route path="repositories/:id" element={<RepositoryPage />} />
+            <Route path="runs" element={<RunsPage />} />
+            <Route path="runs/:id" element={<RunPage />} />
+            <Route path="arms" element={<ArmsPage />} />
+            <Route path="router" element={<RouterPage />} />
+            <Route path="settings" element={<SettingsPage />} />
+            <Route
+              path="*"
+              element={
+                <main className="page">
+                  <h1 className="large-title">Nothing here</h1>
+                  <p className="prose">
+                    <Link className="link" to="/">
+                      Back to the verdict
+                    </Link>
+                  </p>
+                </main>
+              }
+            />
+          </Route>
+        </Routes>
+      </BrowserRouter>
+    </EngineProvider>
   );
 }

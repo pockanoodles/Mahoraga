@@ -180,6 +180,9 @@ class Store:
 
     @classmethod
     async def connect(cls, db_path: Path | str = DEFAULT_DB_PATH) -> Store:
+        # sqlite will not create ~/.mahoraga-v2, and a fresh install has none.
+        if str(db_path) != ":memory:":
+            Path(db_path).parent.mkdir(parents=True, exist_ok=True)
         conn = await aiosqlite.connect(db_path)
         conn.row_factory = aiosqlite.Row
         await migrate(conn)

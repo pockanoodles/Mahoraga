@@ -1,0 +1,26 @@
+{
+  "name": "mahoraga-site",
+  "version": "2.1.0",
+  "private": true,
+  "scripts": {
+    "prepare-assets": "node scripts/prepare.mjs",
+    "dev": "npm run prepare-assets && next dev",
+    "build": "npm run prepare-assets && next build && node scripts/nest.mjs",
+    "typecheck": "npm run prepare-assets && tsc --noEmit",
+    "preview": "npm run build && wrangler dev --port 3222",
+    "verify": "node scripts/verify.mjs"
+  },
+  "dependencies": {
+    "next": "15.5.21",
+    "react": "19.1.0",
+    "react-dom": "19.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "playwright": "1.62.1",
+    "typescript": "^5",
+    "wrangler": "^4.119.0"
+  }
+}

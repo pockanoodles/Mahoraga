@@ -1,14 +1,14 @@
 """
-`orch agentbench` — benchmark coding agents on a repo's own history.
+`mahoraga audit` (also `orch agentbench`): benchmark coding agents on a repo's own history.
 
 Subcommands
 -----------
 
-  orch agentbench mine [REPO]                  — turn commits into gated tasks
-  orch agentbench preflight [REPO] --arm ...   — is this machine fit to run?
-  orch agentbench run [REPO] --arm aider:qwen3.5:latest [--cond blind|feedback|both]
+  mahoraga audit mine [REPO]                  — turn commits into gated tasks
+  mahoraga audit preflight [REPO] --arm ...   — is this machine fit to run?
+  mahoraga audit run [REPO] --arm aider:qwen3.5:latest [--cond blind|feedback|both]
                              [--repeats K] [--until HH:MM] [--wait-idle MIN]
-  orch agentbench report [REPO] [--json]
+  mahoraga audit report [REPO] [--json]
 
 REPO defaults to the current directory and must be a git repo with a pytest
 suite. State lives under ~/.mahoraga-v2/agentbench/; REPO is only read.
@@ -136,7 +136,7 @@ def preflight_cmd(
     agents = _agents(arms)
     ok = _print_checks(Guard(bench_root(), ratio=ratio).preflight(agents))
     n = len(Bench(repo).load_tasks())
-    typer.echo(f"  {'ok  ' if n else 'FAIL'}  {'tasks':24} {n or 'none — run `orch agentbench mine`'}")
+    typer.echo(f"  {'ok  ' if n else 'FAIL'}  {'tasks':24} {n or 'none — run `mahoraga audit mine`'}")
     raise typer.Exit(0 if ok and n else 1)
 
 
@@ -187,7 +187,7 @@ def run_cmd(
     deadline = parse_until(until) if until else None
     bench = Bench(repo)
     if not bench.load_tasks():
-        typer.echo("no tasks — run `orch agentbench mine` first")
+        typer.echo("no tasks — run `mahoraga audit mine` first")
         raise typer.Exit(1)
 
     guard = None

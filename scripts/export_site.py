@@ -24,9 +24,7 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
-import tomllib
 from dataclasses import asdict
-from importlib.metadata import version as installed_version
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -138,8 +136,11 @@ def _git(root: Path, *args: str) -> str:
 
 
 def _version(root: Path) -> str:
-    project = tomllib.loads((root / "pyproject.toml").read_text())["project"]
-    return project.get("version") or installed_version("mahoraga")  # a dynamic version
+    """The release number from the one file that holds it (pyproject.toml reads
+    it dynamically), so the export can't name a version the package doesn't."""
+    ns: dict = {}
+    exec((root / "backend" / "orchestrator" / "__version__.py").read_text(), ns)
+    return ns["__version__"]
 
 
 def build_site(root: Path = ROOT, commit: str | None = None) -> dict:

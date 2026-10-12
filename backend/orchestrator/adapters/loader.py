@@ -27,7 +27,27 @@ from ..workers.ollama import OllamaWorker
 
 logger = logging.getLogger(__name__)
 
-_DEFAULT_CONFIG = Path(__file__).parents[3] / "agents.yaml"
+# Where the roster comes from, first match wins:
+#   $MAHORAGA_AGENTS_YAML        a bench run's own roster, or any override
+#   ~/.mahoraga-v2/agents.yaml   an installed user's own roster
+#   <checkout>/agents.yaml       a source checkout's tracked roster
+#   default_agents.yaml          the roster an install ships with (local arms on,
+#                                every cloud and CLI arm off)
+# Without the last one, a pip or Homebrew install found no roster at all and the
+# router started with zero arms.
+_CHECKOUT_CONFIG = Path(__file__).parents[3] / "agents.yaml"
+_PACKAGED_CONFIG = Path(__file__).with_name("default_agents.yaml")
+
+
+def agents_yaml() -> Path:
+    """The roster file the engine reads, by the order above."""
+    env = os.environ.get("MAHORAGA_AGENTS_YAML")
+    if env:
+        return Path(env)
+    for candidate in (Path.home() / ".mahoraga-v2" / "agents.yaml", _CHECKOUT_CONFIG):
+        if candidate.exists():
+            return candidate
+    return _PACKAGED_CONFIG
 
 
 def _caps(mapping: dict[str, float]) -> list[AgentCapability]:
@@ -42,15 +62,14 @@ def load_agent_pool(
     """Parse agents.yaml and return (workers, adapters) ready to register.
 
     Args:
-        config_path: Path to agents.yaml. Defaults to $MAHORAGA_AGENTS_YAML,
-            then the project root. The env var lets a bench run serve its own
-            roster (e.g. bench-only arms enabled) without editing the tracked
-            file.
+        config_path: Path to agents.yaml. Defaults to `agents_yaml()`. The
+            env var it honours lets a bench run serve its own roster (e.g.
+            bench-only arms enabled) without editing the tracked file.
         workdir: CWD passed to file-writing CLI workers (codex, aider).
         ollama_url_override: Overrides the base_url in the yaml (e.g. from
             MahoragaConfig or OLLAMA_BASE_URL env var).
     """
-    path = Path(config_path or os.environ.get("MAHORAGA_AGENTS_YAML") or _DEFAULT_CONFIG)
+    path = Path(config_path) if config_path else agents_yaml()
     if not path.exists():
         logger.warning("agents.yaml not found at %s — no agents loaded from config", path)
         return [], []

@@ -60,9 +60,18 @@ def machine() -> dict[str, Any]:
 
 
 def harness() -> dict[str, Any]:
-    head = _out("git", "rev-parse", "HEAD", cwd=HARNESS_ROOT)
-    dirty = _out("git", "status", "--porcelain", "--untracked-files=no", cwd=HARNESS_ROOT)
-    return {"commit": head, "dirty": bool(dirty) and not dirty.startswith("error")}
+    """Which Mahoraga measured this. The package version always; the commit
+    only from a source checkout. An installed package sits in site-packages,
+    where `git rev-parse` either fails or, when the virtualenv lives inside some
+    other repository, names that repository's commit instead of ours."""
+    from backend.orchestrator.version import package_version
+
+    out: dict[str, Any] = {"version": package_version(), "commit": None, "dirty": None}
+    if (HARNESS_ROOT / ".git").exists():
+        head = _out("git", "rev-parse", "HEAD", cwd=HARNESS_ROOT)
+        dirty = _out("git", "status", "--porcelain", "--untracked-files=no", cwd=HARNESS_ROOT)
+        out.update(commit=head, dirty=bool(dirty) and not dirty.startswith("error"))
+    return out
 
 
 def agent_versions(agents: Iterable[Agent]) -> dict[str, str]:

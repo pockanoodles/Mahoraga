@@ -2,7 +2,6 @@
 `version` and `serve --headless`."""
 from __future__ import annotations
 
-import importlib.metadata
 import os
 import re
 import tomllib
@@ -68,10 +67,12 @@ def test_both_names_run_the_same_command(tmp_path, monkeypatch):
     assert not (tmp_path / "state").exists()  # reading a bench that isn't there makes nothing
 
 
-def test_version_prints_the_installed_version_and_nothing_else():
+def test_version_prints_the_package_version_and_nothing_else():
+    from backend.orchestrator.__version__ import __version__
+
     out = _run("version")
     assert out.exit_code == 0
-    assert out.output == importlib.metadata.version("mahoraga") + "\n"
+    assert out.output == __version__ + "\n"
 
 
 def test_both_console_scripts_start_the_same_app():

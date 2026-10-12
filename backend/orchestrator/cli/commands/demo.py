@@ -25,6 +25,7 @@ from backend.orchestrator import demo as demo_data
 
 def demo(
     port: int = typer.Option(8000, "--port", "-p", help="Bind port"),
+    host: str = typer.Option("127.0.0.1", "--host", help="Bind host (0.0.0.0 inside a container)"),
     headless: bool = typer.Option(False, "--headless", help="API only: mount no UI"),
 ) -> None:
     """Explore Mahoraga on a recorded run (18 real commits, two local models), not on your data."""
@@ -53,4 +54,4 @@ def demo(
     # makes every path resolve under the scratch home.
     sys.stdout.flush()
     os.execve(sys.executable, [sys.executable, "-m", "uvicorn", "backend.orchestrator.service.app:app",
-                               "--host", "127.0.0.1", "--port", str(port)], env)
+                               "--host", host, "--port", str(port)], env)

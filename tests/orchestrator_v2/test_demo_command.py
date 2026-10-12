@@ -93,3 +93,10 @@ def test_demo_does_not_empty_a_home_it_did_not_make(served, tmp_path):
     result = CliRunner().invoke(app, ["demo"])
     assert result.exit_code == 1 and "not a Mahoraga demo home" in result.output
     assert served == [] and (other / "notes.txt").read_text() == "keep"
+
+
+def test_demo_binds_where_it_is_told(served):
+    result = CliRunner().invoke(app, ["demo", "--host", "0.0.0.0"])
+    assert result.exit_code == 0, result.output
+    argv = served[0]["argv"]
+    assert argv[argv.index("--host") + 1] == "0.0.0.0"

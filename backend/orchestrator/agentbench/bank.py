@@ -113,7 +113,7 @@ class Bench:
     def load_config(self) -> SuiteConfig:
         if not self.config_path.exists():
             raise FileNotFoundError(
-                f"no bench for {self.repo or self.name} — run `orch agentbench mine` first")
+                f"no bench for {self.repo or self.name} — run `mahoraga audit mine` first")
         return SuiteConfig(**json.loads(self.config_path.read_text()))
 
     def save_config(self, config: SuiteConfig) -> None:

@@ -27,7 +27,8 @@ export const CHANNELS: Channel[] = [
     id: "docker",
     name: "Docker",
     platforms: { en: "Ollama on the host", ja: "Ollama はホスト側" },
-    cmd: `docker run --rm -p 8000:8000 ${IMAGE}`,
+    // 127.0.0.1 only: the server has no login, so it must not face the network.
+    cmd: `docker run --rm -p 127.0.0.1:8000:8000 ${IMAGE}`,
     live: false,
   },
   {

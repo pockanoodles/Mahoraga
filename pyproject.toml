@@ -82,3 +82,5 @@ exclude = ["*.tests", "*.tests.*"]
 # produced by scripts/build_ui.sh and is not committed.
 "backend.orchestrator.service" = ["ui/**/*"]
 "backend.orchestrator.demo" = ["data/**/*"]
+# The roster an install starts with (adapters/loader.py agents_yaml()).
+"backend.orchestrator.adapters" = ["default_agents.yaml"]

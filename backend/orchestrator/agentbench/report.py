@@ -128,7 +128,7 @@ def render(tasks: list[Task], attempts: list[Attempt],
     summaries = summarise(tasks, attempts)
     note = degraded_note(degraded or [])
     if not summaries:
-        return "\n".join(filter(None, ["no attempts yet — run `orch agentbench run`", note]))
+        return "\n".join(filter(None, ["no attempts yet — run `mahoraga audit run`", note]))
     lines = [f"{'arm':34} {'cond':9} {'resolved':>10} {'rate [95% CI, by task]':>23} "
              f"{'multi-file':>10} {'broke code':>10} {'median':>7}"]
     for s in summaries:

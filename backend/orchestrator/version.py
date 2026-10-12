@@ -1,16 +1,15 @@
-"""The package version, as the installed distribution says it.
+"""The package version.
 
-pyproject.toml is the one place a version is written. Reading it back from the
-install's metadata means `mahoraga version` and /api/engine report what pip
-actually installed, and can't drift from it.
+backend/orchestrator/__version__.py is the one place a release number is
+written, and pyproject.toml reads it at build time, so a wheel, an sdist and a
+source checkout all report the same string. Reading the module rather than the
+install's metadata also means the answer doesn't depend on what the
+distribution is called on PyPI (mahoraga-audit).
 """
 from __future__ import annotations
 
-from importlib.metadata import PackageNotFoundError, version
+from backend.orchestrator.__version__ import __version__
 
 
 def package_version() -> str:
-    try:
-        return version("mahoraga")
-    except PackageNotFoundError:  # run from a source tree that was never installed
-        return "unknown"
+    return __version__

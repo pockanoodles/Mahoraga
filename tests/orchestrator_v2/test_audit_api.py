@@ -9,7 +9,8 @@ against the engine's own functions on the same data, not against constants.
 """
 from __future__ import annotations
 
-import importlib.metadata
+
+from backend.orchestrator.__version__ import __version__
 import json
 import os
 import platform
@@ -305,7 +306,7 @@ def test_engine_says_what_it_is_and_where_it_runs(api, root):
     assert set(body) == {"name", "version", "api", "headless", "ui", "demo", "bench_root",
                          "data_dir", "python", "platform", "ollama"}
     assert body["name"] == "mahoraga" and body["api"] == 1
-    assert body["version"] == importlib.metadata.version("mahoraga")
+    assert body["version"] == __version__
     assert body["bench_root"] == str(root.path)
     assert body["data_dir"] == str(Path.home() / ".mahoraga-v2")
     assert body["python"] == platform.python_version()
@@ -314,16 +315,12 @@ def test_engine_says_what_it_is_and_where_it_runs(api, root):
     assert body["ollama"] == {"url": ollama.BASE_URL, "up": True, "version": "0.12.5"}
 
 
-def test_the_version_is_what_the_install_says_and_unknown_without_one(monkeypatch):
+def test_the_version_is_the_one_the_package_declares():
+    """One source (backend/orchestrator/__version__.py), whatever the
+    distribution is called on PyPI and whether or not it is installed."""
     from backend.orchestrator import version
 
-    assert version.package_version() == importlib.metadata.version("mahoraga")
-
-    def not_installed(name):
-        raise importlib.metadata.PackageNotFoundError(name)
-
-    monkeypatch.setattr(version, "version", not_installed)
-    assert version.package_version() == "unknown"
+    assert version.package_version() == __version__
 
 
 def test_engine_reports_demo_and_headless_from_the_environment(api, monkeypatch):

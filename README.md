@@ -1,7 +1,7 @@
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="brand/mark-dark.svg">
-    <img src="brand/mark-light.svg" width="72" height="72" alt="">
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/pockanoodles/Mahoraga/main/brand/mark-dark.svg">
+    <img src="https://raw.githubusercontent.com/pockanoodles/Mahoraga/main/brand/mark-light.svg" width="72" height="72" alt="">
   </picture>
 </p>
 
@@ -15,10 +15,10 @@ stay on the cloud, split the work, or switch.
 
 <p align="center">
   <a href="https://kaitosoeno.com/mahoraga/">kaitosoeno.com/mahoraga</a> ·
-  <a href="#install">Install</a> ·
-  <a href="docs/RESULTS.md">Results</a> ·
-  <a href="DATAFLOW.md">Data flow</a> ·
-  <a href="CONTRIBUTING.md">Contributing</a>
+  <a href="https://github.com/pockanoodles/Mahoraga#install">Install</a> ·
+  <a href="https://github.com/pockanoodles/Mahoraga/blob/main/docs/RESULTS.md">Results</a> ·
+  <a href="https://github.com/pockanoodles/Mahoraga/blob/main/DATAFLOW.md">Data flow</a> ·
+  <a href="https://github.com/pockanoodles/Mahoraga/blob/main/CONTRIBUTING.md">Contributing</a>
 </p>
 
 [![CI](https://github.com/pockanoodles/Mahoraga/actions/workflows/ci.yml/badge.svg)](https://github.com/pockanoodles/Mahoraga/actions/workflows/ci.yml)
@@ -26,8 +26,8 @@ stay on the cloud, split the work, or switch.
 ![License: MIT](https://img.shields.io/badge/license-MIT-green)
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/app/verdict-dark.png">
-  <img src="docs/assets/app/verdict-light.png" alt="The Mahoraga app showing the verdict for the published probe">
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/pockanoodles/Mahoraga/main/docs/assets/app/verdict-dark.png">
+  <img src="https://raw.githubusercontent.com/pockanoodles/Mahoraga/main/docs/assets/app/verdict-light.png" alt="The Mahoraga app showing the verdict for the published probe">
 </picture>
 
 ## What it does
@@ -63,11 +63,14 @@ The command you run is `mahoraga`.
 | uv | `uv tool install mahoraga-audit` | with the first release |
 | pipx | `pipx install mahoraga-audit` | with the first release |
 | pip | `pip install mahoraga-audit` | with the first release |
-| Docker | `docker run --rm -p 8000:8000 ghcr.io/pockanoodles/mahoraga` | with the first release |
+| Docker | `docker run --rm -p 127.0.0.1:8000:8000 ghcr.io/pockanoodles/mahoraga` | with the first release |
 | From source | `uv tool install git+https://github.com/pockanoodles/Mahoraga` | CLI and API, no prebuilt app |
 
-Mahoraga needs Python 3.12 or newer, [Ollama](https://ollama.com), and a C++ toolchain for
-`hnswlib`. It runs on macOS and Linux, and it was built on a 16 GB Mac.
+Mahoraga needs Python 3.12 or newer, [Ollama](https://ollama.com), and a C++ toolchain,
+since pip, pipx and uv compile `hnswlib` from source. It runs on macOS and Linux, and it
+was built on a 16 GB Mac. The Docker image serves the engine and the app while Ollama and
+your agents stay on the host (the Dockerfile's header has the full command, including the
+volume that keeps your results).
 
 ## Quick start
 

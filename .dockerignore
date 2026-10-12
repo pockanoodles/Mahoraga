@@ -1,0 +1,22 @@
+# The image is built from an allow-list: nothing reaches the build unless it is
+# named here. That keeps .env files, git history, local bench data and the
+# working notes out of every layer, and the build context small.
+*
+
+!pyproject.toml
+!README.md
+!LICENSE
+!backend
+!brand
+!frontend
+!scripts/build_ui.sh
+
+# Inside the allowed directories, never copy host build output. The image
+# builds its own UI and compiles its own dependencies.
+**/__pycache__
+**/*.pyc
+frontend/node_modules
+frontend/dist
+frontend/public/brand
+frontend/public/favicon.svg
+backend/orchestrator/service/ui

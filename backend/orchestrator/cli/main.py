@@ -20,6 +20,7 @@ from .commands.analyze import app as analyze_app
 from .commands import ops
 from .commands.service import app as service_app
 from .commands.agentbench import app as agentbench_app
+from .commands.demo import demo
 
 app = typer.Typer(
     name="orch",
@@ -69,6 +70,7 @@ app.command("status")(ops.status)
 app.command("events")(ops.events)
 app.command("approve")(ops.approve)
 app.command("reject")(ops.reject)
+app.command("demo")(demo)
 
 
 def main() -> None:

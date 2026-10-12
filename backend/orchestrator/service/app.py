@@ -10,13 +10,12 @@ load_dotenv()
 from typing import Annotated
 
 from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException
-from fastapi.responses import HTMLResponse, StreamingResponse
-from fastapi.staticfiles import StaticFiles
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, field_validator
 
 from ..adaptive.store import AdaptiveStore
 from ..channels.base import ChannelMessage
-from ..channels.web import _STATIC_DIR
 from ..domain.models import Mission, Plan, Run, RunMode, RunStatus, TaskStatus
 from ..domain.transitions import IllegalTransition
 from ..gateway import Gateway
@@ -32,6 +31,7 @@ from ..workers.claude import ClaudeWorker
 from ..workers.registry import WorkerRegistry
 from ..adapters.registry import AdapterRegistry
 from .approvals import grant_approval, reject_approval
+from . import ui
 from .executor import run_task as _run_task, pop_task_metrics
 from .run_executor import run_run as _run_run
 from ..planning.planner import generate_tasks, PlannerError
@@ -329,6 +329,15 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Orchestrator v2", lifespan=lifespan)
 
+# The Vite dev server (the UI under `npm run dev`) calls the engine cross-origin.
+# Nothing else may: the built UI is served from the engine's own origin.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 # ── web chat routes ───────────────────────────────────────────────────────────
 
 
@@ -367,23 +376,6 @@ class _EvalFinishRequest(BaseModel):
     run_id: int
 
 
-# Resolve the React SPA dist directory: repo_root/frontend/dist.
-# _STATIC_DIR already points at repo_root/static, so its parent is repo_root.
-_FRONTEND_DIST = _STATIC_DIR.parent / "frontend" / "dist"
-
-
-@app.get("/", response_class=HTMLResponse)
-async def serve_index() -> HTMLResponse:
-    # Prefer the built React SPA; fall back to the legacy static shell.
-    dist_index = _FRONTEND_DIST / "index.html"
-    if dist_index.exists():
-        return HTMLResponse(content=dist_index.read_text())
-    index_path = _STATIC_DIR / "index.html"
-    if not index_path.exists():
-        return HTMLResponse(content="<html><body><h1>Mahoraga</h1></body></html>")
-    return HTMLResponse(content=index_path.read_text())
-
-
 @app.post("/chat")
 async def chat(request: _ChatRequest, gateway: GatewayDep) -> StreamingResponse:
     msg = ChannelMessage.new(
@@ -409,16 +401,6 @@ async def chat(request: _ChatRequest, gateway: GatewayDep) -> StreamingResponse:
         yield f"data: {_json.dumps('[DONE]')}\n\n"
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
-
-
-# Mount static files if the static directory exists (legacy UI).
-if _STATIC_DIR.exists():
-    app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
-
-# Mount the React SPA's hashed asset bundle when a production build is present.
-_DIST_ASSETS = _FRONTEND_DIST / "assets"
-if _DIST_ASSETS.exists():
-    app.mount("/assets", StaticFiles(directory=str(_DIST_ASSETS)), name="frontend-assets")
 
 
 # ── request / response models ─────────────────────────────────────────────────
@@ -2188,28 +2170,7 @@ async def run_batch(
     }
 
 
-# ── SPA catch-all ──────────────────────────────────────────────────────────
-# Registered last so every other route wins first. Any path that isn't an
-# API endpoint, static asset, or streaming endpoint falls through here and
-# gets the React shell — so `/observatory`, `/chat`, etc. survive hard reload.
-# The SPA catch-all only runs for GETs that no earlier route matched. Since
-# `/chat` is POST-only, a GET `/chat` reaches this handler — and we want it
-# to serve the SPA so the React route loads on hard-reload. Only namespace
-# prefixes that are exclusively API / static belong in this exclude list.
-_SPA_EXCLUDE_PREFIXES = (
-    "api/", "assets/", "static/", "logs/", "missions/",
-    "runs/", "settings/", "approvals/", "batch/", "tasks/",
-)
-
-
-@app.get("/{full_path:path}", response_class=HTMLResponse)
-async def spa_catch_all(full_path: str) -> HTMLResponse:
-    if any(full_path.startswith(p) for p in _SPA_EXCLUDE_PREFIXES):
-        raise HTTPException(status_code=404, detail="not found")
-    dist_index = _FRONTEND_DIST / "index.html"
-    if dist_index.exists():
-        return HTMLResponse(content=dist_index.read_text())
-    index_path = _STATIC_DIR / "index.html"
-    if index_path.exists():
-        return HTMLResponse(content=index_path.read_text())
-    raise HTTPException(status_code=404, detail="SPA not built")
+# ── UI ───────────────────────────────────────────────────────────────────────
+# Last, because the UI's catch-all must come after every other route. Headless
+# (MAHORAGA_HEADLESS=1) installs no UI at all.
+ui.install(app)

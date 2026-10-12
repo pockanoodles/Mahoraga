@@ -5,7 +5,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { api, EngineError } from "@/lib/api";
-import { minutes, pct, plural, rateText, usd } from "@/lib/format";
+import { intervalText, minutes, pct, plural, usd } from "@/lib/format";
 import type { Assumptions, BenchSummary, Billing, Plan, Verdict as V } from "@/lib/types";
 import { useResource } from "@/lib/useResource";
 import { VerdictChart } from "@/components/data/VerdictChart";
@@ -48,7 +48,9 @@ function loadSaved(): Partial<Inputs> {
   }
 }
 
-/** Every (arm, cond) that has attempts somewhere, most-attempted first. */
+/** Every (arm, cond) that has attempts somewhere. Ordered by how much was
+ *  measured, never by how well it did: picking the best of several noisy
+ *  measurements and reporting it would overstate it (audit/evidence.py). */
 function evidenceChoices(benches: BenchSummary[]) {
   const seen = new Map<string, { arm: string; cond: string; benches: number }>();
   for (const b of benches) {
@@ -61,7 +63,10 @@ function evidenceChoices(benches: BenchSummary[]) {
         seen.set(k, e);
       }
   }
-  return [...seen.values()].sort((a, b) => b.benches - a.benches || a.arm.localeCompare(b.arm));
+  // feedback first among equals: it is the CLI's default, since a real queue can run tests.
+  return [...seen.values()].sort(
+    (a, b) => b.benches - a.benches || a.arm.localeCompare(b.arm) || (a.cond === "feedback" ? -1 : b.cond === "feedback" ? 1 : 0),
+  );
 }
 
 export default function VerdictPage() {
@@ -73,7 +78,9 @@ export default function VerdictPage() {
   useEffect(() => {
     if (inputs || !choices.length) return;
     const saved = loadSaved();
-    const valid = choices.find((c) => c.arm === saved.arm && c.cond === saved.cond) ?? choices[0];
+    const q = new URLSearchParams(window.location.search);
+    const asked = choices.find((c) => c.arm === q.get("arm") && c.cond === q.get("cond"));
+    const valid = asked ?? choices.find((c) => c.arm === saved.arm && c.cond === saved.cond) ?? choices[0];
     setInputs({
       ...DEFAULTS,
       ...saved,
@@ -281,12 +288,12 @@ function VerdictBody({ v, error }: { v: V; error?: EngineError }) {
       <p className="verdict-reason">{v.reason}</p>
       <VerdictChart rate={r} breakeven={v.breakeven} breakevenNote={note} />
       <div className="facts">
-        <Stat label="Measured" value={rateText(r)} note="resolve rate, 95% interval" />
+        <Stat label="Measured" value={pct(r.point)} note={`${intervalText(r)}, 95% interval`} />
         <Stat label="Tasks" value={r.tasks} note={plural(r.attempts, "attempt")} />
         <Stat label="Per attempt" value={minutes(v.evidence.minutes_per_attempt)} note="median" />
         {v.monthly_usd ? (
           <Stat
-            label="Net per month"
+            label="Saving per month"
             value={usd(v.monthly_usd.point)}
             note={`${usd(v.monthly_usd.lo)} to ${usd(v.monthly_usd.hi)}`}
           />

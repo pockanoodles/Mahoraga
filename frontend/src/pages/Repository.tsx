@@ -5,7 +5,6 @@ import { Link, useParams } from "react-router-dom";
 import { ChevronLeft } from "lucide-react";
 import { api } from "@/lib/api";
 import { count, date, duration, minutes, pct, plural, rateText, shortSha } from "@/lib/format";
-import { outcomeInfo } from "@/lib/outcomes";
 import type { ArmSummary, BenchDetail, Task } from "@/lib/types";
 import { useResource } from "@/lib/useResource";
 import { IntervalBar } from "@/components/data/IntervalBar";
@@ -242,7 +241,7 @@ function Matrix({ b }: { b: BenchDetail }) {
                 Resolved
               </th>
               {b.arms.map((a) => (
-                <td key={`${a.arm}/${a.cond}`} className="matrix__cell num">
+                <td key={`${a.arm}/${a.cond}`} className="matrix__cell matrix__total">
                   {pct(a.rate.point)}
                 </td>
               ))}
@@ -250,20 +249,11 @@ function Matrix({ b }: { b: BenchDetail }) {
           </tfoot>
         </table>
       </div>
-      <p className="note">
-        {Object.entries(b.arms[0]?.outcomes ?? {}).length > 0 &&
-          `Most common failure for ${b.arms[0].arm} / ${b.arms[0].cond}: ${commonest(b.arms[0])}.`}
-      </p>
+
     </Section>
   );
 }
 
-function commonest(a: ArmSummary): string {
-  const fails = Object.entries(a.outcomes).filter(([k]) => k !== "resolved");
-  if (!fails.length) return "none";
-  const [k, n] = fails.sort((x, y) => y[1] - x[1])[0];
-  return `${outcomeInfo(k).label.toLowerCase()}, ${n} of ${a.n} attempts`;
-}
 
 /** Column heads have to fit a glyph column: model and condition only. */
 function shortArm(col: string, i: number): string {

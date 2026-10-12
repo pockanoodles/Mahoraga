@@ -22,7 +22,7 @@ export function IntervalBar({ rate, width = 132, breakeven }: { rate: Rate; widt
     >
       <svg width={width} height={16} viewBox={`0 0 ${width} 16`} role="img" aria-label={label} className="ibar" tabIndex={0}>
         <line x1={pad} x2={pad + w} y1={8} y2={8} stroke="var(--mh-line-strong)" strokeWidth="1" />
-        <rect x={x(rate.lo)} y={4} width={Math.max(2, x(rate.hi) - x(rate.lo))} height={8} rx={4} fill="var(--mh-accent-band)" />
+        <rect x={x(rate.lo)} y={4} width={Math.max(2, x(rate.hi) - x(rate.lo))} height={8} rx={4} fill="var(--mh-accent)" fillOpacity={0.16} stroke="var(--mh-accent)" strokeOpacity={0.7} strokeWidth={1} />
         {breakeven != null && breakeven <= 1 && (
           <line x1={x(breakeven)} x2={x(breakeven)} y1={1} y2={15} stroke="var(--mh-ink)" strokeWidth="2" />
         )}

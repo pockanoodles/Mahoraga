@@ -2,12 +2,15 @@
 import { Link } from "react-router-dom";
 import { ChevronRight } from "lucide-react";
 import { api } from "@/lib/api";
+import { useEngine } from "@/lib/engine";
 import { count, relative } from "@/lib/format";
 import { useResource } from "@/lib/useResource";
 import { Empty, ErrorNote, Mono, PageHeader } from "@/components/ui/layout";
 
 export default function RepositoriesPage() {
   const r = useResource("benches", api.benches, { refreshMs: 15_000 });
+  // A demo bench was just copied into place, so its file times say nothing about the probe.
+  const { engine } = useEngine();
   const benches = r.data?.benches ?? [];
   return (
     <main className="page">
@@ -66,7 +69,7 @@ export default function RepositoriesPage() {
                       <span className="faint">Not run yet</span>
                     )}
                   </td>
-                  <td>{relative(b.last_activity)}</td>
+                  <td>{engine?.demo ? <span className="faint">recorded run</span> : relative(b.last_activity)}</td>
                   <td className="row-link__chev">
                     <ChevronRight size={16} aria-hidden />
                   </td>

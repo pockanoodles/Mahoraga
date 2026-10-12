@@ -55,7 +55,11 @@ export function VerdictChart({ rate, breakeven, breakevenNote }: { rate: Rate; b
             width={Math.max(TRACK_H, x(hi) - x(lo))}
             height={TRACK_H}
             rx={TRACK_H / 2}
-            fill="var(--mh-accent-band)"
+            fill="var(--mh-accent)"
+            fillOpacity={0.14}
+            stroke="var(--mh-accent)"
+            strokeOpacity={0.75}
+            strokeWidth={1.5}
           />
           {/* break-even */}
           {showBe && (

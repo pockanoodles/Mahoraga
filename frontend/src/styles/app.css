@@ -573,7 +573,7 @@ code,
   text-align: right;
 }
 
-.num,
+.numfield,
 .select select {
   height: var(--mh-control-compact);
   border-radius: 8px;
@@ -582,13 +582,13 @@ code,
   transition: box-shadow var(--mh-dur-micro) var(--mh-ease);
 }
 
-.num {
+.numfield {
   display: flex;
   align-items: center;
   padding: 0 var(--mh-s-3);
 }
 
-.num:focus-within,
+.numfield:focus-within,
 .select select:focus-visible {
   outline: none;
   box-shadow:
@@ -596,7 +596,7 @@ code,
     0 0 0 3px var(--mh-accent-wash);
 }
 
-.num__input {
+.numfield__input {
   flex: 1;
   min-width: 0;
   height: 100%;
@@ -607,17 +607,17 @@ code,
   outline: none;
 }
 
-.num__unit {
+.numfield__unit {
   font-size: 13px;
   color: var(--mh-faint);
   white-space: nowrap;
 }
 
-.num__unit:first-child {
+.numfield__unit:first-child {
   margin-right: 4px;
 }
 
-.num__unit:last-child {
+.numfield__unit:last-child {
   margin-left: 6px;
 }
 
@@ -958,6 +958,10 @@ code,
   white-space: nowrap;
 }
 
+.matrix__total {
+  font-variant-numeric: tabular-nums;
+}
+
 .outcome-cell {
   display: inline-flex;
   align-items: center;
@@ -1274,11 +1278,29 @@ code,
 }
 
 .demo-banner {
+  display: flex;
+  align-items: baseline;
+  gap: var(--mh-s-2);
   padding: 10px var(--mh-s-6);
   border-bottom: 1px solid var(--mh-line);
-  background: var(--mh-accent-wash);
+  background: var(--mh-surface);
   font-size: 13px;
+  color: var(--mh-muted);
+}
+
+.demo-banner::before {
+  content: "";
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--mh-accent);
+  transform: translateY(-1px);
+}
+
+.demo-banner strong {
   color: var(--mh-ink);
+  font-weight: 600;
 }
 
 .offline {

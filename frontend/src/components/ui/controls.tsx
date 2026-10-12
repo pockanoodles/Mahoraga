@@ -119,11 +119,11 @@ export function NumberInput({
     setText(String(clamped));
   };
   return (
-    <div className="num">
-      {prefix && <span className="num__unit">{prefix}</span>}
+    <div className="numfield">
+      {prefix && <span className="numfield__unit">{prefix}</span>}
       <input
         id={id}
-        className="num__input"
+        className="numfield__input"
         inputMode="decimal"
         value={text}
         onChange={(e) => {
@@ -142,7 +142,7 @@ export function NumberInput({
           }
         }}
       />
-      {suffix && <span className="num__unit">{suffix}</span>}
+      {suffix && <span className="numfield__unit">{suffix}</span>}
     </div>
   );
 }

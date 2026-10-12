@@ -1,19 +1,84 @@
 [build-system]
-requires = ["setuptools>=68"]
+# 77+ for the SPDX `license` string and `license-files` below.
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "mahoraga"
-version = "2.0.0-dev"
+dynamic = ["version"]
+description = "Is local coding AI worth it for your code? Measure it, then route it."
+readme = "README.md"
 requires-python = ">=3.12"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Kaito Soeno" }]
+keywords = [
+    "llm",
+    "coding-agents",
+    "ollama",
+    "aider",
+    "local-llm",
+    "benchmark",
+    "evaluation",
+    "audit",
+    "cost",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Framework :: FastAPI",
+    "Intended Audience :: Developers",
+    "Operating System :: MacOS",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Software Development :: Quality Assurance",
+    "Topic :: Software Development :: Testing",
+]
+# Kept in step with requirements.txt (the test suite checks that they agree).
+dependencies = [
+    "fastapi>=0.115.5",
+    "uvicorn==0.44.0",
+    "httpx==0.27.2",
+    "aiosqlite==0.20.0",
+    "anthropic>=0.40.0",
+    "typer>=0.12",
+    "python-dotenv>=1.0.0",
+    "mcp==1.27.0",
+    "hnswlib>=0.8.0",
+    "pyyaml>=6.0",
+    "psutil>=5.9",
+    "numpy>=1.26",
+]
+
+[project.optional-dependencies]
+# Embedding-based routing memory (requirements-semantic.txt).
+semantic = ["sentence-transformers>=2.2.0"]
+# What CI installs on top of the runtime dependencies.
+dev = ["pytest==8.3.3", "pytest-asyncio==0.24.0"]
+
+[project.urls]
+Homepage = "https://kaitosoeno.com/mahoraga"
+Source = "https://github.com/pockanoodles/Mahoraga"
+Issues = "https://github.com/pockanoodles/Mahoraga/issues"
 
 [project.scripts]
 mahoraga = "backend.orchestrator.cli.main:main"
 orch = "backend.orchestrator.cli.main:main"
 
+[tool.setuptools.dynamic]
+version = { attr = "backend.orchestrator.__version__.__version__" }
+
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["backend*", "benchmark*"]
+include = ["backend*"]
+exclude = ["*.tests", "*.tests.*"]
 
 [tool.setuptools.package-data]
 "backend.orchestrator.audit" = ["*.json"]
+# The built web app and the demo bench ship inside the package. The UI is
+# produced by scripts/build_ui.sh and is not committed.
+"backend.orchestrator.service" = ["ui/**/*"]
+"backend.orchestrator.demo" = ["data/**/*"]

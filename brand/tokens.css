@@ -1,0 +1,150 @@
+/*
+ * Mahoraga brand tokens: the one source of truth for the app (frontend/) and the
+ * landing page (kaitosoeno.com/mahoraga, which copies this file with
+ * scripts/sync-mahoraga.mjs). Change a value here, then rebuild both.
+ *
+ * Colour was derived, not picked (ui-master decision protocol §1):
+ *   accent  sampled from the amber-on-black of the terminal look Kaito recorded as
+ *           Mahoraga's palette, pulled toward terracotta so it reads as "local,
+ *           on your machine" against the cool neutrals of everything else.
+ *           Chroma held at 0.15 so it reads as ink, not neon.
+ *   neutrals one lightness sequence with a trace of the accent's hue (chroma
+ *           ≤0.008), so greys sit with the amber instead of fighting it.
+ * Every text pair below clears 4.5:1 (checked with scratch/oklch.py, numbers in
+ * BRAND.md).
+ *
+ * Spacing is ui-master Design 03 ("Studio"): one ladder, outer gaps at least 3×
+ * inner gaps, one gutter shared by everything pinned to the frame.
+ */
+
+:root {
+  color-scheme: light;
+
+  /* Neutrals, light: L 0.99 / 0.97 / 1.0 / 0.915 / 0.85 / 0.555 / 0.44 / 0.19 */
+  --mh-bg: #fcfcfa;
+  --mh-stage: #fcfcfa;
+  --mh-surface: #f6f5f3;
+  --mh-raised: #ffffff;
+  --mh-line: #e4e3e0;
+  --mh-line-strong: #cfcdca;
+  --mh-faint: #76726e;
+  --mh-muted: #55524e;
+  --mh-ink: #161311;
+
+  /* The accent means "local": the share of work your machine can take, the
+     verdict word, and focus. Nothing else. */
+  --mh-accent: #bf5504; /* oklch(0.575 0.155 48) */
+  --mh-accent-text: #ae4800; /* small text on light: 5.6:1 */
+  --mh-accent-wash: rgb(191 85 4 / 0.1);
+  --mh-accent-band: rgb(191 85 4 / 0.22);
+  --mh-on-accent: #ffffff;
+
+  /* Errors only (engine unreachable, a request failed). Never decoration. */
+  --mh-danger: #c9302d;
+
+  --mh-hover: rgb(22 19 17 / 0.05);
+  --mh-selected: rgb(22 19 17 / 0.07);
+  --mh-frost: rgb(252 252 250 / 0.78);
+}
+
+/* Dark: L 0 / 0.145 / 0.185 / 0.225 / 0.27 / 0.35 / 0.63 / 0.76 / 0.965 */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --mh-bg: #0b0a09;
+    --mh-stage: #000000;
+    --mh-surface: #141211;
+    --mh-raised: #1d1b19;
+    --mh-line: #282624;
+    --mh-line-strong: #3d3a37;
+    --mh-faint: #8c8884;
+    --mh-muted: #b4b0ac;
+    --mh-ink: #f5f3f0;
+    --mh-accent: #f79643; /* oklch(0.76 0.15 58) */
+    --mh-accent-text: #f79643;
+    --mh-accent-wash: rgb(247 150 67 / 0.12);
+    --mh-accent-band: rgb(247 150 67 / 0.26);
+    --mh-on-accent: #1a0d02;
+    --mh-danger: #f2716a;
+    --mh-hover: rgb(245 243 240 / 0.06);
+    --mh-selected: rgb(245 243 240 / 0.09);
+    --mh-frost: rgb(0 0 0 / 0.72);
+  }
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --mh-bg: #0b0a09;
+  --mh-stage: #000000;
+  --mh-surface: #141211;
+  --mh-raised: #1d1b19;
+  --mh-line: #282624;
+  --mh-line-strong: #3d3a37;
+  --mh-faint: #8c8884;
+  --mh-muted: #b4b0ac;
+  --mh-ink: #f5f3f0;
+  --mh-accent: #f79643;
+  --mh-accent-text: #f79643;
+  --mh-accent-wash: rgb(247 150 67 / 0.12);
+  --mh-accent-band: rgb(247 150 67 / 0.26);
+  --mh-on-accent: #1a0d02;
+  --mh-danger: #f2716a;
+  --mh-hover: rgb(245 243 240 / 0.06);
+  --mh-selected: rgb(245 243 240 / 0.09);
+  --mh-frost: rgb(0 0 0 / 0.72);
+}
+
+:root {
+  /* Two voices. Geist is everything that is read; Geist Mono is anything a
+     machine would print (commands, SHAs, model tags, tabular figures). */
+  --mh-font-sans: "Geist", "Geist Variable", -apple-system, BlinkMacSystemFont,
+    "Helvetica Neue", Arial, sans-serif;
+  --mh-font-mono: "Geist Mono", "Geist Mono Variable", ui-monospace, "SF Mono",
+    Menlo, monospace;
+
+  /* The ladder (Design 03). Nothing off it. */
+  --mh-s-1: 4px;
+  --mh-s-2: 8px;
+  --mh-s-3: 12px;
+  --mh-s-4: 16px;
+  --mh-s-5: 24px;
+  --mh-s-6: 40px;
+  --mh-s-7: 56px;
+  --mh-s-8: 64px;
+  --mh-s-9: 80px;
+  --mh-s-10: 96px;
+  --mh-s-11: 112px;
+  --mh-s-12: 128px;
+
+  /* Every element pinned to the frame shares this gutter. */
+  --mh-gutter: 16px;
+  --mh-header: 56px;
+
+  /* Measures. */
+  --mh-measure-statement: 42rem;
+  --mh-measure-lede: 36rem;
+  --mh-measure-section: 64rem;
+  --mh-measure-page: 72rem;
+  --mh-measure-narrow: 28rem;
+
+  /* Shape: pills for controls, soft rectangles for panels, nothing nested. */
+  --mh-radius-pill: 9999px;
+  --mh-radius-panel: 18px;
+  --mh-radius-control: 10px;
+  --mh-radius-small: 6px;
+  --mh-control: 48px;
+  --mh-control-compact: 32px;
+
+  /* Motion. One curve for everything that arrives. */
+  --mh-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --mh-ease-inout: cubic-bezier(0.65, 0, 0.35, 1);
+  --mh-dur-micro: 160ms;
+  --mh-dur-ui: 240ms;
+  --mh-dur-enter: 700ms;
+}
+
+@media (min-width: 640px) {
+  :root {
+    --mh-gutter: 32px;
+  }
+}

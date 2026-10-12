@@ -30,7 +30,7 @@ import typer
 
 from backend.orchestrator.agentbench import manifest
 from backend.orchestrator.agentbench.agents import kill_live_agents, parse_arm
-from backend.orchestrator.agentbench.bank import DEFAULT_ROOT, Bench, SuiteConfig
+from backend.orchestrator.agentbench.bank import Bench, SuiteConfig, bench_root
 from backend.orchestrator.agentbench.guard import Guard
 from backend.orchestrator.agentbench.mine import find_candidates, layout_pytest_args, mine
 from backend.orchestrator.agentbench.report import degraded_note, outcome, render, summarise
@@ -55,10 +55,6 @@ def _agents(arms: list[str]):
         return [parse_arm(a) for a in arms]
     except ValueError as e:
         raise typer.BadParameter(str(e))
-
-
-def _root() -> Path:
-    return Path(os.environ.get("MAHORAGA_AGENTBENCH_ROOT", DEFAULT_ROOT))
 
 
 def parse_until(hhmm: str, now: datetime | None = None) -> float:
@@ -138,7 +134,7 @@ def preflight_cmd(
 ) -> None:
     """Check this machine can produce valid results: charger, agent, models, speed."""
     agents = _agents(arms)
-    ok = _print_checks(Guard(_root(), ratio=ratio).preflight(agents))
+    ok = _print_checks(Guard(bench_root(), ratio=ratio).preflight(agents))
     n = len(Bench(repo).load_tasks())
     typer.echo(f"  {'ok  ' if n else 'FAIL'}  {'tasks':24} {n or 'none — run `orch agentbench mine`'}")
     raise typer.Exit(0 if ok and n else 1)
@@ -159,7 +155,7 @@ def doctor_cmd(
     agents = _agents(arms)
     bench = Bench(repo)
     typer.echo("machine")
-    machine_ok = _print_checks(Guard(_root(), ratio=ratio).preflight(agents))
+    machine_ok = _print_checks(Guard(bench_root(), ratio=ratio).preflight(agents))
     typer.echo("bench")
     bench_ok = _print_checks(bench_checks(bench))
     if bench.load_tasks():
@@ -196,7 +192,7 @@ def run_cmd(
 
     guard = None
     if guarded:
-        guard = Guard(_root(), ratio=ratio, wait_idle=wait_idle * 60, log=typer.echo)
+        guard = Guard(bench_root(), ratio=ratio, wait_idle=wait_idle * 60, log=typer.echo)
         typer.echo("preflight")
         if not _print_checks(guard.preflight(agents)) and not force:
             typer.echo("preflight failed; fix the above or pass --force")

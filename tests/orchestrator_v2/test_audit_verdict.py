@@ -10,7 +10,7 @@ import pytest
 from backend.orchestrator.agentbench.stats import Rate, task_rate
 from backend.orchestrator.audit import pricing
 from backend.orchestrator.audit.verdict import (
-    SPLIT, STAY, SWITCH, Assumptions, Billing, Evidence, breakeven_rate, decide, render,
+    SPLIT, STAY, SWITCH, Assumptions, Billing, Evidence, breakeven_rate, decide, render, usd,
 )
 
 
@@ -82,6 +82,17 @@ def test_an_interval_spanning_the_threshold_is_not_a_confident_call():
     assert not v.confident
     lo, mid, hi = v.monthly_usd
     assert lo < mid < hi
+
+
+def test_a_losing_net_reads_as_minus_dollars_not_dollar_minus():
+    # 5 of 18 at $5 a cloud task: the point loses money, the top of the interval wins.
+    v = decide(ev(5, tasks=18), A, Billing.api(1000))
+    assert (v.call, v.confident) == (STAY, False) and v.monthly_usd[1] < 0
+    assert f"(~{usd(v.monthly_usd[1])}/mo)" in v.reason and "$-" not in v.reason
+    # A split that isn't safe to rely on: the point pays, the low end of the interval loses.
+    v = decide(ev(3, tasks=6), A, Billing.api(1500))
+    assert (v.call, v.confident) == (SPLIT, False) and v.monthly_usd[0] < 0
+    assert f"reaches {usd(v.monthly_usd[0])}/mo" in v.reason and "$-" not in v.reason
 
 
 def test_break_even_rate_matches_the_formula():

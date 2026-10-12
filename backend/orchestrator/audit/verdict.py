@@ -170,12 +170,12 @@ def _decide_api(ev: Evidence, a: Assumptions, b: Billing) -> Verdict:
                        f"share to local saves ≥ ${lo:.0f}/mo at {per}.", ev, a, b, (lo, mid, hi), sens)
     if mid >= material:
         return Verdict(SPLIT, False, f"Likely saves ~${mid:.0f}/mo at {per}, but the interval "
-                       f"reaches ${lo:.0f}/mo — measure more before relying on it.",
+                       f"reaches {usd(lo)}/mo — measure more before relying on it.",
                        ev, a, b, (lo, mid, hi), sens)
     if hi < material:
         return Verdict(STAY, True, f"You're not wasting money: even at the optimistic end, local "
                        f"saves under ${material:.0f}/mo at {per}.", ev, a, b, (lo, mid, hi), sens)
-    return Verdict(STAY, False, f"Not yet worth it at the measured rate (~${mid:.0f}/mo), "
+    return Verdict(STAY, False, f"Not yet worth it at the measured rate (~{usd(mid)}/mo), "
                    f"though the optimistic end reaches ${hi:.0f}/mo.", ev, a, b, (lo, mid, hi), sens)
 
 

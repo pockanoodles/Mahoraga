@@ -42,15 +42,19 @@ jobs:
     # The job above runs from a source checkout. This one builds what users
     # install, with the web UI inside the wheel, and runs it from a clean
     # virtualenv, so a packaging mistake fails here and not after a tag.
+    # 3.12 is what the image and CI use; 3.14 is what Homebrew installs.
     runs-on: ubuntu-latest
     permissions:
       contents: read
+    strategy:
+      matrix:
+        python-version: ["3.12", "3.14"]
     steps:
       - uses: actions/checkout@v7
 
       - uses: actions/setup-python@v7
         with:
-          python-version: "3.12"
+          python-version: ${{ matrix.python-version }}
 
       - uses: actions/setup-node@v7
         with:

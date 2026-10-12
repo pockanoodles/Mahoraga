@@ -3,6 +3,11 @@ venv/
 __pycache__/
 *.pyc
 *.egg-info/
+# Build outputs: the wheel and sdist, and the web UI that scripts/build_ui.sh
+# copies into the package (it is built, never committed).
+/dist/
+/build/
+backend/orchestrator/service/ui/
 .pytest_cache/
 *.db
 .env

@@ -34,6 +34,9 @@ experiments/*
 !experiments/agent_edit/tasks.jsonl
 experiments/agent_edit/results/*.log
 experiments/agent_edit/results/*.chat.md
+# The demo bench `mahoraga demo` serves, built from that probe by
+# scripts/build_demo_data.py: its tasks file ships with the package.
+!backend/orchestrator/demo/data/**/tasks.jsonl
 .claude/
 
 # Local AI-call context / build scaffolding — never pushed

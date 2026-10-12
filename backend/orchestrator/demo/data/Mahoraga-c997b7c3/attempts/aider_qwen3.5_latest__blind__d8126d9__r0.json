@@ -1,0 +1,31 @@
+{
+ "sha": "d8126d9",
+ "arm": "aider:qwen3.5:latest",
+ "cond": "blind",
+ "resolved": false,
+ "f2p_pass": 0,
+ "f2p_total": 1,
+ "regressions": 1,
+ "regression_ids": [
+  "tests.orchestrator_v2.test_gateway::test_gateway_observe_fires_on_run_task_exception"
+ ],
+ "suite_crashed": false,
+ "edited_files": [
+  "backend/orchestrator/gateway.py"
+ ],
+ "touched_tests": [],
+ "hit_gold_file": true,
+ "secs": 429.3,
+ "timed_out": false,
+ "llm_calls": 3,
+ "tokens_sent": 34700.0,
+ "tokens_recv": 4075.0,
+ "extra": {
+  "edit_errors": 0
+ },
+ "rep": 0,
+ "degraded": [],
+ "conditions": {},
+ "tier": "test-verified",
+ "run_id": ""
+}

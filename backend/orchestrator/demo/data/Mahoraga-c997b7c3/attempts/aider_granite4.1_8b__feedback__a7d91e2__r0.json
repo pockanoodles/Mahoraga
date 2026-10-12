@@ -1,0 +1,27 @@
+{
+ "sha": "a7d91e2",
+ "arm": "aider:granite4.1:8b",
+ "cond": "feedback",
+ "resolved": false,
+ "f2p_pass": 0,
+ "f2p_total": 2,
+ "regressions": 0,
+ "regression_ids": [],
+ "suite_crashed": false,
+ "edited_files": [],
+ "touched_tests": [],
+ "hit_gold_file": false,
+ "secs": 1200.0,
+ "timed_out": true,
+ "llm_calls": 3,
+ "tokens_sent": 46700.0,
+ "tokens_recv": 3500.0,
+ "extra": {
+  "edit_errors": 8
+ },
+ "rep": 0,
+ "degraded": [],
+ "conditions": {},
+ "tier": "test-verified",
+ "run_id": ""
+}

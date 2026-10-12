@@ -1,0 +1,29 @@
+{
+ "sha": "54f8b08",
+ "arm": "aider:granite4.1:8b",
+ "cond": "feedback",
+ "resolved": true,
+ "f2p_pass": 2,
+ "f2p_total": 2,
+ "regressions": 0,
+ "regression_ids": [],
+ "suite_crashed": false,
+ "edited_files": [
+  "backend/orchestrator/workers/postprocess.py"
+ ],
+ "touched_tests": [],
+ "hit_gold_file": true,
+ "secs": 376.5,
+ "timed_out": false,
+ "llm_calls": 4,
+ "tokens_sent": 25400.0,
+ "tokens_recv": 1788.0,
+ "extra": {
+  "edit_errors": 2
+ },
+ "rep": 0,
+ "degraded": [],
+ "conditions": {},
+ "tier": "test-verified",
+ "run_id": ""
+}

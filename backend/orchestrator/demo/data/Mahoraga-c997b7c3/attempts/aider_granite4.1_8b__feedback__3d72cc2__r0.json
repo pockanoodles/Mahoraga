@@ -1,0 +1,29 @@
+{
+ "sha": "3d72cc2",
+ "arm": "aider:granite4.1:8b",
+ "cond": "feedback",
+ "resolved": false,
+ "f2p_pass": 0,
+ "f2p_total": 2,
+ "regressions": 0,
+ "regression_ids": [],
+ "suite_crashed": false,
+ "edited_files": [
+  "backend/orchestrator/routing/code_judge.py"
+ ],
+ "touched_tests": [],
+ "hit_gold_file": true,
+ "secs": 522.3,
+ "timed_out": false,
+ "llm_calls": 4,
+ "tokens_sent": 45200.0,
+ "tokens_recv": 1221.0,
+ "extra": {
+  "edit_errors": 9
+ },
+ "rep": 0,
+ "degraded": [],
+ "conditions": {},
+ "tier": "test-verified",
+ "run_id": ""
+}

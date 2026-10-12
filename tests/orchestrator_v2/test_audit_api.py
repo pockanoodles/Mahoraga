@@ -171,7 +171,8 @@ def _fake_ollama(monkeypatch, *, up: bool = True) -> list[float]:
         timeouts.append(timeout)
         if not up:
             raise httpx.ConnectError("refused")
-        return {"qwen3.5:latest": "sha256:aaa", "granite4.1:8b": "sha256:bbb"}
+        return {"qwen3.5:latest": "sha256:aaa", "granite4.1:8b": "sha256:bbb",
+                "agentbench/qwen3.5:latest-num_ctx32768": "sha256:ccc"}  # a tag the bench derived
 
     monkeypatch.setattr(ollama, "version", version)
     monkeypatch.setattr(ollama, "pulled_models", pulled)
@@ -277,6 +278,17 @@ def test_the_version_probe_fails_loudly_when_ollama_is_not_what_answered(monkeyp
         200, text="<html>not ollama</html>", request=httpx.Request("GET", url)))
     with pytest.raises(ValueError):
         ollama.version("http://x")
+
+
+def test_a_derived_tag_is_recognised_by_the_name_derive_gives_it(monkeypatch):
+    class Everything(dict):
+        def __contains__(self, name):  # as if Ollama already has the tag, so nothing is created
+            return True
+
+    monkeypatch.setattr(ollama, "pulled_models", lambda base_url=None, timeout=10: Everything())
+    name = ollama.derive("qwen3.5:latest", {"num_ctx": 32768})
+    assert ollama.is_derived(name) and name == "agentbench/qwen3.5:latest-num_ctx32768"
+    assert not ollama.is_derived("qwen3.5:latest") and not ollama.is_derived("library/agentbench")
 
 
 def test_the_model_list_takes_a_timeout_too(monkeypatch):
@@ -678,7 +690,7 @@ def test_an_arm_names_its_agent_and_model_whatever_its_context(api, root):
     assert (row["agent"], row["model"]) == ("opencode", "gpt-oss:20b")
 
 
-def test_models_are_what_ollama_has_pulled_and_none_when_it_is_down(api, monkeypatch):
+def test_models_are_what_ollama_has_pulled_not_the_tags_the_bench_derived(api, monkeypatch):
     assert _arms(api)["models"] == [{"name": "granite4.1:8b", "digest": "sha256:bbb"},
                                     {"name": "qwen3.5:latest", "digest": "sha256:aaa"}]
     timeouts = _fake_ollama(monkeypatch, up=False)

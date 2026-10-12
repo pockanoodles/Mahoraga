@@ -332,7 +332,8 @@ def arms() -> dict[str, Any]:
         })
     try:
         models = [{"name": name, "digest": digest} for name, digest in
-                  sorted(ollama.pulled_models(timeout=PROBE_TIMEOUT).items())]
+                  sorted(ollama.pulled_models(timeout=PROBE_TIMEOUT).items())
+                  if not ollama.is_derived(name)]  # the bench's own tags aren't models to choose
     except Exception:  # noqa: BLE001 — stopped, slow, or not Ollama: no models to list
         models = []
     return {

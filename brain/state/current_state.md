@@ -1,6 +1,23 @@
-# Current State — 2026-10-02
+# Current State — 2026-10-12
 
-## Read this first — 2026-10-02 (latest): Mahoraga is a local-vs-cloud audit of your own code
+## Read this first — 2026-10-12 (latest): the launch build is done locally, nothing is published
+
+Branch `feat/app-ui` (local, not pushed) holds the launch on top of main: the audit HTTP
+API, `mahoraga` CLI names, the rebuilt app, `brand/`, the demo bench, `docs/site/site.json`,
+packaging for PyPI (`mahoraga-audit`), Homebrew, Docker and GHCR, `DATAFLOW.md`, a README
+that starts with the audit, and the landing page in `site/` for kaitosoeno.com/mahoraga.
+The suite was green at 2,024 passed (`.venv/bin/python -m pytest -m "not slow"`), and the
+site's Playwright sweep passes in both languages. Why it is shaped this way:
+`brain/decisions/2026-10-12-launch-shape.md`. What happened:
+`brain/journal/2026-10-12-launch-build.md`.
+
+What Kaito still decides or does: the PyPI name, pushing and the PRs, the PyPI trusted
+publisher, the `pockanoodles/homebrew-tap` repo, GHCR visibility, tag `v2.1.0`, then
+flipping `live` per channel and deploying the site Worker (`packaging/README.md`,
+`site/README.md`). The personal-website case study rewrite is on that repo's branch
+`content/mahoraga-audit`.
+
+## 2026-10-02: Mahoraga is a local-vs-cloud audit of your own code
 
 **Direction:** `brain/decisions/2026-10-02-local-audit-product.md`. The product
 question is *"is local coding AI worth it for my code, on my hardware, and what

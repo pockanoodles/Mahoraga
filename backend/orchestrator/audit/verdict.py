@@ -113,14 +113,6 @@ def _triage_cost(a: Assumptions) -> float:
     return a.triage_minutes / 60 * a.hourly_usd
 
 
-def breakeven_rate(ev: Evidence, a: Assumptions, cloud_per_task: float) -> float:
-    """The resolve rate p* at which a task routed to local nets zero, E(p*) = 0
-    in the formula above. Local pays above it. It exceeds 1 when a local attempt
-    costs more than the cloud task it replaces: then no rate pays."""
-    local, triage = _local_cost(ev, a), _triage_cost(a)
-    return (local + triage) / (cloud_per_task + triage)
-
-
 def decide(ev: Evidence, a: Assumptions, billing: Billing) -> Verdict:
     if ev.tier != TEST_VERIFIED:
         raise ValueError(f"v1 decides on test-verified evidence only, not {ev.tier!r}")
@@ -143,6 +135,16 @@ def decide(ev: Evidence, a: Assumptions, billing: Billing) -> Verdict:
         v = _decide_subscription(ev, a, billing)
     v.sensitivity.append(hw)
     return v
+
+
+def breakeven_rate(ev: Evidence, a: Assumptions, cloud_per_task: float) -> float:
+    """The resolve rate at which a queued task pays to go local: E(p) = 0 in the
+    module's formula, so p* = (local + triage) / (cloud + triage).
+
+    Above 1 when a cloud task costs less than a local attempt's electricity,
+    which reads as "no resolve rate pays". One formula in one place: the
+    verdict's sensitivity line, the API and the site export all call this."""
+    return (_local_cost(ev, a) + _triage_cost(a)) / (cloud_per_task + _triage_cost(a))
 
 
 def _decide_api(ev: Evidence, a: Assumptions, b: Billing) -> Verdict:

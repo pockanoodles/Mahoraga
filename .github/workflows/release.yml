@@ -4,15 +4,9 @@ name: Release
 # Releases and to ghcr.io. "Run workflow" on a branch runs the same build and
 # the same checks but publishes nothing, so the pipeline can be tried first.
 #
-# One-time setup, done by hand in the PyPI and GitHub web UIs:
-#   PyPI    pypi.org/manage/account/publishing -> add a pending publisher with
-#           the project name from pyproject.toml, owner pockanoodles, repository
-#           Mahoraga, workflow release.yml, environment pypi.
-#   GitHub  Settings -> Environments -> pypi. Add yourself as a required
-#           reviewer to get an approval prompt before each PyPI upload.
-#   GHCR    after the first image push, Packages -> mahoraga -> Package
-#           settings -> change visibility to Public.
-# The Homebrew tap is separate: packaging/homebrew/README.md.
+# The one-time setup (PyPI trusted publisher, the pypi environment, GHCR
+# visibility, the Homebrew tap) and the steps after a run are in
+# packaging/README.md.
 
 on:
   push:

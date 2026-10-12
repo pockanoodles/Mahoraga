@@ -14,9 +14,10 @@ import os
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
+import httpx
 import pytest
 
-from backend.orchestrator.agentbench import manifest
+from backend.orchestrator.agentbench import manifest, ollama
 from backend.orchestrator.agentbench.bank import (
     Bench, SuiteConfig, Task, bench_root, find_benches,
 )
@@ -169,3 +170,41 @@ def test_a_missing_root_has_no_benches_and_is_not_created(tmp_path, monkeypatch)
     monkeypatch.setenv("MAHORAGA_AGENTBENCH_ROOT", str(tmp_path / "nothing-here"))
     assert find_benches() == []
     assert not (tmp_path / "nothing-here").exists()
+
+
+# ── The Ollama probes ─────────────────────────────────────────────────────────
+
+
+def _ollama_says(monkeypatch, status: int = 200, **body):
+    """Stand in for Ollama's HTTP server; returns the (url, timeout) calls made."""
+    calls: list[tuple[str, float]] = []
+
+    def get(url, timeout=None, **_):
+        calls.append((url, timeout))
+        return httpx.Response(status, json=body, request=httpx.Request("GET", url))
+
+    monkeypatch.setattr(httpx, "get", get)
+    return calls
+
+
+def test_the_version_probe_asks_ollama_and_keeps_to_its_timeout(monkeypatch):
+    calls = _ollama_says(monkeypatch, version="0.12.5")
+    assert ollama.version("http://ollama:11434", timeout=1.5) == "0.12.5"
+    assert calls == [("http://ollama:11434/api/version", 1.5)]
+
+
+def test_the_version_probe_fails_loudly_when_ollama_is_not_what_answered(monkeypatch):
+    _ollama_says(monkeypatch, status=500)
+    with pytest.raises(httpx.HTTPStatusError):
+        ollama.version("http://x")
+    monkeypatch.setattr(httpx, "get", lambda url, timeout=None, **_: httpx.Response(
+        200, text="<html>not ollama</html>", request=httpx.Request("GET", url)))
+    with pytest.raises(ValueError):
+        ollama.version("http://x")
+
+
+def test_the_model_list_takes_a_timeout_too(monkeypatch):
+    calls = _ollama_says(monkeypatch, models=[{"name": "qwen3.5:latest", "digest": "sha256:aaa"}])
+    assert ollama.pulled_models("http://x", timeout=1.5) == {"qwen3.5:latest": "sha256:aaa"}
+    assert calls == [("http://x/api/tags", 1.5)]
+

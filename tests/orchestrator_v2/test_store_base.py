@@ -15,3 +15,10 @@ async def test_store_connect_twice_to_memory_gives_independent_stores():
     s2 = await Store.connect(":memory:")
     await s1.close()
     await s2.close()
+
+
+async def test_store_connect_creates_the_state_directory_on_a_fresh_machine(tmp_path):
+    db = tmp_path / "home" / ".mahoraga-v2" / "mahoraga.db"
+    s = await Store.connect(db)
+    await s.close()
+    assert db.is_file()

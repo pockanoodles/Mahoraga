@@ -1467,32 +1467,70 @@ html.js .reveal:not([data-shown]) {
   color: var(--mh-ink);
 }
 
-/* ── kaitosoeno.com's menu (identical to the site's own) ─────────────── */
+/* ── kaitosoeno.com's menu (the site's own, ported; see SiteMenu.tsx) ─── */
 
 .site-menu {
   position: fixed;
   bottom: calc(1.25 * var(--site-rem));
   left: 50%;
   z-index: 50;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
   transform: translateX(-50%);
   font-family: var(--font-geist), sans-serif;
+  line-height: 1.4; /* the site's body leading, so the drawer opens to the same height */
+}
+
+/* One surface, one border: the pill grows up and out into the drawer and the
+   button stays its bottom row. Width and height animate (a scale would stretch
+   the hairline and the type mid-flight). Radius is half the closed height. */
+.site-menu__surface {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  min-width: calc(7 * var(--site-rem) + 2px);
+  height: 46px;
+  overflow: hidden;
+  border: 1px solid #353535;
+  border-radius: 23px;
+  background: #000;
+  transition:
+    width 300ms cubic-bezier(0.62, 0.04, 0.06, 1),
+    height 300ms cubic-bezier(0.62, 0.04, 0.06, 1),
+    border-color 220ms cubic-bezier(0, 0, 0.2, 1);
+}
+
+.site-menu__surface:has(> .site-menu__button:hover) {
+  border-color: #8f8f8f;
 }
 
 .site-menu__drawer {
-  min-width: 13rem;
-  margin-bottom: calc(0.8 * var(--site-rem));
+  position: absolute;
+  bottom: 44px;
+  left: 50%;
+  width: calc(13 * var(--site-rem));
   padding: calc(0.8 * var(--site-rem));
-  border: 1px solid #353535;
-  background: #000;
+  transform: translateX(-50%);
+  opacity: 0;
+  visibility: hidden;
+  transition:
+    opacity 180ms cubic-bezier(0.4, 0, 1, 1),
+    visibility 0s linear 180ms;
+}
+
+/* Fades in once the surface has room for it, and out at once on close. */
+.site-menu__drawer[data-open] {
+  opacity: 1;
+  visibility: visible;
+  transition:
+    opacity 220ms cubic-bezier(0, 0, 0.2, 1) 80ms,
+    visibility 0s;
 }
 
 .site-menu__link {
   display: block;
   padding: calc(0.4 * var(--site-rem)) calc(0.8 * var(--site-rem));
   font-size: clamp(14px, calc(0.875 * var(--site-rem)), 16px);
+  text-align: center;
   color: #8f8f8f;
   transition: color 180ms cubic-bezier(0, 0, 0.2, 1);
 }
@@ -1503,35 +1541,44 @@ html.js .reveal:not([data-shown]) {
 
 .site-menu__button {
   display: flex;
+  flex: none;
   align-items: center;
   justify-content: center;
-  gap: calc(0.8 * var(--site-rem));
+  width: 100%;
   height: 44px;
-  min-width: 7rem;
-  padding: 0 calc(1.25 * var(--site-rem));
-  border: 1px solid #353535;
+  padding: 0;
+  border: 0;
   border-radius: 9999px;
-  background: #000;
+  background: transparent;
   color: #fff;
   font-size: clamp(12px, calc(0.75 * var(--site-rem)), calc(0.9 * var(--site-rem)));
   letter-spacing: 0.14em;
   text-transform: uppercase;
   cursor: pointer;
-  transition: border-color 180ms cubic-bezier(0, 0, 0.2, 1);
 }
 
-.site-menu__button:hover {
-  border-color: #8f8f8f;
+.site-menu__label {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: calc(0.8 * var(--site-rem));
+  min-width: calc(7 * var(--site-rem));
+  padding: 0 calc(1.25 * var(--site-rem));
 }
 
 .site-menu__glyph {
   color: #8f8f8f;
+  transition: transform 300ms cubic-bezier(0.62, 0.04, 0.06, 1);
 }
 
+.site-menu__glyph[data-open] {
+  transform: rotate(180deg);
+}
+
+/* The surface clips anything outside it, so focus rings are drawn inside. */
 .site-menu :focus-visible {
   outline: 2px solid var(--mh-accent);
-  outline-offset: 1px;
-  border-radius: 0;
+  outline-offset: -2px;
 }
 
 .site-menu__button:focus-visible {

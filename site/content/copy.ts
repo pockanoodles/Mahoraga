@@ -82,7 +82,7 @@ export interface Dict {
     results: string;
     language: string;
   };
-  menu: { menu: string; close: string; items: { href: string; label: string }[] };
+  menu: { menu: string; items: { href: string; label: string }[] };
 }
 
 const en: Dict = {
@@ -260,7 +260,6 @@ const en: Dict = {
   },
   menu: {
     menu: "Menu",
-    close: "Close",
     items: [
       { href: "/", label: "Contact" },
       { href: "/portfolio", label: "Portfolio" },
@@ -456,7 +455,6 @@ const ja: Dict = {
   },
   menu: {
     menu: "メニュー",
-    close: "閉じる",
     items: [
       { href: "/ja", label: "お問い合わせ" },
       { href: "/ja/portfolio", label: "作品" },

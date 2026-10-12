@@ -1,0 +1,29 @@
+{
+ "sha": "512b8e8",
+ "arm": "aider:granite4.1:8b",
+ "cond": "blind",
+ "resolved": false,
+ "f2p_pass": 0,
+ "f2p_total": 12,
+ "regressions": 0,
+ "regression_ids": [],
+ "suite_crashed": false,
+ "edited_files": [
+  "backend/orchestrator/cli/commands/repro.py"
+ ],
+ "touched_tests": [],
+ "hit_gold_file": false,
+ "secs": 1145.6,
+ "timed_out": false,
+ "llm_calls": 4,
+ "tokens_sent": 60200.0,
+ "tokens_recv": 4328.0,
+ "extra": {
+  "edit_errors": 15
+ },
+ "rep": 0,
+ "degraded": [],
+ "conditions": {},
+ "tier": "test-verified",
+ "run_id": ""
+}

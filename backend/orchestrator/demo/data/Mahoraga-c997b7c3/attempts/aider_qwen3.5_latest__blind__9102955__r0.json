@@ -1,0 +1,29 @@
+{
+ "sha": "9102955",
+ "arm": "aider:qwen3.5:latest",
+ "cond": "blind",
+ "resolved": true,
+ "f2p_pass": 1,
+ "f2p_total": 1,
+ "regressions": 0,
+ "regression_ids": [],
+ "suite_crashed": false,
+ "edited_files": [
+  "backend/orchestrator/cli/commands/bench_report.py"
+ ],
+ "touched_tests": [],
+ "hit_gold_file": true,
+ "secs": 373.9,
+ "timed_out": false,
+ "llm_calls": 2,
+ "tokens_sent": 44000.0,
+ "tokens_recv": 1450.0,
+ "extra": {
+  "edit_errors": 0
+ },
+ "rep": 0,
+ "degraded": [],
+ "conditions": {},
+ "tier": "test-verified",
+ "run_id": ""
+}

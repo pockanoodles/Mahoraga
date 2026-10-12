@@ -1,0 +1,27 @@
+{
+ "sha": "d8126d9",
+ "arm": "aider:qwen3.5:latest",
+ "cond": "feedback",
+ "resolved": false,
+ "f2p_pass": 0,
+ "f2p_total": 1,
+ "regressions": 0,
+ "regression_ids": [],
+ "suite_crashed": false,
+ "edited_files": [],
+ "touched_tests": [],
+ "hit_gold_file": false,
+ "secs": 82.6,
+ "timed_out": false,
+ "llm_calls": 1,
+ "tokens_sent": 8800.0,
+ "tokens_recv": 546.0,
+ "extra": {
+  "edit_errors": 0
+ },
+ "rep": 0,
+ "degraded": [],
+ "conditions": {},
+ "tier": "test-verified",
+ "run_id": ""
+}

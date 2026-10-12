@@ -1,0 +1,7 @@
+{
+ "python": "python3",
+ "pytest_args": [
+  "-m",
+  "not slow"
+ ]
+}

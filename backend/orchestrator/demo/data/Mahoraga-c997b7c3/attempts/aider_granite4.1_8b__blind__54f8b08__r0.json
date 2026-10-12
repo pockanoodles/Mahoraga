@@ -1,0 +1,32 @@
+{
+ "sha": "54f8b08",
+ "arm": "aider:granite4.1:8b",
+ "cond": "blind",
+ "resolved": false,
+ "f2p_pass": 0,
+ "f2p_total": 2,
+ "regressions": 2,
+ "regression_ids": [
+  "tests.orchestrator_v2.test_postprocess::test_extract_code_complete_fenced_block",
+  "tests.orchestrator_v2.test_postprocess::test_extract_code_first_of_multiple_blocks"
+ ],
+ "suite_crashed": false,
+ "edited_files": [
+  "backend/orchestrator/workers/postprocess.py"
+ ],
+ "touched_tests": [],
+ "hit_gold_file": true,
+ "secs": 201.3,
+ "timed_out": false,
+ "llm_calls": 3,
+ "tokens_sent": 17300.0,
+ "tokens_recv": 937.0,
+ "extra": {
+  "edit_errors": 2
+ },
+ "rep": 0,
+ "degraded": [],
+ "conditions": {},
+ "tier": "test-verified",
+ "run_id": ""
+}

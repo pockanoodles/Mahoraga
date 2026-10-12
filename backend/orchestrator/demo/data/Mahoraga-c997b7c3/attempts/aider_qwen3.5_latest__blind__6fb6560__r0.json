@@ -1,0 +1,30 @@
+{
+ "sha": "6fb6560",
+ "arm": "aider:qwen3.5:latest",
+ "cond": "blind",
+ "resolved": true,
+ "f2p_pass": 6,
+ "f2p_total": 6,
+ "regressions": 0,
+ "regression_ids": [],
+ "suite_crashed": false,
+ "edited_files": [
+  "backend/orchestrator/routing/bandit_router.py",
+  "backend/orchestrator/routing/warm_start.py"
+ ],
+ "touched_tests": [],
+ "hit_gold_file": true,
+ "secs": 368.8,
+ "timed_out": false,
+ "llm_calls": 2,
+ "tokens_sent": 35800.0,
+ "tokens_recv": 2787.0,
+ "extra": {
+  "edit_errors": 0
+ },
+ "rep": 0,
+ "degraded": [],
+ "conditions": {},
+ "tier": "test-verified",
+ "run_id": ""
+}

@@ -10,7 +10,7 @@ import pytest
 from backend.orchestrator.agentbench.stats import Rate, task_rate
 from backend.orchestrator.audit import pricing
 from backend.orchestrator.audit.verdict import (
-    SPLIT, STAY, SWITCH, Assumptions, Billing, Evidence, decide, render,
+    SPLIT, STAY, SWITCH, Assumptions, Billing, Evidence, breakeven_rate, decide, render, usd,
 )
 
 
@@ -84,6 +84,17 @@ def test_an_interval_spanning_the_threshold_is_not_a_confident_call():
     assert lo < mid < hi
 
 
+def test_a_losing_net_reads_as_minus_dollars_not_dollar_minus():
+    # 5 of 18 at $5 a cloud task: the point loses money, the top of the interval wins.
+    v = decide(ev(5, tasks=18), A, Billing.api(1000))
+    assert (v.call, v.confident) == (STAY, False) and v.monthly_usd[1] < 0
+    assert f"(~{usd(v.monthly_usd[1])}/mo)" in v.reason and "$-" not in v.reason
+    # A split that isn't safe to rely on: the point pays, the low end of the interval loses.
+    v = decide(ev(3, tasks=6), A, Billing.api(1500))
+    assert (v.call, v.confident) == (SPLIT, False) and v.monthly_usd[0] < 0
+    assert f"reaches {usd(v.monthly_usd[0])}/mo" in v.reason and "$-" not in v.reason
+
+
 def test_break_even_rate_matches_the_formula():
     a = Assumptions(tasks_per_month=100, deferrable_share=1.0, triage_minutes=6,
                     hourly_usd=60, watts=0, usd_per_kwh=0)
@@ -97,6 +108,23 @@ def test_net_is_zero_at_the_break_even_rate():
     exact = Evidence(Rate(0.6, 0.6, 0.6, 50, 50), 10, "test-verified", "x")
     v = decide(exact, a, Billing.api(400))
     assert v.monthly_usd == pytest.approx((0, 0, 0), abs=1e-9)
+
+
+def test_breakeven_rate_is_one_function_the_verdict_quotes():
+    a = Assumptions(tasks_per_month=100, deferrable_share=1.0, triage_minutes=6,
+                    hourly_usd=60, watts=0, usd_per_kwh=0)
+    assert breakeven_rate(ev(10), a, 4.0) == pytest.approx(0.6)  # (0 + 6) / (4 + 6)
+    # With a real power bill: 40 W for 10 min at $0.30/kWh is $0.002, triage $2.50.
+    e = ev(10, minutes=10)
+    assert breakeven_rate(e, A, 10.0) == pytest.approx((0.002 + 2.5) / (10 + 2.5))
+    # The verdict's sensitivity line reads the same number.
+    v = decide(e, A, Billing.api(2000))  # $10 a cloud task
+    assert f"≥ {breakeven_rate(e, A, 10.0):.0%}" in v.sensitivity[0]
+
+
+def test_nothing_pays_when_a_cloud_task_costs_less_than_the_electricity():
+    watts_hog = Assumptions(tasks_per_month=100, watts=4000, usd_per_kwh=1.0)  # $0.67 an attempt
+    assert breakeven_rate(ev(10, minutes=10), watts_hog, 0.10) > 1
 
 
 def test_switch_needs_both_a_high_floor_and_nearly_all_work_deferrable():

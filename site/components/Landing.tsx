@@ -43,43 +43,41 @@ export function Landing({ t, locale }: { t: Dict; locale: Locale }) {
     {
       value: metric(cascade, "routed_pass_at_1"),
       text: ja
-        ? `HumanEval+ でのローカル優先カスケードの pass@1 です。クラウドモデル単体のスコアの ${pct(keep, 1)} を保ちます。`
-        : `pass@1 on HumanEval+ from the local-first cascade, which keeps ${pct(keep, 1)} of the cloud model's own score.`,
+        ? `ローカル優先のカスケードによる HumanEval+ の pass@1。クラウド単体のスコアの ${pct(keep, 1)} です。`
+        : `pass@1 on HumanEval+ with the local-first cascade, ${pct(keep, 1)} of the cloud model's score.`,
       note: 1,
     },
     {
       value: `$${metric(cascade, "routed_cost_per_1k")}`,
       text: ja
-        ? `カスケードでの 1,000 タスクあたりの費用です。すべてをクラウドに送ると $${metric(cascade, "cloud_cost_per_1k")} かかるので、${pct(cascade.metrics.cost_reduction.value, 1)} 安くなります。`
-        : `per thousand tasks with the cascade, against $${metric(cascade, "cloud_cost_per_1k")} for sending every task to the cloud, which is ${pct(cascade.metrics.cost_reduction.value, 1)} less.`,
+        ? `カスケードでの 1,000 タスクあたりの費用。すべてクラウドなら $${metric(cascade, "cloud_cost_per_1k")} です。`
+        : `per thousand tasks with the cascade, against $${metric(cascade, "cloud_cost_per_1k")} all-cloud.`,
       note: 1,
     },
     {
       value: ja ? `${qwen.n} 件中 ${qwen.resolved} 件` : `${qwen.resolved} of ${qwen.n}`,
       text: ja
-        ? `Mahoraga の履歴にある実際のコミットのうち、aider と qwen3.5（9.7B）が ${data.probe.machine} の Mac で解決した数です。複数ファイルにまたがる ${qwen.multi_file_n} 件のうち ${qwen.multi_file_resolved} 件も含みます。`
-        : `real commits from Mahoraga's history resolved by aider and qwen3.5 (9.7B) on a ${data.probe.machine} Mac, including ${qwen.multi_file_resolved} of the ${qwen.multi_file_n} that touch more than one file.`,
+        ? `aider と qwen3.5（9.7B）が ${data.probe.machine} の Mac で解決した、実際のコミットの数です。`
+        : `real commits resolved by aider and qwen3.5 (9.7B) on a ${data.probe.machine} Mac.`,
       note: 2,
     },
     {
       value: ja ? `${qwen.median_minutes} 分` : `${qwen.median_minutes} min`,
-      text: ja
-        ? `その Mac での 1 試行あたりの中央値です。だから監査はエディタの中ではなく、夜のあいだに走らせます。`
-        : `median per attempt on that Mac, which is why the audit runs overnight instead of inside your editor.`,
+      text: ja ? `1 試行あたりの中央値。だから監査は夜のあいだに走らせます。` : `median per attempt, which is why the audit runs overnight.`,
       note: 2,
     },
     {
       value: ja ? `${granite.n} 件中 ${granite.resolved} 件` : `${granite.resolved} of ${granite.n}`,
       text: ja
-        ? `IBM の granite 4.1（8B）が一発で解決した数です。HumanEval+ では ${metric(cascade, "local_pass_at_1")} を出したローカルのアームでしたが、プロンプトに答えることとリポジトリを編集することは別の技能です。`
-        : `for IBM's granite 4.1 (8B) in one shot, although it was the local arm that scored ${metric(cascade, "local_pass_at_1")} on HumanEval+, because answering a prompt and editing a repository are different skills.`,
+        ? `granite 4.1（8B）の一発での解決数。プロンプトへの回答では最良でも、編集では最下位でした。`
+        : `for granite 4.1 (8B) in one shot, our best model at prompts and the worst at edits.`,
       note: 2,
     },
     {
       value: ja ? `±${half} ポイント` : `±${half} points`,
       text: ja
-        ? `${qwen.rate.tasks} タスクで残る区間の幅です。区間が数えるのは試行ではなくタスクなので、何度繰り返しても狭くなりません。`
-        : `is how wide ${qwen.rate.tasks} tasks leave the interval however often they rerun, because the interval counts tasks, not attempts.`,
+        ? `${qwen.rate.tasks} タスクで残る不確かさ。何度繰り返しても、タスクを増やさない限り狭まりません。`
+        : `of uncertainty left by ${qwen.rate.tasks} tasks, however often they rerun.`,
       note: 3,
     },
   ];

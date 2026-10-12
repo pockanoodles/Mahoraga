@@ -13,7 +13,7 @@ mkdirSync(join(site, "generated"), { recursive: true });
 mkdirSync(join(site, "public", "brand"), { recursive: true });
 copyFileSync(join(repo, "brand", "tokens.css"), join(site, "generated", "tokens.css"));
 // SITE_JSON points at another export while developing (e.g. an unmerged branch).
-copyFileSync(process.env.SITE_JSON ?? join(repo, "docs", "site", "site.json"), join(site, "generated", "site.json"));
+copyFileSync(process.env.SITE_JSON || join(repo, "docs", "site", "site.json"), join(site, "generated", "site.json"));
 copyFileSync(join(repo, "brand", "favicon.svg"), join(site, "public", "favicon.svg"));
 for (const f of ["mark-dark.svg", "mark-light.svg"]) {
   copyFileSync(join(repo, "brand", f), join(site, "public", "brand", f));

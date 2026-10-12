@@ -20,6 +20,7 @@ from backend.orchestrator.agentbench.bank import Bench
 
 DATA_DIR = Path(__file__).with_name("data")
 META = "demo.json"
+HOME_MARK = ".mahoraga-demo-home"
 
 # A bench directory is named <repo>-<hash of the repo's path>. The probe's
 # checkout is not on anyone else's machine, so the packaged bench takes its
@@ -56,4 +57,20 @@ def install(dest: Path) -> Path:
             raise FileExistsError(f"{dest} exists and is not a Mahoraga demo; move it aside")
         shutil.rmtree(dest)
     shutil.copytree(DATA_DIR, dest)
+    return dest
+
+
+def scratch_home(dest: Path) -> Path:
+    """An empty home directory for the demo server, replacing the last one.
+
+    Only a directory this function made (it carries HOME_MARK) is ever removed,
+    so pointing it at something else fails instead of deleting it.
+    """
+    dest = Path(dest)
+    if dest.exists():
+        if any(dest.iterdir()) and not (dest / HOME_MARK).exists():
+            raise FileExistsError(f"{dest} exists and is not a Mahoraga demo home; move it aside")
+        shutil.rmtree(dest)
+    dest.mkdir(parents=True)
+    (dest / HOME_MARK).write_text("Scratch home for `mahoraga demo`. Safe to delete.\n")
     return dest

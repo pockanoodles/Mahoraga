@@ -12,6 +12,9 @@
 # inside the container and has no login, so a bare `-p 8000:8000` would expose
 # it to your network.
 #
+# To look at audits you ran on the host, mount their folder (read-only is fine):
+#   -v ~/.mahoraga-v2/agentbench:/home/mahoraga/.mahoraga-v2/agentbench:ro
+#
 # Ollama on the host is read from OLLAMA_BASE_URL (set below to the Docker
 # Desktop alias). On Linux, add `--add-host=host.docker.internal:host-gateway`
 # and start Ollama with OLLAMA_HOST=0.0.0.0 so the container can reach it.

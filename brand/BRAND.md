@@ -75,6 +75,12 @@ One curve, `cubic-bezier(0.2, 0.8, 0.2, 1)`. UI feedback 160–240ms, entrances 
 (`animation-timeline`) behind `@supports`, never a scroll listener. Everything has a
 reduced-motion state that shows the final frame.
 
+One exception, decided 2026-10-12: the move in from kaitosoeno.com/portfolio is the
+site's, not this page's. The portfolio row grows into the page and its name rolls into the
+wordmark on kaitosoeno.com's curve, `cubic-bezier(0.62, 0.04, 0.06, 1)` over 700ms, the
+same in every product it opens. The page's own entrance after it follows the rules above
+(`site/app/globals.css`, "Arriving from kaitosoeno.com/portfolio").
+
 ## Voice
 
 Plain, specific, and honest about uncertainty. Every number on a page comes from

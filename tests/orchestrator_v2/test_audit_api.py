@@ -533,6 +533,13 @@ def test_a_bench_page_lists_its_runs(api, calc, root):
     assert _detail(api, root.widgets)["runs"] == []
 
 
+def test_a_bench_whose_arm_mixes_grading_tiers_is_a_409_not_a_blank_page(api, root):
+    _write(root.calc, _attempt("c1", QWEN, "blind", True, run_id=RUN_ID, tier="judge-graded"))
+    r = api.get(f"/api/audit/benches/{_id(root.calc)}")
+    assert r.status_code == 409 and "mixes grading tiers" in r.json()["detail"]
+    assert api.get("/api/audit/benches").status_code == 200  # the list doesn't need the tables
+
+
 def test_a_bench_without_a_config_has_null_for_it(api, root):
     root.widgets.config_path.unlink()
     assert _detail(api, root.widgets)["config"] is None

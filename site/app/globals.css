@@ -1557,7 +1557,11 @@ html.js .reveal:not([data-shown]) {
   cursor: pointer;
 }
 
+/* flex: none, or the label shrinks to the closed pill before the observer
+   measures it and メニュー wraps onto two lines. */
 .site-menu__label {
+  flex: none;
+  white-space: nowrap;
   display: flex;
   align-items: center;
   justify-content: center;

@@ -31,7 +31,7 @@ The web app lives in `frontend/`. Run `mahoraga serve` in one terminal and
 pytest -m "not slow"
 ```
 
-This is what CI runs, and it takes about a minute. The tests mock Ollama and
+This is what CI runs, and it takes a minute or two. The tests mock Ollama and
 every HTTP call, so they need no models, no network and no API key. The `slow`
 marker is for tests that load the real embedding model; leave those out unless
 you changed that code.

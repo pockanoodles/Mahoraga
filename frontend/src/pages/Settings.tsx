@@ -85,9 +85,11 @@ export default function SettingsPage() {
 
       <Section title="Privacy">
         <p className="prose">
-          The audit reads your repository and never writes to it. Agents run in an operating-system sandbox that can
-          write only to their own copy, and the only network they reach is the local model server. Nothing leaves this
-          machine unless you turn on a cloud arm or the opt-in judge.{" "}
+          The audit reads your repository, never writes to it, and sends nothing anywhere. On macOS its agents run in an
+          operating-system sandbox that can write only to their own copy and reach only the local model server. The
+          router is the one part that can use the cloud: it escalates a task to the Claude CLI only when the local judge
+          rejects the local answer, at most 25 times a day, and <code>MAHORAGA_CASCADE=off</code> keeps every task
+          here.{" "}
           <a className="link" href={`${REPO}/blob/main/DATAFLOW.md`} target="_blank" rel="noreferrer">
             Read the data flow
           </a>

@@ -32,6 +32,7 @@ from ..workers.registry import WorkerRegistry
 from ..adapters.registry import AdapterRegistry
 from .approvals import grant_approval, reject_approval
 from . import ui
+from .audit_api import router as audit_router
 from .executor import run_task as _run_task, pop_task_metrics
 from .run_executor import run_run as _run_run
 from ..planning.planner import generate_tasks, PlannerError
@@ -337,6 +338,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# The audit: /api/engine and /api/audit/*, read-only over the bench store.
+app.include_router(audit_router)
 
 # ── web chat routes ───────────────────────────────────────────────────────────
 

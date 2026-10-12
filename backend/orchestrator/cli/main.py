@@ -56,6 +56,17 @@ def version() -> None:
     typer.echo(package_version())
 
 
+@app.command("mcp")
+def mcp() -> None:
+    """Run the MCP bridge on stdio, for Claude Code or any MCP client.
+
+    It talks to a running `mahoraga serve`. Same as `python -m backend.mcp.server`.
+    """
+    import asyncio
+    from backend.mcp.server import main as run_bridge
+    asyncio.run(run_bridge())
+
+
 app.add_typer(mission_app, name="mission")
 app.add_typer(plan_app, name="plan")
 app.add_typer(run_app, name="run")

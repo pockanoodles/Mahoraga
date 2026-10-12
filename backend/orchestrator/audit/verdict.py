@@ -113,6 +113,14 @@ def _triage_cost(a: Assumptions) -> float:
     return a.triage_minutes / 60 * a.hourly_usd
 
 
+def breakeven_rate(ev: Evidence, a: Assumptions, cloud_per_task: float) -> float:
+    """The resolve rate p* at which a task routed to local nets zero, E(p*) = 0
+    in the formula above. Local pays above it. It exceeds 1 when a local attempt
+    costs more than the cloud task it replaces: then no rate pays."""
+    local, triage = _local_cost(ev, a), _triage_cost(a)
+    return (local + triage) / (cloud_per_task + triage)
+
+
 def decide(ev: Evidence, a: Assumptions, billing: Billing) -> Verdict:
     if ev.tier != TEST_VERIFIED:
         raise ValueError(f"v1 decides on test-verified evidence only, not {ev.tier!r}")
@@ -147,7 +155,7 @@ def _decide_api(ev: Evidence, a: Assumptions, b: Billing) -> Verdict:
 
     lo, mid, hi = net(ev.rate.lo), net(ev.rate.point), net(ev.rate.hi)
     material = max(5.0, 0.05 * b.monthly_usd)
-    p_star = (local + triage) / (cloud + triage)
+    p_star = breakeven_rate(ev, a, cloud)
     sens = [f"Pays once local resolves ≥ {p_star:.0%} of queued tasks "
             f"(measured {ev.rate.fmt()})."]
     if ev.rate.point > 0:

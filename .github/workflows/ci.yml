@@ -73,3 +73,36 @@ jobs:
 
       - name: Install the wheel in a clean virtualenv and run it
         run: python scripts/smoke_wheel.py dist/*.whl
+
+  site:
+    # The landing page (kaitosoeno.com/mahoraga). It renders only numbers from
+    # docs/site/site.json and colours from brand/, so building it here catches a
+    # page that no longer matches the export, and the sweep drives it in a real
+    # browser in both languages.
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: site
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: site/package-lock.json
+
+      - name: Build
+        run: |
+          npm ci
+          npm run typecheck
+          npm run build
+
+      - name: Drive the built page in a browser
+        run: |
+          npx playwright install --with-deps chromium-headless-shell
+          (cd dist && python3 -m http.server 3222 >/dev/null 2>&1 &)
+          sleep 1
+          BASE=http://localhost:3222 npm run verify

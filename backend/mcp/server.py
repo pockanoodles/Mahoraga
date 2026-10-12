@@ -2,18 +2,28 @@
 Mahoraga MCP Server — stdio bridge to Mahoraga's orchestration API.
 
 Usage:
-    python -m backend.mcp.server
+    mahoraga mcp
+    python -m backend.mcp.server        # the same thing, from a source checkout
 
-Claude Code config (~/.claude/settings.json):
+Claude Code (or any MCP client) config:
+    {
+        "mcpServers": {
+            "mahoraga": {"command": "mahoraga", "args": ["mcp"]}
+        }
+    }
+
+From a source checkout, without installing:
     {
         "mcpServers": {
             "mahoraga": {
-                "command": "/Users/kaitosoeno/Projects/Mahoraga/.venv/bin/python",
+                "command": "/path/to/Mahoraga/.venv/bin/python",
                 "args": ["-m", "backend.mcp.server"],
-                "cwd": "/Users/kaitosoeno/Projects/Mahoraga"
+                "cwd": "/path/to/Mahoraga"
             }
         }
     }
+
+It talks to a running engine (`mahoraga serve`) at MAHORAGA_BASE.
 """
 from __future__ import annotations
 import asyncio
@@ -37,7 +47,7 @@ _MAX_RETRIES = int(os.environ.get("MAHORAGA_MCP_RETRIES", "2"))
 _RETRY_DELAYS = [1.0, 3.0]
 _NOT_RUNNING = (
     "Mahoraga is not running. "
-    "Start it with: cd ~/Projects/Mahoraga && python -m backend.main"
+    "Start it with: mahoraga serve"
 )
 
 

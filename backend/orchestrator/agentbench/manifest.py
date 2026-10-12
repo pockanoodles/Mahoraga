@@ -79,8 +79,7 @@ def models(agents: Iterable[Agent]) -> dict[str, Any]:
     except Exception as e:  # noqa: BLE001 — Ollama down is recorded, not fatal
         return {"error": str(e)[:200]}
     try:
-        import httpx
-        version = httpx.get(f"{ollama.BASE_URL}/api/version", timeout=10).json().get("version")
+        version = ollama.version()
     except Exception as e:  # noqa: BLE001
         version = f"error: {e}"[:200]
     return {"ollama": version,

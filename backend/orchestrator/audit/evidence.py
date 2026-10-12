@@ -46,9 +46,9 @@ def from_benches(benches: list[Bench], arm: str, cond: str) -> Evidence:
             secs.append(a.secs)
             tiers.add(a.tier)
             run_ids.add(a.run_id)
-            repos.add(b.repo.name)
+            repos.add(b.name)
     if not per_task:
-        raise ValueError(f"no attempts for {arm} / {cond} in {[b.repo.name for b in benches]}")
+        raise ValueError(f"no attempts for {arm} / {cond} in {[b.name for b in benches]}")
     if len(tiers) > 1:
         raise ValueError(f"{arm} / {cond} mixes grading tiers {sorted(tiers)}")
     return Evidence(

@@ -1,4 +1,5 @@
 from __future__ import annotations
+import os
 import typer
 from .commands.mission import app as mission_app
 from .commands.plan import app as plan_app
@@ -23,8 +24,8 @@ from .commands.agentbench import app as agentbench_app
 from .commands.demo import demo
 
 app = typer.Typer(
-    name="orch",
-    help="Orchestrator v2 CLI",
+    name="mahoraga",
+    help="Is local coding AI worth it for your code? Measure it, then route it.",
     no_args_is_help=True,
 )
 
@@ -34,15 +35,38 @@ def serve(
     host: str = typer.Option("127.0.0.1", "--host", help="Bind host"),
     port: int = typer.Option(8000, "--port", "-p", help="Bind port"),
     reload: bool = typer.Option(False, "--reload", help="Enable auto-reload (dev mode)"),
+    headless: bool = typer.Option(False, "--headless", help="API only: serve no UI"),
 ) -> None:
     """Start the Mahoraga FastAPI server."""
     import uvicorn
+    if headless:
+        # The app reads this when uvicorn imports it, and --reload's worker inherits it.
+        os.environ["MAHORAGA_HEADLESS"] = "1"
     uvicorn.run(
         "backend.orchestrator.service.app:app",
         host=host,
         port=port,
         reload=reload,
     )
+
+
+@app.command("version")
+def version() -> None:
+    """Print the Mahoraga version."""
+    from backend.orchestrator.version import package_version
+    typer.echo(package_version())
+
+
+@app.command("mcp")
+def mcp() -> None:
+    """Run the MCP bridge on stdio, for Claude Code or any MCP client.
+
+    It talks to a running `mahoraga serve`. Same as `python -m backend.mcp.server`.
+    """
+    import asyncio
+    from backend.mcp.server import main as run_bridge
+    asyncio.run(run_bridge())
+
 
 app.add_typer(mission_app, name="mission")
 app.add_typer(plan_app, name="plan")
@@ -61,7 +85,10 @@ app.add_typer(budget_app, name="budget")
 app.add_typer(quarantine_app, name="quarantine")
 app.add_typer(replay_app, name="replay")
 app.add_typer(analyze_app, name="analyze")
-app.add_typer(agentbench_app, name="agentbench")
+app.add_typer(agentbench_app, name="audit",
+              help="Measure local agents on your own repo: mine tasks, run, grade, and get a verdict.")
+app.add_typer(agentbench_app, name="agentbench",
+              help="Same as `audit`, under the name it had before the product did.")
 
 # Flat commands
 app.add_typer(service_app, name="service")

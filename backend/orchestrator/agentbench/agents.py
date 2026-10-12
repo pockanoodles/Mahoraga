@@ -36,7 +36,7 @@ from pathlib import Path
 from typing import Protocol
 
 from . import ollama
-from .bank import DEFAULT_ROOT
+from .bank import bench_root
 
 # Context every arm gets unless its spec says otherwise (`@ctx=N`). Sized for
 # a 16 GB machine; a 1,677-line file pulled into aider's chat overflows it, and
@@ -85,7 +85,7 @@ def kill_live_agents() -> None:
 
 def agent_home(name: str) -> Path:
     """An agent's own HOME: none of the user's config or credentials."""
-    return Path(os.environ.get("MAHORAGA_AGENTBENCH_ROOT", DEFAULT_ROOT)) / "agent-home" / name
+    return bench_root() / "agent-home" / name
 
 
 def sandbox_profile(writable: list[Path]) -> str:

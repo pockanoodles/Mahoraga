@@ -1,6 +1,41 @@
-# Current State — 2026-10-12
+# Current State — 2026-10-13
 
-## Read this first — 2026-10-12 (latest): the launch is in review, nothing is published
+## Read this first — 2026-10-13: measurement comes first, publishing waits
+
+Kaito moved publishing down the list on 2026-10-13: there is nothing to publish until the
+audit runs unattended and its numbers can be trusted. #54 is merged, the Release dry run
+and main CI are green, and the `pypi` environment exists, so the release is a few clicks
+whenever it is wanted. The steps below are parked, not dropped.
+
+The day showed why the order is right. Ornith-1.5:9b ran 102 attempts under aider on the
+Studio and was recorded as 3 resolved and 99 no-edit, a score a reader would believe. It
+was not the model failing. 47 of its replies were native `<tool_call>` markup, which aider
+can't apply, and most of the rest spent the whole 8,192-token `num_predict` cap thinking
+and never answered. The attempts are quarantined in `attempts-invalid-ornith-aider/` in
+each Studio bench, and ornith has no agentbench result yet.
+
+### Priorities, in order
+
+1. **An attempt that didn't measure the model is never scored.** Detect protocol
+   mismatches (tool-call markup in aider's chat) and thinking that hits the generation
+   cap, file them as degraded like crashes, and stop an arm after a few in a row with a
+   reason, so an unattended run fails loudly instead of logging zeros.
+2. **A harness that tool-calling models can use.** `OpenCodeAgent` exists, but opencode
+   is not installed on the Studio. Ornith and granite 4.x need it before they get a
+   number.
+3. **Runs that schedule themselves.** Replace the hand-armed `.agentbench-*.sh` and
+   `night/*.sh` scripts with a queue in `mahoraga audit`: per-machine preflight (power,
+   models present, model digest), the wait for a quiet machine, `--until`, and a report
+   at the end. The 10-02 run never started and nobody knew until days later.
+4. **A host fingerprint on every manifest and ledger row**, so results from the laptop
+   and the Studio can't be pooled by accident.
+5. **New commits mined continuously**, so each new model is tested on work that
+   postdates its release.
+6. **Agentbench results in `claims.json` / `bench verify`**, which #48 needs to merge.
+
+The launch steps follow, parked.
+
+## 2026-10-12: the launch is in review, nothing is published
 
 Branch `feat/app-ui` holds the launch on top of main, and its PR is open against main. It
 adds the audit HTTP API, `mahoraga` CLI names, the rebuilt app, `brand/`, the demo bench,

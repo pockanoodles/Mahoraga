@@ -10,11 +10,18 @@ Two gates drop a candidate, with the reason recorded:
 Then the full suite at the base fixes the pass-to-pass baseline that every
 attempt is held to. A base with no passing tests at all can't detect a
 regression, so it is dropped too.
+
+A task clone holds no trace of the answer (`seal`): its base commit's parent
+is C's parent, and it has its own objects, fetched up to that parent only.
+Until 2026-10-13 the base sat on top of C in a `--shared` clone, so `git log`
+showed the solution one commit back, and ornith under opencode ran
+`git show` on it in its first attempt.
 """
 from __future__ import annotations
 
 import json
 import shutil
+import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
@@ -137,7 +144,10 @@ def build_task(bench: Bench, config: SuiteConfig, sha: str) -> Task:
             git("checkout", "-q", f"{sha}^", "--", path, cwd=d)
     git("-c", "user.name=agentbench", "-c", "user.email=agentbench@localhost",
         "commit", "-q", "--no-verify", "--allow-empty", "-m", "agentbench task base", cwd=d)
-    base = git("rev-parse", "HEAD", cwd=d).strip()
+    numstat = git("diff", "--numstat", f"{sha}^", sha, "--", *gold_src, cwd=d)
+    subject = git("log", "-1", "--format=%s", sha, cwd=d).strip()
+    body = git("log", "-1", "--format=%b", sha, cwd=d).strip()
+    base = seal(d, bench.repo, git("rev-parse", f"{sha}^", cwd=d).strip())
 
     at_base = pytest(tests)
     f2p = sorted(passing_c if CRASH in at_base else passing_c - passing(at_base))
@@ -148,15 +158,90 @@ def build_task(bench: Bench, config: SuiteConfig, sha: str) -> Task:
     if not p2p:
         raise Drop("no pass-to-pass baseline: the suite can't run at the base")
 
-    numstat = git("diff", "--numstat", f"{sha}^", sha, "--", *gold_src, cwd=d)
     gold_lines = sum(int(a) + int(r) for a, r, *_ in
                      (line.split("\t") for line in numstat.splitlines()) if a != "-")
     return Task(
-        sha=sha, base=base,
-        subject=git("log", "-1", "--format=%s", sha, cwd=d).strip(),
-        body=git("log", "-1", "--format=%b", sha, cwd=d).strip(),
+        sha=sha, base=base, subject=subject, body=body,
         gold_src=gold_src, gold_lines=gold_lines, test_files=tests, f2p=f2p, p2p=p2p,
     )
+
+
+def seal(d: Path, repo: Path, parent: str) -> str:
+    """Rebuild the clone `d` around its HEAD tree with nothing of the answer
+    in it, and return the new base commit.
+
+    The new clone fetches `parent`'s history alone (by sha, which the source
+    has to be told to allow), takes the HEAD tree's objects across without the
+    commit that held them, and commits that tree onto `parent`. No remote, no
+    alternates, no reflog of the old HEAD: what the agent can reach is the
+    task's tree and the history before the change.
+    """
+    tree = git("rev-parse", "HEAD^{tree}", cwd=d).strip()
+    sealed = d.with_name(d.name + ".sealing")
+    if sealed.exists():
+        shutil.rmtree(sealed)
+    git("init", "-q", str(sealed), cwd=d.parent)
+    git("fetch", "-q", "--no-tags",
+        "--upload-pack", "git -c uploadpack.allowAnySHA1InWant=true upload-pack",
+        str(repo), parent, cwd=sealed)
+    objects = git("rev-list", "--objects", tree, cwd=d)
+    pack = subprocess.run(["git", "pack-objects", "-q", "--stdout"], cwd=d, input=objects.encode(),
+                          capture_output=True, check=True).stdout
+    subprocess.run(["git", "unpack-objects", "-q"], cwd=sealed, input=pack, check=True)
+    base = git("-c", "user.name=agentbench", "-c", "user.email=agentbench@localhost",
+               "commit-tree", tree, "-p", parent, "-m", "agentbench task base", cwd=sealed).strip()
+    git("update-ref", "HEAD", base, cwd=sealed)
+    git("reset", "-q", "--hard", cwd=sealed)
+    (sealed / ".git" / "FETCH_HEAD").unlink(missing_ok=True)
+    git("reflog", "expire", "--expire=now", "--all", cwd=sealed)
+    git("gc", "-q", "--prune=now", cwd=sealed)
+    shutil.rmtree(d)
+    sealed.rename(d)
+    return base
+
+
+def leaks(d: Path, sha: str) -> list[str]:
+    """How the clone `d` could show an agent commit `sha`, the answer. Empty =
+    sealed."""
+    out = []
+    if subprocess.run(["git", "cat-file", "-e", f"{sha}^{{commit}}"], cwd=d,
+                      capture_output=True).returncode == 0:
+        out.append(f"commit {sha} is readable")
+    if (d / ".git" / "objects" / "info" / "alternates").exists():
+        out.append("objects are shared with another repository")
+    if git("remote", cwd=d).strip():
+        out.append("it has a remote")
+    return out
+
+
+def reseal(bench: Bench, progress: Callable[[str, str], None] = lambda sha, msg: None) -> int:
+    """Seal every task clone mined before `seal` existed, keeping its attempts.
+
+    Rebuilding a task with `mine` would delete them, since a new base usually
+    means a new task. Here it doesn't: the base tree is carried over object for
+    object and checked equal, so every attempt ran on exactly the tree the
+    sealed clone holds. Returns how many clones were sealed.
+    """
+    tasks = bench.load_tasks()
+    n = 0
+    for t in tasks:
+        d = bench.clone(t.sha)
+        if not d.exists():
+            progress(t.sha, "no clone: rebuild it with `mahoraga audit mine --commit`")
+            continue
+        if not leaks(d, t.sha):
+            continue
+        tree = git("rev-parse", f"{t.base}^{{tree}}", cwd=d).strip()
+        git("reset", "-q", "--hard", t.base, cwd=d)
+        git("clean", "-qfdx", cwd=d)
+        base = seal(d, bench.repo, git("rev-parse", f"{t.sha}^", cwd=bench.repo).strip())
+        if git("rev-parse", f"{base}^{{tree}}", cwd=d).strip() != tree:
+            raise RuntimeError(f"{t.sha}: the sealed base's tree differs from the mined one")
+        t.base = base
+        n += 1
+        progress(t.sha, "sealed")
+    bench.save_tasks(tasks)
+    return n
 
 
 def mine(bench: Bench, config: SuiteConfig, shas: list[str],

@@ -33,7 +33,7 @@ import tempfile
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Protocol
+from typing import Protocol, Sequence
 
 from . import ollama
 from .bank import bench_root
@@ -71,7 +71,8 @@ class Agent(Protocol):
     model: str
 
     def attempt(self, workdir: Path, prompt: str, *,
-                test_cmd: list[str] | None, timeout: float) -> AgentRun: ...
+                test_cmd: list[str] | None, timeout: float,
+                hidden: Sequence[Path] = (), readable: Sequence[Path] = ()) -> AgentRun: ...
 
 
 # The agent process group running right now, so a stopped run can take it down.
@@ -92,28 +93,45 @@ def agent_home(name: str) -> Path:
     return bench_root() / "agent-home" / name
 
 
-def sandbox_profile(writable: list[Path]) -> str:
+def _subpaths(paths: Sequence[Path]) -> str:
+    return " ".join('(subpath "{}")'.format(str(Path(p).resolve()).replace('"', '\\"'))
+                    for p in paths)
+
+
+def sandbox_profile(writable: Sequence[Path], hidden: Sequence[Path] = (),
+                    readable: Sequence[Path] = ()) -> str:
     """Writes only under `writable` and the per-user temp area; network only
     to localhost (Ollama). Everything else, including the user's repos, is
-    read-only to the agent and its children."""
+    read-only to the agent and its children.
+
+    `hidden` can't be read at all, except what `readable` carves back out:
+    the bench hides the source repo, whose working tree holds every later
+    commit's answer, and leaves readable the venv inside it that runs the
+    tests. Only file contents and listings are denied, not metadata, so a
+    path through a hidden directory still resolves."""
     temp = Path(tempfile.gettempdir()).resolve().parent  # .../T, .../C
-    paths = [Path(w).resolve() for w in writable] + [temp]
-    allow = " ".join('(subpath "{}")'.format(str(p).replace('"', '\\"')) for p in paths)
-    return ("(version 1)(allow default)"
-            '(deny file-write* (subpath "/"))'
-            f'(allow file-write* {allow} (subpath "/dev"))'
-            "(deny network-outbound)"
-            '(allow network-outbound (remote ip "localhost:*"))')
+    profile = ("(version 1)(allow default)"
+               '(deny file-write* (subpath "/"))'
+               f'(allow file-write* {_subpaths([*writable, temp])} (subpath "/dev"))'
+               "(deny network-outbound)"
+               '(allow network-outbound (remote ip "localhost:*"))')
+    if hidden:
+        profile += f"(deny file-read-data {_subpaths(hidden)})"
+    if hidden:
+        profile += f"(allow file-read-data {_subpaths([*readable, *writable])})"
+    return profile
 
 
-def sandboxed(cmd: list[str], writable: list[Path]) -> list[str]:
+def sandboxed(cmd: list[str], writable: Sequence[Path], hidden: Sequence[Path] = (),
+              readable: Sequence[Path] = ()) -> list[str]:
     if sys.platform == "darwin" and shutil.which("sandbox-exec"):
-        return ["sandbox-exec", "-p", sandbox_profile(writable), *cmd]
+        return ["sandbox-exec", "-p", sandbox_profile(writable, hidden, readable), *cmd]
     return cmd  # elsewhere: HOME isolation and permission config only
 
 
 def _launch(cmd: list[str], cwd: Path, env: dict[str, str], timeout: float,
-            writable: list[Path] = ()) -> tuple[str, bool, float]:
+            writable: Sequence[Path] = (), hidden: Sequence[Path] = (),
+            readable: Sequence[Path] = ()) -> tuple[str, bool, float]:
     """Run an agent sandboxed, in its own process group, with `cwd` as its
     working directory in every sense: some agents resolve it from $PWD rather
     than the real cwd, which is how one ran in the wrong repo. Returns
@@ -125,7 +143,8 @@ def _launch(cmd: list[str], cwd: Path, env: dict[str, str], timeout: float,
     until the 20-minute timeout, and each crash was recorded as a no-edit."""
     t0 = time.monotonic()
     env = {**env, "PWD": str(cwd)}
-    proc = subprocess.Popen(sandboxed(cmd, [cwd, *writable]), cwd=cwd, env=env, text=True,
+    proc = subprocess.Popen(sandboxed(cmd, [cwd, *writable], hidden, readable), cwd=cwd,
+                            env=env, text=True,
                             stdin=subprocess.DEVNULL,
                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                             start_new_session=True)
@@ -178,7 +197,8 @@ class AiderAgent:
                 f"  reasoning_tag: think\n")
 
     def attempt(self, workdir: Path, prompt: str, *,
-                test_cmd: list[str] | None, timeout: float) -> AgentRun:
+                test_cmd: list[str] | None, timeout: float,
+                hidden: Sequence[Path] = (), readable: Sequence[Path] = ()) -> AgentRun:
         with tempfile.NamedTemporaryFile("w", suffix=".yml", delete=False) as f:
             f.write(self._settings())
             settings = f.name
@@ -195,7 +215,8 @@ class AiderAgent:
         self.home.mkdir(parents=True, exist_ok=True)
         env = {**os.environ, "HOME": str(self.home), "OLLAMA_API_BASE": ollama.BASE_URL}
         try:
-            log, timed_out, secs = _launch(cmd, workdir, env, timeout, [self.home])
+            log, timed_out, secs = _launch(cmd, workdir, env, timeout, [self.home],
+                                           hidden, readable)
         finally:
             os.unlink(settings)
         tokens = re.findall(r"Tokens: ([\d.]+k?) sent, ([\d.]+k?) received", log)
@@ -301,7 +322,8 @@ class OpenCodeAgent:
                 "OPENCODE_DISABLE_LSP_DOWNLOAD": "1"}
 
     def attempt(self, workdir: Path, prompt: str, *,
-                test_cmd: list[str] | None, timeout: float) -> AgentRun:
+                test_cmd: list[str] | None, timeout: float,
+                hidden: Sequence[Path] = (), readable: Sequence[Path] = ()) -> AgentRun:
         binary = shutil.which("opencode")
         if not binary:
             raise FileNotFoundError("opencode not on PATH")
@@ -312,7 +334,8 @@ class OpenCodeAgent:
         self.home.mkdir(parents=True, exist_ok=True)
         cmd = [binary, "run", "--pure", "--format", "json", "--title", "agentbench",
                "--dir", str(workdir), "--model", f"ollama/{served}", prompt]
-        out, timed_out, secs = _launch(cmd, workdir, self._env(served), timeout, [self.home])
+        out, timed_out, secs = _launch(cmd, workdir, self._env(served), timeout, [self.home],
+                                       hidden, readable)
         run = parse_opencode_events(out)
         run.log, run.secs, run.timed_out = out, secs, timed_out
         return run

@@ -28,7 +28,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Callable, Iterable
 
 from .agents import DEFAULT_NUM_CTX, Agent, AgentRun
-from .bank import Bench, Task, SuiteConfig
+from .bank import Bench, SuiteConfig, Task
 from .grade import TEST_VERIFIED, Grader, TestGrader
 from .mine import is_test_path
 from .proc import git
@@ -148,6 +148,21 @@ def _degraded(watch: Watch | None, run: AgentRun, edited: bool) -> list[str]:
     return out + _harness_failures(run, edited)
 
 
+def confinement(bench: Bench, config: SuiteConfig) -> tuple[list[Path], list[Path]]:
+    """(hidden, readable) for an agent. Hidden: the source repo, whose working
+    tree and history hold the answer to every task mined from it, and the
+    bench root, whose other clones sit at later commits and whose attempts
+    hold other arms' patches. Readable again: the test interpreter's
+    environment when it lives in one of those. The agent's own clone and HOME
+    are writable, which keeps them readable too.
+
+    Another checkout of the same repo elsewhere on the machine is not hidden;
+    an agent would have to go looking for it."""
+    hidden = [bench.repo.resolve(), bench.dir.parent.resolve()]
+    venv = Path(config.python).parent.parent.resolve()  # .../venv/bin/python
+    return hidden, [venv] if any(h == venv or h in venv.parents for h in hidden) else []
+
+
 def run_attempt(bench: Bench, config: SuiteConfig, task: Task, agent: Agent,
                 cond: str, timeout: float = DEFAULT_TIMEOUT, rep: int = 0,
                 guard: Guard | None = None, grader: Grader | None = None,
@@ -160,7 +175,9 @@ def run_attempt(bench: Bench, config: SuiteConfig, task: Task, agent: Agent,
                  *config.pytest_args, *task.test_files] if cond == "feedback" else None)
     watching = guard.watch(agent) if guard else nullcontext(None)
     with watching as watch:
-        run = agent.attempt(clone, prompt_for(task), test_cmd=test_cmd, timeout=timeout)
+        hidden, readable = confinement(bench, config)
+        run = agent.attempt(clone, prompt_for(task), test_cmd=test_cmd, timeout=timeout,
+                            hidden=hidden, readable=readable)
 
     status = git("status", "--porcelain", "--untracked-files=all", cwd=clone)
     edited = sorted({line[3:].strip().strip('"') for line in status.splitlines()
@@ -203,6 +220,16 @@ def run_attempt(bench: Bench, config: SuiteConfig, task: Task, agent: Agent,
         json.dumps(asdict(attempt), indent=1))
     _reset(clone, task.base)
     return attempt
+
+
+def open_cells(bench: Bench, agents: Iterable[Agent], conds: Iterable[str],
+               only: set[str] | None = None, repeats: int = 1) -> tuple[int, int]:
+    """(cells without a counted attempt, all cells) for this matrix."""
+    tasks = [t for t in bench.load_tasks() if not only or t.sha in only]
+    cells = [(arm_name(a), c, t.sha, r) for r in range(repeats) for a in agents
+             for c in conds for t in tasks]
+    left = sum(not _artifact(bench, arm, c, sha, r, "json").exists() for arm, c, sha, r in cells)
+    return left, len(cells)
 
 
 def load_attempts(bench: Bench) -> list[Attempt]:

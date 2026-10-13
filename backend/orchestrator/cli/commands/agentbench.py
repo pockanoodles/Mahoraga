@@ -9,6 +9,10 @@ Subcommands
   mahoraga audit run [REPO] --arm aider:qwen3.5:latest [--cond blind|feedback|both]
                              [--repeats K] [--until HH:MM] [--wait-idle MIN]
   mahoraga audit report [REPO] [--json]
+  mahoraga audit reseal [REPO]                — take the answer out of old task clones
+  mahoraga audit queue add [REPO] --arm ... [--window 21:00-08:00]
+  mahoraga audit queue ls                     — every job, and why it is where it is
+  mahoraga audit worker                       — run queued jobs as their windows open
 
 REPO defaults to the current directory and must be a git repo with a pytest
 suite. State lives under ~/.mahoraga-v2/agentbench/; REPO is only read.
@@ -28,11 +32,11 @@ from typing import List, Optional
 
 import typer
 
-from backend.orchestrator.agentbench import manifest
+from backend.orchestrator.agentbench import manifest, session
 from backend.orchestrator.agentbench.agents import kill_live_agents, parse_arm
 from backend.orchestrator.agentbench.bank import Bench, SuiteConfig, bench_root
 from backend.orchestrator.agentbench.guard import Guard
-from backend.orchestrator.agentbench.mine import find_candidates, layout_pytest_args, mine
+from backend.orchestrator.agentbench.mine import find_candidates, layout_pytest_args, mine, reseal
 from backend.orchestrator.agentbench.report import degraded_note, outcome, render, summarise
 from backend.orchestrator.agentbench.runner import (
     CONDITIONS, DEFAULT_TIMEOUT, load_attempts, load_degraded, run_matrix,
@@ -177,6 +181,7 @@ def run_cmd(
     wait_idle: float = typer.Option(0, "--wait-idle", help="Only start attempts after this many idle minutes."),
     ratio: float = _RATIO,
     guarded: bool = typer.Option(True, "--guard/--no-guard", help="Preflight, pause on bad conditions, drop degraded attempts."),
+    wait_quiet: bool = typer.Option(False, "--wait-quiet", help="Pause while someone else's model is loaded in Ollama."),
     force: bool = typer.Option(False, "--force", help="Run even if preflight fails."),
 ) -> None:
     """Attempt every task with every arm. Resumable: finished attempts are skipped."""
@@ -192,7 +197,8 @@ def run_cmd(
 
     guard = None
     if guarded:
-        guard = Guard(bench_root(), ratio=ratio, wait_idle=wait_idle * 60, log=typer.echo)
+        guard = Guard(bench_root(), ratio=ratio, wait_idle=wait_idle * 60, wait_quiet=wait_quiet,
+                      log=typer.echo)
         typer.echo("preflight")
         if not _print_checks(guard.preflight(agents)) and not force:
             typer.echo("preflight failed; fix the above or pass --force")
@@ -208,34 +214,149 @@ def run_cmd(
     if deadline:
         typer.echo(f"no attempt starts after {datetime.fromtimestamp(deadline):%a %H:%M}")
 
-    def progress(a):
-        tag = f"DEGRADED ({'; '.join(a.degraded)})" if a.degraded else outcome(a)
-        typer.echo(f"  {a.sha[:10]} {a.arm} {a.cond} r{a.rep}: {tag}  "
-                   f"f2p={a.f2p_pass}/{a.f2p_total} regressions={a.regressions} "
-                   f"{a.secs / 60:.1f}m")
+    progress = _echo_attempt
 
     only = set(tasks) if tasks else None
-    run_id = manifest.new_run_id()
-    manifest.write(bench, manifest.build(
-        bench, agents, [t for t in bench.load_tasks() if not only or t.sha in only],
-        run_id=run_id,
+    _, done, stopped = session.run(
+        bench, agents, conds, only=only, timeout=timeout, repeats=repeats, guard=guard,
+        deadline=deadline, progress=progress,
         settings={"conds": list(conds), "repeats": repeats, "timeout": timeout,
                   "until": until, "wait_idle_min": wait_idle, "guarded": guarded,
-                  "min_speed_ratio": ratio, "forced": force},
-        speed_refs=guard.references() if guard else None,
-    ))
-    typer.echo(f"run {run_id} (manifest: {manifest.path(bench, run_id)})")
-    done: list = []
-    stopped = "interrupted"
-    try:
-        done = run_matrix(bench, agents, conds, only, timeout, repeats, guard=guard,
-                          deadline=deadline, run_id=run_id, progress=progress,
-                          dropped=lambda arm, why: typer.echo(f"dropped {arm}: {why}"))
-        stopped = ("deadline" if deadline and datetime.now().timestamp() >= deadline
-                   else "completed")
-    finally:
-        manifest.finish(bench, run_id, len(done), stopped)
+                  "wait_quiet": wait_quiet, "min_speed_ratio": ratio, "forced": force},
+        started=lambda run_id: typer.echo(f"run {run_id} (manifest: {manifest.path(bench, run_id)})"),
+        dropped=lambda arm, why: typer.echo(f"dropped {arm}: {why}"))
     typer.echo(f"{len(done)} attempts run ({stopped})")
+
+
+def _echo_attempt(a) -> None:
+    tag = f"DEGRADED ({'; '.join(a.degraded)})" if a.degraded else outcome(a)
+    typer.echo(f"  {a.sha[:10]} {a.arm} {a.cond} r{a.rep}: {tag}  "
+               f"f2p={a.f2p_pass}/{a.f2p_total} regressions={a.regressions} "
+               f"{a.secs / 60:.1f}m")
+
+
+@app.command("reseal")
+def reseal_cmd(repo: Path = _REPO) -> None:
+    """Take the answer out of task clones mined before 2026-10-13, keeping attempts.
+
+    Each clone's tree is carried over object for object and checked equal, so
+    the attempts already recorded ran on exactly what the sealed clone holds."""
+    bench = Bench(repo)
+    n = reseal(bench, lambda sha, msg: typer.echo(f"  {sha[:10]}  {msg}"))
+    typer.echo(f"{n} clones sealed in {bench.dir}")
+
+
+queue_app = typer.Typer(help="Runs that wait for their window and start on their own.",
+                        no_args_is_help=True)
+app.add_typer(queue_app, name="queue")
+
+
+@queue_app.command("add")
+def queue_add_cmd(
+    repo: Path = _REPO,
+    arms: List[str] = _ARMS,
+    cond: str = typer.Option("blind", "--cond", help="blind, feedback, or both."),
+    tasks: Optional[List[str]] = typer.Option(None, "--task", help="Only these task shas."),
+    repeats: int = typer.Option(1, "--repeats", min=1),
+    window: Optional[str] = typer.Option(None, "--window", help="HH:MM-HH:MM; no attempt starts outside it."),
+    wait_quiet: bool = typer.Option(False, "--wait-quiet", help="Pause while someone else's model is loaded in Ollama."),
+) -> None:
+    """Queue a run. Each model's digest is pinned now, so the job fails rather
+    than measure different weights if a tag moves before it runs."""
+    from backend.orchestrator.agentbench.ollama import pulled_models, tagged
+    from backend.orchestrator.agentbench.queue import Queue, parse_window
+
+    if cond not in (*CONDITIONS, "both"):
+        raise typer.BadParameter(f"--cond must be blind, feedback or both, not {cond!r}")
+    if window:
+        try:
+            parse_window(window)
+        except ValueError as e:
+            raise typer.BadParameter(str(e))
+    agents = _agents(arms)
+    bench = Bench(repo)
+    if not bench.load_tasks():
+        typer.echo("no tasks — run `mahoraga audit mine` first")
+        raise typer.Exit(1)
+    pulled = pulled_models()
+    missing = [a.model for a in agents if tagged(a.model) not in pulled]
+    if missing:
+        typer.echo(f"not pulled: {', '.join(missing)}")
+        raise typer.Exit(1)
+    job = Queue(bench_root()).add(
+        str(bench.repo), arms, cond, tasks=tasks, repeats=repeats, window=window,
+        wait_quiet=wait_quiet, pinned={a.model: pulled[tagged(a.model)] for a in agents})
+    typer.echo(f"queued {job.id}: {bench.repo.name} {' '.join(arms)} {cond}"
+               + (f", {window}" if window else ""))
+
+
+@queue_app.command("ls")
+def queue_ls_cmd() -> None:
+    """Every job: its state, and what it waits for or why it ended."""
+    from backend.orchestrator.agentbench.queue import Queue
+    from backend.orchestrator.agentbench.runner import open_cells
+
+    jobs = Queue(bench_root()).jobs()
+    if not jobs:
+        typer.echo("the queue is empty")
+        return
+    for j in jobs:
+        try:
+            conds = CONDITIONS if j.cond == "both" else (j.cond,)
+            left, total = open_cells(Bench(Path(j.repo)), _agents(j.arms), conds,
+                                     set(j.tasks) or None, j.repeats)
+            cells = f"{total - left}/{total} cells"
+        except Exception as e:  # noqa: BLE001 — a broken job still gets its line
+            cells = f"? cells ({e})"[:60]
+        typer.echo(f"{j.id}  {j.status:8} {Path(j.repo).name:16} {' '.join(j.arms)}  "
+                   f"{j.cond}  {j.window or 'any time'}  {cells}")
+        typer.echo(f"        {j.why or 'not looked at yet: is a worker running?'}"
+                   + (f"  ({j.checked_at})" if j.checked_at else ""))
+
+
+@queue_app.command("cancel")
+def queue_cancel_cmd(job_id: str) -> None:
+    """Stop a job from running again. Its attempts are kept."""
+    from backend.orchestrator.agentbench.queue import FAILED, Queue
+
+    Queue(bench_root()).update(job_id, status=FAILED, why="cancelled")
+    typer.echo(f"cancelled {job_id}")
+
+
+@queue_app.command("retry")
+def queue_retry_cmd(job_id: str) -> None:
+    """Put a finished or failed job back in the queue, e.g. after pulling its model."""
+    from backend.orchestrator.agentbench.queue import PENDING, Queue
+
+    Queue(bench_root()).update(job_id, status=PENDING, why="requeued")
+    typer.echo(f"requeued {job_id}")
+
+
+@app.command("worker")
+def worker_cmd(
+    once: bool = typer.Option(False, "--once", help="Exit when nothing can run now, instead of waiting."),
+    poll: float = typer.Option(5, "--poll", help="Minutes between looks at the queue when idle."),
+) -> None:
+    """Run queued jobs as their windows open. Meant to stay up (launchd, tmux)."""
+    from backend.orchestrator.agentbench.queue import Queue, drain
+    from backend.orchestrator.agentbench.worker import run_job
+
+    queue = Queue(bench_root())
+    _stay_awake()
+
+    def stop(signum, frame):
+        kill_live_agents()
+        raise typer.Exit(130)
+
+    signal.signal(signal.SIGTERM, stop)
+    signal.signal(signal.SIGINT, stop)
+
+    def stamp(msg: str) -> None:
+        typer.echo(f"[{datetime.now():%m-%d %H:%M:%S}] {msg}")
+
+    drain(queue, lambda job, deadline: run_job(queue, job, deadline, progress=_echo_attempt,
+                                               log=stamp),
+          poll=poll * 60, once=once, log=stamp)
 
 
 @app.command("report")

@@ -242,6 +242,94 @@ def test_evidence_refuses_a_missing_arm_and_mixed_tiers(tmp_path):
         from_benches([a, b], "fake:m", "feedback")
 
 
+# ── Published claims, recomputed from an export ───────────────────────────────
+
+STUDIO = {"model": "Mac16,9", "memory_gb": 64}
+
+
+def _export(tmp_path, benches) -> list[dict]:
+    from backend.orchestrator.agentbench import export
+
+    path = tmp_path / "out" / "attempts.jsonl"
+    export.write(path, benches)
+    return [json.loads(line) for line in path.read_text().splitlines()]
+
+
+def test_export_keeps_counted_attempts_on_live_tasks_with_their_machine(tmp_path):
+    a = _bench(tmp_path, "one", {"s1": [True, False], "s2": [False]}, machine=STUDIO)
+    a.save_tasks([t for t in a.load_tasks() if t.sha != "s2"])  # s2 dropped since
+    rows = _export(tmp_path, [a])
+    assert [(r["sha"], r["rep"], r["resolved"]) for r in rows] == [("s1", 0, True), ("s1", 1, False)]
+    assert {r["repo"] for r in rows} == {"one"}
+    assert {r["machine"] for r in rows} == {"Mac16,9, 64 GB"}
+
+
+def test_claim_metrics_are_the_verdict_engines_numbers(tmp_path):
+    from backend.orchestrator.audit.claims import metrics
+    from backend.orchestrator.audit.evidence import from_benches
+    from backend.orchestrator.audit.verdict import breakeven_cloud_cost
+
+    benches = [_bench(tmp_path, "one", {f"s{i}": [i < 3] for i in range(12)}, machine=STUDIO),
+               _bench(tmp_path, "two", {f"s{i}": [i < 1] for i in range(8)}, machine=STUDIO)]
+    claim = {"select": {"arm": "fake:m", "cond": "feedback"},
+             "verdict": {"tasks_per_month": 200, "api_spend": 150}}
+    got = metrics(_export(tmp_path, benches), claim)
+    ev = from_benches(benches, "fake:m", "feedback")
+    v = decide(ev, A, Billing.api(150))
+    assert (got["tasks"], got["resolved"]) == (20, 4)
+    assert (got["rate"], got["rate_lo"], got["rate_hi"]) == (ev.rate.point, ev.rate.lo, ev.rate.hi)
+    assert got["call"] == v.call == STAY
+    assert (got["net_lo"], got["net"], got["net_hi"]) == v.monthly_usd
+    assert got["breakeven_rate"] == breakeven_rate(ev, A, 0.75)
+    assert got["breakeven_cloud_usd"] == breakeven_cloud_cost(ev, A)
+    one = metrics(_export(tmp_path, benches), {"select": {**claim["select"], "repos": ["two"]}})
+    assert (one["tasks"], one["resolved"]) == (8, 1) and "call" not in one
+
+
+def test_claims_split_by_commit_date_and_refuse_two_machines():
+    from backend.orchestrator.audit.claims import metrics
+
+    def row(sha, committed, ok, machine="Mac16,9, 64 GB"):
+        return {"repo": "r", "sha": sha, "committed": committed, "arm": "x:m", "cond": "blind",
+                "rep": 0, "resolved": ok, "secs": 60.0, "tier": "test-verified", "machine": machine}
+
+    rows = [row("a", "2026-03-01T10:00:00+00:00", True),
+            row("b", "2026-04-16T09:00:00-04:00", False), row("c", "2026-05-01T00:00:00Z", True)]
+    after = metrics(rows, {"select": {"arm": "x:m", "cond": "blind", "committed_from": "2026-04-16"}})
+    assert (after["tasks"], after["resolved"]) == (2, 1)
+    before = metrics(rows, {"select": {"arm": "x:m", "cond": "blind", "committed_before": "2026-04-16"}})
+    assert (before["tasks"], before["resolved"]) == (1, 1)
+    with pytest.raises(ValueError, match="commit date"):
+        metrics(rows + [row("d", "", True)],
+                {"select": {"arm": "x:m", "cond": "blind", "committed_from": "2026-04-16"}})
+    with pytest.raises(ValueError, match="2 machines"):
+        metrics(rows + [row("d", "", True, machine="Mac15,7, 16 GB")],
+                {"select": {"arm": "x:m", "cond": "blind"}})
+    with pytest.raises(ValueError, match="knows only"):
+        metrics(rows, {"select": {"arm": "x:m", "cond": "blind", "model": "m"}})
+
+
+def test_verify_checks_an_agentbench_claim_and_its_call(tmp_path):
+    from backend.orchestrator.routing.benchmark.verify import verify_claim
+
+    b = _bench(tmp_path, "one", {f"s{i}": [i < 2] for i in range(10)}, machine=STUDIO)
+    rows = _export(tmp_path, [b])
+    (tmp_path / "out" / "attempts.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows))
+    claim = {"id": "c", "kind": "agentbench", "artifact": "out/attempts.jsonl",
+             "select": {"arm": "fake:m", "cond": "feedback"},
+             "verdict": {"tasks_per_month": 200, "api_spend": 150},
+             "metrics": {"tasks": {"value": 10, "decimals": 0},
+                         "rate": {"value": 0.2, "decimals": 2},
+                         "call": {"value": "stay"}}}
+    assert verify_claim(claim, tmp_path).ok
+    claim["metrics"]["call"] = {"value": "split"}
+    r = verify_claim(claim, tmp_path)
+    assert not r.ok and "published split, artifact yields stay" in r.checks[-1].detail
+    r = verify_claim({**claim, "select": {"arm": "fake:m"}}, tmp_path)
+    assert not r.ok and "can't be computed" in r.error
+    assert "unknown claim kind" in verify_claim({**claim, "kind": "nope"}, tmp_path).error
+
+
 def _plain(output: str) -> str:
     """CLI error text without colour codes, box borders or wrapping, which
     differ between a terminal and CI."""

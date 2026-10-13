@@ -489,6 +489,21 @@ def report_cmd(
     typer.echo(render(tasks, attempts, degraded, manifest.load_all(bench)))
 
 
+@app.command("export")
+def export_cmd(
+    repos: List[Path] = typer.Argument(..., help="Benched repos to export."),
+    out: Path = typer.Option(..., "--out", help="The JSONL file to write."),
+    arms: List[str] = typer.Option([], "--arm", help="Only this arm (repeatable); default all."),
+    conds: List[str] = typer.Option([], "--cond", help="Only this condition (repeatable)."),
+) -> None:
+    """Counted attempts, one line each: what `orch bench verify` recomputes the
+    published rates and verdicts from."""
+    from backend.orchestrator.agentbench import export
+
+    n = export.write(out, [Bench(r) for r in repos], arms, conds)
+    typer.echo(f"{n} attempts -> {out}")
+
+
 @app.command("verdict")
 def verdict_cmd(
     repos: List[Path] = typer.Argument(..., help="Benched repos to pool evidence from."),

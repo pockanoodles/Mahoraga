@@ -1199,3 +1199,67 @@ def test_a_ledger_warns_when_the_weights_changed_between_runs(mined, repo):
         a.cond = "blind"
     [g] = ledgers(attempts, [], ms)
     assert g.warnings == ["the model's weights changed between runs (2 digests)"]
+
+
+# ── Following a repo ──────────────────────────────────────────────────────────
+
+
+def test_mined_tasks_carry_their_commit_date(mined, repo):
+    [task] = mined.load_tasks()
+    assert task.committed == _git(repo["path"], "log", "-1", "--format=%cI", repo["shas"]["mul"])
+
+
+def test_mine_new_takes_only_commits_it_has_never_seen(mined, repo, config):
+    from backend.orchestrator.agentbench.mine import mine_new
+
+    run_matrix(mined, [FakeAgent("m", apply_gold)], ["blind"])
+    assert mine_new(mined, config) == []  # mul is known, refactor was dropped
+    div = _commit(repo["path"], "feat: add div", {
+        "calc/ops.py": OPS + "\n\ndef mul(a, b):\n    return a * b\n\n\ndef div(a, b):\n    return a / b\n",
+        "tests/test_div.py": "from calc.ops import div\n\n\ndef test_div():\n    assert div(6, 3) == 2\n"})
+    [new] = mine_new(mined, config)
+    assert new.sha == div and len(mined.load_tasks()) == 2
+    assert len(load_attempts(mined)) == 1  # the known task's attempt survived
+
+
+def test_mine_new_knows_a_commit_by_its_full_sha(mined, repo, config):
+    """Short shas lengthen as a repo grows: 'bc1c708' and 'bc1c7081' are one commit."""
+    from backend.orchestrator.agentbench.mine import mine_new
+
+    [task] = mined.load_tasks()
+    task.sha = _git(repo["path"], "rev-parse", "--short=10", task.sha)
+    mined.save_tasks([task])
+    assert mine_new(mined, config) == []
+
+
+def test_reseal_backfills_dates(mined, repo):
+    [task] = mined.load_tasks()
+    task.committed = ""
+    mined.save_tasks([task])
+    reseal(mined)
+    assert mined.load_tasks()[0].committed.startswith("20")
+
+
+def test_a_follow_job_mines_runs_and_rests(mined, repo, tmp_path):
+    q = Queue(mined.dir.parent)
+    job = q.add(str(mined.repo), ["fake:m"], "blind", pinned=PIN, follow=True)
+    agent = FakeAgent("m", apply_gold)
+    run = _job_runner(tmp_path, FakeMachine(), agent, q)
+    drain(q, run, once=True, log=lambda m: None)
+    [after] = q.jobs()
+    assert after.status == PENDING and after.rest_until > time.time()
+    assert after.why.startswith("up to date, all 1 cells counted")
+    assert q.next_open(time.time()) is None  # resting
+    _commit(repo["path"], "feat: add div", {
+        "calc/ops.py": OPS + "\n\ndef mul(a, b):\n    return a * b\n\n\ndef div(a, b):\n    return a / b\n",
+        "tests/test_div.py": "from calc.ops import div\n\n\ndef test_div():\n    assert div(6, 3) == 2\n"})
+    q.update(job.id, rest_until=0.0)  # the next window
+    agent._edit = lambda clone, sha: None  # attempting the new task is what's tested
+    run(q.jobs()[0], None)
+    assert len(mined.load_tasks()) == 2 and len(agent.calls) == 2
+
+
+def test_a_follow_job_cant_name_tasks(mined):
+    with pytest.raises(ValueError, match="follow"):
+        Queue(mined.dir.parent).add(str(mined.repo), ["fake:m"], "blind", pinned=PIN,
+                                    follow=True, tasks=["abc"])

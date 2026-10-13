@@ -29,6 +29,10 @@ class Task:
     test_files: list[str]  # the commit's test modules: the targets
     f2p: list[str]  # pass at the commit, fail at the base: must pass after
     p2p: list[str]  # pass at the base across the full suite: must stay passing
+    # When the commit landed (committer date, ISO 8601): what decides whether a
+    # model released before it could have trained on it. "" = mined before
+    # dates were kept; `mahoraga audit reseal` fills it in.
+    committed: str = ""
 
     def to_json(self) -> str:
         return json.dumps(asdict(self))

@@ -58,7 +58,7 @@ _HEADING = re.compile(r"^## Results \((?P<dates>[\d/-]+), (?P<machine>[^)]+)\)$"
 def _task(row: dict) -> Task:
     # The probe's rows also carry full_sha and gold_src_all (docs and config
     # changed alongside); the engine's Task has no place for either.
-    return Task(**{name: row[name] for name in Task.__dataclass_fields__})
+    return Task(**{name: row[name] for name in Task.__dataclass_fields__ if name in row})
 
 
 def _attempt(row: dict) -> Attempt:

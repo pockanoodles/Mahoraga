@@ -15,6 +15,11 @@ says, at any moment, what it is waiting for or why it stopped.
            done when every cell has a counted attempt, or when a pass adds
            none, since those cells only degrade and retrying them all night
            measures nothing. Out of window, it stays pending and resumes.
+  follow   a job that never ends: each time its window opens it mines the
+           repo's new commits (fetching first, for a repo someone else
+           commits to), runs whatever cells are open, and rests until the
+           window closes. A model added today is then measured on commits it
+           can't have trained on, more of them every week.
 
 The file is `<bench root>/queue.json`, rewritten under a lock, so a job can be
 added while the worker runs.
@@ -52,6 +57,10 @@ class Job:
     checked_at: str = ""
     runs: list[str] = field(default_factory=list)
     wait_quiet: bool = False
+    follow: bool = False
+    fetch: bool = False
+    # A follow job that is up to date rests until this (epoch secs).
+    rest_until: float = 0.0
 
 
 def _stamp(now: float) -> str:
@@ -116,12 +125,16 @@ class Queue:
 
     def add(self, repo: str, arms: list[str], cond: str, *, pinned: dict[str, str],
             tasks: list[str] | None = None, repeats: int = 1, window: str | None = None,
-            wait_quiet: bool = False, now: float | None = None) -> Job:
+            wait_quiet: bool = False, follow: bool = False, fetch: bool = False,
+            now: float | None = None) -> Job:
         if window is not None:
             parse_window(window)
+        if follow and tasks:
+            raise ValueError("a follow job runs every task the repo grows; it can't name tasks")
         job = Job(id=secrets.token_hex(3), repo=repo, arms=list(arms), cond=cond,
                   tasks=list(tasks or []), repeats=repeats, window=window, pinned=pinned,
-                  added_at=_stamp(now or time.time()), wait_quiet=wait_quiet)
+                  added_at=_stamp(now or time.time()), wait_quiet=wait_quiet,
+                  follow=follow, fetch=fetch)
         with self.edit() as jobs:
             jobs.append(job)
         return job
@@ -137,7 +150,7 @@ class Queue:
     def next_open(self, now: float) -> tuple[Job, float] | None:
         """The first pending job whose window is open, and when it closes."""
         for job in self.jobs():
-            if job.status != PENDING:
+            if job.status != PENDING or job.rest_until > now:
                 continue
             deadline = window_deadline(job.window, now)
             if deadline is not None:

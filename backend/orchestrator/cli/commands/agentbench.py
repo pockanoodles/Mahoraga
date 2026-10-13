@@ -271,9 +271,13 @@ def queue_add_cmd(
     repeats: int = typer.Option(1, "--repeats", min=1),
     window: Optional[str] = typer.Option(None, "--window", help="HH:MM-HH:MM; no attempt starts outside it."),
     wait_quiet: bool = typer.Option(False, "--wait-quiet", help="Pause while someone else's model is loaded in Ollama."),
+    follow: bool = typer.Option(False, "--follow", help="Never finish: mine new commits each window and run them."),
+    fetch: bool = typer.Option(False, "--fetch", help="With --follow, git fetch first (a repo others commit to)."),
 ) -> None:
     """Queue a run. Each model's digest is pinned now, so the job fails rather
     than measure different weights if a tag moves before it runs."""
+    if fetch and not follow:
+        raise typer.BadParameter("--fetch only applies with --follow")
     from backend.orchestrator.agentbench.ollama import pulled_models, tagged
     from backend.orchestrator.agentbench.queue import Queue, parse_window
 
@@ -294,11 +298,15 @@ def queue_add_cmd(
     if missing:
         typer.echo(f"not pulled: {', '.join(missing)}")
         raise typer.Exit(1)
-    job = Queue(bench_root()).add(
-        str(bench.repo), arms, cond, tasks=tasks, repeats=repeats, window=window,
-        wait_quiet=wait_quiet, pinned={a.model: pulled[tagged(a.model)] for a in agents})
+    try:
+        job = Queue(bench_root()).add(
+            str(bench.repo), arms, cond, tasks=tasks, repeats=repeats, window=window,
+            wait_quiet=wait_quiet, follow=follow, fetch=fetch,
+            pinned={a.model: pulled[tagged(a.model)] for a in agents})
+    except ValueError as e:
+        raise typer.BadParameter(str(e))
     typer.echo(f"queued {job.id}: {bench.repo.name} {' '.join(arms)} {cond}"
-               + (f", {window}" if window else ""))
+               + (f", {window}" if window else "") + (", following new commits" if follow else ""))
 
 
 @queue_app.command("ls")
@@ -320,7 +328,8 @@ def queue_ls_cmd() -> None:
         except Exception as e:  # noqa: BLE001 — a broken job still gets its line
             cells = f"? cells ({e})"[:60]
         typer.echo(f"{j.id}  {j.status:8} {Path(j.repo).name:16} {' '.join(j.arms)}  "
-                   f"{j.cond}  {j.window or 'any time'}  {cells}")
+                   f"{j.cond}  {j.window or 'any time'}  {cells}"
+                   + ("  follow" + ("+fetch" if j.fetch else "") if j.follow else ""))
         typer.echo(f"        {j.why or 'not looked at yet: is a worker running?'}"
                    + (f"  ({j.checked_at})" if j.checked_at else ""))
 
@@ -436,10 +445,24 @@ def worker_cmd(
 def report_cmd(
     repo: Path = _REPO,
     json_out: bool = typer.Option(False, "--json"),
+    since: Optional[str] = typer.Option(None, "--since", help="Only tasks committed on or after YYYY-MM-DD, e.g. a model's release: work it can't have trained on."),
 ) -> None:
     """Per-arm resolve rates, failure modes, and a per-task matrix."""
     bench = Bench(repo)
     tasks, attempts, degraded = bench.load_tasks(), load_attempts(bench), load_degraded(bench)
+    if since:
+        try:
+            datetime.strptime(since, "%Y-%m-%d")
+        except ValueError:
+            raise typer.BadParameter(f"--since takes YYYY-MM-DD, not {since!r}")
+        undated = sum(not t.committed for t in tasks)
+        tasks = [t for t in tasks if t.committed and t.committed[:10] >= since]
+        live = {t.sha for t in tasks}
+        attempts = [a for a in attempts if a.sha in live]
+        degraded = [a for a in degraded if a.sha in live]
+        if not json_out:
+            typer.echo(f"tasks committed on or after {since}: {len(tasks)}"
+                       + (f" ({undated} undated left out: run `mahoraga audit reseal`)" if undated else ""))
     if json_out:
         typer.echo(json.dumps({
             "repo": str(bench.repo), "tasks": len(tasks),

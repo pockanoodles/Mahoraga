@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import shutil
+import time
+from datetime import datetime
 from pathlib import Path
 from typing import Callable
 
@@ -11,6 +13,8 @@ from . import isolation, session
 from .agents import Agent, parse_arm
 from .bank import Bench, SuiteConfig
 from .guard import Guard
+from .mine import backfill_dates, mine_new
+from .proc import git
 from .ollama import pulled_models
 from .queue import DONE, FAILED, Job, Queue, pin_problems
 from .runner import CONDITIONS, Attempt, open_cells
@@ -44,6 +48,14 @@ def run_job(queue: Queue, job: Job, deadline: float | None, *,
     if missing := sorted({a.name for a in agents if not which(a.name)}):
         return fail(f"not on PATH: {', '.join(missing)}")
     bench = Bench(Path(job.repo), root=queue.root)
+    if job.follow:
+        try:
+            new = follow(bench, job.fetch, log)
+        except Exception as e:  # noqa: BLE001 — a failed fetch or mine is reported, not fatal
+            queue.update(job.id, why=f"mining new commits failed: {e}"[:300])
+            new = []
+        if new:
+            log(f"job {job.id}: {len(new)} new tasks mined")
     if not bench.load_tasks():
         return fail("the bench has no tasks: run `mahoraga audit mine` on the repo")
 
@@ -54,8 +66,7 @@ def run_job(queue: Queue, job: Job, deadline: float | None, *,
     only = set(job.tasks) or None
     left, total = open_cells(bench, agents, conds, only, job.repeats)
     if not left:
-        queue.update(job.id, status=DONE, why=f"all {total} cells counted")
-        return 0
+        return _settle(queue, job, deadline, total, f"all {total} cells counted")
 
     waited: list[str] = []
 
@@ -90,12 +101,12 @@ def run_job(queue: Queue, job: Job, deadline: float | None, *,
     left, total = open_cells(bench, agents, conds, only, job.repeats)
     notes = "; ".join(f"dropped {d}" for d in dropped)
     if not left:
-        queue.update(job.id, status=DONE, why=f"all {total} cells counted")
+        _settle(queue, job, deadline, total, f"all {total} cells counted")
     elif stopped == "completed" and len(dropped) == len(agents):
         fail(notes)
     elif stopped == "completed" and not done:
         # A pass that counted nothing: what's left only degrades.
-        queue.update(job.id, status=DONE, why="; ".join(filter(None, [
+        _settle(queue, job, deadline, total, "; ".join(filter(None, [
             f"{left} of {total} cells left open, every try degraded", notes])))
     elif stopped == "deadline":
         reopen = f"{job.window.split('-')[0]}" if job.window else "next start"
@@ -108,3 +119,33 @@ def run_job(queue: Queue, job: Job, deadline: float | None, *,
             f"pass done, {left} of {total} cells open; running another", notes])))
     return len(done)
 
+
+
+# A follow job with no window looks for new commits this often.
+FOLLOW_EVERY = 6 * 3600
+
+
+def _settle(queue: Queue, job: Job, deadline: float | None, total: int, why: str) -> int:
+    """Nothing left to run: a job ends, a follow job rests until its window
+    closes (or FOLLOW_EVERY, without one) and looks for new commits again."""
+    if not job.follow:
+        queue.update(job.id, status=DONE, why=why)
+        return 0
+    until = deadline if deadline else time.time() + FOLLOW_EVERY
+    queue.update(job.id, rest_until=until, why=f"up to date, {why}; looks for new commits "
+                                                f"after {datetime.fromtimestamp(until):%m-%d %H:%M}")
+    return 0
+
+
+def follow(bench: Bench, fetch: bool, log: Callable[[str], None]) -> list:
+    """Fetch (for a repo others commit to), backfill dates, and mine new commits."""
+    rev = "HEAD"
+    if fetch:
+        git("fetch", "-q", cwd=bench.repo)
+        upstream = git("rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}",
+                       cwd=bench.repo, check=False).strip()
+        rev = upstream or "HEAD"
+    backfill_dates(bench)
+    return mine_new(bench, bench.load_config(), rev,
+                    progress=lambda sha, task, why: log(
+                        f"  mined {sha[:10]}: " + ("ok" if task else f"drop {why}")))

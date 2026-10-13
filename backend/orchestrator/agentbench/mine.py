@@ -24,7 +24,7 @@ import shutil
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Iterable
 
 from .bank import Bench, Task, SuiteConfig
 from .proc import CRASH, git, passing, run_pytest
@@ -147,6 +147,7 @@ def build_task(bench: Bench, config: SuiteConfig, sha: str) -> Task:
     numstat = git("diff", "--numstat", f"{sha}^", sha, "--", *gold_src, cwd=d)
     subject = git("log", "-1", "--format=%s", sha, cwd=d).strip()
     body = git("log", "-1", "--format=%b", sha, cwd=d).strip()
+    committed = git("log", "-1", "--format=%cI", sha, cwd=d).strip()
     base = seal(d, bench.repo, git("rev-parse", f"{sha}^", cwd=d).strip())
 
     at_base = pytest(tests)
@@ -161,7 +162,7 @@ def build_task(bench: Bench, config: SuiteConfig, sha: str) -> Task:
     gold_lines = sum(int(a) + int(r) for a, r, *_ in
                      (line.split("\t") for line in numstat.splitlines()) if a != "-")
     return Task(
-        sha=sha, base=base, subject=subject, body=body,
+        sha=sha, base=base, subject=subject, body=body, committed=committed,
         gold_src=gold_src, gold_lines=gold_lines, test_files=tests, f2p=f2p, p2p=p2p,
     )
 
@@ -214,14 +215,55 @@ def leaks(d: Path, sha: str) -> list[str]:
     return out
 
 
+def backfill_dates(bench: Bench) -> int:
+    """Commit dates for tasks mined before they were kept. Returns how many."""
+    tasks = bench.load_tasks()
+    missing = [t for t in tasks if not t.committed]
+    for t in missing:
+        t.committed = git("log", "-1", "--format=%cI", t.sha, cwd=bench.repo).strip()
+    if missing:
+        bench.save_tasks(tasks)
+    return len(missing)
+
+
+def full_shas(repo: Path, shas: Iterable[str]) -> dict[str, str]:
+    """Each sha as git spells it in full. Short shas lengthen as a repo grows,
+    so comparing them as strings would take a known commit for a new one."""
+    shas = list(shas)
+    if not shas:
+        return {}
+    out = git("rev-parse", *shas, cwd=repo).split()
+    return dict(zip(shas, out))
+
+
+def mine_new(bench: Bench, config: SuiteConfig, rev: str = "HEAD", *, look_back: int = 200,
+             max_new: int = 25, max_lines: int = 250,
+             progress: Callable[[str, Task | None, str | None], None] = lambda *a: None,
+             ) -> list[Task]:
+    """Mine commits the bench has never seen, newest first, at most `max_new`
+    of them. Known commits, kept or dropped, are never rebuilt, since `mine`
+    would delete a rebuilt task's attempts."""
+    dropped = json.loads(bench.dropped_path.read_text()) if bench.dropped_path.exists() else {}
+    known = set(full_shas(bench.repo, [t.sha for t in bench.load_tasks()] + list(dropped)).values())
+    candidates = find_candidates(bench.repo, rev, look_back, max_lines)
+    full = full_shas(bench.repo, [c.sha for c in candidates])
+    fresh = [c.sha for c in candidates if full[c.sha] not in known][:max_new]
+    if not fresh:
+        return []
+    tasks, _ = mine(bench, config, fresh, progress)
+    return [t for t in tasks if t.sha in fresh]
+
+
 def reseal(bench: Bench, progress: Callable[[str, str], None] = lambda sha, msg: None) -> int:
     """Seal every task clone mined before `seal` existed, keeping its attempts.
 
     Rebuilding a task with `mine` would delete them, since a new base usually
     means a new task. Here it doesn't: the base tree is carried over object for
     object and checked equal, so every attempt ran on exactly the tree the
-    sealed clone holds. Returns how many clones were sealed.
+    sealed clone holds. Also fills in commit dates mined before they were kept.
+    Returns how many clones were sealed.
     """
+    backfill_dates(bench)
     tasks = bench.load_tasks()
     n = 0
     for t in tasks:

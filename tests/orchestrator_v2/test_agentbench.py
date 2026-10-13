@@ -1168,7 +1168,7 @@ def _manifest(run_id, digest="sha256:aaaabbbbcccc1111", dropped=None):
             "agents": {"fake": "fake 1.0"}, "harness": {"version": "2.1.0", "commit": "c1bf98130ab",
                                                       "dirty": False},
             "machine": {"model": "Mac17,14", "memory_gb": 64},
-            "tasks": {"tasks_sha256": "feedfacecafe0000"}, "dropped": dropped or {}}
+            "tasks": {"prompts_sha256": "feedfacecafe0000"}, "dropped": dropped or {}}
 
 
 def test_a_ledger_carries_receipts_exclusions_and_drops(mined, repo):
@@ -1180,8 +1180,8 @@ def test_a_ledger_carries_receipts_exclusions_and_drops(mined, repo):
     ms = [_manifest("r1"), _manifest("r2", dropped={"fake:m": "3 tasks in a row ..."})]
     [blind, feedback] = ledgers(load_attempts(mined), load_degraded(mined), ms)
     assert blind.counted == 1 and blind.excluded == {} and blind.warnings == []
-    assert blind.receipts == ["1 attempts: m @ aaaabbbbcccc, fake fake 1.0, ollama 0.35.1, "
-                              "mahoraga 2.1.0 c1bf98130, Mac17,14 64 GB, tasks feedfacecafe"]
+    assert blind.receipts == ["1 attempts: m @ aaaabbbbcccc, fake 1.0, ollama 0.35.1, "
+                              "mahoraga 2.1.0 c1bf98130, Mac17,14 64 GB, prompts feedfacecafe"]
     assert feedback.counted == 0 and feedback.excluded == {"agent crashed": 1}
     assert feedback.dropped == ["3 tasks in a row ..."]
     out = "\n".join(render_ledgers([blind, feedback]))

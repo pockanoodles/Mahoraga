@@ -321,6 +321,8 @@ def queue_ls_cmd() -> None:
     if not jobs:
         typer.echo("the queue is empty")
         return
+    now = time.time()
+    ahead = None  # the job a worker takes first, among those it could run now
     for j in jobs:
         try:
             conds = CONDITIONS if j.cond == "both" else (j.cond,)
@@ -332,12 +334,18 @@ def queue_ls_cmd() -> None:
         typer.echo(f"{j.id}  {j.status:8} {Path(j.repo).name:16} {' '.join(j.arms)}  "
                    f"{j.cond}  {j.window or 'any time'}  {cells}"
                    + ("  follow" + ("+fetch" if j.fetch else "") if j.follow else ""))
+        runnable = (j.status == "pending" and j.rest_until <= now
+                    and window_deadline(j.window, now) is not None)
         if j.why:
             why = j.why
-        elif j.window and window_deadline(j.window, time.time()) is None:
+        elif j.window and window_deadline(j.window, now) is None:
             why = f"waiting for its window to open at {j.window.split('-')[0]}"
+        elif runnable and ahead:
+            why = f"queued behind {ahead}"
         else:
             why = "its window is open but no worker has looked at it: is one running?"
+        if runnable and ahead is None:
+            ahead = j.id
         typer.echo(f"        {why}" + (f"  ({j.checked_at})" if j.checked_at else ""))
 
 

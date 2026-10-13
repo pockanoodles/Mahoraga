@@ -1279,3 +1279,16 @@ def test_following_a_pinned_clone_fetches_and_mines_upstream(repo, tmp_path, con
     new = follow(bench, fetch=True, log=lambda m: None)
     assert [t.sha for t in new] == [div]
     assert _git(pinned, "rev-parse", "--short", "HEAD") == repo["shas"]["docs"]  # still pinned
+
+
+def test_a_bench_written_by_a_newer_version_still_loads(mined, repo, tmp_path):
+    run_matrix(mined, [FakeAgent("m", apply_gold)], ["blind"])
+    line = json.loads(mined.tasks_path.read_text().splitlines()[0])
+    mined.tasks_path.write_text(json.dumps({**line, "from_the_future": 1}) + "\n")
+    [att] = list(mined.attempts.glob("*.json"))
+    att.write_text(json.dumps({**json.loads(att.read_text()), "from_the_future": 1}))
+    assert len(mined.load_tasks()) == 1 and len(load_attempts(mined)) == 1
+    q = Queue(tmp_path / "q")
+    q.add(str(mined.repo), ["fake:m"], "blind", pinned=PIN)
+    q.path.write_text(json.dumps([{**json.loads(q.path.read_text())[0], "from_the_future": 1}]))
+    assert len(q.jobs()) == 1

@@ -28,7 +28,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Callable, Iterable
 
 from .agents import DEFAULT_NUM_CTX, Agent, AgentRun
-from .bank import Bench, SuiteConfig, Task
+from .bank import Bench, SuiteConfig, Task, from_record
 from .grade import TEST_VERIFIED, Grader, TestGrader
 from .mine import is_test_path
 from .proc import git
@@ -235,12 +235,13 @@ def open_cells(bench: Bench, agents: Iterable[Agent], conds: Iterable[str],
 def load_attempts(bench: Bench) -> list[Attempt]:
     if not bench.attempts.exists():
         return []
-    return [Attempt(**json.loads(p.read_text())) for p in sorted(bench.attempts.glob("*.json"))]
+    return [from_record(Attempt, json.loads(p.read_text()))
+            for p in sorted(bench.attempts.glob("*.json"))]
 
 
 def load_degraded(bench: Bench) -> list[Attempt]:
     d = _degraded_dir(bench)
-    return [Attempt(**json.loads(p.read_text())) for p in sorted(d.glob("*.json"))] \
+    return [from_record(Attempt, json.loads(p.read_text())) for p in sorted(d.glob("*.json"))] \
         if d.exists() else []
 
 

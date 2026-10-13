@@ -18,6 +18,14 @@ def bench_root() -> Path:
     return Path(os.environ.get("MAHORAGA_AGENTBENCH_ROOT", DEFAULT_ROOT))
 
 
+def from_record(cls, record: dict):
+    """A dataclass from a stored record, ignoring fields this version doesn't
+    know. A bench outlives the code that wrote it: on 2026-10-13 a worker one
+    commit behind crashed on a queue file with a field it had never seen, and
+    tasks gaining `committed` would have stopped that night's run the same way."""
+    return cls(**{k: v for k, v in record.items() if k in cls.__dataclass_fields__})
+
+
 @dataclass
 class Task:
     sha: str
@@ -127,7 +135,7 @@ class Bench:
     def load_tasks(self) -> list[Task]:
         if not self.tasks_path.exists():
             return []
-        return [Task(**json.loads(line))
+        return [from_record(Task, json.loads(line))
                 for line in self.tasks_path.read_text().splitlines() if line.strip()]
 
     def save_tasks(self, tasks: list[Task]) -> None:

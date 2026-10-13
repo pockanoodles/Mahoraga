@@ -36,6 +36,8 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Callable, Iterator
 
+from .bank import from_record
+
 PENDING, DONE, FAILED = "pending", "done", "failed"
 
 
@@ -118,7 +120,8 @@ class Queue:
             tmp.replace(self.path)
 
     def _read(self) -> list[Job]:
-        return [Job(**j) for j in json.loads(self.path.read_text())] if self.path.exists() else []
+        return ([from_record(Job, j) for j in json.loads(self.path.read_text())]
+                if self.path.exists() else [])
 
     def jobs(self) -> list[Job]:
         return self._read()

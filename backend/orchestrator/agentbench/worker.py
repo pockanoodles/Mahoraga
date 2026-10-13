@@ -142,9 +142,13 @@ def follow(bench: Bench, fetch: bool, log: Callable[[str], None]) -> list:
     rev = "HEAD"
     if fetch:
         git("fetch", "-q", cwd=bench.repo)
-        upstream = git("rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}",
-                       cwd=bench.repo, check=False).strip()
-        rev = upstream or "HEAD"
+        # The branch's upstream; for a checkout pinned to a commit (the outside
+        # repos sit detached at the laptop's commits), the remote's default branch.
+        rev = next((r for r in (
+            git("rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}", cwd=bench.repo,
+                check=False).strip(),
+            git("rev-parse", "--abbrev-ref", "origin/HEAD", cwd=bench.repo, check=False).strip(),
+        ) if r and r != "origin/HEAD"), "HEAD")
     backfill_dates(bench)
     return mine_new(bench, bench.load_config(), rev,
                     progress=lambda sha, task, why: log(

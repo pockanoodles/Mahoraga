@@ -1263,3 +1263,19 @@ def test_a_follow_job_cant_name_tasks(mined):
     with pytest.raises(ValueError, match="follow"):
         Queue(mined.dir.parent).add(str(mined.repo), ["fake:m"], "blind", pinned=PIN,
                                     follow=True, tasks=["abc"])
+
+
+def test_following_a_pinned_clone_fetches_and_mines_upstream(repo, tmp_path, config):
+    from backend.orchestrator.agentbench.worker import follow
+
+    pinned = tmp_path / "pinned"
+    _git(tmp_path, "clone", "-q", str(repo["path"]), str(pinned))
+    _git(pinned, "checkout", "-q", "--detach", repo["shas"]["docs"])
+    bench = Bench(pinned, root=tmp_path / "state2")
+    mine(bench, config, [repo["shas"]["mul"]])
+    div = _commit(repo["path"], "feat: add div", {
+        "calc/ops.py": OPS + "\n\ndef mul(a, b):\n    return a * b\n\n\ndef div(a, b):\n    return a / b\n",
+        "tests/test_div.py": "from calc.ops import div\n\n\ndef test_div():\n    assert div(6, 3) == 2\n"})
+    new = follow(bench, fetch=True, log=lambda m: None)
+    assert [t.sha for t in new] == [div]
+    assert _git(pinned, "rev-parse", "--short", "HEAD") == repo["shas"]["docs"]  # still pinned

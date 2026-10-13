@@ -32,7 +32,7 @@ work rather than a subscriber.
 ## 1. The local tier stopped getting new models
 
 Between June and September 2026 the flagship open model lines moved up and
-out of the size that fits consumer hardware ([Era 31](../brain/state/findings.md)).
+out of the size that fits consumer hardware ([Era 31](../../brain/state/findings.md)).
 Qwen 3.6 and 3.8 ship no model under 17 GB, the smallest `qwen3-coder` is
 19 GB, and Meta's line now starts at 17.31 GB. Smaller releases did continue
 (IBM's granite 4.2 8B and a 9B from ornith-ai), but none of them has a
@@ -77,7 +77,10 @@ laptop's exact model file (checksum verified) with the laptop's settings, so
 they measure the laptop's model on faster hardware. The laptop's own rate may
 sit slightly below them, because its attempts take 8 to 13 minutes and the
 slowest run into the 20-minute timeout. The Studio rows were run overnight on
-2026-10-06 ([Era 36](../brain/state/findings.md)).
+2026-10-06 ([Era 36](../../brain/state/findings.md)). Every count in this
+section and the next is recomputed by `orch bench verify` from one line per
+attempt in [`experiments/agentbench/`](../../experiments/agentbench/), and CI
+runs that check, so a reader can confirm each number without our machines.
 
 Three things held across every run. The test gate caught every failed
 attempt, so a test-gated queue never shipped a broken edit. The commonest
@@ -94,11 +97,11 @@ they are rerun, which is why this report pools five repositories.
 
 A benchmark built from public repositories invites the worry that the model
 saw the answers in training. Qwen3.6 was released around 2026-04-16, so
-commits made after that date are ones it cannot have seen. On those 56 tasks
-it resolves 30% (17 of 56), against qwen3.5's 4% (2 of 56), and the two
-intervals do not overlap. On more-itertools, the one repository with enough
-tasks on both sides of the date, qwen3.6 resolves 6 of 15 earlier commits and
-8 of 21 later ones. That flat rate is what an unmemorised model looks like.
+commits made after that date are ones it cannot have seen. The three outside
+repositories hold 56 tasks from such commits. On those it resolves 30% (17 of
+56), against qwen3.5's 4% (2 of 56), and the two intervals do not overlap.
+On more-itertools, the one repository with enough tasks on both sides of the
+date, qwen3.6 resolves 6 of 15 earlier commits and 8 of 21 later ones. That flat rate is what an unmemorised model looks like.
 
 ## 4. When local pays
 
@@ -131,7 +134,7 @@ with either model, so the engine answers that this user is not wasting money.
 ## 5. The hardware question
 
 Vendor numbers say the step from 16 GB to 24 GB is the only one that changes
-model class ([Era 32](../brain/state/findings.md)), since the best SWE-bench
+model class ([Era 32](../../brain/state/findings.md)), since the best SWE-bench
 Verified score that fits rises from 47.67 to 70.9. The Studio run is the first
 measurement of that step on real repositories, and it points the same way.
 On the same 92 outside tasks, the 35B model that needs about 21 GB resolves

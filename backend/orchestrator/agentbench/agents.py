@@ -57,6 +57,10 @@ class AgentRun:
     # The agent itself died, e.g. "ImportError in _svdp.py line 23"; empty = it
     # ran. A crash is the harness failing, not the model, so it isn't scored.
     crashed: str = ""
+    # The model answered in a form the agent can't act on, e.g. native tool-call
+    # markup sent to aider; empty = the agent could read it. Like a crash, it
+    # says nothing about the model's skill when nothing got edited.
+    unreadable: str = ""
     # Model requests that failed (timeouts, Ollama 500s). The way a slow
     # machine reaches an outcome: without these or a timeout, it didn't.
     request_errors: int = 0
@@ -195,8 +199,10 @@ class AiderAgent:
         finally:
             os.unlink(settings)
         tokens = re.findall(r"Tokens: ([\d.]+k?) sent, ([\d.]+k?) received", log)
+        calls = aider_tool_calls(log)
         return AgentRun(
             log=log, secs=secs, timed_out=timed_out, crashed=aider_crash(log),
+            unreadable=f"{calls} tool calls, which aider can't run" if calls else "",
             request_errors=aider_request_errors(log),
             llm_calls=len(tokens),
             tokens_sent=sum(_num(s) for s, _ in tokens),
@@ -206,6 +212,10 @@ class AiderAgent:
                 # failure mode in the first probe (27 of 36 attempts).
                 "search_mismatches": log.count("must exactly match"),
                 "format_errors": log.count("did not conform to the edit format"),
+                # Replies cut off at num_predict, almost always mid-thought. The
+                # cap is part of the arm, so these still count; this is how a
+                # report tells "ran out of budget" from "answered wrong".
+                "capped_calls": sum(_num(r) >= 0.98 * self.num_predict for _, r in tokens),
             },
         )
 
@@ -218,6 +228,13 @@ def aider_crash(log: str) -> str:
     if m:
         return f"{m.group(1)} in {m.group(2).strip()}"
     return "uncaught exception" if "An uncaught exception occurred" in log else ""
+
+
+def aider_tool_calls(log: str) -> int:
+    """Replies written as native tool calls (`<tool_call>` blocks), which aider
+    prints as text and never runs. Ornith-1.5:9b on the Studio, 2026-10-13: 47
+    of 102 attempts, each recorded as a no-edit in about 12 seconds."""
+    return log.count("<tool_call>")
 
 
 # One line per failed request, as litellm reports it through aider, e.g. from

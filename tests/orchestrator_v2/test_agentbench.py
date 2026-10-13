@@ -22,7 +22,8 @@ from typer.testing import CliRunner
 
 from backend.orchestrator.agentbench import manifest
 from backend.orchestrator.agentbench.agents import (
-    AgentRun, AiderAgent, OpenCodeAgent, _launch, aider_crash, aider_request_errors, parse_arm,
+    AgentRun, AiderAgent, OpenCodeAgent, _launch, aider_crash, aider_request_errors,
+    aider_tool_calls, parse_arm,
     parse_opencode_events,
 )
 from backend.orchestrator.agentbench.bank import Bench, SuiteConfig
@@ -106,9 +107,10 @@ class FakeAgent:
     name = "fake"
 
     def __init__(self, model: str, edit=lambda clone, task_sha: None, crashed: str = "",
-                 timed_out: bool = False, request_errors: int = 0):
+                 timed_out: bool = False, request_errors: int = 0, unreadable: str = ""):
         self.model, self._edit, self._crashed = model, edit, crashed
         self._timed_out, self._request_errors = timed_out, request_errors
+        self._unreadable = unreadable
         self.calls: list[dict] = []
 
     def attempt(self, workdir, prompt, *, test_cmd, timeout):
@@ -116,7 +118,7 @@ class FakeAgent:
         sha = _git(workdir, "log", "--all", "--format=%h", "-1", "--grep=feat: add mul")
         self._edit(workdir, sha)
         return AgentRun(log="", secs=1.0, timed_out=self._timed_out, crashed=self._crashed,
-                        request_errors=self._request_errors)
+                        request_errors=self._request_errors, unreadable=self._unreadable)
 
 
 def apply_gold(clone: Path, sha: str) -> None:
@@ -502,6 +504,26 @@ def test_aider_crash_is_read_from_its_crash_report():
     assert aider_crash("Applied edit to m.py\nTokens: 2.6k sent, 206 received.") == ""
 
 
+def test_aider_tool_calls_are_counted_from_the_chat():
+    # Trimmed from ornith-1.5:9b on the Studio, 2026-10-13.
+    log = ("► **ANSWER**\n\nI'll start by exploring the agentbench module.\n\n"
+           "<tool_call>\n<function bash>\n<parameter name=\"command\">ls backend/\n"
+           "</parameter>\n</bash>\n\nTokens: 15k sent, 305 received.\n")
+    assert aider_tool_calls(log) == 1
+    assert aider_tool_calls("Applied edit to m.py\nTokens: 2.6k sent, 206 received.") == 0
+
+
+def test_aider_reads_cap_hits_and_tool_calls_from_its_log(tmp_path, monkeypatch):
+    log = ("Tokens: 7.2k sent, 8.2k received.\n<tool_call>\n"
+           "Tokens: 9.1k sent, 1.6k received.\n")
+    monkeypatch.setattr("backend.orchestrator.agentbench.agents._launch",
+                        lambda *a, **k: (log, False, 12.0))
+    monkeypatch.setattr("shutil.which", lambda name: "/bin/" + name)
+    run = AiderAgent("m:9b", home=tmp_path).attempt(tmp_path, "p", test_cmd=None, timeout=1)
+    assert run.extra["capped_calls"] == 1
+    assert run.unreadable == "1 tool calls, which aider can't run"
+
+
 def test_aider_request_errors_count_one_per_failed_request():
     # From the throttled 2026-09-29 run: one failure names two litellm errors.
     log = ("tests/test_slack_client.py\n"
@@ -728,6 +750,61 @@ def test_a_crashed_agent_is_degraded_not_scored_as_no_edit(mined, repo):
     assert degraded[0].degraded == ["agent crashed: ImportError in _svdp.py line 23"]
     out = render(mined.load_tasks(), [], degraded)
     assert "2 degraded attempts excluded (did not measure the agent): agent crashed x2" in out
+
+
+def test_an_unreadable_reply_with_no_edit_is_degraded(mined, repo):
+    agent = FakeAgent("m", unreadable="3 tool calls, which aider can't run")
+    done = run_matrix(mined, [agent], ["blind"], max_degraded=0)
+    degraded = load_degraded(mined)
+    assert done == [] and load_attempts(mined) == [] and len(degraded) == 1
+    assert degraded[0].degraded == [
+        "agent couldn't read the reply: 3 tool calls, which aider can't run"]
+
+
+def test_an_unreadable_reply_that_still_edited_counts(mined, repo):
+    # Some replies were tool calls, but the model edited anyway: that measured it.
+    agent = FakeAgent("m", apply_gold, unreadable="1 tool calls, which aider can't run")
+    done = run_matrix(mined, [agent], ["blind"], only={repo["shas"]["mul"]})
+    assert len(done) == 1 and done[0].resolved and load_degraded(mined) == []
+
+
+def test_an_arm_the_agent_keeps_failing_is_dropped(mined, repo):
+    dropped = []
+    broken = FakeAgent("broken", crashed="ImportError in _svdp.py line 23")
+    fine = FakeAgent("fine", apply_gold)
+    done = run_matrix(mined, [broken, fine], ["blind", "feedback"], max_degraded=0,
+                      max_harness_failures=1,
+                      dropped=lambda arm, why: dropped.append((arm, why)))
+    # The blind cell failed, so the arm never reached feedback; the next arm ran in full.
+    assert len(broken.calls) == 1 and len(fine.calls) == 2 and len(done) == 2
+    assert dropped == [("fake:broken", "1 tasks in a row where the agent failed, not the "
+                        "model (last: agent crashed: ImportError in _svdp.py line 23)")]
+
+
+def test_a_counted_attempt_resets_the_harness_failure_streak(mined, repo):
+    flaky = FakeAgent("m", apply_gold)
+    flaky._crashed = "uncaught exception"
+    dropped = []
+    # crash, count, crash, count: two crashes, never two in a row.
+    calls = iter(["uncaught exception", ""] * 2)
+    orig = flaky.attempt
+
+    def attempt(*a, **k):
+        flaky._crashed = next(calls)
+        return orig(*a, **k)
+
+    flaky.attempt = attempt
+    run_matrix(mined, [flaky], ["blind", "feedback"], repeats=2, max_degraded=0,
+               max_harness_failures=2, dropped=lambda arm, why: dropped.append(why))
+    assert dropped == [] and len(load_attempts(mined)) == 2
+
+
+def test_the_report_says_how_many_failures_ran_out_of_budget(mined, repo):
+    run_matrix(mined, [FakeAgent("m")], ["blind"])
+    [a] = load_attempts(mined)
+    a.extra["capped_calls"] = 2
+    assert summarise(mined.load_tasks(), [a])[0].capped == 1
+    assert "(1 of the failures hit the generation cap)" in render(mined.load_tasks(), [a])
 
 
 def test_no_attempt_starts_after_the_deadline(mined, repo):

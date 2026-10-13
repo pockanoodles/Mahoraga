@@ -229,7 +229,8 @@ def run_cmd(
     stopped = "interrupted"
     try:
         done = run_matrix(bench, agents, conds, only, timeout, repeats, guard=guard,
-                          deadline=deadline, run_id=run_id, progress=progress)
+                          deadline=deadline, run_id=run_id, progress=progress,
+                          dropped=lambda arm, why: typer.echo(f"dropped {arm}: {why}"))
         stopped = ("deadline" if deadline and datetime.now().timestamp() >= deadline
                    else "completed")
     finally:

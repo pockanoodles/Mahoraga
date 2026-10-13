@@ -55,6 +55,9 @@ class ArmSummary:
     rate_lo: float = 0.0
     rate_hi: float = 1.0
     tier: str = "test-verified"
+    # Failed attempts with a reply cut off at the generation cap: out of
+    # budget rather than wrong, though both count as failures.
+    capped: int = 0
 
     @property
     def interval(self) -> Rate:
@@ -97,6 +100,7 @@ def summarise(tasks: list[Task], attempts: list[Attempt]) -> list[ArmSummary]:
             tasks_solved_always=sum(all(v) for v in per_task.values()),
             repeats=max(len(v) for v in per_task.values()),
             rate=r.point, rate_lo=r.lo, rate_hi=r.hi, tier=tiers.pop(),
+            capped=sum(not a.resolved and a.extra.get("capped_calls", 0) > 0 for a in rows),
         ))
     return out
 
@@ -153,7 +157,8 @@ def render(tasks: list[Task], attempts: list[Attempt],
     lines.append("failure modes: " + "  ".join(OUTCOMES[1:]))
     for s in summaries:
         lines.append(f"  {s.arm} / {s.cond}: " + "  ".join(
-            f"{k}={s.outcomes[k]}" for k in OUTCOMES if k in s.outcomes))
+            f"{k}={s.outcomes[k]}" for k in OUTCOMES if k in s.outcomes) +
+            (f"  ({s.capped} of the failures hit the generation cap)" if s.capped else ""))
     lines.append("")
     cols = [(s.arm, s.cond) for s in summaries]
     index: dict[tuple[str, str, str], list[Attempt]] = defaultdict(list)

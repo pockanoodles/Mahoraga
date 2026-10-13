@@ -18,6 +18,8 @@ jobs:
           cache: pip
 
       - name: System build deps (hnswlib)
+        # A stalled package mirror otherwise holds the job until GitHub's 6-hour limit.
+        timeout-minutes: 10
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends build-essential
 
       - name: Install
@@ -63,6 +65,8 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
 
       - name: System build deps (hnswlib)
+        # A stalled package mirror otherwise holds the job until GitHub's 6-hour limit.
+        timeout-minutes: 10
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends build-essential
 
       - name: Build the UI and the wheel

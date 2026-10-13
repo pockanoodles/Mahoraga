@@ -1,0 +1,29 @@
+{
+ "sha": "aaa64fd",
+ "arm": "aider:qwen3.5:latest",
+ "cond": "blind",
+ "resolved": false,
+ "f2p_pass": 0,
+ "f2p_total": 2,
+ "regressions": 0,
+ "regression_ids": [],
+ "suite_crashed": false,
+ "edited_files": [
+  "backend/orchestrator/gateway.py"
+ ],
+ "touched_tests": [],
+ "hit_gold_file": true,
+ "secs": 528.6,
+ "timed_out": false,
+ "llm_calls": 3,
+ "tokens_sent": 48000.0,
+ "tokens_recv": 4291.0,
+ "extra": {
+  "edit_errors": 0
+ },
+ "rep": 0,
+ "degraded": [],
+ "conditions": {},
+ "tier": "test-verified",
+ "run_id": ""
+}

@@ -10,14 +10,24 @@ import os
 import httpx
 
 BASE_URL = os.environ.get("OLLAMA_BASE_URL", "http://127.0.0.1:11434")
-_PROBE = "Write a Python function that parses an ISO 8601 date, with a docstring."
+# Tags this bench creates for itself (see `derive`), as opposed to models a person pulled.
+DERIVED_PREFIX = "agentbench/"
+_PROBE ="Write a Python function that parses an ISO 8601 date, with a docstring."
 
 
-def pulled_models(base_url: str = BASE_URL) -> dict[str, str]:
+def pulled_models(base_url: str = BASE_URL, timeout: float = 10) -> dict[str, str]:
     """Local models, name -> digest. Raises httpx.HTTPError if Ollama is down."""
-    r = httpx.get(f"{base_url}/api/tags", timeout=10)
+    r = httpx.get(f"{base_url}/api/tags", timeout=timeout)
     r.raise_for_status()
     return {m["name"]: m["digest"] for m in r.json().get("models", [])}
+
+
+def version(base_url: str = BASE_URL, timeout: float = 10) -> str | None:
+    """Ollama's own version. Raises httpx.HTTPError if it is down, and
+    ValueError if something that isn't Ollama answers."""
+    r = httpx.get(f"{base_url}/api/version", timeout=timeout)
+    r.raise_for_status()
+    return r.json().get("version")
 
 
 def generation_speed(model: str, num_ctx: int | None, base_url: str = BASE_URL) -> float:
@@ -37,6 +47,11 @@ def tagged(model: str) -> str:
     return model if ":" in model else f"{model}:latest"
 
 
+def is_derived(name: str) -> bool:
+    """A tag `derive` made, not a model someone pulled."""
+    return name.startswith(DERIVED_PREFIX)
+
+
 def derive(model: str, params: dict, base_url: str = BASE_URL) -> str:
     """A tag of `model` with `params` baked in, created once and reused.
 
@@ -47,7 +62,7 @@ def derive(model: str, params: dict, base_url: str = BASE_URL) -> str:
     """
     base, _, tag = tagged(model).partition(":")
     suffix = "-".join(f"{k}{v}" for k, v in sorted(params.items()))
-    name = f"agentbench/{base}:{tag}-{suffix}"
+    name = f"{DERIVED_PREFIX}{base}:{tag}-{suffix}"
     if name not in pulled_models(base_url):
         r = httpx.post(f"{base_url}/api/create", timeout=300, json={
             "model": name, "from": tagged(model), "parameters": params, "stream": False})

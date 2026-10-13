@@ -1,0 +1,29 @@
+{
+ "sha": "557da52",
+ "arm": "aider:qwen3.5:latest",
+ "cond": "blind",
+ "resolved": true,
+ "f2p_pass": 14,
+ "f2p_total": 14,
+ "regressions": 0,
+ "regression_ids": [],
+ "suite_crashed": false,
+ "edited_files": [
+  "backend/orchestrator/routing/execution_gate.py"
+ ],
+ "touched_tests": [],
+ "hit_gold_file": true,
+ "secs": 101.2,
+ "timed_out": false,
+ "llm_calls": 1,
+ "tokens_sent": 5400.0,
+ "tokens_recv": 1200.0,
+ "extra": {
+  "edit_errors": 0
+ },
+ "rep": 0,
+ "degraded": [],
+ "conditions": {},
+ "tier": "test-verified",
+ "run_id": ""
+}

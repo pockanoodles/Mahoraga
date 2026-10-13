@@ -1,0 +1,1284 @@
+{
+  "claims": [
+    {
+      "artifact": "experiments/live_route_humaneval_164.jsonl",
+      "config": {
+        "bank": "HumanEval+ (164 tasks, all code bucket)",
+        "cloud_arm": "claude-cli (Sonnet)",
+        "date": "2026-08-03",
+        "judge": "ollama:qwen3.5 — reads prompt + output, never the hidden tests",
+        "local_arm": "ollama:granite4.1-8b"
+      },
+      "description": "HumanEval+ 164, cascade with the reading judge (headline result)",
+      "id": "humaneval_plus_164_reading_judge",
+      "metrics": {
+        "cloud_cost_per_1k": {
+          "decimals": 2,
+          "value": 35.97
+        },
+        "cloud_pass_at_1": {
+          "decimals": 3,
+          "value": 0.976
+        },
+        "cost_reduction": {
+          "decimals": 3,
+          "value": 0.765
+        },
+        "escalation_rate": {
+          "decimals": 3,
+          "value": 0.226
+        },
+        "judge_cost_total": {
+          "decimals": 2,
+          "value": 0.0
+        },
+        "judge_fail_recall": {
+          "decimals": 3,
+          "value": 0.688
+        },
+        "local_pass_at_1": {
+          "decimals": 3,
+          "value": 0.805
+        },
+        "n": {
+          "decimals": 0,
+          "value": 164
+        },
+        "routed_cost_per_1k": {
+          "decimals": 2,
+          "value": 8.47
+        },
+        "routed_pass_at_1": {
+          "decimals": 3,
+          "value": 0.921
+        }
+      }
+    },
+    {
+      "artifact": "experiments/repro_2026-08-04.jsonl",
+      "config": {
+        "bank": "HumanEval+ (164 tasks, all code bucket)",
+        "cloud_arm": "claude-cli (Sonnet)",
+        "date": "2026-08-04",
+        "judge": "reading judge + differential_check on accepts (recall-only)",
+        "local_arm": "ollama:granite4.1-8b"
+      },
+      "description": "HumanEval+ 164, independent re-run with the generated-test code judge",
+      "id": "humaneval_plus_164_code_judge",
+      "metrics": {
+        "cloud_cost_per_1k": {
+          "decimals": 2,
+          "value": 37.69
+        },
+        "cloud_pass_at_1": {
+          "decimals": 3,
+          "value": 0.97
+        },
+        "cost_reduction": {
+          "decimals": 3,
+          "value": 0.609
+        },
+        "escalation_rate": {
+          "decimals": 3,
+          "value": 0.39
+        },
+        "judge_cost_total": {
+          "decimals": 2,
+          "value": 0.0
+        },
+        "judge_fail_recall": {
+          "decimals": 3,
+          "value": 0.784
+        },
+        "local_pass_at_1": {
+          "decimals": 3,
+          "value": 0.774
+        },
+        "n": {
+          "decimals": 0,
+          "value": 164
+        },
+        "routed_cost_per_1k": {
+          "decimals": 2,
+          "value": 14.74
+        },
+        "routed_pass_at_1": {
+          "decimals": 3,
+          "value": 0.921
+        }
+      }
+    }
+  ],
+  "probe": {
+    "arms": [
+      {
+        "arm": "aider:granite4.1:8b",
+        "broke_other_code": 1,
+        "cond": "blind",
+        "median_minutes": 12.9,
+        "multi_file_n": 12,
+        "multi_file_resolved": 0,
+        "n": 18,
+        "rate": {
+          "attempts": 18,
+          "hi": 0.17587922593328437,
+          "lo": 0.0,
+          "point": 0.0,
+          "tasks": 18
+        },
+        "resolved": 0
+      },
+      {
+        "arm": "aider:granite4.1:8b",
+        "broke_other_code": 0,
+        "cond": "feedback",
+        "median_minutes": 11.8,
+        "multi_file_n": 12,
+        "multi_file_resolved": 0,
+        "n": 18,
+        "rate": {
+          "attempts": 18,
+          "hi": 0.2575730099608091,
+          "lo": 0.009875190868776959,
+          "point": 0.05555555555555555,
+          "tasks": 18
+        },
+        "resolved": 1
+      },
+      {
+        "arm": "aider:qwen3.5:latest",
+        "broke_other_code": 7,
+        "cond": "blind",
+        "median_minutes": 8.4,
+        "multi_file_n": 12,
+        "multi_file_resolved": 4,
+        "n": 18,
+        "rate": {
+          "attempts": 18,
+          "hi": 0.5087265674100965,
+          "lo": 0.1249975330046966,
+          "point": 0.2777777777777778,
+          "tasks": 18
+        },
+        "resolved": 5
+      },
+      {
+        "arm": "aider:qwen3.5:latest",
+        "broke_other_code": 5,
+        "cond": "feedback",
+        "median_minutes": 13.1,
+        "multi_file_n": 12,
+        "multi_file_resolved": 3,
+        "n": 18,
+        "rate": {
+          "attempts": 18,
+          "hi": 0.5087265674100965,
+          "lo": 0.1249975330046966,
+          "point": 0.2777777777777778,
+          "tasks": 18
+        },
+        "resolved": 5
+      }
+    ],
+    "dates": "2026-09-28/29",
+    "machine": "16 GB M-series",
+    "replay": {
+      "arm": "aider:qwen3.5:latest",
+      "cond": "blind",
+      "order": "The order of experiments/agent_edit/tasks.jsonl, as listed there, with no sorting by outcome, size or commit date.",
+      "steps": [
+        {
+          "n": 1,
+          "outcome": "resolved",
+          "rate": {
+            "attempts": 1,
+            "hi": 1.0,
+            "lo": 0.2065493117918027,
+            "point": 1.0,
+            "tasks": 1
+          },
+          "sha": "9102955"
+        },
+        {
+          "n": 2,
+          "outcome": "resolved",
+          "rate": {
+            "attempts": 2,
+            "hi": 1.0,
+            "lo": 0.3423802239546494,
+            "point": 1.0,
+            "tasks": 2
+          },
+          "sha": "a7d91e2"
+        },
+        {
+          "n": 3,
+          "outcome": "resolved",
+          "rate": {
+            "attempts": 3,
+            "hi": 1.0,
+            "lo": 0.43850296436068037,
+            "point": 1.0,
+            "tasks": 3
+          },
+          "sha": "3d72cc2"
+        },
+        {
+          "n": 4,
+          "outcome": "broke-other",
+          "rate": {
+            "attempts": 4,
+            "hi": 0.954412739704631,
+            "lo": 0.3006418400969081,
+            "point": 0.75,
+            "tasks": 4
+          },
+          "sha": "54f8b08"
+        },
+        {
+          "n": 5,
+          "outcome": "partial",
+          "rate": {
+            "attempts": 5,
+            "hi": 0.8823792268590028,
+            "lo": 0.23072427940911855,
+            "point": 0.6,
+            "tasks": 5
+          },
+          "sha": "01a9a3a"
+        },
+        {
+          "n": 6,
+          "outcome": "resolved",
+          "rate": {
+            "attempts": 6,
+            "hi": 0.9032285897864654,
+            "lo": 0.29999331299474324,
+            "point": 0.6666666666666666,
+            "tasks": 6
+          },
+          "sha": "557da52"
+        },
+        {
+          "n": 7,
+          "outcome": "partial+broke",
+          "rate": {
+            "attempts": 7,
+            "hi": 0.8417801460075546,
+            "lo": 0.25045836275303557,
+            "point": 0.5714285714285714,
+            "tasks": 7
+          },
+          "sha": "fb53190"
+        },
+        {
+          "n": 8,
+          "outcome": "no-edit",
+          "rate": {
+            "attempts": 8,
+            "hi": 0.7847839393037324,
+            "lo": 0.21521606069626764,
+            "point": 0.5,
+            "tasks": 8
+          },
+          "sha": "512b8e8"
+        },
+        {
+          "n": 9,
+          "outcome": "partial+broke",
+          "rate": {
+            "attempts": 9,
+            "hi": 0.7333487081991259,
+            "lo": 0.18877851977054566,
+            "point": 0.4444444444444444,
+            "tasks": 9
+          },
+          "sha": "9f1e0c6"
+        },
+        {
+          "n": 10,
+          "outcome": "no-edit",
+          "rate": {
+            "attempts": 10,
+            "hi": 0.6873262320788047,
+            "lo": 0.1681803285264069,
+            "point": 0.4,
+            "tasks": 10
+          },
+          "sha": "74a2e41"
+        },
+        {
+          "n": 11,
+          "outcome": "broke-other",
+          "rate": {
+            "attempts": 11,
+            "hi": 0.6461988273798758,
+            "lo": 0.15166470989133157,
+            "point": 0.36363636363636365,
+            "tasks": 11
+          },
+          "sha": "85d6a46"
+        },
+        {
+          "n": 12,
+          "outcome": "broke-other",
+          "rate": {
+            "attempts": 12,
+            "hi": 0.6093779130595061,
+            "lo": 0.13812009012485987,
+            "point": 0.3333333333333333,
+            "tasks": 12
+          },
+          "sha": "b3d1ff3"
+        },
+        {
+          "n": 13,
+          "outcome": "partial+broke",
+          "rate": {
+            "attempts": 13,
+            "hi": 0.5763065701492199,
+            "lo": 0.12680703567070326,
+            "point": 0.3076923076923077,
+            "tasks": 13
+          },
+          "sha": "d8126d9"
+        },
+        {
+          "n": 14,
+          "outcome": "wrong-fix",
+          "rate": {
+            "attempts": 14,
+            "hi": 0.5464908452599742,
+            "lo": 0.11721378562701742,
+            "point": 0.2857142857142857,
+            "tasks": 14
+          },
+          "sha": "aaa64fd"
+        },
+        {
+          "n": 15,
+          "outcome": "no-edit",
+          "rate": {
+            "attempts": 15,
+            "hi": 0.5195043425155202,
+            "lo": 0.1089745324961737,
+            "point": 0.26666666666666666,
+            "tasks": 15
+          },
+          "sha": "bfb0233"
+        },
+        {
+          "n": 16,
+          "outcome": "no-edit",
+          "rate": {
+            "attempts": 16,
+            "hi": 0.4949831672970316,
+            "lo": 0.10182067420167085,
+            "point": 0.25,
+            "tasks": 16
+          },
+          "sha": "5ad756f"
+        },
+        {
+          "n": 17,
+          "outcome": "resolved",
+          "rate": {
+            "attempts": 17,
+            "hi": 0.5313311024822815,
+            "lo": 0.1327998952626943,
+            "point": 0.29411764705882354,
+            "tasks": 17
+          },
+          "sha": "6fb6560"
+        },
+        {
+          "n": 18,
+          "outcome": "partial+broke",
+          "rate": {
+            "attempts": 18,
+            "hi": 0.5087265674100965,
+            "lo": 0.1249975330046966,
+            "point": 0.2777777777777778,
+            "tasks": 18
+          },
+          "sha": "b44da35"
+        }
+      ]
+    },
+    "repo": "Mahoraga",
+    "tasks": [
+      {
+        "body": "verdict_effective was never assigned in _check_all's fresh-check branch —\nany uncached differential check raised NameError. Masked in the Era-22\nreplay because the cache was already warm. First CLI-level test for the\ncommand; verified the test fails without the fix.",
+        "files": 1,
+        "lines": 1,
+        "outcomes": {
+          "aider:granite4.1:8b / blind": {
+            "minutes": 20.0,
+            "outcome": "no-edit"
+          },
+          "aider:granite4.1:8b / feedback": {
+            "minutes": 10.7,
+            "outcome": "no-edit"
+          },
+          "aider:qwen3.5:latest / blind": {
+            "minutes": 6.2,
+            "outcome": "resolved"
+          },
+          "aider:qwen3.5:latest / feedback": {
+            "minutes": 5.8,
+            "outcome": "resolved"
+          }
+        },
+        "sha": "9102955",
+        "subject": "fix: NameError on fresh code-judge checks (cache-miss path)"
+      },
+      {
+        "body": "values_equal called float() on reference outputs; factorial-class ints\n(>1e308) raised OverflowError and killed the live repro at case 83/164.\nInts beyond float range now compare exactly. Two layers of run\nprotection: route_one degrades any differential_check exception to an\nabstain (recall-only, so the base accept stands), and live-route flushes\nper-case JSONL as it goes so a crash preserves completed rows.",
+        "files": 3,
+        "lines": 33,
+        "outcomes": {
+          "aider:granite4.1:8b / blind": {
+            "minutes": 12.9,
+            "outcome": "no-edit"
+          },
+          "aider:granite4.1:8b / feedback": {
+            "minutes": 20.0,
+            "outcome": "no-edit"
+          },
+          "aider:qwen3.5:latest / blind": {
+            "minutes": 8.4,
+            "outcome": "resolved"
+          },
+          "aider:qwen3.5:latest / feedback": {
+            "minutes": 10.2,
+            "outcome": "resolved"
+          }
+        },
+        "sha": "a7d91e2",
+        "subject": "fix: code-judge OverflowError on huge ints + crash-proof live runs"
+      },
+      {
+        "body": "MIN_DISAGREEMENTS=2: reject only on >=2 disagreeing consensus inputs. The\n127-accept replay's raw gate produced 12 rejects = 3 catches + 9 false\nalarms; 6/9 false alarms disagreed on exactly one generated input (incl.\nthe only quality-losing row, HumanEval/124: local-pass + cloud-fail), while\nthe catches disagreed on 15/4/2. One disagreement is noise-shaped; two are\nsystematic — the same >=2-of-K posture as tool_judge's solver consensus.\nThreshold chosen post-hoc on this run; live confirmation required before\nany headline cites it (stated in findings Era 22 and current_state).\n\nreport code-judge: --min-disagree re-derives cached rejects from the stored\nmismatch counts, so threshold sweeps are free; fresh checks cache the raw\n(threshold-1) verdict.\n\nFinal replay (recorded 164-task HumanEval+ run, k=3, min_disagree=2):\nfail-recall 22/32 -> 25/32, wrong answers served 10 -> 7, over-escalations\n15 -> 19 (all on cloud-pass rows), routed 0.921 -> 0.939 @ $10.04/1k vs\ncloud 0.976 @ $35.97 — 96.2% of cloud quality at a 72.1% cost cut.\n\n2 new tests (33 total); fast lane 1542 green. Brain: journal\n2026-08-04-code-judge, findings Era 22, current_state refresh.",
+        "files": 2,
+        "lines": 60,
+        "outcomes": {
+          "aider:granite4.1:8b / blind": {
+            "minutes": 7.7,
+            "outcome": "no-edit"
+          },
+          "aider:granite4.1:8b / feedback": {
+            "minutes": 8.7,
+            "outcome": "wrong-fix"
+          },
+          "aider:qwen3.5:latest / blind": {
+            "minutes": 3.7,
+            "outcome": "resolved"
+          },
+          "aider:qwen3.5:latest / feedback": {
+            "minutes": 6.3,
+            "outcome": "resolved"
+          }
+        },
+        "sha": "3d72cc2",
+        "subject": "feat: code-judge reject threshold + full-replay result; brain Era 22"
+      },
+      {
+        "body": "A model that emitted an opening ```lang fence but was truncated before the closing fence caused extract_code to return the raw output verbatim — leaving a literal '```python' as the first line of 'code' and breaking anything that ran it (coder role uses extract_code in postprocess). Now strips a lone opening fence (and any dangling close). Found while scoring the verifiable-reward bench; rescued 2 qwen3.5 cases (0.765->0.882 pass@1). Adds test_postprocess.py.",
+        "files": 1,
+        "lines": 19,
+        "outcomes": {
+          "aider:granite4.1:8b / blind": {
+            "minutes": 3.4,
+            "outcome": "partial+broke"
+          },
+          "aider:granite4.1:8b / feedback": {
+            "minutes": 6.3,
+            "outcome": "resolved"
+          },
+          "aider:qwen3.5:latest / blind": {
+            "minutes": 3.5,
+            "outcome": "broke-other"
+          },
+          "aider:qwen3.5:latest / feedback": {
+            "minutes": 3.3,
+            "outcome": "resolved"
+          }
+        },
+        "sha": "54f8b08",
+        "subject": "fix(workers): extract_code tolerates unclosed/truncated fences"
+      },
+      {
+        "body": "code's generic keywords (def/return/implement/function) matched almost any prompt that quotes code as context, and the security list checked singular 'vulnerability' not the common plural. Result: 0/80 real security-intent prompts classified as security; code absorbed 62.5% of real traffic. Reorder so intent buckets are checked before code (code last), broaden the stem to 'vulnerab', add 'secret', drop colliding 'check' from review. 14/14 real security prompts now correct; code's share drops to 8.75%. 9 regression tests added. See brain/state/findings.md Era 6.",
+        "files": 1,
+        "lines": 18,
+        "outcomes": {
+          "aider:granite4.1:8b / blind": {
+            "minutes": 6.8,
+            "outcome": "no-edit"
+          },
+          "aider:granite4.1:8b / feedback": {
+            "minutes": 8.2,
+            "outcome": "no-edit"
+          },
+          "aider:qwen3.5:latest / blind": {
+            "minutes": 4.0,
+            "outcome": "partial"
+          },
+          "aider:qwen3.5:latest / feedback": {
+            "minutes": 15.6,
+            "outcome": "partial+broke"
+          }
+        },
+        "sha": "01a9a3a",
+        "subject": "fix(routing): bucket classifier misrouted intent traffic to code"
+      },
+      {
+        "body": "For code/test/refactor/debug, model output that doesn't execute (syntax error, bad import, crash) now flips the outcome to failed so reward short-circuits to 0 — the heuristic quality scorer can't see this (findings.md Era 9), and capping quality alone is toothless since success is the bulk of the code-bucket weight. Mirrors the existing strict_verify success-downgrade at the same point in the reward path. Conservative: catches 'doesn't run', not 'wrong' (organic traffic has no gold tests). On by default; MAHORAGA_EXEC_GATE=off disables. Runs model code in a short-timeout subprocess (same posture as tools/code_exec). Verified end-to-end live: valid code passes, prose-in-code-bucket fails. 14 tests.",
+        "files": 2,
+        "lines": 94,
+        "outcomes": {
+          "aider:granite4.1:8b / blind": {
+            "minutes": 5.0,
+            "outcome": "no-edit"
+          },
+          "aider:granite4.1:8b / feedback": {
+            "minutes": 8.9,
+            "outcome": "no-edit"
+          },
+          "aider:qwen3.5:latest / blind": {
+            "minutes": 1.7,
+            "outcome": "resolved"
+          },
+          "aider:qwen3.5:latest / feedback": {
+            "minutes": 20.0,
+            "outcome": "partial"
+          }
+        },
+        "sha": "557da52",
+        "subject": "feat(routing): live execution gate for code-producing buckets"
+      },
+      {
+        "body": "OllamaWorker now retries transient cold-load failures (HTTP 5xx while a\nmodel loads, or ReadError/ReadTimeout/RemoteProtocolError when a model is\nswapped in on a memory-tight machine) up to 2x with 2s->4s backoff. 4xx\nclient errors and ConnectError still fail fast so a genuinely-down server\nisn't masked by backoff. Safe because the response is fully buffered and no\nevent is yielded until the stream completes, so a retry rebuilds cleanly.\nHardens live traffic (idle-eviction cold loads) as well as bench runs.\n\nSurfaced by Phase 4 (bench_run_id=19): 6/50 qwen3.5 tasks failed exactly\nthis way, all clustered at the first task after a model swap.\n\nAlso drops the qwen3-14b arm (enabled: false, bandit history preserved):\non the 50-row verifiable bank it landed mid-pack (pass@1 0.880), beaten by\nthe 5.3 GB granite (0.900) — no correctness edge for ~2x the RAM on a 16 GB\nmachine. Roster is now granite4.1-8b + qwen3.5.\n\nIncludes 5 regression tests for the retry paths and the Phase 4 brain\nrecords (journal, findings Era 11, current_state). Full suite: 1430 passed.",
+        "files": 1,
+        "lines": 164,
+        "outcomes": {
+          "aider:granite4.1:8b / blind": {
+            "minutes": 20.0,
+            "outcome": "no-edit"
+          },
+          "aider:granite4.1:8b / feedback": {
+            "minutes": 20.0,
+            "outcome": "no-edit"
+          },
+          "aider:qwen3.5:latest / blind": {
+            "minutes": 8.6,
+            "outcome": "partial+broke"
+          },
+          "aider:qwen3.5:latest / feedback": {
+            "minutes": 20.0,
+            "outcome": "partial+broke"
+          }
+        },
+        "sha": "fb53190",
+        "subject": "fix: retry Ollama cold-load transients; drop qwen3-14b arm"
+      },
+      {
+        "body": "The published cloud arm bills through the `claude` CLI on an interactive\nsubscription. That is accurate accounting and a bad precondition: \"reproducible\nby anyone\" quietly meant \"anyone who pays for Claude\". `--cloud-arm claude`\nruns the same model over the Anthropic API with ANTHROPIC_API_KEY instead.\n\nThe arm choice is an authentication decision and nothing else. Both workers\nframe the prompt through workers.base._build_prompt and name the same model, so\nrouted pass@1 stays comparable across arms; a test pins the shared framing,\nbecause a divergence there would silently make cross-arm runs incomparable\nwhile still producing plausible numbers. The always-cloud dollar column is NOT\ncomparable — API and subscription bill differently — and the docs say so\nwherever the flag appears.\n\nReachability failures are now typed (CloudArmUnavailable) and carry the fix in\nthe message. It matters in two places that cannot show a traceback: the serving\ncascade, which degrades to serving the local answer and where this message is\nthe only trace of why escalation stopped; and `bench repro` preflight, which\nmust fail in seconds rather than hours in. Preflight also stops looking for a\nbinary that an API-backed arm does not have.\n\nThe cloud arm now survives into the run ledger notes, since it changes what the\nalways-cloud column means. agents.yaml gains an explicit `worker:` key, with\nthe kind inferred from the arm id so existing rosters keep working.",
+        "files": 3,
+        "lines": 161,
+        "outcomes": {
+          "aider:granite4.1:8b / blind": {
+            "minutes": 19.1,
+            "outcome": "wrong-file"
+          },
+          "aider:granite4.1:8b / feedback": {
+            "minutes": 10.3,
+            "outcome": "no-edit"
+          },
+          "aider:qwen3.5:latest / blind": {
+            "minutes": 20.0,
+            "outcome": "no-edit"
+          },
+          "aider:qwen3.5:latest / feedback": {
+            "minutes": 20.0,
+            "outcome": "no-edit"
+          }
+        },
+        "sha": "512b8e8",
+        "subject": "feat: reproduce the benchmark without a Claude subscription"
+      },
+      {
+        "body": "A launchd job inherits nothing from the shell: no user variables, and a\nPATH of /usr/bin:/bin:/usr/sbin:/sbin. The plist had no\nEnvironmentVariables block at all, so running Mahoraga as a daemon meant\nevery MAHORAGA_* knob was pinned to its code default with no way to set\nit, and `claude`/`ollama` were unresolvable — the escalation arm would\ndegrade to serving local answers without an error anyone would notice.\n\n`install` now bakes in a PATH covering the venv, ~/.local/bin, and\nHomebrew, plus any KEY=VALUE lines from ~/.mahoraga-v2/service.env, and\nechoes the resulting settings so a misconfigured daemon is visible at\ninstall time.\n\nTwo adjacent traps fixed while here, both of which produced a CLI that\nreported success while the daemon was not running:\n\n- `launchctl load` prints \"Load failed: 5: Input/output error\" and still\n  exits 0, so the return code cannot be trusted — verify via `list`;\n- a label can be marked disabled in launchd's persistent database, which\n  survives unload, reinstall, and reboot, and fails every subsequent load\n  with that same opaque errno 5 until `launchctl enable` clears it.\n\n14 tests.",
+        "files": 1,
+        "lines": 142,
+        "outcomes": {
+          "aider:granite4.1:8b / blind": {
+            "minutes": 10.3,
+            "outcome": "no-edit"
+          },
+          "aider:granite4.1:8b / feedback": {
+            "minutes": 11.6,
+            "outcome": "no-edit"
+          },
+          "aider:qwen3.5:latest / blind": {
+            "minutes": 20.0,
+            "outcome": "partial+broke"
+          },
+          "aider:qwen3.5:latest / feedback": {
+            "minutes": 9.8,
+            "outcome": "partial"
+          }
+        },
+        "sha": "9f1e0c6",
+        "subject": "fix: give the launchd daemon a configuration surface"
+      },
+      {
+        "body": "- Remove per-decision 'Routed to X' append from BanditRouter — it mirrored\n  routing_decisions.db with strictly less information and grew\n  brain/decisions/log.md to 2M lines. git rm the file; gitignore the path.\n- Remove the shutdown log_session_summary call — no counters were wired in,\n  so it could only ever write empty 'Tasks completed: 0' journal stubs.\n- Delete both now-dead brain_logger functions.\n- Resolve MAHORAGA_BRAIN_PATH per call (was frozen at import), add an\n  autouse conftest fixture + regression tests so pytest runs stop appending\n  fake test-user sessions to brain/journal/.\n- ADR: brain/decisions/2026-07-03-remove-brain-auto-append.md",
+        "files": 3,
+        "lines": 103,
+        "outcomes": {
+          "aider:granite4.1:8b / blind": {
+            "minutes": 3.0,
+            "outcome": "no-edit"
+          },
+          "aider:granite4.1:8b / feedback": {
+            "minutes": 3.0,
+            "outcome": "no-edit"
+          },
+          "aider:qwen3.5:latest / blind": {
+            "minutes": 3.0,
+            "outcome": "no-edit"
+          },
+          "aider:qwen3.5:latest / feedback": {
+            "minutes": 2.6,
+            "outcome": "no-edit"
+          }
+        },
+        "sha": "74a2e41",
+        "subject": "fix(brain): stop runtime auto-append into the repo brain"
+      },
+      {
+        "body": "Code review follow-ups on a7ee646:\n- create_bench_run now raises ValueError on unknown field names (prevents silent typo rot)\n- _capture_run_context no longer takes an unused base_url param; Ollama probe\n  honors OLLAMA_BASE_URL env var (default localhost:11434)\n- Remove _compat_route shim in test_e2e_reward_loop.py — model_warm_norm is gone\n  from production code, so the shim was lying",
+        "files": 2,
+        "lines": 18,
+        "outcomes": {
+          "aider:granite4.1:8b / blind": {
+            "minutes": 20.0,
+            "outcome": "no-edit"
+          },
+          "aider:granite4.1:8b / feedback": {
+            "minutes": 20.0,
+            "outcome": "no-edit"
+          },
+          "aider:qwen3.5:latest / blind": {
+            "minutes": 10.0,
+            "outcome": "broke-other"
+          },
+          "aider:qwen3.5:latest / feedback": {
+            "minutes": 14.6,
+            "outcome": "broke-other"
+          }
+        },
+        "sha": "85d6a46",
+        "subject": "cleanup: validate create_bench_run keys, honor OLLAMA_BASE_URL, drop stale compat shim"
+      },
+      {
+        "body": "1. /api/task endpoint had the same leak as /api/batch: _run_task raising\n   would bypass router.observe and store.metrics.record. Wrap in try/except,\n   fire observe+metrics with failure outcome, then re-raise for HTTP 500.\n\n2. Gateway.py: when _run_task raises but prior completed attempts exist\n   (retry scenario), the outcome was incorrectly reporting success=True.\n   Gate on _run_task_exc is None.\n\nAdds regression test test_single_task_observe_fires_on_exception.",
+        "files": 2,
+        "lines": 46,
+        "outcomes": {
+          "aider:granite4.1:8b / blind": {
+            "minutes": 12.6,
+            "outcome": "no-edit"
+          },
+          "aider:granite4.1:8b / feedback": {
+            "minutes": 20.0,
+            "outcome": "wrong-file"
+          },
+          "aider:qwen3.5:latest / blind": {
+            "minutes": 8.3,
+            "outcome": "broke-other"
+          },
+          "aider:qwen3.5:latest / feedback": {
+            "minutes": 16.5,
+            "outcome": "no-edit"
+          }
+        },
+        "sha": "b3d1ff3",
+        "subject": "fix: close remaining reward leaks + gate gateway success on exception state"
+      },
+      {
+        "body": "When run_task raises, derive bandit TaskOutcome.agent_name from the\nmost recent attempt's worker_id instead of hardcoding 'unknown'. Without\nthis, the bandit can't penalize the actually-selected agent for the failure.",
+        "files": 1,
+        "lines": 16,
+        "outcomes": {
+          "aider:granite4.1:8b / blind": {
+            "minutes": 6.7,
+            "outcome": "wrong-file"
+          },
+          "aider:granite4.1:8b / feedback": {
+            "minutes": 6.6,
+            "outcome": "wrong-file"
+          },
+          "aider:qwen3.5:latest / blind": {
+            "minutes": 7.2,
+            "outcome": "partial+broke"
+          },
+          "aider:qwen3.5:latest / feedback": {
+            "minutes": 1.4,
+            "outcome": "no-edit"
+          }
+        },
+        "sha": "d8126d9",
+        "subject": "fix: preserve agent attribution on gateway failure path"
+      },
+      {
+        "body": "",
+        "files": 2,
+        "lines": 135,
+        "outcomes": {
+          "aider:granite4.1:8b / blind": {
+            "minutes": 20.0,
+            "outcome": "no-edit"
+          },
+          "aider:granite4.1:8b / feedback": {
+            "minutes": 20.0,
+            "outcome": "no-edit"
+          },
+          "aider:qwen3.5:latest / blind": {
+            "minutes": 8.8,
+            "outcome": "wrong-fix"
+          },
+          "aider:qwen3.5:latest / feedback": {
+            "minutes": 20.0,
+            "outcome": "partial+broke"
+          }
+        },
+        "sha": "aaa64fd",
+        "subject": "fix: guarantee log_outcome() fires — close 37% reward leak at gateway/batch sites"
+      },
+      {
+        "body": "",
+        "files": 2,
+        "lines": 80,
+        "outcomes": {
+          "aider:granite4.1:8b / blind": {
+            "minutes": 20.0,
+            "outcome": "no-edit"
+          },
+          "aider:granite4.1:8b / feedback": {
+            "minutes": 17.3,
+            "outcome": "no-edit"
+          },
+          "aider:qwen3.5:latest / blind": {
+            "minutes": 12.0,
+            "outcome": "no-edit"
+          },
+          "aider:qwen3.5:latest / feedback": {
+            "minutes": 13.1,
+            "outcome": "no-edit"
+          }
+        },
+        "sha": "bfb0233",
+        "subject": "feat: wire MAHORAGA_BANDIT_SEED + MAHORAGA_PROMPT_SEED through bandit routing and bench CLI"
+      },
+      {
+        "body": "- reward_learner: replace hard OLS weight swap with EMA blend (α=1/K,\n  K=20 by default). Per-step weight shift ≤5% of OLS-shift, keeping the\n  drift detector below its alert threshold during weight transitions.\n  MAHORAGA_OLS_TRANSITION_STEPS=1 collapses back to hard replacement.\n- reward_learner: fix _load() bug — self._learned assignment was outside\n  the for-loop body, silently discarding all but the last bucket on load.\n- reward_learner: remove nested `import os`; add module-level import.\n- app.py: fix set_routing_strategy fallback from \"linucb\" to \"linucb_per_bucket\".\n- test_per_bucket_default: 3 smoke tests for per-bucket default (Step 3).\n- test_ols_drift_interaction: 3 adversarial tests for Fix B (Step 4):\n    positive direction (OLS fires, no DriftAlert raised),\n    negative direction (genuine collapse, DriftAlert + quarantine fires),\n    math invariant (blend step == 1/K of OLS-shift).\n- spec: 3 editorial fixes per user review (§9.1 pair #4, §11.1, §15 step 12).",
+        "files": 2,
+        "lines": 40,
+        "outcomes": {
+          "aider:granite4.1:8b / blind": {
+            "minutes": 20.0,
+            "outcome": "wrong-fix"
+          },
+          "aider:granite4.1:8b / feedback": {
+            "minutes": 20.0,
+            "outcome": "no-edit"
+          },
+          "aider:qwen3.5:latest / blind": {
+            "minutes": 15.3,
+            "outcome": "no-edit"
+          },
+          "aider:qwen3.5:latest / feedback": {
+            "minutes": 5.4,
+            "outcome": "no-edit"
+          }
+        },
+        "sha": "5ad756f",
+        "subject": "feat(routing): OLS Fix B smoothed weight transition + Step 3/4 tests"
+      },
+      {
+        "body": "- bandit_router: replace isinstance(LinUCBRouter) checks with duck-typing\n  (hasattr inject_pseudo_obs / hasattr alpha+decay) so LinUCBPerBucketRouter\n  receives warm-start and tuned hyperparams on startup.\n- warm_start: pass bucket= kwarg to inject_pseudo_obs so per-bucket A matrices\n  are populated in the correct bucket slot rather than falling back to _LEGACY_BUCKET.\n- linucb: add bucket kwarg to inject_pseudo_obs (ignored — v1 is bucket-unaware).\n- test_warm_start_consumption_unit: 6 unit tests for injection logic and\n  the BanditRouter duck-type fix.\n- test_warm_start_consumption_integration: in-process test asserting UCB scores\n  diverge from cold-start when a compatibility matrix is present.\n- test_per_bucket_isolation: 3 tests verifying updates to one bucket do not\n  mutate any other bucket's A/b matrices or UCB scores.",
+        "files": 3,
+        "lines": 19,
+        "outcomes": {
+          "aider:granite4.1:8b / blind": {
+            "minutes": 15.4,
+            "outcome": "no-edit"
+          },
+          "aider:granite4.1:8b / feedback": {
+            "minutes": 17.4,
+            "outcome": "no-edit"
+          },
+          "aider:qwen3.5:latest / blind": {
+            "minutes": 6.1,
+            "outcome": "resolved"
+          },
+          "aider:qwen3.5:latest / feedback": {
+            "minutes": 8.7,
+            "outcome": "resolved"
+          }
+        },
+        "sha": "6fb6560",
+        "subject": "feat(routing): warm-start wired for linucb_per_bucket + bucket isolation tests (Step 5)"
+      },
+      {
+        "body": "The delegation funnel's first real reading was 0.0% over 170 delegable actions,\nand it was worthless. ~/.claude.json pointed the MCP server at a bare `python`\nthat does not exist on this machine, so the server never started and `run_task`\nwas never listed. Four weeks of \"you never delegate\" was four weeks of a dead\ninterpreter path — and nothing in the output could tell the difference. The rate\nlooked exactly like a behavioural finding.\n\nA rate cannot be read without knowing the tool was there. The MCP server now\nrecords one fact when it serves its tool list — the moment `run_task` becomes\nvisible to the agent — and the funnel reads it back as an interpretation:\n\n  no-delegable-work      nothing shaped like delegable work; there is no ratio\n  tool-liveness-unknown  delegable work, but the tool was never observed alive,\n                         so a low rate cannot be told apart from a dead tool.\n                         This is the state the 2026-09-10 reading was in.\n  tool-available-unused  the tool was demonstrably there and nothing was\n                         delegated. The only case where 0% means what it looks\n                         like.\n  measured               a rate with a live tool behind it.\n\n`orch metrics funnel` now refuses to endorse a liveness-unknown rate: it still\nprints the number, and prints above it that the number is not readable and why.\n\nDesign notes:\n\n- Liveness is its own event, so it touches NEITHER half of the ratio — only\n  whether the ratio is readable. Test-pinned: adding 20 liveness rows changes\n  no counter and no rate, just the interpretation.\n- The row carries an empty session, so editor restarts cannot inflate the\n  session count. Also pinned.\n- The writer (backend/mcp/funnel_liveness.py) is stdlib-only and\n  fire-and-forget, the same tradeoff scripts/claude_code_funnel_hook.py makes:\n  it runs on the tool-discovery path, so it must add no meaningful latency,\n  import nothing heavy, and never propagate an exception. A liveness probe that\n  can break tool discovery is worse than no liveness probe.\n- That means the log path and event name live in two files. If they drift,\n  liveness rows get written and silently never counted — the original failure\n  mode wearing a different hat — so a test pins writer and reader to the same\n  values.\n- The window filter applies to liveness too: a tool that was alive last month\n  says nothing about this month.\n- MAHORAGA_FUNNEL_LIVENESS=off disables the write.\n\n13 tests; suite 1743 green.\n\nNOTE ON MERGE ORDER: this branch is based on feat/resource-meter (PR #41), not\nmain, because it builds on that PR's funnel_report refactor. Merge #41 first, or\nretarget this PR's base to main after #41 lands — per the stacked-PR lesson from\nthe #22/#23 phantom merge, never merge the parent while a child still points at\nit.",
+        "files": 3,
+        "lines": 149,
+        "outcomes": {
+          "aider:granite4.1:8b / blind": {
+            "minutes": 11.3,
+            "outcome": "no-edit"
+          },
+          "aider:granite4.1:8b / feedback": {
+            "minutes": 11.8,
+            "outcome": "no-edit"
+          },
+          "aider:qwen3.5:latest / blind": {
+            "minutes": 17.3,
+            "outcome": "partial+broke"
+          },
+          "aider:qwen3.5:latest / feedback": {
+            "minutes": 20.0,
+            "outcome": "partial+broke"
+          }
+        },
+        "sha": "b44da35",
+        "subject": "feat: the funnel can tell \"not used\" from \"not there\""
+      }
+    ]
+  },
+  "schema": 1,
+  "source": {
+    "commit": "e214da3",
+    "repo": "pockanoodles/Mahoraga",
+    "version": "2.1.0"
+  },
+  "verdict_demo": {
+    "assumptions": {
+      "deferrable_share": 0.25,
+      "hourly_usd": 50.0,
+      "lines": [
+        "200 cloud coding tasks a month",
+        "25% of them can wait for an overnight queue",
+        "3 min to triage a failed local attempt, at $50/h",
+        "40 W while an attempt runs, at $0.3/kWh"
+      ],
+      "tasks_per_month": 200,
+      "triage_minutes": 3.0,
+      "usage_of_cap": 1.0,
+      "usd_per_kwh": 0.3,
+      "watts": 40.0
+    },
+    "curve": [
+      {
+        "breakeven": 0.9621782692307691,
+        "call": "stay",
+        "cloud_usd_per_task": 0.1,
+        "confident": true,
+        "monthly_usd": {
+          "hi": -58.94872123668746,
+          "lo": -108.83349570938942,
+          "point": -88.97206388888888
+        },
+        "reason": "You're not wasting money: even at the optimistic end, local saves under $5/mo at $0.10/task."
+      },
+      {
+        "breakeven": 0.9512028517110266,
+        "call": "stay",
+        "cloud_usd_per_task": 0.13,
+        "confident": true,
+        "monthly_usd": {
+          "hi": -58.185631385572314,
+          "lo": -108.64599940988239,
+          "point": -88.55539722222223
+        },
+        "reason": "You're not wasting money: even at the optimistic end, local saves under $5/mo at $0.13/task."
+      },
+      {
+        "breakeven": 0.9404749999999998,
+        "call": "stay",
+        "cloud_usd_per_task": 0.16,
+        "confident": true,
+        "monthly_usd": {
+          "hi": -57.422541534457174,
+          "lo": -108.45850311037535,
+          "point": -88.13873055555555
+        },
+        "reason": "You're not wasting money: even at the optimistic end, local saves under $5/mo at $0.16/task."
+      },
+      {
+        "breakeven": 0.9231230627306273,
+        "call": "stay",
+        "cloud_usd_per_task": 0.21,
+        "confident": true,
+        "monthly_usd": {
+          "hi": -56.150725115931934,
+          "lo": -108.1460092778636,
+          "point": -87.44428611111111
+        },
+        "reason": "You're not wasting money: even at the optimistic end, local saves under $5/mo at $0.21/task."
+      },
+      {
+        "breakeven": 0.9096958181818181,
+        "call": "stay",
+        "cloud_usd_per_task": 0.25,
+        "confident": true,
+        "monthly_usd": {
+          "hi": -55.13327198111173,
+          "lo": -107.89601421185422,
+          "point": -86.88873055555555
+        },
+        "reason": "You're not wasting money: even at the optimistic end, local saves under $5/mo at $0.25/task."
+      },
+      {
+        "breakeven": 0.9031276173285198,
+        "call": "stay",
+        "cloud_usd_per_task": 0.27,
+        "confident": true,
+        "monthly_usd": {
+          "hi": -54.62454541370164,
+          "lo": -107.77101667884952,
+          "point": -86.61095277777778
+        },
+        "reason": "You're not wasting money: even at the optimistic end, local saves under $5/mo at $0.27/task."
+      },
+      {
+        "breakeven": 0.8777766666666665,
+        "call": "stay",
+        "cloud_usd_per_task": 0.35,
+        "confident": true,
+        "monthly_usd": {
+          "hi": -52.58963914406125,
+          "lo": -107.27102654683071,
+          "point": -85.49984166666667
+        },
+        "reason": "You're not wasting money: even at the optimistic end, local saves under $5/mo at $0.35/task."
+      },
+      {
+        "breakeven": 0.8509059523809523,
+        "call": "stay",
+        "cloud_usd_per_task": 0.44,
+        "confident": true,
+        "monthly_usd": {
+          "hi": -50.30036959071582,
+          "lo": -106.70853764830959,
+          "point": -84.24984166666667
+        },
+        "reason": "You're not wasting money: even at the optimistic end, local saves under $5/mo at $0.44/task."
+      },
+      {
+        "breakeven": 0.8338878333333333,
+        "call": "stay",
+        "cloud_usd_per_task": 0.5,
+        "confident": true,
+        "monthly_usd": {
+          "hi": -48.77418988848553,
+          "lo": -106.33354504929551,
+          "point": -83.41650833333334
+        },
+        "reason": "You're not wasting money: even at the optimistic end, local saves under $5/mo at $0.50/task."
+      },
+      {
+        "breakeven": 0.8148741042345277,
+        "call": "stay",
+        "cloud_usd_per_task": 0.57,
+        "confident": true,
+        "monthly_usd": {
+          "hi": -46.99364690255019,
+          "lo": -105.89605368377906,
+          "point": -82.44428611111111
+        },
+        "reason": "You're not wasting money: even at the optimistic end, local saves under $6/mo at $0.57/task."
+      },
+      {
+        "breakeven": 0.7745088235294117,
+        "call": "stay",
+        "cloud_usd_per_task": 0.73,
+        "confident": true,
+        "monthly_usd": {
+          "hi": -42.92383436326942,
+          "lo": -104.8960734197415,
+          "point": -80.2220638888889
+        },
+        "reason": "You're not wasting money: even at the optimistic end, local saves under $7/mo at $0.73/task."
+      },
+      {
+        "breakeven": 0.7697426153846153,
+        "call": "stay",
+        "cloud_usd_per_task": 0.75,
+        "confident": true,
+        "monthly_usd": {
+          "hi": -42.41510779585932,
+          "lo": -104.7710758867368,
+          "point": -79.94428611111111
+        },
+        "reason": "You're not wasting money: even at the optimistic end, local saves under $8/mo at $0.75/task."
+      },
+      {
+        "breakeven": 0.7293479591836733,
+        "call": "stay",
+        "cloud_usd_per_task": 0.93,
+        "confident": true,
+        "monthly_usd": {
+          "hi": -37.83656868916845,
+          "lo": -103.64609808969452,
+          "point": -77.44428611111111
+        },
+        "reason": "You're not wasting money: even at the optimistic end, local saves under $9/mo at $0.93/task."
+      },
+      {
+        "breakeven": 0.714761,
+        "call": "stay",
+        "cloud_usd_per_task": 1.0,
+        "confident": true,
+        "monthly_usd": {
+          "hi": -36.05602570323312,
+          "lo": -103.20860672417808,
+          "point": -76.47206388888888
+        },
+        "reason": "You're not wasting money: even at the optimistic end, local saves under $10/mo at $1.00/task."
+      },
+      {
+        "breakeven": 0.6779575880758807,
+        "call": "stay",
+        "cloud_usd_per_task": 1.19,
+        "confident": true,
+        "monthly_usd": {
+          "hi": -31.223123312837203,
+          "lo": -102.02113016063348,
+          "point": -73.833175
+        },
+        "reason": "You're not wasting money: even at the optimistic end, local saves under $12/mo at $1.19/task."
+      },
+      {
+        "breakeven": 0.6207601736972704,
+        "call": "stay",
+        "cloud_usd_per_task": 1.53,
+        "confident": true,
+        "monthly_usd": {
+          "hi": -22.574771666865562,
+          "lo": -99.89617209955362,
+          "point": -69.11095277777778
+        },
+        "reason": "You're not wasting money: even at the optimistic end, local saves under $15/mo at $1.53/task."
+      },
+      {
+        "breakeven": 0.5609110986547085,
+        "call": "stay",
+        "cloud_usd_per_task": 1.96,
+        "confident": true,
+        "monthly_usd": {
+          "hi": -11.63715046754849,
+          "lo": -97.20872513995265,
+          "point": -63.138730555555554
+        },
+        "reason": "You're not wasting money: even at the optimistic end, local saves under $20/mo at $1.96/task."
+      },
+      {
+        "breakeven": 0.5559252222222222,
+        "call": "stay",
+        "cloud_usd_per_task": 2.0,
+        "confident": true,
+        "monthly_usd": {
+          "hi": -10.619697332728295,
+          "lo": -96.95873007394326,
+          "point": -62.583175000000004
+        },
+        "reason": "You're not wasting money: even at the optimistic end, local saves under $20/mo at $2.00/task."
+      },
+      {
+        "breakeven": 0.49933403193612774,
+        "call": "stay",
+        "cloud_usd_per_task": 2.51,
+        "confident": true,
+        "monthly_usd": {
+          "hi": 2.352830136229156,
+          "lo": -93.7712929823235,
+          "point": -55.49984166666667
+        },
+        "reason": "You're not wasting money: even at the optimistic end, local saves under $25/mo at $2.51/task."
+      },
+      {
+        "breakeven": 0.43735375874125865,
+        "call": "stay",
+        "cloud_usd_per_task": 3.22,
+        "confident": true,
+        "monthly_usd": {
+          "hi": 20.41262327928759,
+          "lo": -89.33388056065677,
+          "point": -45.638730555555554
+        },
+        "reason": "You're not wasting money: even at the optimistic end, local saves under $32/mo at $3.22/task."
+      },
+      {
+        "breakeven": 0.37732481146304675,
+        "call": "stay",
+        "cloud_usd_per_task": 4.13,
+        "confident": false,
+        "monthly_usd": {
+          "hi": 43.55968209644699,
+          "lo": -83.64649280894308,
+          "point": -32.999841666666676
+        },
+        "reason": "Not yet worth it at the measured rate (~−$33/mo), though the optimistic end reaches $44/mo."
+      },
+      {
+        "breakeven": 0.3335551333333333,
+        "call": "stay",
+        "cloud_usd_per_task": 5.0,
+        "confident": false,
+        "monthly_usd": {
+          "hi": 65.68928777878618,
+          "lo": -78.20910012323876,
+          "point": -20.91650833333334
+        },
+        "reason": "Not yet worth it at the measured rate (~−$21/mo), though the optimistic end reaches $66/mo."
+      },
+      {
+        "breakeven": 0.32113780487804877,
+        "call": "stay",
+        "cloud_usd_per_task": 5.29,
+        "confident": false,
+        "monthly_usd": {
+          "hi": 73.06582300623258,
+          "lo": -76.39663589467067,
+          "point": -16.888730555555554
+        },
+        "reason": "Not yet worth it at the measured rate (~−$17/mo), though the optimistic end reaches $73/mo."
+      },
+      {
+        "breakeven": 0.2695758081896551,
+        "call": "stay",
+        "cloud_usd_per_task": 6.78,
+        "confident": false,
+        "monthly_usd": {
+          "hi": 110.96595227828479,
+          "lo": -67.08431968582077,
+          "point": 3.8057138888888953
+        },
+        "reason": "Not yet worth it at the measured rate (~$4/mo), though the optimistic end reaches $111/mo."
+      },
+      {
+        "breakeven": 0.22376238819320213,
+        "call": "stay",
+        "cloud_usd_per_task": 8.68,
+        "confident": false,
+        "monthly_usd": {
+          "hi": 159.29497618224394,
+          "lo": -55.2095540503746,
+          "point": 30.194602777777778
+        },
+        "reason": "Not yet worth it at the measured rate (~$30/mo), though the optimistic end reaches $159/mo."
+      },
+      {
+        "breakeven": 0.20013308,
+        "call": "stay",
+        "cloud_usd_per_task": 10.0,
+        "confident": false,
+        "monthly_usd": {
+          "hi": 192.8709296313103,
+          "lo": -46.95971687206462,
+          "point": 48.52793611111112
+        },
+        "reason": "Not yet worth it at the measured rate (~$49/mo), though the optimistic end reaches $193/mo."
+      },
+      {
+        "breakeven": 0.18354097578870138,
+        "call": "stay",
+        "cloud_usd_per_task": 11.13,
+        "confident": false,
+        "monthly_usd": {
+          "hi": 221.61398068998074,
+          "lo": -39.89735625729926,
+          "point": 64.22238055555559
+        },
+        "reason": "Not yet worth it at the measured rate (~$64/mo), though the optimistic end reaches $222/mo."
+      },
+      {
+        "breakeven": 0.14926393198090693,
+        "call": "stay",
+        "cloud_usd_per_task": 14.26,
+        "confident": false,
+        "monthly_usd": {
+          "hi": 301.2296884896609,
+          "lo": -20.33524234206424,
+          "point": 107.69460277777779
+        },
+        "reason": "Not yet worth it at the measured rate (~$108/mo), though the optimistic end reaches $301/mo."
+      },
+      {
+        "breakeven": 0.12044600385170919,
+        "call": "stay",
+        "cloud_usd_per_task": 18.27,
+        "confident": false,
+        "monthly_usd": {
+          "hi": 403.2293652553852,
+          "lo": 4.726763025377423,
+          "point": 163.38904722222222
+        },
+        "reason": "Not yet worth it at the measured rate (~$163/mo), though the optimistic end reaches $403/mo."
+      },
+      {
+        "breakeven": 0.11118504444444444,
+        "call": "stay",
+        "cloud_usd_per_task": 20.0,
+        "confident": false,
+        "monthly_usd": {
+          "hi": 447.23421333635855,
+          "lo": 15.539049630283696,
+          "point": 187.416825
+        },
+        "reason": "Not yet worth it at the measured rate (~$187/mo), though the optimistic end reaches $447/mo."
+      },
+      {
+        "breakeven": 0.09655204554226167,
+        "call": "split",
+        "cloud_usd_per_task": 23.41,
+        "confident": false,
+        "monthly_usd": {
+          "hi": 533.9720930797799,
+          "lo": 36.85112900758447,
+          "point": 234.77793611111113
+        },
+        "reason": "Likely saves ~$235/mo at $23.41/task, but the interval reaches $37/mo — measure more before relying on it."
+      },
+      {
+        "breakeven": 0.07697426153846153,
+        "call": "split",
+        "cloud_usd_per_task": 30.0,
+        "confident": false,
+        "monthly_usd": {
+          "hi": 701.5974970414068,
+          "lo": 78.03781613263199,
+          "point": 326.30571388888893
+        },
+        "reason": "Likely saves ~$326/mo at $30.00/task, but the interval reaches $78/mo — measure more before relying on it."
+      }
+    ],
+    "evidence": {
+      "hardware": "unrecorded machine (attempts predate run manifests)",
+      "label": "aider:qwen3.5:latest / blind, 1 repo (Mahoraga)",
+      "minutes_per_attempt": 8.3175,
+      "rate": {
+        "attempts": 18,
+        "hi": 0.5087265674100965,
+        "lo": 0.1249975330046966,
+        "point": 0.2777777777777778,
+        "tasks": 18
+      },
+      "tier": "test-verified"
+    }
+  }
+}

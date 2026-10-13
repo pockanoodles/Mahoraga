@@ -1,0 +1,29 @@
+{
+ "sha": "3d72cc2",
+ "arm": "aider:qwen3.5:latest",
+ "cond": "blind",
+ "resolved": true,
+ "f2p_pass": 2,
+ "f2p_total": 2,
+ "regressions": 0,
+ "regression_ids": [],
+ "suite_crashed": false,
+ "edited_files": [
+  "backend/orchestrator/routing/code_judge.py"
+ ],
+ "touched_tests": [],
+ "hit_gold_file": true,
+ "secs": 222.5,
+ "timed_out": false,
+ "llm_calls": 2,
+ "tokens_sent": 20600.0,
+ "tokens_recv": 1764.0,
+ "extra": {
+  "edit_errors": 0
+ },
+ "rep": 0,
+ "degraded": [],
+ "conditions": {},
+ "tier": "test-verified",
+ "run_id": ""
+}

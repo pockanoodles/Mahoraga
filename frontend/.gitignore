@@ -2,3 +2,6 @@ node_modules
 dist
 .vite
 *.log
+# Copied from ../brand by scripts/sync-brand.mjs
+public/favicon.svg
+public/brand/

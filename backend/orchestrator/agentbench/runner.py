@@ -11,9 +11,11 @@ Every attempt carries the id of the run that made it; the run's manifest
 (manifest.py) says what machine, models and harness that was.
 
 Attempts are written one file per (arm, condition, task), so a run killed
-mid-way resumes where it stopped. With a guard, an attempt made on an
-unhealthy machine is filed under `attempts/degraded/` instead, so it is kept
-but not counted, and the cell stays open to be retried.
+mid-way resumes where it stopped. An attempt that did not measure the agent —
+the machine lost power, or ran slow and the attempt timed out or had requests
+fail (with a guard), or the agent itself crashed — is filed under
+`attempts/degraded/` instead, so it is kept but not counted, and the cell stays
+open to be retried.
 """
 from __future__ import annotations
 
@@ -25,14 +27,14 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Callable, Iterable
 
-from .agents import Agent
+from .agents import DEFAULT_NUM_CTX, Agent, AgentRun
 from .bank import Bench, Task, SuiteConfig
 from .grade import TEST_VERIFIED, Grader, TestGrader
 from .mine import is_test_path
 from .proc import git
 
 if TYPE_CHECKING:
-    from .guard import Guard
+    from .guard import Guard, Watch
 
 CONDITIONS = ("blind", "feedback")
 DEFAULT_TIMEOUT = 20 * 60
@@ -83,7 +85,11 @@ def prompt_for(task: Task) -> str:
 
 
 def arm_name(agent: Agent) -> str:
-    return f"{agent.name}:{agent.model}"
+    """The arm as `parse_arm` reads it back. A non-default context is named, so
+    attempts at two sizes never share a cell; the default isn't, so attempts
+    recorded before arms carried a context keep their names."""
+    ctx = getattr(agent, "num_ctx", DEFAULT_NUM_CTX)
+    return f"{agent.name}:{agent.model}" + (f"@ctx={ctx}" if ctx != DEFAULT_NUM_CTX else "")
 
 
 def _degraded_dir(bench: Bench) -> Path:
@@ -109,6 +115,19 @@ def _next_degraded_try(bench: Bench, arm: str, cond: str, sha: str, rep: int) ->
 def _reset(clone: Path, base: str) -> None:
     git("reset", "-q", "--hard", base, cwd=clone)
     git("clean", "-qfdx", "-e", ".aider.tags.cache.*", cwd=clone)
+
+
+def _degraded(watch: Watch | None, run: AgentRun) -> list[str]:
+    """Why this attempt did not measure the agent; empty = it counts. A slow
+    machine counts against an attempt only through what slowness does: a
+    timeout, or requests that failed."""
+    out = list(watch.degraded) if watch else []
+    if watch and watch.slow and (run.timed_out or run.request_errors):
+        how = "timed out" if run.timed_out else f"had {run.request_errors} failed requests"
+        out.append(f"{watch.slow}, and the attempt {how}")
+    if run.crashed:
+        out.append(f"agent crashed: {run.crashed}")
+    return out
 
 
 def run_attempt(bench: Bench, config: SuiteConfig, task: Task, agent: Agent,
@@ -149,7 +168,7 @@ def run_attempt(bench: Bench, config: SuiteConfig, task: Task, agent: Agent,
         secs=run.secs, timed_out=run.timed_out, llm_calls=run.llm_calls,
         tokens_sent=run.tokens_sent, tokens_recv=run.tokens_recv, extra=run.extra,
         rep=rep,
-        degraded=watch.degraded if watch else [],
+        degraded=_degraded(watch, run),
         conditions=watch.conditions if watch else {},
         tier=g.tier, run_id=run_id,
     )
@@ -194,9 +213,10 @@ def run_matrix(bench: Bench, agents: Iterable[Agent], conds: Iterable[str],
     missed the same task on consecutive runs — so `repeats` > 1 is what
     turns a resolve count into a stability claim.
 
-    With a guard, each attempt waits for a healthy machine, and a degraded
-    attempt is retried up to `max_degraded` times before the cell is left
-    open for the next run. No attempt starts after `deadline` (epoch secs).
+    With a guard, each attempt waits for a healthy machine. A degraded
+    attempt (unhealthy machine, or the agent crashed) is retried up to
+    `max_degraded` times before the cell is left open for the next run. No
+    attempt starts after `deadline` (epoch secs).
     """
     config = bench.load_config()
     tasks = [t for t in bench.load_tasks() if not only or t.sha in only]

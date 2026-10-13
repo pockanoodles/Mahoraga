@@ -38,7 +38,6 @@ import logging
 import os
 import threading
 import time
-from pathlib import Path
 from typing import Any, Optional
 
 import yaml
@@ -53,7 +52,6 @@ logger = logging.getLogger(__name__)
 # Mirrors the buckets the judge is actually measured on.
 CASCADE_BUCKETS: frozenset[str] = EXEC_GATE_BUCKETS
 
-_DEFAULT_CONFIG = Path(__file__).parents[3] / "agents.yaml"
 _DEFAULT_DAILY_CAP = 25
 
 
@@ -152,7 +150,8 @@ def _get_escalation_worker():
     try:
         from .live_route import build_cloud_worker
 
-        cfg_path = Path(os.getenv("MAHORAGA_AGENTS_YAML", str(_DEFAULT_CONFIG)))
+        from ..adapters.loader import agents_yaml
+        cfg_path = agents_yaml()
         cfg: dict[str, Any] = yaml.safe_load(cfg_path.read_text()) or {}
         if arm not in cfg:
             raise ValueError(f"escalation arm {arm!r} has no block in {cfg_path}")

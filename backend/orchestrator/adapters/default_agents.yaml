@@ -1,0 +1,265 @@
+# agents.yaml — Mahoraga agent pool configuration
+#
+# Active arms: ollama:qwen3.5, ollama:granite4.1-8b  (local only — no cloud)
+# ollama:qwen3-14b disabled 2026-07-26 after Phase 4 (bench_run_id=19): on the
+# 50-row verifiable bank it landed mid-pack (pass@1 0.880), beaten by the 5.3 GB
+# granite (0.900) — no correctness edge for ~2x the RAM on a 16 GB machine.
+# All other arms are disabled with explanatory comments below.
+#
+# Restart `orch serve` to apply changes.
+#
+# ollama:qwen3-14b — added 2026-07-09 as a diagnostic 3rd arm. Real traffic
+# (211 decisions since 2026-05-20) shows qwen3.5 and granite4.1-8b tied in
+# composite reward across 7/9 buckets — likely because success and cost are
+# both ~identical for two free local models, leaving only quality (20%) and
+# speed (15%) able to separate them. 14b is genuinely slower/heavier; if it
+# STILL ties under current reward weights, that's evidence the weights (not
+# model similarity) are suppressing signal. Already on disk, zero download
+# cost.
+#
+# Capability confidence values are warm-start priors fed to the LinUCB bandit.
+# The bandit overwrites these from real routing data as it accumulates —
+# values here only matter for cold-start exploration (before 100 observations
+# per bucket accumulate and OLS weight learning activates).
+#
+# enabled: false removes the agent from the pool on next restart.
+# Bandit history for disabled agents is preserved in routing_decisions.db.
+
+ollama:
+  base_url: "http://localhost:11434"  # override with OLLAMA_BASE_URL env var
+  roles: [planner, fast, coder, general]  # every model gets one worker per role
+  models:
+    - id: qwen3.5
+      model: qwen3.5:latest           # 9.7B Q4_K_M, 262K context, ~6.6 GB
+      max_ctx: 131072
+      warm: true                      # pre-warm at startup
+      extra_payload: {think: false}
+      capabilities:
+        code: 0.88
+        refactor: 0.85
+        general: 0.82
+        plan: 0.80
+        explain: 0.78
+
+    # gemma4-e4b: lowest reward across all measured buckets in bench 2026-05-20.
+    # Dropped in favour of granite4.1-8b which covers the same capability space
+    # at better quality. Re-evaluate if Gemma releases a checkpoint with better
+    # instruction-following on structured outputs.
+    - id: gemma4-e4b
+      model: gemma4:e4b               # 9.6 GB — disabled: see comment above
+      max_ctx: 131072
+      enabled: false
+      extra_payload: {think: false}
+      capabilities:
+        general: 0.88
+        plan: 0.85
+        research: 0.82
+        review: 0.78
+        explain: 0.80
+
+    - id: granite4.1-8b
+      model: granite4.1:8b            # IBM, ~5 GB — tool calling, structured output, long context
+      max_ctx: 131072
+      capabilities:
+        code: 0.82
+        test: 0.85
+        refactor: 0.83
+        review: 0.85
+        debug: 0.80
+
+    # granite4.2-8b: the October longitudinal study's local-side second point
+    # (added 2026-09-11, findings Era 31). A post-train of the SAME 4.1 base
+    # with a thinking toggle added — identical architecture (40 layers, hidden
+    # 4096, vocab 100352) and an identical 5.35 GB Q4_K_M footprint, so it is a
+    # drop-in at zero memory cost. Worth measuring because IBM published
+    # HumanEval+ 79.88 for 4.1-8b and NOTHING for 4.2-8b (they switched to
+    # agentic suites), which makes a 4.1-vs-4.2 run on this harness the only
+    # protocol-matched Python-synthesis comparison of the two that exists.
+    # enabled only for bench runs — see brain/decisions/2026-09-11-october-run-shape.md
+    - id: granite4.2-8b
+      model: granite4.2:8b            # IBM, 5.3 GB Q4_K_M, thinking-capable
+      max_ctx: 131072
+      enabled: false
+      capabilities:
+        code: 0.82
+        test: 0.85
+        refactor: 0.83
+        review: 0.85
+        debug: 0.80
+
+    # ornith-1.5-9b: the arm that decides a hardware purchase (added 2026-09-11,
+    # findings Era 32). MIT, 5.78 GB, and it CLAIMS SWE-bench Verified 70.6 —
+    # Laguna-XS-class (a 20 GB MoE) at a quarter of the memory. If that holds,
+    # this 16 GB machine already sits at the 24 GB tier and the 16→24 GB upgrade
+    # delta collapses from +23 to ~+8 points.
+    #
+    # Treat the vendor number as unverified, and not merely because it is
+    # vendor-reported: Ornith's method RL-trains the SCAFFOLD alongside the
+    # solution rollouts, so 70.6 measures model+scaffold and is NOT
+    # protocol-comparable to granite's plain-harness figure. Contamination-
+    # controlled SWE-rebench puts Qwen3.6-27B at only 31.2. It is also a
+    # Qwen3.5 fine-tune, so it is correlated with the qwen3.5 arm rather than
+    # an independent addition.
+    #
+    # Caveat on this tag: the Ollama build bundles a ~922 MB vision projector
+    # that is dead weight for code (6.6 GB packaged vs 5.78 GB text-only). The
+    # HF text-only GGUF is the leaner path if the projector ever matters.
+    # enabled only for bench runs.
+    - id: ornith-1.5-9b
+      model: ornith-1.5:9b            # 8.95B dense, MIT, Qwen3.5 lineage
+      max_ctx: 131072
+      enabled: false
+      capabilities:
+        code: 0.85
+        refactor: 0.82
+        debug: 0.82
+        review: 0.80
+        general: 0.78
+
+    # qwen3-14b: diagnostic 3rd arm (2026-07-09 → 2026-07-26). Retained to test
+    # whether capability spread breaks the qwen3.5/granite reward tie; it didn't,
+    # and Phase 4 (bench_run_id=19) showed no correctness edge over the smaller
+    # granite (pass@1 0.880 vs 0.900) for ~2x the RAM. Disabled 2026-07-26.
+    # Bandit history preserved in routing_decisions.db.
+    - id: qwen3-14b
+      model: qwen3:14b                # 9.3 GB, already on disk
+      max_ctx: 131072
+      enabled: false
+      extra_payload: {think: false}
+      capabilities:
+        code: 0.85
+        research: 0.85
+        review: 0.85
+        security: 0.85
+        general: 0.80
+
+    # ── Disabled arms ─────────────────────────────────────────────────────────
+    # deepseek-r1: unblocks at 32GB (123s avg latency on 16GB)
+    - id: deepseek-r1
+      model: deepseek-r1:8b
+      max_ctx: 131072
+      enabled: false
+      options: {temperature: 0.6}
+      capabilities:
+        code: 0.78
+        research: 0.85
+        review: 0.88
+        security: 0.88
+
+    # lfm2: superseded by 9B tier — speed advantage gone
+    - id: lfm2
+      model: maternion/lfm2:8b-a1b
+      max_ctx: 32768
+      enabled: false
+      options: {temperature: 0.3, min_p: 0.15, repeat_penalty: 1.05}
+      capabilities:
+        plan: 0.72
+        general: 0.68
+
+# ── Cloud/CLI agents ───────────────────────────────────────────────────────────
+
+claude:
+  enabled: false
+  worker: claude_api
+  model: claude-sonnet-4-6
+  worker_id: claude:sonnet
+  # Disabled for v2 local-only phase. Re-enable for escalation testing.
+  # Unexplored arms inflate UCB and steal routes from trained local arms.
+  #
+  # This is the API-key-backed cloud arm (ANTHROPIC_API_KEY), and it is the
+  # one to use for reproducing the published benchmark without a Claude
+  # subscription: `orch bench repro --cloud-arm claude`, or
+  # MAHORAGA_ESCALATE_TO=claude for the live serving cascade. Same model and
+  # same prompt framing as `claude-cli` below — the arms differ only in who
+  # authenticates and how the call is billed, so cost columns are not
+  # comparable between them while pass@1 is.
+  #
+  # As with claude-cli, `enabled: false` governs the BANDIT's action space
+  # only; the escalation cascade reaches this arm directly.
+  capabilities:
+    code: 0.95
+    general: 0.95
+    plan: 0.95
+    explain: 0.95
+    refactor: 0.90
+    test: 0.90
+
+claude-cli:
+  enabled: false
+  worker: claude_cli
+  model: claude-sonnet-4-6
+  worker_id: claude-cli:sonnet
+  # Cloud head-to-head arm for Phase 4 cost benchmarking — enable explicitly
+  # for bench runs only. Runs the `claude` CLI under the Max subscription
+  # (no ANTHROPIC_API_KEY); reports real token counts + total_cost_usd per
+  # task, which flow into task_metrics.cost_usd and the cost ledger.
+  # Kept disabled otherwise: unexplored arms inflate UCB and steal routes.
+  #
+  # `enabled: false` governs the BANDIT's action space only. The live
+  # escalation cascade (routing/cascade.py) reaches this arm directly on a
+  # judge rejection and is unaffected by this flag — that is deliberate, so
+  # escalation can never become a route the policy explores at your expense.
+  #
+  # binary_path defaults to a bare `claude`, resolved via PATH. Under the
+  # launchd daemon (`orch service start`) PATH is minimal and will NOT include
+  # ~/.local/bin, so escalation silently degrades to serving the local answer.
+  # Set an absolute path here if you run Mahoraga as a daemon:
+  #   binary_path: /Users/you/.local/bin/claude
+  capabilities:
+    code: 0.95
+    general: 0.95
+    plan: 0.95
+    explain: 0.95
+    refactor: 0.90
+    test: 0.90
+
+codex:
+  enabled: false
+  # Re-enable when OPENAI_API_KEY is set and npm install -g @openai/codex is done.
+  # Disabled: unexplored arms inflate UCB and steal routes from trained local arms.
+  capabilities:
+    code: 0.90
+    refactor: 0.85
+    test: 0.82
+    explain: 0.70
+
+gemini:
+  enabled: false
+  # Re-enable when GEMINI_API_KEY is set.
+  # Disabled: same reason as codex — unexplored arm problem.
+  capabilities:
+    research: 0.88
+    explain: 0.85
+    general: 0.80
+    code: 0.78
+
+# ── Disabled CLI agents ────────────────────────────────────────────────────────
+
+aider:
+  enabled: false
+  model_env: AIDER_MODEL
+  model_default: ollama_chat/qwen3:4b
+  # Cut: slow spawn, operational overhead. Codex CLI covers the same niche
+  # more cleanly. Re-enable if the task distribution shows >10% multi-file
+  # git refactors and codex isn't handling them.
+  capabilities:
+    refactor: 0.90
+    code: 0.70
+    test: 0.70
+
+opencode:
+  enabled: false
+  # Cut: overlaps with codex-cli. LSP integration is interesting but not
+  # enough differentiation to justify a 6th arm slowing convergence.
+  capabilities:
+    code: 0.92
+    refactor: 0.88
+    test: 0.82
+
+goose:
+  enabled: false
+  # Cut: overlaps gemini-cli without the free-tier volume advantage.
+  capabilities:
+    research: 0.85
+    general: 0.82
+    explain: 0.78

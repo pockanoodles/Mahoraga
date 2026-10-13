@@ -31,7 +31,7 @@ def add_agent(
                 for w in (workers if isinstance(workers, list) else workers.get("workers", []))
             )
         except httpx.ConnectError:
-            typer.echo("Cannot connect to Mahoraga server. Start it first: python -m backend.main", err=True)
+            typer.echo("Cannot connect to Mahoraga server. Start it first: mahoraga serve", err=True)
             raise typer.Exit(1)
 
         if not registered:

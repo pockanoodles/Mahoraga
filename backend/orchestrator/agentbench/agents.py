@@ -36,7 +36,12 @@ from pathlib import Path
 from typing import Protocol
 
 from . import ollama
-from .bank import DEFAULT_ROOT
+from .bank import bench_root
+
+# Context every arm gets unless its spec says otherwise (`@ctx=N`). Sized for
+# a 16 GB machine; a 1,677-line file pulled into aider's chat overflows it, and
+# Ollama truncates the prompt to fit rather than refusing it.
+DEFAULT_NUM_CTX = 32768
 
 
 @dataclass
@@ -49,6 +54,12 @@ class AgentRun:
     tokens_recv: float = 0
     # Agent-specific diagnostics, e.g. aider's edit-format failures.
     extra: dict[str, int] = field(default_factory=dict)
+    # The agent itself died, e.g. "ImportError in _svdp.py line 23"; empty = it
+    # ran. A crash is the harness failing, not the model, so it isn't scored.
+    crashed: str = ""
+    # Model requests that failed (timeouts, Ollama 500s). The way a slow
+    # machine reaches an outcome: without these or a timeout, it didn't.
+    request_errors: int = 0
 
 
 class Agent(Protocol):
@@ -74,7 +85,7 @@ def kill_live_agents() -> None:
 
 def agent_home(name: str) -> Path:
     """An agent's own HOME: none of the user's config or credentials."""
-    return Path(os.environ.get("MAHORAGA_AGENTBENCH_ROOT", DEFAULT_ROOT)) / "agent-home" / name
+    return bench_root() / "agent-home" / name
 
 
 def sandbox_profile(writable: list[Path]) -> str:
@@ -103,10 +114,15 @@ def _launch(cmd: list[str], cwd: Path, env: dict[str, str], timeout: float,
     working directory in every sense: some agents resolve it from $PWD rather
     than the real cwd, which is how one ran in the wrong repo. Returns
     (output, timed_out, secs). A timeout or a stopped run kills the whole
-    group, so the agent's own children can't outlive the attempt."""
+    group, so the agent's own children can't outlive the attempt.
+
+    stdin is closed: an agent that asks a question gets EOF at once. Inherited
+    from a terminal, aider's crash handler sat on "Open a GitHub Issue? (Y/n)"
+    until the 20-minute timeout, and each crash was recorded as a no-edit."""
     t0 = time.monotonic()
     env = {**env, "PWD": str(cwd)}
     proc = subprocess.Popen(sandboxed(cmd, [cwd, *writable]), cwd=cwd, env=env, text=True,
+                            stdin=subprocess.DEVNULL,
                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                             start_new_session=True)
     _live.add(proc.pid)
@@ -145,7 +161,7 @@ class AiderAgent:
 
     name = "aider"
 
-    def __init__(self, model: str, *, num_ctx: int = 32768, num_predict: int = 8192,
+    def __init__(self, model: str, *, num_ctx: int = DEFAULT_NUM_CTX, num_predict: int = 8192,
                  map_tokens: int = 2048, home: Path | None = None) -> None:
         _require_local(model)
         self.model = model
@@ -180,7 +196,8 @@ class AiderAgent:
             os.unlink(settings)
         tokens = re.findall(r"Tokens: ([\d.]+k?) sent, ([\d.]+k?) received", log)
         return AgentRun(
-            log=log, secs=secs, timed_out=timed_out,
+            log=log, secs=secs, timed_out=timed_out, crashed=aider_crash(log),
+            request_errors=aider_request_errors(log),
             llm_calls=len(tokens),
             tokens_sent=sum(_num(s) for s, _ in tokens),
             tokens_recv=sum(_num(r) for _, r in tokens),
@@ -191,6 +208,27 @@ class AiderAgent:
                 "format_errors": log.count("did not conform to the edit format"),
             },
         )
+
+
+def aider_crash(log: str) -> str:
+    """What killed aider, from its crash report ("# Uncaught ImportError in
+    _svdp.py line 23"), or "" if it ran. The first one seen on the Studio was
+    scipy 1.15.3 failing to load under macOS 27, before any model call."""
+    m = re.search(r"^# Uncaught (\w+) in (.+)$", log, re.MULTILINE)
+    if m:
+        return f"{m.group(1)} in {m.group(2).strip()}"
+    return "uncaught exception" if "An uncaught exception occurred" in log else ""
+
+
+# One line per failed request, as litellm reports it through aider, e.g. from
+# the throttled 2026-09-29 run: "litellm.APIConnectionError: Ollama_chatException
+# - litellm.Timeout: Connection timed out after 600.0 seconds."
+_REQUEST_ERROR = re.compile(r"litellm\.(?:APIConnectionError|InternalServerError|"
+                            r"ServiceUnavailableError|APIError|Timeout)\b")
+
+
+def aider_request_errors(log: str) -> int:
+    return sum(1 for line in log.splitlines() if _REQUEST_ERROR.search(line))
 
 
 def _num(s: str) -> float:
@@ -216,7 +254,7 @@ class OpenCodeAgent:
 
     name = "opencode"
 
-    def __init__(self, model: str, *, num_ctx: int = 32768, num_predict: int = 8192,
+    def __init__(self, model: str, *, num_ctx: int = DEFAULT_NUM_CTX, num_predict: int = 8192,
                  home: Path | None = None) -> None:
         _require_local(model)
         self.model, self.num_ctx, self.num_predict = model, num_ctx, num_predict
@@ -290,9 +328,20 @@ AGENTS = {"aider": AiderAgent, "opencode": OpenCodeAgent}
 
 
 def parse_arm(spec: str) -> Agent:
-    name, sep, model = spec.partition(":")
+    """`<agent>:<model>[@ctx=N]`, e.g. aider:gpt-oss:20b@ctx=131072. The context
+    is part of the arm: the same model at two sizes is two arms, recorded and
+    reported apart. Ollama tags can't contain `@`, so the split is unambiguous."""
+    body, at, opt = spec.partition("@")
+    name, sep, model = body.partition(":")
     if not sep or not model:
         raise ValueError(f"arm {spec!r} must be <agent>:<model>, e.g. aider:qwen3.5:latest")
     if name not in AGENTS:
         raise ValueError(f"unknown agent {name!r}; available: {', '.join(sorted(AGENTS))}")
-    return AGENTS[name](model)
+    num_ctx = DEFAULT_NUM_CTX
+    if at:
+        key, eq, val = opt.partition("=")
+        if key != "ctx" or not eq or not val.isdigit() or int(val) < 2048:
+            raise ValueError(f"arm option {opt!r} must be ctx=<tokens>, at least 2048, "
+                             "e.g. aider:gpt-oss:20b@ctx=131072")
+        num_ctx = int(val)
+    return AGENTS[name](model, num_ctx=num_ctx)

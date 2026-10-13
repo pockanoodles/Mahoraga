@@ -6,7 +6,7 @@ from dataclasses import dataclass
 
 from .bank import Task
 from .runner import Attempt
-from .stats import Rate, plan, task_rate
+from .stats import Plan, Rate, plan, task_rate
 
 # The precision the report plans toward: ±10 points is the coarsest interval
 # that still separates "local takes a tenth of the work" from "a third".
@@ -61,6 +61,12 @@ class ArmSummary:
         return Rate(self.rate, self.rate_lo, self.rate_hi, self.tasks, self.n)
 
 
+def precision_plan(s: ArmSummary) -> Plan:
+    """What it takes to narrow this arm's interval to ±TARGET_HALF_WIDTH,
+    counting one arm and condition at a time."""
+    return plan(s.interval, TARGET_HALF_WIDTH, s.median_minutes or 1.0, cells=1)
+
+
 def summarise(tasks: list[Task], attempts: list[Attempt]) -> list[ArmSummary]:
     by_sha = {t.sha: t for t in tasks}
     groups: dict[tuple[str, str], list[Attempt]] = defaultdict(list)
@@ -108,11 +114,12 @@ def _cell(rows: list[Attempt]) -> str:
 
 
 def degraded_note(degraded: list[Attempt]) -> str | None:
-    """Attempts the guard threw out, and why. They are in no count above."""
+    """Attempts thrown out because they did not measure the agent — the machine
+    was unhealthy, or the agent crashed — and why. They are in no count above."""
     if not degraded:
         return None
     why = Counter(r.split(":")[0].split(" (")[0] for a in degraded for r in a.degraded)
-    return (f"{len(degraded)} degraded attempts excluded (machine unhealthy): " +
+    return (f"{len(degraded)} degraded attempts excluded (did not measure the agent): " +
             ", ".join(f"{k} x{v}" for k, v in why.most_common()))
 
 
@@ -121,7 +128,7 @@ def render(tasks: list[Task], attempts: list[Attempt],
     summaries = summarise(tasks, attempts)
     note = degraded_note(degraded or [])
     if not summaries:
-        return "\n".join(filter(None, ["no attempts yet — run `orch agentbench run`", note]))
+        return "\n".join(filter(None, ["no attempts yet — run `mahoraga audit run`", note]))
     lines = [f"{'arm':34} {'cond':9} {'resolved':>10} {'rate [95% CI, by task]':>23} "
              f"{'multi-file':>10} {'broke code':>10} {'median':>7}"]
     for s in summaries:
@@ -140,8 +147,8 @@ def render(tasks: list[Task], attempts: list[Attempt],
     lines.append("")
     lines.append(f"precision (toward ±{TARGET_HALF_WIDTH:.0%}):")
     for s in summaries:
-        p = plan(s.interval, TARGET_HALF_WIDTH, s.median_minutes or 1.0, cells=1)
-        lines.append(f"  {s.arm} / {s.cond}: ±{s.interval.half_width:.0%} now. {p.fmt()}")
+        lines.append(f"  {s.arm} / {s.cond}: ±{s.interval.half_width:.0%} now. "
+                     f"{precision_plan(s).fmt()}")
     lines.append("")
     lines.append("failure modes: " + "  ".join(OUTCOMES[1:]))
     for s in summaries:

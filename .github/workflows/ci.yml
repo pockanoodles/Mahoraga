@@ -18,11 +18,20 @@ jobs:
           cache: pip
 
       - name: System build deps (hnswlib)
+        # A stalled package mirror otherwise holds the job until GitHub's 6-hour limit.
+        timeout-minutes: 10
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends build-essential
 
       - name: Install
+        # hnswlib compiles with -march=native, and the pip cache carries that
+        # wheel to the next runner, whose CPU may lack the instructions: the
+        # first import then dies with "Illegal instruction" (seen 2026-10-13).
+        # Build it portable, outside the cache.
+        env:
+          HNSWLIB_NO_NATIVE: "1"
         run: |
           python -m pip install -U pip
+          pip install --no-cache-dir "hnswlib>=0.8.0"
           pip install -r requirements.txt
           pip install -e .
 
@@ -63,6 +72,8 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
 
       - name: System build deps (hnswlib)
+        # A stalled package mirror otherwise holds the job until GitHub's 6-hour limit.
+        timeout-minutes: 10
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends build-essential
 
       - name: Build the UI and the wheel

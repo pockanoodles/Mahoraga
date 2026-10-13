@@ -192,7 +192,7 @@ def test_render_lists_every_assumption():
 
 
 def _bench(tmp_path: Path, name: str, results: dict[str, list[bool]], arm="fake:m",
-           cond="feedback", tier="test-verified"):
+           cond="feedback", tier="test-verified", machine: dict | None = None):
     from dataclasses import asdict
 
     from backend.orchestrator.agentbench.bank import Bench, Task
@@ -210,8 +210,12 @@ def _bench(tmp_path: Path, name: str, results: dict[str, list[bool]], arm="fake:
                         regressions=0, regression_ids=[], suite_crashed=False,
                         edited_files=["x.py"], touched_tests=[], hit_gold_file=True,
                         secs=600.0, timed_out=False, llm_calls=1, tokens_sent=0, tokens_recv=0,
-                        extra={}, rep=rep, tier=tier)
+                        extra={}, rep=rep, tier=tier, run_id=f"run-{name}" if machine else "")
             (b.attempts / f"{sha}_{rep}.json").write_text(json.dumps(asdict(a)))
+    if machine:
+        (b.dir / "runs").mkdir()
+        (b.dir / "runs" / f"run-{name}.json").write_text(
+            json.dumps({"run_id": f"run-{name}", "machine": machine}))
     return b
 
 
@@ -263,3 +267,15 @@ def test_cli_verdict(tmp_path, monkeypatch):
     unverified = CliRunner().invoke(app, ["verdict", str(tmp_path / "one"), "--arm", "fake:m",
                                           "--tasks-per-month", "200", "--plan", "claude-max-20x"])
     assert unverified.exit_code != 0 and "--plan-price" in _plain(unverified.output)
+
+
+def test_evidence_refuses_attempts_from_two_machines(tmp_path):
+    from backend.orchestrator.audit.evidence import from_benches
+
+    laptop = {"model": "Mac16,7", "memory_gb": 16}
+    a = _bench(tmp_path, "one", {"s1": [True]}, machine=laptop)
+    b = _bench(tmp_path, "two", {"s2": [False]}, machine=laptop)
+    assert from_benches([a, b], "fake:m", "feedback").hardware == "Mac16,7, 16 GB"
+    c = _bench(tmp_path, "three", {"s3": [True]}, machine={"model": "Mac17,14", "memory_gb": 64})
+    with pytest.raises(ValueError, match="2 machines"):
+        from_benches([a, c], "fake:m", "feedback")

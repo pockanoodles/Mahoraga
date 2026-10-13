@@ -305,6 +305,11 @@ def test_claims_split_by_commit_date_and_refuse_two_machines():
     with pytest.raises(ValueError, match="2 machines"):
         metrics(rows + [row("d", "", True, machine="Mac15,7, 16 GB")],
                 {"select": {"arm": "x:m", "cond": "blind"}})
+    other = [{**r, "arm": "y:m"} for r in rows[:2]]
+    paired = metrics(rows + other, {"select": {"arm": "x:m", "cond": "blind", "tasks_of": "y:m"}})
+    assert (paired["tasks"], paired["resolved"]) == (2, 1)
+    with pytest.raises(ValueError, match="no rows for z:m"):
+        metrics(rows, {"select": {"arm": "x:m", "cond": "blind", "tasks_of": "z:m"}})
     with pytest.raises(ValueError, match="knows only"):
         metrics(rows, {"select": {"arm": "x:m", "cond": "blind", "model": "m"}})
 

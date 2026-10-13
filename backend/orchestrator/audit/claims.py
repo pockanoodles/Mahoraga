@@ -10,11 +10,14 @@ report's digits are the tool's digits on that data.
 
     "select": {"arm": "aider:qwen3.5:laptop-dec52a4", "cond": "blind",
                "repos": ["attrs", "click"], "machine": "Mac16,9, 64 GB",
-               "committed_from": "2026-04-16", "committed_before": "..."}
+               "committed_from": "2026-04-16", "committed_before": "...",
+               "tasks_of": "aider:granite4.1:8b"}
     "verdict": {"tasks_per_month": 200, "api_spend": 150, ...Assumptions}
 
 Every select key is optional except arm and cond: one arm and condition at a
-time, for the reason evidence.py gives.
+time, for the reason evidence.py gives. `tasks_of` keeps only the tasks another
+arm attempted too, for a comparison on the same tasks after a bench has grown:
+a followed repo gains tasks every window, and the arm run on them gains rows.
 """
 from __future__ import annotations
 
@@ -26,7 +29,8 @@ from backend.orchestrator.agentbench.stats import task_rate
 
 from .verdict import Assumptions, Billing, Evidence, breakeven_cloud_cost, breakeven_rate, decide
 
-SELECT_KEYS = {"arm", "cond", "repos", "machine", "committed_from", "committed_before"}
+SELECT_KEYS = {"arm", "cond", "repos", "machine", "committed_from", "committed_before",
+               "tasks_of"}
 
 
 def select(rows: list[dict], spec: dict[str, Any]) -> list[dict]:
@@ -35,6 +39,12 @@ def select(rows: list[dict], spec: dict[str, Any]) -> list[dict]:
         raise ValueError(f"select needs arm and cond, and knows only {sorted(SELECT_KEYS)}"
                          + (f"; got {sorted(unknown)}" if unknown else ""))
     out = [r for r in rows if r["arm"] == spec["arm"] and r["cond"] == spec["cond"]]
+    if "tasks_of" in spec:
+        theirs = {(r["repo"], r["sha"]) for r in rows
+                  if r["arm"] == spec["tasks_of"] and r["cond"] == spec["cond"]}
+        if not theirs:
+            raise ValueError(f"no rows for {spec['tasks_of']} / {spec['cond']} to take tasks from")
+        out = [r for r in out if (r["repo"], r["sha"]) in theirs]
     if "repos" in spec:
         out = [r for r in out if r["repo"] in set(spec["repos"])]
     if "machine" in spec:

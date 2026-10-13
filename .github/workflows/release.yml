@@ -48,6 +48,8 @@ jobs:
           fi
 
       - name: System build deps (hnswlib)
+        # A stalled package mirror otherwise holds the job until GitHub's 6-hour limit.
+        timeout-minutes: 10
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends build-essential
 
       - name: Build the UI, the sdist and the wheel

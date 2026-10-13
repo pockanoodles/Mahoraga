@@ -42,9 +42,16 @@ clones on the Studio, 82 on the laptop), with every attempt kept.
 A confound for whoever reads the ornith numbers: under opencode, `blind` still lets the
 model run the tests itself through its shell, which aider in `blind` can't. Ornith under
 opencode compares to another model under opencode (qwen3.5 next), not to aider rows.
-5. **New commits mined continuously**, so each new model is tested on work that
-   postdates its release.
-6. **Agentbench results in `claims.json` / `bench verify`**, which #48 needs to merge.
+5. ~~New commits mined continuously.~~ PR #56: `queue add --follow --fetch` mines the
+   remote's new commits each window, so each new model meets work that postdates it.
+6. ~~Agentbench results in `claims.json` / `bench verify`.~~ PR #56 adds `audit export`
+   and the `agentbench` claim kind (rate, interval, verdict call, net, break-evens, with
+   `tasks_of` for same-task comparisons). #48 now stacks on #56 and carries
+   `experiments/agentbench/{studio-2026-10,laptop-2026-09}.jsonl` and 11 claims, all
+   passing. Recomputing caught one prose slip: the 17/56 vs 2/56 post-release split is
+   the outside repos only (with Mahoraga's tasks it is 30/88 vs 8/88, still apart).
+   The CI crash on `bench verify` ("Illegal instruction") was a cached `-march=native`
+   hnswlib wheel. The fix is on #55, which has to merge before #56 goes green.
 
 The launch steps follow, parked.
 

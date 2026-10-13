@@ -312,7 +312,9 @@ def queue_add_cmd(
 @queue_app.command("ls")
 def queue_ls_cmd() -> None:
     """Every job: its state, and what it waits for or why it ended."""
-    from backend.orchestrator.agentbench.queue import Queue
+    import time
+
+    from backend.orchestrator.agentbench.queue import Queue, window_deadline
     from backend.orchestrator.agentbench.runner import open_cells
 
     jobs = Queue(bench_root()).jobs()
@@ -330,8 +332,13 @@ def queue_ls_cmd() -> None:
         typer.echo(f"{j.id}  {j.status:8} {Path(j.repo).name:16} {' '.join(j.arms)}  "
                    f"{j.cond}  {j.window or 'any time'}  {cells}"
                    + ("  follow" + ("+fetch" if j.fetch else "") if j.follow else ""))
-        typer.echo(f"        {j.why or 'not looked at yet: is a worker running?'}"
-                   + (f"  ({j.checked_at})" if j.checked_at else ""))
+        if j.why:
+            why = j.why
+        elif j.window and window_deadline(j.window, time.time()) is None:
+            why = f"waiting for its window to open at {j.window.split('-')[0]}"
+        else:
+            why = "its window is open but no worker has looked at it: is one running?"
+        typer.echo(f"        {why}" + (f"  ({j.checked_at})" if j.checked_at else ""))
 
 
 @queue_app.command("cancel")

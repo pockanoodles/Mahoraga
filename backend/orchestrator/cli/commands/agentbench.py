@@ -38,7 +38,9 @@ from backend.orchestrator.agentbench.agents import kill_live_agents, parse_arm
 from backend.orchestrator.agentbench.bank import Bench, SuiteConfig, bench_root
 from backend.orchestrator.agentbench.guard import Guard
 from backend.orchestrator.agentbench.mine import find_candidates, layout_pytest_args, mine, reseal
-from backend.orchestrator.agentbench.report import degraded_note, outcome, render, summarise
+from backend.orchestrator.agentbench.report import (
+    degraded_note, ledgers, outcome, render, summarise,
+)
 from backend.orchestrator.agentbench.runner import (
     CONDITIONS, DEFAULT_TIMEOUT, load_attempts, load_degraded, run_matrix,
 )
@@ -138,11 +140,15 @@ def preflight_cmd(
     ratio: float = _RATIO,
 ) -> None:
     """Check this machine can produce valid results: charger, agent, models, speed."""
+    from backend.orchestrator.agentbench import isolation
+
     agents = _agents(arms)
     ok = _print_checks(Guard(bench_root(), ratio=ratio).preflight(agents))
-    n = len(Bench(repo).load_tasks())
+    bench = Bench(repo)
+    n = len(bench.load_tasks())
     typer.echo(f"  {'ok  ' if n else 'FAIL'}  {'tasks':24} {n or 'none — run `mahoraga audit mine`'}")
-    raise typer.Exit(0 if ok and n else 1)
+    isolated = _print_checks(isolation.check(bench, bench.load_config())) if n else False
+    raise typer.Exit(0 if ok and n and isolated else 1)
 
 
 @app.command("doctor")
@@ -201,7 +207,11 @@ def run_cmd(
         guard = Guard(bench_root(), ratio=ratio, wait_idle=wait_idle * 60, wait_quiet=wait_quiet,
                       log=typer.echo)
         typer.echo("preflight")
-        if not _print_checks(guard.preflight(agents)) and not force:
+        from backend.orchestrator.agentbench import isolation
+
+        machine_ok = _print_checks(guard.preflight(agents))
+        isolated = _print_checks(isolation.check(bench, bench.load_config()))
+        if not (machine_ok and isolated) and not force:
             typer.echo("preflight failed; fix the above or pass --force")
             raise typer.Exit(1)
     _stay_awake()
@@ -435,9 +445,10 @@ def report_cmd(
             "repo": str(bench.repo), "tasks": len(tasks),
             "arms": [asdict(s) for s in summarise(tasks, attempts)],
             "degraded": len(degraded), "degraded_note": degraded_note(degraded),
+            "ledgers": [asdict(g) for g in ledgers(attempts, degraded, manifest.load_all(bench))],
         }, indent=2))
         return
-    typer.echo(render(tasks, attempts, degraded))
+    typer.echo(render(tasks, attempts, degraded, manifest.load_all(bench)))
 
 
 @app.command("verdict")

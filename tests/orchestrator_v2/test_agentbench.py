@@ -1046,7 +1046,7 @@ def _job_runner(tmp_path, machine, agent, queue, sleep=lambda s: None):
         return run_job(queue, job, deadline, pulled=lambda: {"m:latest": PIN["m"]},
                        guard=lambda root, **kw: _guard(tmp_path, machine, sleep=sleep, **kw),
                        agents_for=lambda arms: [agent], which=lambda name: "/bin/" + name,
-                       log=lambda msg: None)
+                       isolated=lambda bench, config: [], log=lambda msg: None)
     return run
 
 
@@ -1118,3 +1118,84 @@ def test_a_shared_ollama_holding_someone_elses_model_pauses_the_run(tmp_path):
     assert g.problems(FakeAgent("m")) == []  # its own model, and its own derived tag
     assert _guard(tmp_path, FakeMachine(), loaded=lambda: ["gpt-oss:20b"]).problems(
         FakeAgent("m")) == []  # off unless asked
+
+
+# ── Isolation canary ──────────────────────────────────────────────────────────
+
+
+@pytest.mark.skipif(sys.platform != "darwin", reason="sandbox-exec is macOS-only")
+def test_the_canary_passes_on_a_sealed_sandboxed_bench(mined, config):
+    from backend.orchestrator.agentbench import isolation
+    checks = isolation.check(mined, config)
+    assert [c.name for c in checks] == ["isolation: history", "isolation: source",
+                                        "isolation: bench", "isolation: log"]
+    assert all(c.ok for c in checks), checks
+
+
+def test_the_canary_fails_when_isolation_is_broken(mined, repo, config):
+    from backend.orchestrator.agentbench import isolation
+    from backend.orchestrator.agentbench.agents import _launch
+
+    def unsandboxed(cmd, cwd, env, timeout, *writable, hidden=(), readable=()):
+        return _launch(cmd, cwd, env, timeout)  # hides nothing
+
+    [task] = mined.load_tasks()
+    task.base = _unsealed(mined, repo, repo["shas"]["mul"])
+    mined.save_tasks([task])
+    failed = {c.name for c in isolation.check(mined, config, launch=unsandboxed) if not c.ok}
+    assert failed == {"isolation: history", "isolation: source", "isolation: bench",
+                      "isolation: log"}
+
+
+def test_the_worker_refuses_a_bench_that_isnt_isolated(mined, tmp_path):
+    q = Queue(mined.dir.parent)
+    job = q.add(str(mined.repo), ["fake:m"], "blind", pinned=PIN)
+    agent = FakeAgent("m", apply_gold)
+    run_job(q, job, None, pulled=lambda: {"m:latest": PIN["m"]},
+            guard=lambda root, **kw: _guard(tmp_path, FakeMachine(), **kw),
+            agents_for=lambda arms: [agent], which=lambda n: "/bin/" + n,
+            isolated=lambda bench, config: ["isolation: source: readable"], log=lambda m: None)
+    [after] = q.jobs()
+    assert after.status == FAILED and after.why == "not isolated: isolation: source: readable"
+    assert agent.calls == []
+
+
+# ── Receipts ──────────────────────────────────────────────────────────────────
+
+
+def _manifest(run_id, digest="sha256:aaaabbbbcccc1111", dropped=None):
+    return {"run_id": run_id, "models": {"ollama": "0.35.1", "digests": {"m": digest}},
+            "agents": {"fake": "fake 1.0"}, "harness": {"version": "2.1.0", "commit": "c1bf98130ab",
+                                                      "dirty": False},
+            "machine": {"model": "Mac17,14", "memory_gb": 64},
+            "tasks": {"tasks_sha256": "feedfacecafe0000"}, "dropped": dropped or {}}
+
+
+def test_a_ledger_carries_receipts_exclusions_and_drops(mined, repo):
+    from backend.orchestrator.agentbench.report import ledgers, render_ledgers
+
+    run_matrix(mined, [FakeAgent("m", apply_gold)], ["blind"], run_id="r1")
+    run_matrix(mined, [FakeAgent("m", crashed="uncaught exception")], ["feedback"],
+               max_degraded=0, run_id="r2")
+    ms = [_manifest("r1"), _manifest("r2", dropped={"fake:m": "3 tasks in a row ..."})]
+    [blind, feedback] = ledgers(load_attempts(mined), load_degraded(mined), ms)
+    assert blind.counted == 1 and blind.excluded == {} and blind.warnings == []
+    assert blind.receipts == ["1 attempts: m @ aaaabbbbcccc, fake fake 1.0, ollama 0.35.1, "
+                              "mahoraga 2.1.0 c1bf98130, Mac17,14 64 GB, tasks feedfacecafe"]
+    assert feedback.counted == 0 and feedback.excluded == {"agent crashed": 1}
+    assert feedback.dropped == ["3 tasks in a row ..."]
+    out = "\n".join(render_ledgers([blind, feedback]))
+    assert "excluded, did not measure the model: agent crashed x1" in out
+
+
+def test_a_ledger_warns_when_the_weights_changed_between_runs(mined, repo):
+    from backend.orchestrator.agentbench.report import ledgers
+
+    run_matrix(mined, [FakeAgent("m", apply_gold)], ["blind"], run_id="r1")
+    run_matrix(mined, [FakeAgent("m", apply_gold)], ["feedback"], run_id="r2")
+    ms = [_manifest("r1"), _manifest("r2", digest="sha256:ffff00000000ffff")]
+    attempts = load_attempts(mined)
+    for a in attempts:
+        a.cond = "blind"
+    [g] = ledgers(attempts, [], ms)
+    assert g.warnings == ["the model's weights changed between runs (2 digests)"]

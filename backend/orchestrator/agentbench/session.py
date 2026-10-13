@@ -33,12 +33,17 @@ def run(bench: Bench, agents: list[Agent], conds: tuple[str, ...] | list[str], *
     ))
     started(run_id)
     done: list[Attempt] = []
+    gave_up: dict[str, str] = {}
     stopped = "interrupted"
+
+    def drop(arm: str, why: str) -> None:
+        gave_up[arm] = why
+        dropped(arm, why)
+
     try:
         done = run_matrix(bench, agents, conds, only, timeout, repeats, guard=guard,
-                          deadline=deadline, run_id=run_id, progress=progress,
-                          dropped=dropped)
+                          deadline=deadline, run_id=run_id, progress=progress, dropped=drop)
         stopped = "deadline" if deadline and time.time() >= deadline else "completed"
     finally:
-        manifest.finish(bench, run_id, len(done), stopped)
+        manifest.finish(bench, run_id, len(done), stopped, gave_up)
     return run_id, done, stopped

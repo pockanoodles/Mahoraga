@@ -7,9 +7,9 @@ from typing import Callable
 
 import httpx
 
-from . import session
+from . import isolation, session
 from .agents import Agent, parse_arm
-from .bank import Bench
+from .bank import Bench, SuiteConfig
 from .guard import Guard
 from .ollama import pulled_models
 from .queue import DONE, FAILED, Job, Queue, pin_problems
@@ -21,6 +21,7 @@ def run_job(queue: Queue, job: Job, deadline: float | None, *,
             guard: Callable[..., Guard] = Guard,
             agents_for: Callable[[list[str]], list[Agent]] = lambda arms: [parse_arm(a) for a in arms],
             which: Callable[[str], str | None] = shutil.which,
+            isolated: Callable[[Bench, SuiteConfig], list[str]] = isolation.problems,
             progress: Callable[[Attempt], None] = lambda a: None,
             log: Callable[[str], None] = print) -> int:
     """Attempts counted. Every way out of here sets the job's `why`."""
@@ -45,6 +46,9 @@ def run_job(queue: Queue, job: Job, deadline: float | None, *,
     bench = Bench(Path(job.repo), root=queue.root)
     if not bench.load_tasks():
         return fail("the bench has no tasks: run `mahoraga audit mine` on the repo")
+
+    if leaks := isolated(bench, bench.load_config()):
+        return fail("not isolated: " + "; ".join(leaks))
 
     conds = CONDITIONS if job.cond == "both" else (job.cond,)
     only = set(job.tasks) or None

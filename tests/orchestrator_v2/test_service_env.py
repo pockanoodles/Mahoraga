@@ -111,18 +111,33 @@ def test_rendered_plist_is_valid_and_carries_settings(monkeypatch, tmp_path):
     f.write_text("MAHORAGA_REWARD_JUDGE=code\n")
     monkeypatch.setattr(service, "_SERVICE_ENV_FILE", f)
 
-    env = service._build_environment()
-    content = service._PLIST_TEMPLATE.format(
-        label="com.test.orch",
-        orch_bin="/tmp/orch",
-        workdir="/tmp",
-        log="/tmp/x.log",
-        env_entries=service._render_env_entries(env),
-    )
-    parsed = plistlib.loads(content.encode())
+    monkeypatch.setattr(service, "_domain", lambda: "gui/501")
+    job = service.Job("com.test.orch", ("agentbench", "worker"), Path("/tmp/x.log"),
+                      env={"PYTHONPATH": "/tmp/wt"})
+    parsed = plistlib.loads(service.render_plist(job).encode())
     assert parsed["Label"] == "com.test.orch"
+    assert parsed["ProgramArguments"][1:] == ["agentbench", "worker"]
     assert parsed["EnvironmentVariables"]["MAHORAGA_REWARD_JUDGE"] == "code"
+    assert parsed["EnvironmentVariables"]["PYTHONPATH"] == "/tmp/wt"
     assert str(Path.home() / ".local" / "bin") in parsed["EnvironmentVariables"]["PATH"]
+    assert "LimitLoadToSessionType" not in parsed
+
+
+def test_without_a_gui_login_the_job_loads_in_the_background_domain(monkeypatch, tmp_path):
+    """Over ssh on a machine someone else is logged in to, gui/<uid> doesn't
+    exist, and a LaunchAgent without the Background session type fails to
+    bootstrap with errno 5."""
+    import plistlib
+
+    monkeypatch.setattr(service, "_SERVICE_ENV_FILE", tmp_path / "absent.env")
+    monkeypatch.setattr(service, "_domain", lambda: "user/502")
+    parsed = plistlib.loads(service.render_plist(service.DAEMON).encode())
+    assert parsed["LimitLoadToSessionType"] == "Background"
+    calls = []
+    monkeypatch.setattr(service, "_launchctl", lambda *a: calls.append(a) or
+                        type("R", (), {"returncode": 0, "stdout": "", "stderr": ""})())
+    assert service._load_job(service.DAEMON) == (True, "")
+    assert calls[1][:2] == ("bootstrap", "user/502")
 
 
 # ── load verification ────────────────────────────────────────────────────────
@@ -142,7 +157,8 @@ def test_load_job_reports_failure_when_not_listed(monkeypatch):
                               "stderr": ""})()
 
     monkeypatch.setattr(service, "_launchctl", _fake_launchctl)
-    monkeypatch.setattr(service, "_is_loaded", lambda: False)
+    monkeypatch.setattr(service, "_domain", lambda: "gui/501")
+    monkeypatch.setattr(service, "_is_loaded", lambda job=None: False)
 
     loaded, detail = service._load_job()
     assert loaded is False
@@ -162,7 +178,8 @@ def test_load_job_clears_the_disabled_flag_first(monkeypatch):
         return type("R", (), {"returncode": 0, "stdout": "", "stderr": ""})()
 
     monkeypatch.setattr(service, "_launchctl", _fake_launchctl)
-    monkeypatch.setattr(service, "_is_loaded", lambda: True)
+    monkeypatch.setattr(service, "_domain", lambda: "gui/501")
+    monkeypatch.setattr(service, "_is_loaded", lambda job=None: True)
 
     loaded, _detail = service._load_job()
     assert loaded is True

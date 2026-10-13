@@ -20,12 +20,18 @@ from .verdict import Evidence
 
 
 def _hardware(benches: list[Bench], run_ids: set[str]) -> str:
+    """The machine behind the evidence. A verdict is for one machine: a solve
+    rate pooled from the laptop and the Studio describes neither, so attempts
+    from two recorded machines are refused rather than labelled."""
     seen = set()
     for b in benches:
         for m in manifest.load_all(b):
             if m["run_id"] in run_ids:
                 hw = m.get("machine", {})
                 seen.add(f"{hw.get('model', '?')}, {hw.get('memory_gb', '?')} GB")
+    if len(seen) > 1:
+        raise ValueError(f"the attempts come from {len(seen)} machines ({'; '.join(sorted(seen))}); "
+                         "judge each machine's benches separately")
     if "" in run_ids or not seen:
         seen.add("unrecorded machine (attempts predate run manifests)")
     return "; ".join(sorted(seen))

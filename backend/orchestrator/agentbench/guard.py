@@ -7,7 +7,8 @@ like a model failure. None of those attempts measured the agent.
 
   preflight  before a run: charger, agent binary, Ollama, models, speed
   gate       before each attempt: wait until the machine is on AC, generating
-             at >= `ratio` x its reference speed, and idle if asked
+             at >= `ratio` x its reference speed, idle if asked, and, on an
+             Ollama shared with other people, holding none of their models
   watch      during and after an attempt: an attempt is *degraded* if AC was
              lost, or if speed fell below the bar *and* the attempt timed out
              or had requests fail. Degraded attempts are kept for audit but not
@@ -50,7 +51,8 @@ import httpx
 
 from . import host
 from .agents import DEFAULT_NUM_CTX, Agent
-from .ollama import BASE_URL, generation_speed, pulled_models, tagged
+from .ollama import (BASE_URL, DERIVED_PREFIX, generation_speed, loaded_models,
+                     pulled_models, tagged)
 
 # Clean readings kept per model; the reference is their median.
 READINGS_KEPT = 10
@@ -75,17 +77,19 @@ class Watch:
 
 class Guard:
     def __init__(self, root: Path, *, ratio: float = 0.5, min_watts: int = 60,
-                 wait_idle: float = 0, clean_idle: float = 300,
+                 wait_idle: float = 0, clean_idle: float = 300, wait_quiet: bool = False,
                  poll: float = 60, sample_every: float = 30,
                  power: Callable[[], host.Power] = host.power,
                  idle: Callable[[], float | None] = host.idle_secs,
                  speed: Callable[[str, int | None], float] = generation_speed,
                  pulled: Callable[[], dict[str, str]] = pulled_models,
+                 loaded: Callable[[], list[str]] = loaded_models,
                  sleep: Callable[[float], None] = time.sleep,
                  log: Callable[[str], None] = print) -> None:
         self.path = Path(root) / "speed.json"
         self.ratio, self.min_watts, self.wait_idle = ratio, min_watts, wait_idle
-        self.clean_idle = clean_idle
+        self.clean_idle, self.wait_quiet = clean_idle, wait_quiet
+        self._loaded = loaded
         self.poll, self.sample_every = poll, sample_every
         self._power, self._idle, self._speed, self._pulled = power, idle, speed, pulled
         self._sleep, self._log = sleep, log
@@ -154,6 +158,20 @@ class Guard:
             return f"{p.watts}W charger, under {self.min_watts}W: it cannot keep up with inference"
         return None
 
+    def _busy(self, agent: Agent) -> str | None:
+        """Someone else's model is loaded. The Studio's Ollama is shared: a run
+        that starts while a colleague's model is in memory slows them down and
+        is measured on a contended machine. Their model unloads on its own once
+        they stop (Ollama's keep-alive), so waiting for it is waiting for them."""
+        try:
+            loaded = self._loaded()
+        except httpx.HTTPError as e:
+            return f"ollama error: {e}"
+        mine = tagged(agent.model)
+        others = [m for m in loaded if m != mine and not (
+            m.startswith(DERIVED_PREFIX) and m[len(DERIVED_PREFIX):].startswith(mine + "-"))]
+        return f"busy: {', '.join(others)} loaded" if others else None
+
     def problems(self, agent: Agent) -> list[str]:
         """Why an attempt shouldn't start now. Speed is probed last and only
         if everything else is fine, since a probe is a real generation."""
@@ -162,6 +180,8 @@ class Guard:
             idle = self._idle()
             if idle is not None and idle < self.wait_idle:
                 out.append(f"in use (idle {idle:.0f}s, waiting for {self.wait_idle:.0f}s)")
+        if self.wait_quiet and (busy := self._busy(agent)):
+            out.append(busy)
         if not out and (slow := self._slow(agent)):
             out.append(slow)
         return out

@@ -139,13 +139,16 @@ def write(bench: Bench, manifest: dict[str, Any]) -> Path:
     return p
 
 
-def finish(bench: Bench, run_id: str, attempts: int, stopped: str) -> None:
-    """Stamp the end. `stopped` says why: completed, deadline, interrupted."""
+def finish(bench: Bench, run_id: str, attempts: int, stopped: str,
+           dropped: dict[str, str] | None = None) -> None:
+    """Stamp the end. `stopped` says why: completed, deadline, interrupted.
+    `dropped` names each arm the run gave up on, and why."""
     p = path(bench, run_id)
     if not p.exists():
         return
     m = json.loads(p.read_text())
-    m.update(ended_at=time.strftime("%Y-%m-%dT%H:%M:%S%z"), attempts=attempts, stopped=stopped)
+    m.update(ended_at=time.strftime("%Y-%m-%dT%H:%M:%S%z"), attempts=attempts, stopped=stopped,
+             dropped=dropped or {})
     p.write_text(json.dumps(m, indent=1))
 
 

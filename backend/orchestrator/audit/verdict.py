@@ -147,6 +147,16 @@ def breakeven_rate(ev: Evidence, a: Assumptions, cloud_per_task: float) -> float
     return (_local_cost(ev, a) + _triage_cost(a)) / (cloud_per_task + _triage_cost(a))
 
 
+def breakeven_cloud_cost(ev: Evidence, a: Assumptions) -> float | None:
+    """The cloud price per task at which local pays at the measured rate:
+    E(p) = 0 solved for the cloud cost. None when local solves nothing, since
+    then no price pays."""
+    p = ev.rate.point
+    if p <= 0:
+        return None
+    return (_local_cost(ev, a) + (1 - p) * _triage_cost(a)) / p
+
+
 def _decide_api(ev: Evidence, a: Assumptions, b: Billing) -> Verdict:
     cloud = b.monthly_usd / a.tasks_per_month
     local, triage = _local_cost(ev, a), _triage_cost(a)
@@ -160,8 +170,8 @@ def _decide_api(ev: Evidence, a: Assumptions, b: Billing) -> Verdict:
     p_star = breakeven_rate(ev, a, cloud)
     sens = [f"Pays once local resolves ≥ {p_star:.0%} of queued tasks "
             f"(measured {ev.rate.fmt()})."]
-    if ev.rate.point > 0:
-        c_star = (local + (1 - ev.rate.point) * triage) / ev.rate.point
+    c_star = breakeven_cloud_cost(ev, a)
+    if c_star is not None:
         sens.append(f"At the measured rate it pays once a cloud task costs ≥ ${c_star:.2f} "
                     f"(yours: ${cloud:.2f}).")
     per = f"${cloud:.2f}/task"

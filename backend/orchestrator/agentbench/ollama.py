@@ -22,6 +22,13 @@ def pulled_models(base_url: str = BASE_URL, timeout: float = 10) -> dict[str, st
     return {m["name"]: m["digest"] for m in r.json().get("models", [])}
 
 
+def loaded_models(base_url: str = BASE_URL, timeout: float = 10) -> list[str]:
+    """Models Ollama holds in memory right now. Raises httpx.HTTPError if it is down."""
+    r = httpx.get(f"{base_url}/api/ps", timeout=timeout)
+    r.raise_for_status()
+    return [m["name"] for m in r.json().get("models", [])]
+
+
 def version(base_url: str = BASE_URL, timeout: float = 10) -> str | None:
     """Ollama's own version. Raises httpx.HTTPError if it is down, and
     ValueError if something that isn't Ollama answers."""

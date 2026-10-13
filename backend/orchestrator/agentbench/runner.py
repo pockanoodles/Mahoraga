@@ -13,9 +13,9 @@ Every attempt carries the id of the run that made it; the run's manifest
 Attempts are written one file per (arm, condition, task), so a run killed
 mid-way resumes where it stopped. An attempt that did not measure the agent —
 the machine lost power, or ran slow and the attempt timed out or had requests
-fail (with a guard), or the agent itself crashed — is filed under
-`attempts/degraded/` instead, so it is kept but not counted, and the cell stays
-open to be retried.
+fail (with a guard), or the agent itself crashed or couldn't read the model's
+reply — is filed under `attempts/degraded/` instead, so it is kept but not
+counted, and the cell stays open to be retried.
 """
 from __future__ import annotations
 
@@ -28,7 +28,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Callable, Iterable
 
 from .agents import DEFAULT_NUM_CTX, Agent, AgentRun
-from .bank import Bench, Task, SuiteConfig
+from .bank import Bench, SuiteConfig, Task, from_record
 from .grade import TEST_VERIFIED, Grader, TestGrader
 from .mine import is_test_path
 from .proc import git
@@ -117,7 +117,27 @@ def _reset(clone: Path, base: str) -> None:
     git("clean", "-qfdx", "-e", ".aider.tags.cache.*", cwd=clone)
 
 
-def _degraded(watch: Watch | None, run: AgentRun) -> list[str]:
+HARNESS_CRASH = "agent crashed"
+HARNESS_UNREADABLE = "agent couldn't read the reply"
+
+
+def is_harness_failure(reason: str) -> bool:
+    return reason.startswith((HARNESS_CRASH, HARNESS_UNREADABLE))
+
+
+def _harness_failures(run: AgentRun, edited: bool) -> list[str]:
+    """Ways the agent itself failed to carry the model's work, whatever the
+    machine. A reply the agent couldn't read only voids an attempt that edited
+    nothing: one that edited something measured the model anyway."""
+    out = []
+    if run.crashed:
+        out.append(f"{HARNESS_CRASH}: {run.crashed}")
+    if run.unreadable and not edited:
+        out.append(f"{HARNESS_UNREADABLE}: {run.unreadable}")
+    return out
+
+
+def _degraded(watch: Watch | None, run: AgentRun, edited: bool) -> list[str]:
     """Why this attempt did not measure the agent; empty = it counts. A slow
     machine counts against an attempt only through what slowness does: a
     timeout, or requests that failed."""
@@ -125,9 +145,22 @@ def _degraded(watch: Watch | None, run: AgentRun) -> list[str]:
     if watch and watch.slow and (run.timed_out or run.request_errors):
         how = "timed out" if run.timed_out else f"had {run.request_errors} failed requests"
         out.append(f"{watch.slow}, and the attempt {how}")
-    if run.crashed:
-        out.append(f"agent crashed: {run.crashed}")
-    return out
+    return out + _harness_failures(run, edited)
+
+
+def confinement(bench: Bench, config: SuiteConfig) -> tuple[list[Path], list[Path]]:
+    """(hidden, readable) for an agent. Hidden: the source repo, whose working
+    tree and history hold the answer to every task mined from it, and the
+    bench root, whose other clones sit at later commits and whose attempts
+    hold other arms' patches. Readable again: the test interpreter's
+    environment when it lives in one of those. The agent's own clone and HOME
+    are writable, which keeps them readable too.
+
+    Another checkout of the same repo elsewhere on the machine is not hidden;
+    an agent would have to go looking for it."""
+    hidden = [bench.repo.resolve(), bench.dir.parent.resolve()]
+    venv = Path(config.python).parent.parent.resolve()  # .../venv/bin/python
+    return hidden, [venv] if any(h == venv or h in venv.parents for h in hidden) else []
 
 
 def run_attempt(bench: Bench, config: SuiteConfig, task: Task, agent: Agent,
@@ -142,7 +175,9 @@ def run_attempt(bench: Bench, config: SuiteConfig, task: Task, agent: Agent,
                  *config.pytest_args, *task.test_files] if cond == "feedback" else None)
     watching = guard.watch(agent) if guard else nullcontext(None)
     with watching as watch:
-        run = agent.attempt(clone, prompt_for(task), test_cmd=test_cmd, timeout=timeout)
+        hidden, readable = confinement(bench, config)
+        run = agent.attempt(clone, prompt_for(task), test_cmd=test_cmd, timeout=timeout,
+                            hidden=hidden, readable=readable)
 
     status = git("status", "--porcelain", "--untracked-files=all", cwd=clone)
     edited = sorted({line[3:].strip().strip('"') for line in status.splitlines()
@@ -168,7 +203,7 @@ def run_attempt(bench: Bench, config: SuiteConfig, task: Task, agent: Agent,
         secs=run.secs, timed_out=run.timed_out, llm_calls=run.llm_calls,
         tokens_sent=run.tokens_sent, tokens_recv=run.tokens_recv, extra=run.extra,
         rep=rep,
-        degraded=_degraded(watch, run),
+        degraded=_degraded(watch, run, edited=bool(set(edited) - set(touched_tests))),
         conditions=watch.conditions if watch else {},
         tier=g.tier, run_id=run_id,
     )
@@ -187,15 +222,26 @@ def run_attempt(bench: Bench, config: SuiteConfig, task: Task, agent: Agent,
     return attempt
 
 
+def open_cells(bench: Bench, agents: Iterable[Agent], conds: Iterable[str],
+               only: set[str] | None = None, repeats: int = 1) -> tuple[int, int]:
+    """(cells without a counted attempt, all cells) for this matrix."""
+    tasks = [t for t in bench.load_tasks() if not only or t.sha in only]
+    cells = [(arm_name(a), c, t.sha, r) for r in range(repeats) for a in agents
+             for c in conds for t in tasks]
+    left = sum(not _artifact(bench, arm, c, sha, r, "json").exists() for arm, c, sha, r in cells)
+    return left, len(cells)
+
+
 def load_attempts(bench: Bench) -> list[Attempt]:
     if not bench.attempts.exists():
         return []
-    return [Attempt(**json.loads(p.read_text())) for p in sorted(bench.attempts.glob("*.json"))]
+    return [from_record(Attempt, json.loads(p.read_text()))
+            for p in sorted(bench.attempts.glob("*.json"))]
 
 
 def load_degraded(bench: Bench) -> list[Attempt]:
     d = _degraded_dir(bench)
-    return [Attempt(**json.loads(p.read_text())) for p in sorted(d.glob("*.json"))] \
+    return [from_record(Attempt, json.loads(p.read_text())) for p in sorted(d.glob("*.json"))] \
         if d.exists() else []
 
 
@@ -203,8 +249,10 @@ def run_matrix(bench: Bench, agents: Iterable[Agent], conds: Iterable[str],
                only: set[str] | None = None, timeout: float = DEFAULT_TIMEOUT,
                repeats: int = 1, guard: Guard | None = None,
                deadline: float | None = None, max_degraded: int = 2,
-               run_id: str = "",
-               progress: Callable[[Attempt], None] = lambda a: None) -> list[Attempt]:
+               run_id: str = "", max_harness_failures: int = 3,
+               progress: Callable[[Attempt], None] = lambda a: None,
+               dropped: Callable[[str, str], None] = lambda arm, why: None,
+               ) -> list[Attempt]:
     """Every (repeat, agent, condition, task) without a recorded attempt.
 
     Repeats are the outer loop: a run stopped part-way still has one full
@@ -217,17 +265,28 @@ def run_matrix(bench: Bench, agents: Iterable[Agent], conds: Iterable[str],
     attempt (unhealthy machine, or the agent crashed) is retried up to
     `max_degraded` times before the cell is left open for the next run. No
     attempt starts after `deadline` (epoch secs).
+
+    An arm whose agent fails `max_harness_failures` cells in a row — every try
+    crashed, or edited nothing because the agent couldn't read the model — is
+    dropped from the rest of the run and reported through `dropped`. Left in,
+    it fills a night with attempts that can't count: ornith under aider, and
+    aider on the Studio's broken scipy, would both have.
     """
     config = bench.load_config()
     tasks = [t for t in bench.load_tasks() if not only or t.sha in only]
     agents = list(agents)
     done: list[Attempt] = []
+    streak: dict[str, int] = {}
     for rep in range(repeats):
         for agent in agents:
+            arm = arm_name(agent)
             for cond in conds:
                 for task in tasks:
-                    if _artifact(bench, arm_name(agent), cond, task.sha, rep, "json").exists():
+                    if streak.get(arm, 0) >= max_harness_failures:
+                        break
+                    if _artifact(bench, arm, cond, task.sha, rep, "json").exists():
                         continue
+                    attempt = None
                     for _ in range(max_degraded + 1):
                         if guard and not guard.wait_ready(agent, deadline):
                             return done
@@ -239,4 +298,9 @@ def run_matrix(bench: Bench, agents: Iterable[Agent], conds: Iterable[str],
                         if not attempt.degraded:
                             done.append(attempt)
                             break
+                    failed = [r for r in attempt.degraded if is_harness_failure(r)]
+                    streak[arm] = streak.get(arm, 0) + 1 if failed else 0
+                    if streak[arm] == max_harness_failures:
+                        dropped(arm, f"{max_harness_failures} tasks in a row where the "
+                                     f"agent failed, not the model (last: {failed[0]})")
     return done

@@ -22,12 +22,13 @@ from typer.testing import CliRunner
 
 from backend.orchestrator.agentbench import manifest
 from backend.orchestrator.agentbench.agents import (
-    AgentRun, AiderAgent, OpenCodeAgent, _launch, aider_crash, aider_request_errors, parse_arm,
+    AgentRun, AiderAgent, OpenCodeAgent, _launch, aider_crash, aider_request_errors,
+    aider_tool_calls, parse_arm,
     parse_opencode_events,
 )
 from backend.orchestrator.agentbench.bank import Bench, SuiteConfig
 from backend.orchestrator.agentbench.mine import (
-    find_candidates, is_test_module, is_test_path, layout_pytest_args, mine,
+    find_candidates, is_test_module, is_test_path, layout_pytest_args, leaks, mine, reseal,
 )
 from backend.orchestrator.agentbench.grade import TEST_VERIFIED, Grade
 from backend.orchestrator.agentbench.guard import Guard
@@ -80,6 +81,7 @@ def repo(tmp_path: Path) -> dict:
         "tests/test_add_more.py": "from calc.ops import add\n\n\ndef test_add_zero():\n"
                                   "    assert add(0, 0) == 0\n"})
     shas["docs"] = _commit(r, "docs", {"README.md": "calc\n"})
+    FakeAgent.source = r
     return {"path": r, "shas": shas}
 
 
@@ -103,24 +105,28 @@ def mined(bench, config, repo) -> Bench:
 
 
 class FakeAgent:
+    """Edits from what the test knows. The answer comes from the source repo,
+    since a sealed task clone doesn't have it."""
     name = "fake"
+    source: Path | None = None
 
     def __init__(self, model: str, edit=lambda clone, task_sha: None, crashed: str = "",
-                 timed_out: bool = False, request_errors: int = 0):
+                 timed_out: bool = False, request_errors: int = 0, unreadable: str = ""):
         self.model, self._edit, self._crashed = model, edit, crashed
         self._timed_out, self._request_errors = timed_out, request_errors
+        self._unreadable = unreadable
         self.calls: list[dict] = []
 
-    def attempt(self, workdir, prompt, *, test_cmd, timeout):
-        self.calls.append({"prompt": prompt, "test_cmd": test_cmd})
-        sha = _git(workdir, "log", "--all", "--format=%h", "-1", "--grep=feat: add mul")
+    def attempt(self, workdir, prompt, *, test_cmd, timeout, hidden=(), readable=()):
+        self.calls.append({"prompt": prompt, "test_cmd": test_cmd, "hidden": hidden})
+        sha = _git(FakeAgent.source, "log", "--format=%h", "-1", "--grep=feat: add mul")
         self._edit(workdir, sha)
         return AgentRun(log="", secs=1.0, timed_out=self._timed_out, crashed=self._crashed,
-                        request_errors=self._request_errors)
+                        request_errors=self._request_errors, unreadable=self._unreadable)
 
 
 def apply_gold(clone: Path, sha: str) -> None:
-    diff = _git(clone, "diff", f"{sha}^", sha, "--", "calc/ops.py")
+    diff = _git(FakeAgent.source, "diff", f"{sha}^", sha, "--", "calc/ops.py")
     subprocess.run(["git", "apply"], cwd=clone, input=diff + "\n", text=True, check=True)
 
 
@@ -157,6 +163,50 @@ def test_find_candidates_respects_limit_and_size(repo):
     # mul changes 4 source lines, refactor changes 1.
     assert [c.sha for c in find_candidates(repo["path"], max_src_lines=1)] == [
         repo["shas"]["refactor"]]
+
+
+def test_a_task_clone_holds_no_trace_of_the_answer(mined, repo):
+    sha = repo["shas"]["mul"]
+    clone = mined.clone(sha)
+    assert leaks(clone, sha) == []
+    # The history an agent can read ends at the commit's parent.
+    log = _git(clone, "log", "--all", "--format=%s")
+    assert log.splitlines() == ["agentbench task base", "init"]
+    assert "def mul" not in (clone / "calc/ops.py").read_text()
+    assert (clone / "tests/test_mul.py").exists()
+
+
+def _unsealed(bench, repo, sha):
+    """A clone the way `mine` built them before 2026-10-13: shared objects, and
+    the base committed on top of the answer."""
+    d = bench.clone(sha)
+    import shutil
+    shutil.rmtree(d)
+    _git(d.parent, "clone", "-q", "--shared", str(repo["path"]), str(d))
+    _git(d, "checkout", "-q", sha)
+    _git(d, "checkout", "-q", f"{sha}^", "--", "calc/ops.py")
+    _git(d, "-c", "user.name=a", "-c", "user.email=a@a", "commit", "-q", "-m", "agentbench task base")
+    return _git(d, "rev-parse", "HEAD")
+
+
+def test_reseal_seals_old_clones_and_keeps_their_attempts(mined, repo):
+    sha = repo["shas"]["mul"]
+    [task] = mined.load_tasks()
+    task.base = _unsealed(mined, repo, sha)
+    mined.save_tasks([task])
+    run_matrix(mined, [FakeAgent("m", apply_gold)], ["blind"])
+    assert leaks(mined.clone(sha), sha) != []
+    tree = _git(mined.clone(sha), "rev-parse", f"{task.base}^{{tree}}")
+
+    assert reseal(mined) == 1
+    [after] = mined.load_tasks()
+    assert after.base != task.base and leaks(mined.clone(sha), sha) == []
+    assert _git(mined.clone(sha), "rev-parse", f"{after.base}^{{tree}}") == tree
+    assert len(load_attempts(mined)) == 1  # mine would have deleted it
+    assert reseal(mined) == 0  # already sealed
+    # And the sealed clone still grades: the gold fix resolves.
+    a = run_attempt(mined, mined.load_config(), after, FakeAgent("g", apply_gold), "blind")
+    assert a.resolved
 
 
 def test_mine_gates_and_baselines(mined, repo):
@@ -502,6 +552,26 @@ def test_aider_crash_is_read_from_its_crash_report():
     assert aider_crash("Applied edit to m.py\nTokens: 2.6k sent, 206 received.") == ""
 
 
+def test_aider_tool_calls_are_counted_from_the_chat():
+    # Trimmed from ornith-1.5:9b on the Studio, 2026-10-13.
+    log = ("► **ANSWER**\n\nI'll start by exploring the agentbench module.\n\n"
+           "<tool_call>\n<function bash>\n<parameter name=\"command\">ls backend/\n"
+           "</parameter>\n</bash>\n\nTokens: 15k sent, 305 received.\n")
+    assert aider_tool_calls(log) == 1
+    assert aider_tool_calls("Applied edit to m.py\nTokens: 2.6k sent, 206 received.") == 0
+
+
+def test_aider_reads_cap_hits_and_tool_calls_from_its_log(tmp_path, monkeypatch):
+    log = ("Tokens: 7.2k sent, 8.2k received.\n<tool_call>\n"
+           "Tokens: 9.1k sent, 1.6k received.\n")
+    monkeypatch.setattr("backend.orchestrator.agentbench.agents._launch",
+                        lambda *a, **k: (log, False, 12.0))
+    monkeypatch.setattr("shutil.which", lambda name: "/bin/" + name)
+    run = AiderAgent("m:9b", home=tmp_path).attempt(tmp_path, "p", test_cmd=None, timeout=1)
+    assert run.extra["capped_calls"] == 1
+    assert run.unreadable == "1 tool calls, which aider can't run"
+
+
 def test_aider_request_errors_count_one_per_failed_request():
     # From the throttled 2026-09-29 run: one failure names two litellm errors.
     log = ("tests/test_slack_client.py\n"
@@ -730,6 +800,61 @@ def test_a_crashed_agent_is_degraded_not_scored_as_no_edit(mined, repo):
     assert "2 degraded attempts excluded (did not measure the agent): agent crashed x2" in out
 
 
+def test_an_unreadable_reply_with_no_edit_is_degraded(mined, repo):
+    agent = FakeAgent("m", unreadable="3 tool calls, which aider can't run")
+    done = run_matrix(mined, [agent], ["blind"], max_degraded=0)
+    degraded = load_degraded(mined)
+    assert done == [] and load_attempts(mined) == [] and len(degraded) == 1
+    assert degraded[0].degraded == [
+        "agent couldn't read the reply: 3 tool calls, which aider can't run"]
+
+
+def test_an_unreadable_reply_that_still_edited_counts(mined, repo):
+    # Some replies were tool calls, but the model edited anyway: that measured it.
+    agent = FakeAgent("m", apply_gold, unreadable="1 tool calls, which aider can't run")
+    done = run_matrix(mined, [agent], ["blind"], only={repo["shas"]["mul"]})
+    assert len(done) == 1 and done[0].resolved and load_degraded(mined) == []
+
+
+def test_an_arm_the_agent_keeps_failing_is_dropped(mined, repo):
+    dropped = []
+    broken = FakeAgent("broken", crashed="ImportError in _svdp.py line 23")
+    fine = FakeAgent("fine", apply_gold)
+    done = run_matrix(mined, [broken, fine], ["blind", "feedback"], max_degraded=0,
+                      max_harness_failures=1,
+                      dropped=lambda arm, why: dropped.append((arm, why)))
+    # The blind cell failed, so the arm never reached feedback; the next arm ran in full.
+    assert len(broken.calls) == 1 and len(fine.calls) == 2 and len(done) == 2
+    assert dropped == [("fake:broken", "1 tasks in a row where the agent failed, not the "
+                        "model (last: agent crashed: ImportError in _svdp.py line 23)")]
+
+
+def test_a_counted_attempt_resets_the_harness_failure_streak(mined, repo):
+    flaky = FakeAgent("m", apply_gold)
+    flaky._crashed = "uncaught exception"
+    dropped = []
+    # crash, count, crash, count: two crashes, never two in a row.
+    calls = iter(["uncaught exception", ""] * 2)
+    orig = flaky.attempt
+
+    def attempt(*a, **k):
+        flaky._crashed = next(calls)
+        return orig(*a, **k)
+
+    flaky.attempt = attempt
+    run_matrix(mined, [flaky], ["blind", "feedback"], repeats=2, max_degraded=0,
+               max_harness_failures=2, dropped=lambda arm, why: dropped.append(why))
+    assert dropped == [] and len(load_attempts(mined)) == 2
+
+
+def test_the_report_says_how_many_failures_ran_out_of_budget(mined, repo):
+    run_matrix(mined, [FakeAgent("m")], ["blind"])
+    [a] = load_attempts(mined)
+    a.extra["capped_calls"] = 2
+    assert summarise(mined.load_tasks(), [a])[0].capped == 1
+    assert "(1 of the failures hit the generation cap)" in render(mined.load_tasks(), [a])
+
+
 def test_no_attempt_starts_after_the_deadline(mined, repo):
     agent = FakeAgent("m", apply_gold)
     assert run_matrix(mined, [agent], ["blind"], deadline=time.time() - 1) == []
@@ -857,3 +982,313 @@ def test_the_sandbox_allows_localhost_only(tmp_path):
     local, external = out.split()
     assert local == "refused"      # reached the loopback stack (nothing listens on :1)
     assert external == "blocked"   # denied before it left the machine
+
+
+@pytest.mark.skipif(sys.platform != "darwin", reason="sandbox-exec is macOS-only")
+def test_the_agent_cannot_read_the_source_repo(tmp_path):
+    from backend.orchestrator.agentbench.agents import _launch
+    src, venv, work = tmp_path / "src", tmp_path / "src" / ".venv", tmp_path / "work"
+    for d in (venv, work):
+        d.mkdir(parents=True)
+    (src / "answer.py").write_text("SOLUTION\n")
+    (venv / "tool.txt").write_text("tool\n")
+    script = f"cat {src}/answer.py; ls {src}; cat {venv}/tool.txt; echo mine > own.txt; cat own.txt"
+    out, _, _ = _launch(["sh", "-c", script], work, {"PATH": "/bin:/usr/bin"}, 30,
+                        hidden=[src], readable=[venv])
+    assert "SOLUTION" not in out and out.count("Operation not permitted") == 2  # cat, ls
+    assert "tool" in out and "mine" in out
+
+
+def test_confinement_hides_the_repo_and_bench_but_not_the_test_venv(mined, repo, tmp_path):
+    from backend.orchestrator.agentbench.runner import confinement
+    inside = SuiteConfig(python=str(repo["path"] / ".venv" / "bin" / "python"))
+    hidden, readable = confinement(mined, inside)
+    assert hidden == [repo["path"].resolve(), mined.dir.parent.resolve()]
+    assert readable == [(repo["path"] / ".venv").resolve()]
+    assert confinement(mined, SuiteConfig(python=sys.executable))[1] == []
+
+
+# ── The queue ─────────────────────────────────────────────────────────────────
+
+from backend.orchestrator.agentbench.queue import (  # noqa: E402
+    DONE, FAILED, PENDING, Queue, drain, parse_window, pin_problems, window_deadline,
+)
+from backend.orchestrator.agentbench.worker import run_job  # noqa: E402
+
+PIN = {"m": "sha256:0123456789abcdef"}
+
+
+def _at(hhmm: str) -> float:
+    h, m = map(int, hhmm.split(":"))
+    return datetime(2026, 10, 13, h, m).timestamp()
+
+
+def test_a_window_through_midnight_opens_and_closes_on_time():
+    assert window_deadline("21:00-08:00", _at("20:59")) is None
+    assert window_deadline("21:00-08:00", _at("21:00")) == datetime(2026, 10, 14, 8, 0).timestamp()
+    assert window_deadline("21:00-08:00", _at("03:00")) == datetime(2026, 10, 13, 8, 0).timestamp()
+    assert window_deadline("21:00-08:00", _at("08:00")) is None
+    assert window_deadline("09:00-17:00", _at("12:00")) == datetime(2026, 10, 13, 17, 0).timestamp()
+    assert window_deadline(None, _at("12:00")) == float("inf")
+    with pytest.raises(ValueError):
+        parse_window("9pm-8am")
+
+
+def test_a_moved_tag_fails_the_pin():
+    assert pin_problems(PIN, {"m:latest": PIN["m"]}) == []
+    assert pin_problems(PIN, {}) == ["m is not pulled"]
+    assert pin_problems(PIN, {"m:latest": "sha256:ffffffffffffffff"}) == [
+        "m changed since the job was added (pinned 0123456789ab, now ffffffffffff)"]
+
+
+def _job_runner(tmp_path, machine, agent, queue, sleep=lambda s: None):
+    def run(job, deadline):
+        return run_job(queue, job, deadline, pulled=lambda: {"m:latest": PIN["m"]},
+                       guard=lambda root, **kw: _guard(tmp_path, machine, sleep=sleep, **kw),
+                       agents_for=lambda arms: [agent], which=lambda name: "/bin/" + name,
+                       isolated=lambda bench, config: [], log=lambda msg: None)
+    return run
+
+
+def test_the_worker_runs_a_job_to_done(mined, repo, tmp_path):
+    q = Queue(mined.dir.parent)
+    job = q.add(str(mined.repo), ["fake:m"], "both", pinned=PIN)
+    agent = FakeAgent("m", apply_gold)
+    drain(q, _job_runner(tmp_path, FakeMachine(), agent, q), once=True, log=lambda m: None)
+    [done] = q.jobs()
+    assert done.status == DONE and done.why == "all 2 cells counted" and len(done.runs) == 1
+    assert len(load_attempts(mined)) == 2
+
+
+def test_a_job_whose_model_moved_fails_and_says_so(mined, tmp_path):
+    q = Queue(mined.dir.parent)
+    q.add(str(mined.repo), ["fake:m"], "blind", pinned={"m": "sha256:old"})
+    agent = FakeAgent("m", apply_gold)
+    drain(q, _job_runner(tmp_path, FakeMachine(), agent, q), once=True, log=lambda m: None)
+    [job] = q.jobs()
+    assert job.status == FAILED and "changed since the job was added" in job.why
+    assert agent.calls == []
+
+
+def test_a_pass_that_counts_nothing_ends_the_job(mined, tmp_path):
+    q = Queue(mined.dir.parent)
+    q.add(str(mined.repo), ["fake:m"], "blind", pinned=PIN)
+    crash = FakeAgent("m", crashed="uncaught exception")
+    drain(q, _job_runner(tmp_path, FakeMachine(), crash, q), once=True, log=lambda m: None)
+    [job] = q.jobs()
+    # One task, three tries, all degraded; the worker doesn't retry it all night.
+    assert job.status == DONE and job.why == "1 of 1 cells left open, every try degraded"
+    assert len(crash.calls) == 3
+
+
+def test_a_job_out_of_window_waits_and_says_nothing_ran(mined, tmp_path):
+    q = Queue(mined.dir.parent)
+    q.add(str(mined.repo), ["fake:m"], "blind", pinned=PIN, window="21:00-08:00")
+    assert q.next_open(_at("12:00")) is None
+    job, deadline = q.next_open(_at("22:00"))
+    assert deadline == datetime(2026, 10, 14, 8, 0).timestamp()
+
+
+def test_a_job_that_waited_all_window_says_what_for(mined, tmp_path):
+    q = Queue(mined.dir.parent)
+    job = q.add(str(mined.repo), ["fake:m"], "blind", pinned=PIN)
+    m = FakeMachine()
+    m.on_ac = False
+    agent = FakeAgent("m", apply_gold)
+    # On battery from the start; the window closes during its first wait.
+    deadline = time.time() + 3600
+    clock = [time.time()]
+    real = time.time
+    time.time = lambda: clock[0]
+    try:
+        _job_runner(tmp_path, m, agent, q,
+                    sleep=lambda s: clock.__setitem__(0, deadline + 1))(job, deadline)
+    finally:
+        time.time = real
+    [after] = q.jobs()
+    assert after.status == PENDING and agent.calls == []
+    assert "last wait: on battery (80%)" in after.why
+
+
+def test_a_shared_ollama_holding_someone_elses_model_pauses_the_run(tmp_path):
+    loaded = ["gpt-oss:20b", "m:latest"]
+    g = _guard(tmp_path, FakeMachine(), wait_quiet=True, loaded=lambda: loaded)
+    assert g.problems(FakeAgent("m")) == ["busy: gpt-oss:20b loaded"]
+    loaded[:] = ["m:latest", "agentbench/m:latest-num_ctx32768-num_predict8192"]
+    assert g.problems(FakeAgent("m")) == []  # its own model, and its own derived tag
+    assert _guard(tmp_path, FakeMachine(), loaded=lambda: ["gpt-oss:20b"]).problems(
+        FakeAgent("m")) == []  # off unless asked
+
+
+# ── Isolation canary ──────────────────────────────────────────────────────────
+
+
+@pytest.mark.skipif(sys.platform != "darwin", reason="sandbox-exec is macOS-only")
+def test_the_canary_passes_on_a_sealed_sandboxed_bench(mined, config):
+    from backend.orchestrator.agentbench import isolation
+    checks = isolation.check(mined, config)
+    assert [c.name for c in checks] == ["isolation: history", "isolation: source",
+                                        "isolation: bench", "isolation: log"]
+    assert all(c.ok for c in checks), checks
+
+
+def test_the_canary_fails_when_isolation_is_broken(mined, repo, config):
+    from backend.orchestrator.agentbench import isolation
+    from backend.orchestrator.agentbench.agents import _launch
+
+    def unsandboxed(cmd, cwd, env, timeout, *writable, hidden=(), readable=()):
+        return _launch(cmd, cwd, env, timeout)  # hides nothing
+
+    [task] = mined.load_tasks()
+    task.base = _unsealed(mined, repo, repo["shas"]["mul"])
+    mined.save_tasks([task])
+    failed = {c.name for c in isolation.check(mined, config, launch=unsandboxed) if not c.ok}
+    assert failed == {"isolation: history", "isolation: source", "isolation: bench",
+                      "isolation: log"}
+
+
+def test_the_worker_refuses_a_bench_that_isnt_isolated(mined, tmp_path):
+    q = Queue(mined.dir.parent)
+    job = q.add(str(mined.repo), ["fake:m"], "blind", pinned=PIN)
+    agent = FakeAgent("m", apply_gold)
+    run_job(q, job, None, pulled=lambda: {"m:latest": PIN["m"]},
+            guard=lambda root, **kw: _guard(tmp_path, FakeMachine(), **kw),
+            agents_for=lambda arms: [agent], which=lambda n: "/bin/" + n,
+            isolated=lambda bench, config: ["isolation: source: readable"], log=lambda m: None)
+    [after] = q.jobs()
+    assert after.status == FAILED and after.why == "not isolated: isolation: source: readable"
+    assert agent.calls == []
+
+
+# ── Receipts ──────────────────────────────────────────────────────────────────
+
+
+def _manifest(run_id, digest="sha256:aaaabbbbcccc1111", dropped=None):
+    return {"run_id": run_id, "models": {"ollama": "0.35.1", "digests": {"m": digest}},
+            "agents": {"fake": "fake 1.0"}, "harness": {"version": "2.1.0", "commit": "c1bf98130ab",
+                                                      "dirty": False},
+            "machine": {"model": "Mac17,14", "memory_gb": 64},
+            "tasks": {"prompts_sha256": "feedfacecafe0000"}, "dropped": dropped or {}}
+
+
+def test_a_ledger_carries_receipts_exclusions_and_drops(mined, repo):
+    from backend.orchestrator.agentbench.report import ledgers, render_ledgers
+
+    run_matrix(mined, [FakeAgent("m", apply_gold)], ["blind"], run_id="r1")
+    run_matrix(mined, [FakeAgent("m", crashed="uncaught exception")], ["feedback"],
+               max_degraded=0, run_id="r2")
+    ms = [_manifest("r1"), _manifest("r2", dropped={"fake:m": "3 tasks in a row ..."})]
+    [blind, feedback] = ledgers(load_attempts(mined), load_degraded(mined), ms)
+    assert blind.counted == 1 and blind.excluded == {} and blind.warnings == []
+    assert blind.receipts == ["1 attempts: m @ aaaabbbbcccc, fake 1.0, ollama 0.35.1, "
+                              "mahoraga 2.1.0 c1bf98130, Mac17,14 64 GB, prompts feedfacecafe"]
+    assert feedback.counted == 0 and feedback.excluded == {"agent crashed": 1}
+    assert feedback.dropped == ["3 tasks in a row ..."]
+    out = "\n".join(render_ledgers([blind, feedback]))
+    assert "excluded, did not measure the model: agent crashed x1" in out
+
+
+def test_a_ledger_warns_when_the_weights_changed_between_runs(mined, repo):
+    from backend.orchestrator.agentbench.report import ledgers
+
+    run_matrix(mined, [FakeAgent("m", apply_gold)], ["blind"], run_id="r1")
+    run_matrix(mined, [FakeAgent("m", apply_gold)], ["feedback"], run_id="r2")
+    ms = [_manifest("r1"), _manifest("r2", digest="sha256:ffff00000000ffff")]
+    attempts = load_attempts(mined)
+    for a in attempts:
+        a.cond = "blind"
+    [g] = ledgers(attempts, [], ms)
+    assert g.warnings == ["the model's weights changed between runs (2 digests)"]
+
+
+# ── Following a repo ──────────────────────────────────────────────────────────
+
+
+def test_mined_tasks_carry_their_commit_date(mined, repo):
+    [task] = mined.load_tasks()
+    assert task.committed == _git(repo["path"], "log", "-1", "--format=%cI", repo["shas"]["mul"])
+
+
+def test_mine_new_takes_only_commits_it_has_never_seen(mined, repo, config):
+    from backend.orchestrator.agentbench.mine import mine_new
+
+    run_matrix(mined, [FakeAgent("m", apply_gold)], ["blind"])
+    assert mine_new(mined, config) == []  # mul is known, refactor was dropped
+    div = _commit(repo["path"], "feat: add div", {
+        "calc/ops.py": OPS + "\n\ndef mul(a, b):\n    return a * b\n\n\ndef div(a, b):\n    return a / b\n",
+        "tests/test_div.py": "from calc.ops import div\n\n\ndef test_div():\n    assert div(6, 3) == 2\n"})
+    [new] = mine_new(mined, config)
+    assert new.sha == div and len(mined.load_tasks()) == 2
+    assert len(load_attempts(mined)) == 1  # the known task's attempt survived
+
+
+def test_mine_new_knows_a_commit_by_its_full_sha(mined, repo, config):
+    """Short shas lengthen as a repo grows: 'bc1c708' and 'bc1c7081' are one commit."""
+    from backend.orchestrator.agentbench.mine import mine_new
+
+    [task] = mined.load_tasks()
+    task.sha = _git(repo["path"], "rev-parse", "--short=10", task.sha)
+    mined.save_tasks([task])
+    assert mine_new(mined, config) == []
+
+
+def test_reseal_backfills_dates(mined, repo):
+    [task] = mined.load_tasks()
+    task.committed = ""
+    mined.save_tasks([task])
+    reseal(mined)
+    assert mined.load_tasks()[0].committed.startswith("20")
+
+
+def test_a_follow_job_mines_runs_and_rests(mined, repo, tmp_path):
+    q = Queue(mined.dir.parent)
+    job = q.add(str(mined.repo), ["fake:m"], "blind", pinned=PIN, follow=True)
+    agent = FakeAgent("m", apply_gold)
+    run = _job_runner(tmp_path, FakeMachine(), agent, q)
+    drain(q, run, once=True, log=lambda m: None)
+    [after] = q.jobs()
+    assert after.status == PENDING and after.rest_until > time.time()
+    assert after.why.startswith("up to date, all 1 cells counted")
+    assert q.next_open(time.time()) is None  # resting
+    _commit(repo["path"], "feat: add div", {
+        "calc/ops.py": OPS + "\n\ndef mul(a, b):\n    return a * b\n\n\ndef div(a, b):\n    return a / b\n",
+        "tests/test_div.py": "from calc.ops import div\n\n\ndef test_div():\n    assert div(6, 3) == 2\n"})
+    q.update(job.id, rest_until=0.0)  # the next window
+    agent._edit = lambda clone, sha: None  # attempting the new task is what's tested
+    run(q.jobs()[0], None)
+    assert len(mined.load_tasks()) == 2 and len(agent.calls) == 2
+
+
+def test_a_follow_job_cant_name_tasks(mined):
+    with pytest.raises(ValueError, match="follow"):
+        Queue(mined.dir.parent).add(str(mined.repo), ["fake:m"], "blind", pinned=PIN,
+                                    follow=True, tasks=["abc"])
+
+
+def test_following_a_pinned_clone_fetches_and_mines_upstream(repo, tmp_path, config):
+    from backend.orchestrator.agentbench.worker import follow
+
+    pinned = tmp_path / "pinned"
+    _git(tmp_path, "clone", "-q", str(repo["path"]), str(pinned))
+    _git(pinned, "checkout", "-q", "--detach", repo["shas"]["docs"])
+    bench = Bench(pinned, root=tmp_path / "state2")
+    mine(bench, config, [repo["shas"]["mul"]])
+    div = _commit(repo["path"], "feat: add div", {
+        "calc/ops.py": OPS + "\n\ndef mul(a, b):\n    return a * b\n\n\ndef div(a, b):\n    return a / b\n",
+        "tests/test_div.py": "from calc.ops import div\n\n\ndef test_div():\n    assert div(6, 3) == 2\n"})
+    new = follow(bench, fetch=True, log=lambda m: None)
+    assert [t.sha for t in new] == [div]
+    assert _git(pinned, "rev-parse", "--short", "HEAD") == repo["shas"]["docs"]  # still pinned
+
+
+def test_a_bench_written_by_a_newer_version_still_loads(mined, repo, tmp_path):
+    run_matrix(mined, [FakeAgent("m", apply_gold)], ["blind"])
+    line = json.loads(mined.tasks_path.read_text().splitlines()[0])
+    mined.tasks_path.write_text(json.dumps({**line, "from_the_future": 1}) + "\n")
+    [att] = list(mined.attempts.glob("*.json"))
+    att.write_text(json.dumps({**json.loads(att.read_text()), "from_the_future": 1}))
+    assert len(mined.load_tasks()) == 1 and len(load_attempts(mined)) == 1
+    q = Queue(tmp_path / "q")
+    q.add(str(mined.repo), ["fake:m"], "blind", pinned=PIN)
+    q.path.write_text(json.dumps([{**json.loads(q.path.read_text())[0], "from_the_future": 1}]))
+    assert len(q.jobs()) == 1

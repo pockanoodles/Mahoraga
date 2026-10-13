@@ -22,6 +22,10 @@ Consequences of that design worth knowing before adding a claim:
   - claims live in data (`experiments/claims.json`), not here, so publishing a
     new number is a manifest edit and gets reviewed as one.
 
+A claim's `kind` says what its artifact is: a live-route run (the default,
+computed below) or an audit export ("agentbench", audit/claims.py), whose
+metrics include the verdict's call, a word checked as printed.
+
 This runs in CI. If someone edits a headline number in the README without the
 artifact to support it, the build goes red.
 """
@@ -118,15 +122,18 @@ def _round_half_up(value: float, decimals: int) -> float:
 @dataclass(frozen=True)
 class MetricCheck:
     metric: str
-    published: float
+    published: float | str
     decimals: int
-    actual: Optional[float]
+    actual: Optional[float | str]
     ok: bool
 
     @property
     def detail(self) -> str:
         if self.actual is None:
             return "not computable from this artifact"
+        if isinstance(self.published, str):
+            return self.published if self.ok else (
+                f"published {self.published}, artifact yields {self.actual}")
         shown = _round_half_up(self.actual, self.decimals)
         if self.ok:
             return f"{shown:.{self.decimals}f}"
@@ -198,14 +205,30 @@ def verify_claim(claim: dict[str, Any], root: Path) -> ClaimResult:
         result.error = f"artifact unreadable: {exc}"
         return result
 
-    metrics = compute_metrics(rows)
+    kind = claim.get("kind", "live_route")
+    try:
+        if kind == "live_route":
+            metrics = compute_metrics(rows)
+        elif kind == "agentbench":
+            from backend.orchestrator.audit.claims import metrics as audit_metrics
+
+            metrics = audit_metrics(rows, claim)
+        else:
+            result.error = f"unknown claim kind: {kind}"
+            return result
+    except (KeyError, TypeError, ValueError) as exc:
+        result.error = f"claim can't be computed: {exc}"
+        return result
     for name, spec in (claim.get("metrics") or {}).items():
-        published = float(spec["value"])
         decimals = int(spec.get("decimals", 3))
         actual = metrics.get(name)
-        ok = actual is not None and _round_half_up(actual, decimals) == _round_half_up(
-            published, decimals
-        )
+        if isinstance(spec["value"], str):
+            published: float | str = spec["value"]
+            ok = actual == published
+        else:
+            published = float(spec["value"])
+            ok = isinstance(actual, (int, float)) and _round_half_up(
+                actual, decimals) == _round_half_up(published, decimals)
         result.checks.append(
             MetricCheck(
                 metric=name,
@@ -243,6 +266,18 @@ _LABELS = {
     "escalation_rate": "escalation rate",
     "judge_fail_recall": "judge fail-recall",
     "judge_cost_total": "judge cost (total)",
+    "tasks": "tasks",
+    "attempts": "attempts",
+    "resolved": "tasks resolved",
+    "rate": "resolve rate (by task)",
+    "rate_lo": "95% interval, low",
+    "rate_hi": "95% interval, high",
+    "call": "verdict",
+    "net_lo": "net $/mo, low end",
+    "net": "net $/mo",
+    "net_hi": "net $/mo, high end",
+    "breakeven_rate": "break-even rate",
+    "breakeven_cloud_usd": "pays once a task costs",
 }
 
 

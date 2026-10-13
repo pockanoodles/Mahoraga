@@ -55,6 +55,9 @@ class ArmSummary:
     rate_lo: float = 0.0
     rate_hi: float = 1.0
     tier: str = "test-verified"
+    # Failed attempts with a reply cut off at the generation cap: out of
+    # budget rather than wrong, though both count as failures.
+    capped: int = 0
 
     @property
     def interval(self) -> Rate:
@@ -97,6 +100,7 @@ def summarise(tasks: list[Task], attempts: list[Attempt]) -> list[ArmSummary]:
             tasks_solved_always=sum(all(v) for v in per_task.values()),
             repeats=max(len(v) for v in per_task.values()),
             rate=r.point, rate_lo=r.lo, rate_hi=r.hi, tier=tiers.pop(),
+            capped=sum(not a.resolved and a.extra.get("capped_calls", 0) > 0 for a in rows),
         ))
     return out
 
@@ -123,8 +127,84 @@ def degraded_note(degraded: list[Attempt]) -> str | None:
             ", ".join(f"{k} x{v}" for k, v in why.most_common()))
 
 
+def _reason(r: str) -> str:
+    return r.split(":")[0].split(" (")[0]
+
+
+@dataclass
+class Ledger:
+    """Everything that went into one arm's number, and everything kept out."""
+    arm: str
+    cond: str
+    counted: int
+    excluded: dict[str, int]   # reason -> tries thrown out
+    dropped: list[str]         # runs that gave up on the arm, and why
+    receipts: list[str]        # one line per distinct setup that produced counted attempts
+    warnings: list[str]
+
+
+def _setup(m: dict, arm: str) -> str:
+    """One line of what a run measured an arm with."""
+    agent, _, model = arm.partition(":")
+    model = model.split("@")[0]
+    digest = (m.get("models", {}).get("digests") or {}).get(model, "?")
+    h, hw, t = m.get("harness", {}), m.get("machine", {}), m.get("tasks", {})
+    commit = (h.get("commit") or "")[:9] or "installed"
+    version = str((m.get("agents") or {}).get(agent, "?"))
+    version = version[len(agent):].strip() if version.startswith(agent) else version
+    # The prompts, not the task file: sealing a clone rewrites each task's base
+    # commit and so the file's hash, while the tasks an agent sees stay the same.
+    return (f"{model} @ {digest.split(':')[-1][:12]}, {agent} {version}, "
+            f"ollama {m.get('models', {}).get('ollama', '?')}, "
+            f"mahoraga {h.get('version', '?')} {commit}{' (dirty)' if h.get('dirty') else ''}, "
+            f"{hw.get('model', '?')} {hw.get('memory_gb', '?')} GB, "
+            f"prompts {str(t.get('prompts_sha256', '?'))[:12]}")
+
+
+def ledgers(attempts: list[Attempt], degraded: list[Attempt],
+            manifests: list[dict]) -> list[Ledger]:
+    by_run = {m["run_id"]: m for m in manifests}
+    keys = sorted({(a.arm, a.cond) for a in [*attempts, *degraded]})
+    out = []
+    for arm, cond in keys:
+        mine = [a for a in attempts if (a.arm, a.cond) == (arm, cond)]
+        thrown = [a for a in degraded if (a.arm, a.cond) == (arm, cond)]
+        runs = {a.run_id for a in [*mine, *thrown]}
+        setups = Counter(_setup(by_run[a.run_id], arm) if a.run_id in by_run
+                         else "unrecorded: the attempt predates run manifests" for a in mine)
+        digests = {(by_run[r].get("models", {}).get("digests") or {}).get(
+            arm.partition(":")[2].split("@")[0]) for r in runs if r in by_run} - {None}
+        warnings = []
+        if len(digests) > 1:
+            warnings.append(f"the model's weights changed between runs ({len(digests)} digests)")
+        if any(by_run[r].get("harness", {}).get("dirty") for r in runs if r in by_run):
+            warnings.append("measured with uncommitted harness changes")
+        out.append(Ledger(
+            arm=arm, cond=cond, counted=len(mine),
+            excluded=dict(Counter(_reason(r) for a in thrown for r in a.degraded).most_common()),
+            dropped=[by_run[r]["dropped"][arm] for r in sorted(runs)
+                     if r in by_run and arm in (by_run[r].get("dropped") or {})],
+            receipts=[f"{n} attempts: {s}" for s, n in setups.most_common()],
+            warnings=warnings))
+    return out
+
+
+def render_ledgers(ls: list[Ledger]) -> list[str]:
+    lines = ["receipts (what each number was measured with, and what was kept out):"]
+    for g in ls:
+        lines.append(f"  {g.arm} / {g.cond}: {g.counted} counted")
+        lines += [f"    {r}" for r in g.receipts]
+        if g.excluded:
+            lines.append("    excluded, did not measure the model: " +
+                         ", ".join(f"{k} x{v}" for k, v in g.excluded.items()))
+        lines += [f"    dropped: {d}" for d in g.dropped]
+        lines += [f"    WARNING: {w}" for w in g.warnings]
+    return lines
+
+
 def render(tasks: list[Task], attempts: list[Attempt],
-           degraded: list[Attempt] | None = None) -> str:
+           degraded: list[Attempt] | None = None,
+           manifests: list[dict] | None = None) -> str:
     summaries = summarise(tasks, attempts)
     note = degraded_note(degraded or [])
     if not summaries:
@@ -153,7 +233,8 @@ def render(tasks: list[Task], attempts: list[Attempt],
     lines.append("failure modes: " + "  ".join(OUTCOMES[1:]))
     for s in summaries:
         lines.append(f"  {s.arm} / {s.cond}: " + "  ".join(
-            f"{k}={s.outcomes[k]}" for k in OUTCOMES if k in s.outcomes))
+            f"{k}={s.outcomes[k]}" for k in OUTCOMES if k in s.outcomes) +
+            (f"  ({s.capped} of the failures hit the generation cap)" if s.capped else ""))
     lines.append("")
     cols = [(s.arm, s.cond) for s in summaries]
     index: dict[tuple[str, str, str], list[Attempt]] = defaultdict(list)
@@ -168,6 +249,10 @@ def render(tasks: list[Task], attempts: list[Attempt],
                      f"{t.subject[:60]}")
     lines.append("")
     lines += [f"  {i + 1} = {arm} / {cond}" for i, (arm, cond) in enumerate(cols)]
-    if note:
+    if manifests is not None:
+        live = {t.sha for t in tasks}
+        lines += [""] + render_ledgers(ledgers([a for a in attempts if a.sha in live],
+                                               degraded or [], manifests))
+    elif note:
         lines += ["", note]
     return "\n".join(lines)

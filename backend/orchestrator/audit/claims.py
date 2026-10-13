@@ -1,0 +1,99 @@
+"""Published audit numbers, recomputed from an export (agentbench/export.py).
+
+`orch bench verify` checks every claim in experiments/claims.json against the
+artifact it names. A claim of kind "agentbench" picks a slice of an export's
+rows and lists what the report prints for it: the task count, the rate and its
+interval, and, when it gives the verdict's assumptions, the verdict's call,
+monthly net and break-even figures. Each is computed by the code `mahoraga
+audit report` and `mahoraga audit verdict` use, so a claim passing means the
+report's digits are the tool's digits on that data.
+
+    "select": {"arm": "aider:qwen3.5:laptop-dec52a4", "cond": "blind",
+               "repos": ["attrs", "click"], "machine": "Mac16,9, 64 GB",
+               "committed_from": "2026-04-16", "committed_before": "...",
+               "tasks_of": "aider:granite4.1:8b"}
+    "verdict": {"tasks_per_month": 200, "api_spend": 150, ...Assumptions}
+
+Every select key is optional except arm and cond: one arm and condition at a
+time, for the reason evidence.py gives. `tasks_of` keeps only the tasks another
+arm attempted too, for a comparison on the same tasks after a bench has grown:
+a followed repo gains tasks every window, and the arm run on them gains rows.
+"""
+from __future__ import annotations
+
+import statistics
+from collections import defaultdict
+from typing import Any, Optional
+
+from backend.orchestrator.agentbench.stats import task_rate
+
+from .verdict import Assumptions, Billing, Evidence, breakeven_cloud_cost, breakeven_rate, decide
+
+SELECT_KEYS = {"arm", "cond", "repos", "machine", "committed_from", "committed_before",
+               "tasks_of"}
+
+
+def select(rows: list[dict], spec: dict[str, Any]) -> list[dict]:
+    unknown = set(spec) - SELECT_KEYS
+    if unknown or not {"arm", "cond"} <= set(spec):
+        raise ValueError(f"select needs arm and cond, and knows only {sorted(SELECT_KEYS)}"
+                         + (f"; got {sorted(unknown)}" if unknown else ""))
+    out = [r for r in rows if r["arm"] == spec["arm"] and r["cond"] == spec["cond"]]
+    if "tasks_of" in spec:
+        theirs = {(r["repo"], r["sha"]) for r in rows
+                  if r["arm"] == spec["tasks_of"] and r["cond"] == spec["cond"]}
+        if not theirs:
+            raise ValueError(f"no rows for {spec['tasks_of']} / {spec['cond']} to take tasks from")
+        out = [r for r in out if (r["repo"], r["sha"]) in theirs]
+    if "repos" in spec:
+        out = [r for r in out if r["repo"] in set(spec["repos"])]
+    if "machine" in spec:
+        out = [r for r in out if r["machine"] == spec["machine"]]
+    if "committed_from" in spec or "committed_before" in spec:
+        if any(not r.get("committed") for r in out):
+            raise ValueError("a date split needs every task's commit date; "
+                             "run `mahoraga audit reseal` and export again")
+        lo, hi = spec.get("committed_from", ""), spec.get("committed_before", "9999")
+        out = [r for r in out if lo <= r["committed"][:10] < hi]
+    return out
+
+
+def evidence(rows: list[dict]) -> Evidence:
+    """What evidence.from_benches builds, from exported rows."""
+    per_task: dict[str, list[bool]] = defaultdict(list)
+    for r in rows:
+        per_task[f"{r['repo']}/{r['sha']}"].append(r["resolved"])
+    machines, tiers = {r["machine"] for r in rows}, {r["tier"] for r in rows}
+    if len(machines) > 1:
+        raise ValueError(f"the rows come from {len(machines)} machines ({'; '.join(sorted(machines))})")
+    if len(tiers) > 1:
+        raise ValueError(f"the rows mix grading tiers {sorted(tiers)}")
+    repos = sorted({r["repo"] for r in rows})
+    return Evidence(rate=task_rate(per_task),
+                    minutes_per_attempt=statistics.median(r["secs"] for r in rows) / 60,
+                    tier=tiers.pop(), label=f"{rows[0]['arm']} / {rows[0]['cond']}, {', '.join(repos)}",
+                    hardware=machines.pop())
+
+
+def metrics(rows: list[dict], claim: dict[str, Any]) -> dict[str, Optional[float | str]]:
+    picked = select(rows, claim.get("select") or {})
+    if not picked:
+        return {"tasks": 0.0}
+    ev = evidence(picked)
+    out: dict[str, Optional[float | str]] = {
+        "tasks": float(ev.rate.tasks),
+        "attempts": float(ev.rate.attempts),
+        "resolved": ev.rate.point * ev.rate.tasks,  # tasks solved, repeats as fractions
+        "rate": ev.rate.point, "rate_lo": ev.rate.lo, "rate_hi": ev.rate.hi,
+    }
+    spec = dict(claim.get("verdict") or {})
+    if spec:
+        billing = Billing.api(float(spec.pop("api_spend")))
+        a = Assumptions(**spec)
+        v = decide(ev, a, billing)
+        out["call"] = v.call
+        if v.monthly_usd:
+            out["net_lo"], out["net"], out["net_hi"] = v.monthly_usd
+        out["breakeven_rate"] = breakeven_rate(ev, a, billing.monthly_usd / a.tasks_per_month)
+        out["breakeven_cloud_usd"] = breakeven_cloud_cost(ev, a)
+    return out

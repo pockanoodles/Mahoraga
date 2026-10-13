@@ -1,6 +1,54 @@
-# Current State — 2026-10-12
+# Current State — 2026-10-13
 
-## Read this first — 2026-10-12 (latest): the launch is in review, nothing is published
+## Read this first — 2026-10-13: measurement comes first, publishing waits
+
+Kaito moved publishing down the list on 2026-10-13: there is nothing to publish until the
+audit runs unattended and its numbers can be trusted. #54 is merged, the Release dry run
+and main CI are green, and the `pypi` environment exists, so the release is a few clicks
+whenever it is wanted. The steps below are parked, not dropped.
+
+The day showed why the order is right. Ornith-1.5:9b ran 102 attempts under aider on the
+Studio and was recorded as 3 resolved and 99 no-edit, a score a reader would believe. It
+was not the model failing. 47 of its replies were native `<tool_call>` markup, which aider
+can't apply, and most of the rest spent the whole 8,192-token `num_predict` cap thinking
+and never answered. The attempts are quarantined in `attempts-invalid-ornith-aider/` in
+each Studio bench, and ornith has no agentbench result yet.
+
+The first opencode attempt then found a worse hole: ornith ran `git show` on the solution
+commit. Every task clone had its base committed on top of the answer in a `--shared` clone,
+so `git log` showed the fix one commit back and every later commit was reachable. Aider
+can't run shell commands, so the aider numbers reported so far stand. No opencode result was
+ever reported, and the one attempt that saw the answer is quarantined in
+`attempts-invalid-history-leak/`. PR #56 seals every clone and hides the source repo and the
+bench root from the agent's sandbox. Both machines' benches were resealed on 2026-10-13 (152
+clones on the Studio, 82 on the laptop), with every attempt kept.
+
+### Priorities, in order
+
+1. ~~An attempt that didn't measure the model is never scored.~~ PR #56: unreadable
+   replies are degraded, an arm the agent keeps failing is dropped with a reason, and
+   the report counts failures that hit the generation cap.
+2. ~~A harness that tool-calling models can use.~~ opencode 1.18.33 is on the Studio,
+   the laptop's binary byte for byte. Ornith under opencode is running from the queue
+   (window 14:00–20:30, then the 131k run takes the machine at 21:00).
+3. ~~Runs that schedule themselves.~~ PR #56: `audit queue add/ls/cancel/retry` and
+   `audit worker`. Jobs pin model digests, wait for a window and a quiet shared Ollama,
+   and always say why they wait or why they ended. The Studio worker runs from the
+   `~/Projects/mahoraga-validity` worktree with `PYTHONPATH` pointed at it, so the old
+   checkout's 131k night run keeps its code. Not yet a launchd agent on either machine.
+4. ~~Don't pool across machines.~~ PR #56: `verdict` refuses evidence whose run
+   manifests name two machines. The report's verdicts were each from one machine.
+
+A confound for whoever reads the ornith numbers: under opencode, `blind` still lets the
+model run the tests itself through its shell, which aider in `blind` can't. Ornith under
+opencode compares to another model under opencode (qwen3.5 next), not to aider rows.
+5. **New commits mined continuously**, so each new model is tested on work that
+   postdates its release.
+6. **Agentbench results in `claims.json` / `bench verify`**, which #48 needs to merge.
+
+The launch steps follow, parked.
+
+## 2026-10-12: the launch is in review, nothing is published
 
 Branch `feat/app-ui` holds the launch on top of main, and its PR is open against main. It
 adds the audit HTTP API, `mahoraga` CLI names, the rebuilt app, `brand/`, the demo bench,

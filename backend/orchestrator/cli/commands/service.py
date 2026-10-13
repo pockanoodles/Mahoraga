@@ -14,11 +14,21 @@ So `install` bakes an EnvironmentVariables block into the plist: a PATH that
 covers the venv, ~/.local/bin, and Homebrew, plus any KEY=VALUE lines from
 `~/.mahoraga-v2/service.env`. Edit that file and re-run `orch service install`
 to change the daemon's configuration.
+
+The same machinery runs the audit's queue worker (`mahoraga audit service`): a
+`Job` names the label, the arguments after `orch`, and the log. On a machine
+where the user has no GUI login (the Studio, reached over ssh, where someone
+else is at the console), the GUI domain doesn't exist, so the job goes into the
+user's background domain with `LimitLoadToSessionType = Background`. A job there
+starts again after a reboot only once the user has a session; an ssh login is
+enough.
 """
 from __future__ import annotations
 
 import os
 import subprocess
+import sys
+from dataclasses import dataclass, field
 from pathlib import Path
 from xml.sax.saxutils import escape as _xml_escape
 
@@ -29,10 +39,32 @@ app = typer.Typer(help="Manage Mahoraga as a background service (macOS launchd).
 _LABEL = "com.mahoraga.orch"
 _PLIST_PATH = Path.home() / "Library" / "LaunchAgents" / f"{_LABEL}.plist"
 _PROJECT_ROOT = Path(__file__).parents[4]
-_ORCH_BIN = _PROJECT_ROOT / ".venv" / "bin" / "orch"
 _LOG_DIR = Path.home() / ".mahoraga-v2"
 _LOG_FILE = _LOG_DIR / "server.log"
 _SERVICE_ENV_FILE = _LOG_DIR / "service.env"
+
+
+def _orch_bin() -> Path:
+    """`orch` beside the interpreter running this, so a pip or Homebrew
+    install finds its own; the repo's venv otherwise."""
+    beside = Path(sys.executable).parent / "orch"
+    return beside if beside.exists() else _PROJECT_ROOT / ".venv" / "bin" / "orch"
+
+
+@dataclass(frozen=True)
+class Job:
+    label: str
+    args: tuple[str, ...]          # after `orch`
+    log: Path
+    workdir: Path = _PROJECT_ROOT
+    env: dict[str, str] = field(default_factory=dict)   # on top of _build_environment()
+
+    @property
+    def plist(self) -> Path:
+        return Path.home() / "Library" / "LaunchAgents" / f"{self.label}.plist"
+
+
+DAEMON = Job(_LABEL, ("serve",), _LOG_FILE)
 
 _PLIST_TEMPLATE = """\
 <?xml version="1.0" encoding="UTF-8"?>
@@ -46,9 +78,9 @@ _PLIST_TEMPLATE = """\
     <key>ProgramArguments</key>
     <array>
         <string>{orch_bin}</string>
-        <string>serve</string>
+{args}
     </array>
-
+{session}
     <key>WorkingDirectory</key>
     <string>{workdir}</string>
 
@@ -91,7 +123,9 @@ _PLIST_TEMPLATE = """\
 # system defaults. launchd's own default is /usr/bin:/bin:/usr/sbin:/sbin.
 _DAEMON_PATH_DIRS = [
     str(_PROJECT_ROOT / ".venv" / "bin"),
+    str(Path(sys.executable).parent),
     str(Path.home() / ".local" / "bin"),
+    str(Path.home() / ".opencode" / "bin"),  # the audit's opencode arm
     "/opt/homebrew/bin",
     "/usr/local/bin",
     "/usr/bin",
@@ -145,167 +179,186 @@ def _render_env_entries(env: dict[str, str]) -> str:
     )
 
 
+def render_plist(job: Job) -> str:
+    environment = {**_build_environment(), **job.env}
+    return _PLIST_TEMPLATE.format(
+        label=_xml_escape(job.label), orch_bin=_xml_escape(str(_orch_bin())),
+        args="\n".join(f"        <string>{_xml_escape(a)}</string>" for a in job.args),
+        session=("" if _domain().startswith("gui/") else
+                 "\n    <key>LimitLoadToSessionType</key>\n    <string>Background</string>\n"),
+        workdir=_xml_escape(str(job.workdir)), log=_xml_escape(str(job.log)),
+        env_entries=_render_env_entries(environment),
+    )
+
+
 def _launchctl(*args: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(["launchctl", *args], capture_output=True, text=True, check=False)
 
 
-def _is_loaded() -> bool:
-    result = _launchctl("list", _LABEL)
-    return result.returncode == 0
+def _domain() -> str:
+    """gui/<uid> when the user is logged in at the console, else user/<uid>."""
+    uid = os.getuid()
+    try:
+        r = subprocess.run(["launchctl", "print", f"gui/{uid}"], capture_output=True, text=True)
+    except OSError:  # no launchctl: not macOS, nothing will load anyway
+        return f"gui/{uid}"
+    return f"gui/{uid}" if r.returncode == 0 else f"user/{uid}"
 
 
-def _load_job() -> tuple[bool, str]:
+def _is_loaded(job: Job = DAEMON) -> bool:
+    return _launchctl("print", f"{_domain()}/{job.label}").returncode == 0
+
+
+def _load_job(job: Job = DAEMON) -> tuple[bool, str]:
     """Load the job, clearing launchd's sticky disabled flag first.
 
     Two traps this exists to close, both of which produced a CLI that reported
     success while the daemon was not running:
 
       - `launchctl load` prints "Load failed: 5: Input/output error" and still
-        exits 0, so the return code cannot be trusted. Verify with `list`.
+        exits 0, so the return code cannot be trusted. Verify with `print`.
       - a label can be marked disabled in launchd's persistent database, which
         survives unload/reinstall and even a reboot. Every subsequent load
         fails with that same opaque errno 5 until `launchctl enable` clears it.
 
     Returns (loaded, detail).
     """
-    _launchctl("enable", f"gui/{os.getuid()}/{_LABEL}")
-    result = _launchctl("load", str(_PLIST_PATH))
-    if _is_loaded():
+    domain = _domain()
+    _launchctl("enable", f"{domain}/{job.label}")
+    result = (_launchctl("load", str(job.plist)) if domain.startswith("gui/")
+              else _launchctl("bootstrap", domain, str(job.plist)))
+    if _is_loaded(job):
         return True, ""
     detail = (result.stderr or result.stdout or "").strip()
     return False, detail or "launchctl reported no error but the job is not listed"
 
 
+def _unload(job: Job) -> subprocess.CompletedProcess[str]:
+    domain = _domain()
+    if domain.startswith("gui/"):
+        return _launchctl("unload", str(job.plist))
+    return _launchctl("bootout", f"{domain}/{job.label}")
+
+
+def install_job(job: Job, cli: str = "orch service") -> None:
+    orch = _orch_bin()
+    if not orch.exists():
+        typer.echo(f"orch binary not found at {orch}. Run `pip install -e .` first.", err=True)
+        raise typer.Exit(1)
+    job.log.parent.mkdir(parents=True, exist_ok=True)
+    job.plist.parent.mkdir(parents=True, exist_ok=True)
+    job.plist.write_text(render_plist(job))
+    typer.echo(f"Wrote plist → {job.plist}")
+    if _is_loaded(job):
+        _unload(job)
+    loaded, detail = _load_job(job)
+    if not loaded:
+        typer.echo(f"launchctl load failed: {detail}", err=True)
+        raise typer.Exit(1)
+    typer.echo(f"Installed and started in {_domain()}.")
+    typer.echo(f"Logs → {job.log}")
+    typer.echo(f"Toggle:  {cli} stop / {cli} start")
+    typer.echo(f"Remove:  {cli} uninstall")
+
+
+def uninstall_job(job: Job) -> None:
+    if _is_loaded(job):
+        _unload(job)
+        typer.echo("Service unloaded.")
+    if job.plist.exists():
+        job.plist.unlink()
+        typer.echo(f"Removed {job.plist}")
+    else:
+        typer.echo("No plist found — nothing to remove.")
+
+
+def start_job(job: Job, cli: str = "orch service") -> None:
+    if not job.plist.exists():
+        typer.echo(f"Service not installed. Run `{cli} install` first.", err=True)
+        raise typer.Exit(1)
+    # `stop` unloads the job entirely, so "not loaded" is the common case: load
+    # it fresh and RunAtLoad + KeepAlive bring it up.
+    if not _is_loaded(job):
+        loaded, detail = _load_job(job)
+        if not loaded:
+            typer.echo(f"Failed to start: {detail}", err=True)
+            raise typer.Exit(1)
+    else:
+        result = _launchctl("kickstart", f"{_domain()}/{job.label}")
+        if result.returncode != 0:
+            typer.echo(f"Failed to start: {result.stderr.strip() or 'already running?'}", err=True)
+            raise typer.Exit(1)
+    typer.echo("Service started.")
+
+
+def stop_job(job: Job, cli: str = "orch service") -> None:
+    # `launchctl stop` sends SIGTERM but leaves the job loaded: the process is
+    # killed BY the signal rather than exiting cleanly, which KeepAlive's
+    # SuccessfulExit:false treats as a crash and respawns. Unloading removes
+    # the job from launchd entirely, so KeepAlive never acts. This is why
+    # `orch service stop` used to be undone at once — brain/state/findings.md Era 8.
+    if not _is_loaded(job):
+        typer.echo("Service already stopped.")
+        return
+    result = _unload(job)
+    if result.returncode != 0:
+        typer.echo(f"Failed to stop: {result.stderr.strip() or 'not running?'}", err=True)
+        raise typer.Exit(1)
+    typer.echo(f"Service stopped. Run `{cli} start` to resume.")
+
+
+def status_job(job: Job) -> None:
+    if not job.plist.exists():
+        typer.echo("Not installed.")
+        return
+    result = _launchctl("print", f"{_domain()}/{job.label}")
+    if result.returncode != 0:
+        typer.echo("Installed but not loaded (stopped).")
+    else:
+        pid = next((line.split("=", 1)[1].strip() for line in result.stdout.splitlines()
+                    if line.strip().startswith("pid =")), None)
+        typer.echo(f"Running  PID {pid}" if pid else "Loaded but not running (crashed / throttled?).")
+    if job.log.exists():
+        typer.echo(f"\n── Last 20 lines of {job.log} ──")
+        out = subprocess.run(["tail", "-n", "20", str(job.log)], capture_output=True, text=True,
+                             check=False)
+        typer.echo(out.stdout.rstrip())
+
+
 @app.command("install")
 def install() -> None:
     """Install and start Mahoraga as a login-persistent background service."""
-    if not _ORCH_BIN.exists():
-        typer.echo(f"orch binary not found at {_ORCH_BIN}. Run `pip install -e .` first.", err=True)
-        raise typer.Exit(1)
-
-    _LOG_DIR.mkdir(parents=True, exist_ok=True)
-
     environment = _build_environment()
-    plist_content = _PLIST_TEMPLATE.format(
-        label=_LABEL,
-        orch_bin=str(_ORCH_BIN),
-        workdir=str(_PROJECT_ROOT),
-        log=str(_LOG_FILE),
-        env_entries=_render_env_entries(environment),
-    )
-    _PLIST_PATH.write_text(plist_content)
-    typer.echo(f"Wrote plist → {_PLIST_PATH}")
-
     settings = {k: v for k, v in environment.items() if k.startswith("MAHORAGA_")}
     if settings:
         typer.echo(f"Daemon settings from {_SERVICE_ENV_FILE}:")
         for key, value in sorted(settings.items()):
             typer.echo(f"  {key}={value}")
     else:
-        typer.echo(
-            f"No MAHORAGA_* settings found — create {_SERVICE_ENV_FILE} "
-            "(KEY=VALUE per line) and re-run to configure the daemon."
-        )
-
-    if _is_loaded():
-        _launchctl("unload", str(_PLIST_PATH))
-
-    loaded, detail = _load_job()
-    if not loaded:
-        typer.echo(f"launchctl load failed: {detail}", err=True)
-        raise typer.Exit(1)
-
-    typer.echo("Service installed and started.")
-    typer.echo(f"Logs → {_LOG_FILE}")
-    typer.echo("Toggle:  orch service stop / orch service start")
-    typer.echo("Remove:  orch service uninstall")
+        typer.echo(f"No MAHORAGA_* settings found — create {_SERVICE_ENV_FILE} "
+                   "(KEY=VALUE per line) and re-run to configure the daemon.")
+    install_job(DAEMON)
 
 
 @app.command("uninstall")
 def uninstall() -> None:
     """Stop and remove the background service."""
-    if _is_loaded():
-        _launchctl("unload", str(_PLIST_PATH))
-        typer.echo("Service unloaded.")
-
-    if _PLIST_PATH.exists():
-        _PLIST_PATH.unlink()
-        typer.echo(f"Removed {_PLIST_PATH}")
-    else:
-        typer.echo("No plist found — nothing to remove.")
+    uninstall_job(DAEMON)
 
 
 @app.command("start")
 def start() -> None:
     """Start the service (if installed and not running)."""
-    if not _PLIST_PATH.exists():
-        typer.echo("Service not installed. Run `orch service install` first.", err=True)
-        raise typer.Exit(1)
-    # `stop` below unloads the job entirely, so the common case here is
-    # "not loaded" — load it fresh (RunAtLoad + KeepAlive bring it up).
-    # Fall back to `launchctl start` only if it's somehow loaded-but-stopped.
-    if not _is_loaded():
-        loaded, detail = _load_job()
-        if not loaded:
-            typer.echo(f"Failed to start: {detail}", err=True)
-            raise typer.Exit(1)
-    else:
-        result = _launchctl("start", _LABEL)
-        if result.returncode != 0:
-            typer.echo(
-                f"Failed to start: {result.stderr.strip() or 'already running?'}", err=True
-            )
-            raise typer.Exit(1)
-    typer.echo("Service started.")
+    start_job(DAEMON)
 
 
 @app.command("stop")
 def stop() -> None:
     """Stop the service without uninstalling it."""
-    # `launchctl stop` sends SIGTERM but leaves the job loaded — the process
-    # is killed BY the signal rather than exiting cleanly, so LastExitStatus
-    # is the signal number, which KeepAlive's SuccessfulExit:false treats as
-    # a crash and respawns. Unloading removes the job from launchd entirely,
-    # so KeepAlive never gets a chance to act. This is why `orch service
-    # stop` used to be immediately undone by launchd — see brain/state/findings.md Era 8.
-    if not _is_loaded():
-        typer.echo("Service already stopped.")
-        return
-    result = _launchctl("unload", str(_PLIST_PATH))
-    if result.returncode != 0:
-        typer.echo(f"Failed to stop: {result.stderr.strip() or 'not running?'}", err=True)
-        raise typer.Exit(1)
-    typer.echo("Service stopped. Run `orch service start` to resume.")
+    stop_job(DAEMON)
 
 
 @app.command("status")
 def status() -> None:
     """Show whether the service is running and tail recent logs."""
-    if not _PLIST_PATH.exists():
-        typer.echo("Not installed.")
-        return
-
-    result = _launchctl("list", _LABEL)
-    if result.returncode != 0:
-        typer.echo("Installed but not loaded (stopped).")
-    else:
-        pid = None
-        for line in result.stdout.splitlines():
-            stripped = line.strip()
-            if stripped.startswith('"PID"'):
-                # format: "PID" = 12345;
-                parts = stripped.split("=", 1)
-                if len(parts) == 2:
-                    pid = parts[1].strip().rstrip(";").strip()
-                break
-        if pid and pid != "-":
-            typer.echo(f"Running  PID {pid}")
-        else:
-            typer.echo("Loaded but not running (crashed / throttled?).")
-
-    if _LOG_FILE.exists():
-        typer.echo(f"\n── Last 20 lines of {_LOG_FILE} ──")
-        result = subprocess.run(
-            ["tail", "-n", "20", str(_LOG_FILE)], capture_output=True, text=True, check=False
-        )
-        typer.echo(result.stdout.rstrip())
+    status_job(DAEMON)

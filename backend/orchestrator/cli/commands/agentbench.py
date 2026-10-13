@@ -13,6 +13,7 @@ Subcommands
   mahoraga audit queue add [REPO] --arm ... [--window 21:00-08:00]
   mahoraga audit queue ls                     — every job, and why it is where it is
   mahoraga audit worker                       — run queued jobs as their windows open
+  mahoraga audit service install|status|stop|start|uninstall — the worker under launchd
 
 REPO defaults to the current directory and must be a git repo with a pytest
 suite. State lives under ~/.mahoraga-v2/agentbench/; REPO is only read.
@@ -330,6 +331,68 @@ def queue_retry_cmd(job_id: str) -> None:
 
     Queue(bench_root()).update(job_id, status=PENDING, why="requeued")
     typer.echo(f"requeued {job_id}")
+
+
+service_app = typer.Typer(help="Keep the queue worker running under launchd.",
+                          no_args_is_help=True)
+app.add_typer(service_app, name="service")
+_SERVICE_CLI = "mahoraga audit service"
+
+
+def _worker_job(workdir: Optional[Path] = None, env: Optional[List[str]] = None):
+    from backend.orchestrator.cli.commands.service import Job
+
+    pairs = {}
+    for kv in env or []:
+        key, sep, value = kv.partition("=")
+        if not sep or not key:
+            raise typer.BadParameter(f"--env takes KEY=VALUE, not {kv!r}")
+        pairs[key] = value
+    return Job("com.mahoraga.audit-worker", ("agentbench", "worker"),
+               bench_root() / "worker.log", workdir=(workdir or Path.cwd()).resolve(), env=pairs)
+
+
+@service_app.command("install")
+def service_install_cmd(
+    workdir: Optional[Path] = typer.Option(None, "--workdir", help="The worker's working directory (default: here)."),
+    env: Optional[List[str]] = typer.Option(None, "--env", help="KEY=VALUE for the worker, repeatable."),
+) -> None:
+    """Run the queue worker in the background, restarted if it dies."""
+    from backend.orchestrator.cli.commands.service import install_job
+
+    install_job(_worker_job(workdir, env), _SERVICE_CLI)
+
+
+@service_app.command("uninstall")
+def service_uninstall_cmd() -> None:
+    """Stop the worker and remove its launchd job. The queue is kept."""
+    from backend.orchestrator.cli.commands.service import uninstall_job
+
+    uninstall_job(_worker_job())
+
+
+@service_app.command("start")
+def service_start_cmd() -> None:
+    from backend.orchestrator.cli.commands.service import start_job
+
+    start_job(_worker_job(), _SERVICE_CLI)
+
+
+@service_app.command("stop")
+def service_stop_cmd() -> None:
+    from backend.orchestrator.cli.commands.service import stop_job
+
+    stop_job(_worker_job(), _SERVICE_CLI)
+
+
+@service_app.command("status")
+def service_status_cmd() -> None:
+    """Whether the worker runs, its last log lines, and the queue."""
+    from backend.orchestrator.cli.commands.service import status_job
+
+    status_job(_worker_job())
+    typer.echo("")
+    queue_ls_cmd()
 
 
 @app.command("worker")

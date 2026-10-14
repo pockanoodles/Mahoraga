@@ -195,6 +195,10 @@ def tonight_cmd(
     limit: int = typer.Option(tonight.DEFAULT_LIMIT, "--limit", help="Newest commits to mine, if the repo has no tasks yet."),
     python: Optional[str] = typer.Option(None, "--python", help="Interpreter for the repo's tests."),
     wait_quiet: bool = typer.Option(False, "--wait-quiet", help="Pause while someone else's model is loaded in Ollama."),
+    tasks_per_month: Optional[int] = typer.Option(None, "--tasks-per-month", help="Coding tasks you give cloud agents a month (asked once, then saved)."),
+    plan_id: Optional[str] = typer.Option(None, "--plan", help="Your plan id from audit/pricing.json, e.g. claude-max-5x."),
+    plan_price: Optional[float] = typer.Option(None, "--plan-price", help="Your plan's monthly price, if it isn't verified in pricing.json."),
+    api_spend: Optional[float] = typer.Option(None, "--api-spend", help="Monthly API spend, USD, if you pay per token."),
     ratio: float = _RATIO,
 ) -> None:
     """From a repo to an answer by morning: mine, check, queue, start the worker."""
@@ -269,7 +273,10 @@ def tonight_cmd(
     typer.echo(f"  the window opens at {window.split('-')[0]}" if opens else
                "  the window is open: the first attempt starts within a few minutes")
 
-    typer.echo("4. the worker")
+    typer.echo("4. how you use cloud agents")
+    saved = _tonight_usage(tasks_per_month, plan_id, plan_price, api_spend)
+
+    typer.echo("5. the worker")
     _ensure_worker()
     power = host.power()
     if power.percent is not None:
@@ -279,10 +286,77 @@ def tonight_cmd(
     typer.echo(f"\nin the morning: mahoraga audit report {bench.repo}")
     typer.echo(f"  (also written to {tonight.morning_path(bench)}, with a notification, "
                "when the window closes)")
-    typer.echo("then the verdict, which needs how you use cloud agents:")
+    if saved:
+        typer.echo("  with the verdict for each arm, also on demand:")
+    else:
+        typer.echo("then the verdict, which needs how you use cloud agents:")
     for arm in arms:
-        typer.echo(f"  {tonight.verdict_command(bench.repo, arm, cond)}")
-    typer.echo("  plans: " + ", ".join(sorted(pricing.load())) + ", or --api-spend <USD a month>")
+        for c in tonight.conds_of(cond):
+            typer.echo(f"  {tonight.verdict_command(bench.repo, arm, c, saved=bool(saved))}")
+    if not saved:
+        typer.echo("  plans: " + ", ".join(sorted(pricing.load())) + ", or --api-spend <USD a month>")
+
+
+def _interactive() -> bool:
+    return sys.stdin.isatty()
+
+
+def _tonight_usage(tasks_per_month: Optional[int], plan_id: Optional[str],
+                   plan_price: Optional[float], api_spend: Optional[float]):
+    """What the verdict needs from you: from the flags, what was saved, or
+    asked once in a terminal. Saved under the bench root, never sent anywhere."""
+    from backend.orchestrator.audit import pricing, usage
+
+    saved = usage.load(bench_root())
+    given = any(x is not None for x in (tasks_per_month, plan_id, api_spend))
+    if not given and saved:
+        typer.echo(f"  {saved.describe()}, as saved (change it with --tasks-per-month, "
+                   "--plan or --api-spend)")
+        return saved
+    if not given and not _interactive():
+        typer.echo("  skipped: pass --tasks-per-month and --plan (or --api-spend) and the "
+                   "morning file carries the verdict")
+        return None
+    if given:
+        if plan_id is not None and api_spend is not None:
+            raise typer.BadParameter("give exactly one of --api-spend or --plan")
+        tasks = tasks_per_month or (saved.tasks_per_month if saved else None)
+        if tasks is None:
+            raise typer.BadParameter("--plan and --api-spend need --tasks-per-month")
+        if plan_id is not None or api_spend is not None:
+            paid = {"plan": plan_id, "plan_price": plan_price, "api_spend": api_spend}
+        elif saved:
+            paid = {"plan": saved.plan, "plan_price": saved.plan_price, "api_spend": saved.api_spend}
+        else:
+            raise typer.BadParameter("--tasks-per-month needs --plan or --api-spend")
+        u = usage.Usage(tasks_per_month=tasks, **paid)
+        try:
+            usage.save(bench_root(), u)
+        except (ValueError, KeyError) as e:
+            raise typer.BadParameter(str(e))
+    else:
+        typer.echo("  the verdict weighs your results against what the cloud costs you. "
+                   "Asked once, kept on this machine (blank to skip):")
+        while True:
+            tasks = typer.prompt("  coding tasks you give cloud agents a month", default="",
+                                 show_default=False).strip()
+            if not tasks:
+                typer.echo("  skipped: the morning file prints the verdict command instead")
+                return None
+            if tasks.isdigit() and int(tasks) > 0:
+                break
+            typer.echo(f"  a count of tasks, like 120, not {tasks!r}")
+        while True:
+            answer = typer.prompt(f"  how you pay: a plan ({', '.join(sorted(pricing.load()))}), "
+                                  "a plan and its price, or USD a month of API")
+            try:
+                u = usage.Usage(tasks_per_month=int(tasks), **usage.parse_payment(answer))
+                usage.save(bench_root(), u)
+                break
+            except (ValueError, KeyError) as e:
+                typer.echo(f"  {e}")
+    typer.echo(f"  saved: {u.describe()}")
+    return u
 
 
 def _ensure_worker() -> None:
@@ -636,7 +710,7 @@ def verdict_cmd(
     repos: List[Path] = typer.Argument(..., help="Benched repos to pool evidence from."),
     arm: str = typer.Option(..., "--arm", help="The one arm to judge, <agent>:<model>."),
     cond: str = typer.Option("feedback", "--cond", help="blind or feedback (a real queue can run tests)."),
-    tasks_per_month: int = typer.Option(..., "--tasks-per-month", help="Coding tasks you give cloud agents a month."),
+    tasks_per_month: Optional[int] = typer.Option(None, "--tasks-per-month", help="Coding tasks you give cloud agents a month (default: what `tonight` saved)."),
     api_spend: Optional[float] = typer.Option(None, "--api-spend", help="Monthly API spend, USD (API billing)."),
     plan_id: Optional[str] = typer.Option(None, "--plan", help="Subscription plan id from audit/pricing.json, e.g. claude-max-5x."),
     plan_price: Optional[float] = typer.Option(None, "--plan-price", help="Your plan's monthly price, if it isn't verified in pricing.json."),
@@ -649,25 +723,31 @@ def verdict_cmd(
     json_out: bool = typer.Option(False, "--json"),
 ) -> None:
     """Stay, split, or switch: is local worth it for your work, on this machine?"""
-    from backend.orchestrator.audit import pricing
-    from backend.orchestrator.audit.evidence import from_benches
-    from backend.orchestrator.audit.verdict import Assumptions, Billing, decide, render as render_verdict
+    from backend.orchestrator.audit import usage
+    from backend.orchestrator.audit.verdict import render as render_verdict
 
-    if (api_spend is None) == (plan_id is None):
+    if api_spend is not None and plan_id is not None:
         raise typer.BadParameter("give exactly one of --api-spend or --plan")
+    saved = usage.load(bench_root())
+    if tasks_per_month is None and saved is None:
+        raise typer.BadParameter("give --tasks-per-month (`mahoraga audit tonight` asks once "
+                                 "and saves it)")
+    if api_spend is not None:
+        paid = {"api_spend": api_spend}
+    elif plan_id is not None:
+        paid = {"plan": plan_id, "plan_price": plan_price}
+    elif saved is not None:
+        paid = {"plan": saved.plan, "plan_price": saved.plan_price, "api_spend": saved.api_spend}
+    else:
+        raise typer.BadParameter("give exactly one of --api-spend or --plan")
+    u = usage.Usage(tasks_per_month=tasks_per_month or saved.tasks_per_month, **paid)
     try:
-        ev = from_benches([Bench(r) for r in repos], arm, cond)
-        if plan_id:
-            p = pricing.plan(plan_id, plan_price)
-            billing = Billing.subscription(p, pricing.lower_tier(p))
-        else:
-            billing = Billing.api(api_spend)
+        v = usage.judge([Bench(r) for r in repos], arm, cond, u, deferrable_share=deferrable,
+                        triage_minutes=triage, hourly_usd=hourly, watts=watts,
+                        usd_per_kwh=kwh, usage_of_cap=usage_of_cap)
     except (ValueError, KeyError) as e:
         raise typer.BadParameter(str(e))
-    a = Assumptions(tasks_per_month=tasks_per_month, deferrable_share=deferrable,
-                    triage_minutes=triage, hourly_usd=hourly, watts=watts,
-                    usd_per_kwh=kwh, usage_of_cap=usage_of_cap)
-    v = decide(ev, a, billing)
+    ev, a = v.evidence, v.assumptions
     if json_out:
         typer.echo(json.dumps({
             "call": v.call, "confident": v.confident, "reason": v.reason,

@@ -1329,8 +1329,24 @@ def test_a_tonight_job_leaves_a_morning_report_and_says_so(mined, tmp_path):
     text = tonight.morning_path(mined).read_text()
     assert "the queue: done, all 1 cells counted" in text
     assert "mahoraga audit verdict" in text and "--arm fake:m --cond blind" in text
+    assert "--tasks-per-month <how many" in text and "VERDICT" not in text
     [(title, message)] = seen
     assert title == f"Mahoraga: {mined.repo.name}" and message.startswith("m resolved 1 of 1")
+
+
+def test_with_usage_saved_the_morning_carries_the_verdict(mined, tmp_path):
+    from backend.orchestrator.audit import usage
+
+    usage.save(mined.root, usage.Usage(tasks_per_month=200, api_spend=150))
+    q = Queue(mined.dir.parent)
+    job = q.add(str(mined.repo), ["fake:m"], "both", pinned=PIN, notify=True)
+    seen: list = []
+    _run_notified(q, job, tmp_path, FakeAgent("m", apply_gold), seen)
+    text = tonight.morning_path(mined).read_text()
+    assert "for 200 tasks a month, $150 a month of API:" in text
+    assert text.count("VERDICT:") == 2 and "--tasks-per-month <how many" not in text
+    [(_, message)] = seen
+    assert message.count("m resolved 1 of 1, ") == 2
 
 
 def test_a_job_nobody_asked_about_writes_nothing(mined, tmp_path):
@@ -1384,3 +1400,35 @@ def test_tonight_waits_out_a_machine_on_battery(repo, tonight_env):
     r = CliRunner().invoke(agentbench_app, ["tonight", str(repo["path"]), "--python", sys.executable])
     assert r.exit_code == 0, r.output
     assert "the run waits these out" in r.output and len(Queue(tonight_env["root"]).jobs()) == 1
+
+
+def test_tonight_saves_how_you_use_the_cloud_once(repo, tonight_env):
+    from backend.orchestrator.audit import usage
+
+    runner = CliRunner()
+    base = ["tonight", str(repo["path"]), "--python", sys.executable]
+    r = runner.invoke(agentbench_app, base)
+    assert r.exit_code == 0 and "skipped: pass --tasks-per-month" in r.output
+    assert usage.load(tonight_env["root"]) is None
+    r = runner.invoke(agentbench_app, base + ["--tasks-per-month", "120", "--plan", "claude-pro"])
+    assert r.exit_code == 0, r.output
+    assert "saved: 120 tasks a month, claude-pro" in r.output
+    assert "--cond blind\n" in r.output and "--tasks-per-month <how many" not in r.output
+    r = runner.invoke(agentbench_app, base)
+    assert "120 tasks a month, claude-pro, as saved" in r.output
+    r = runner.invoke(agentbench_app, base + ["--plan", "claude-max-20x"])
+    assert r.exit_code != 0 and usage.load(tonight_env["root"]).plan == "claude-pro"
+
+
+def test_tonight_asks_in_a_terminal_and_asks_again_on_a_bad_answer(repo, tonight_env, monkeypatch):
+    from backend.orchestrator.audit import usage
+
+    monkeypatch.setattr(ab_cli, "_interactive", lambda: True)
+    r = CliRunner().invoke(agentbench_app, ["tonight", str(repo["path"]), "--python", sys.executable],
+                           input="lots\n80\nclaude-max-20x\nclaude-max-20x 200\n")
+    assert r.exit_code == 0, r.output
+    assert "a count of tasks, like 120" in r.output and "pass --plan-price" in r.output
+    assert usage.load(tonight_env["root"]) == usage.Usage(80, plan="claude-max-20x", plan_price=200.0)
+    skipped = CliRunner().invoke(agentbench_app, ["tonight", str(repo["path"]), "--python",
+                                                  sys.executable, "--window", "22:00-07:00"])
+    assert "as saved" in skipped.output

@@ -13,7 +13,9 @@ from . import host, manifest
 from .bank import Bench
 from .queue import PENDING, Job, Queue, parse_window
 from .report import render, summarise
-from .runner import load_attempts, load_degraded
+from .runner import CONDITIONS, load_attempts, load_degraded
+from ..audit import usage
+from ..audit.verdict import render as render_verdict
 
 DEFAULT_ARM = "aider:qwen3.5:latest"
 DEFAULT_WINDOW = "21:00-08:00"
@@ -54,9 +56,16 @@ def matching_job(queue: Queue, repo: Path, arms: list[str], cond: str,
                  and not j.follow), None)
 
 
-def verdict_command(repo: Path, arm: str, cond: str) -> str:
-    return (f"mahoraga audit verdict {repo} --arm {arm} --cond {cond} \\\n"
-            "    --tasks-per-month <how many you give cloud agents> --plan <your plan>")
+def conds_of(cond: str) -> list[str]:
+    return list(CONDITIONS) if cond == "both" else [cond]
+
+
+def verdict_command(repo: Path, arm: str, cond: str, saved: bool = False) -> str:
+    """With your usage saved the verdict needs only the arm; without it, the
+    flags it would otherwise have asked for."""
+    cmd = f"mahoraga audit verdict {repo} --arm {arm} --cond {cond}"
+    return cmd if saved else (cmd + " \\\n    --tasks-per-month <how many you give cloud "
+                              "agents> --plan <your plan>")
 
 
 def morning_path(bench: Bench) -> Path:
@@ -69,11 +78,30 @@ def morning(bench: Bench, job: Job) -> tuple[str, str]:
     mine = [a for a in attempts if a.arm in job.arms]
     report = render(tasks, mine, load_degraded(bench), manifest.load_all(bench))
     lines = [f"Mahoraga: {bench.repo.name}, queued {job.added_at[:10]}",
-             f"the queue: {job.status}, {job.why}", "", report, "",
-             "next: the verdict, which needs how you use cloud agents"]
-    lines += [verdict_command(bench.repo, arm, job.cond) for arm in job.arms]
-    summary = "; ".join(f"{s.arm.split(':', 1)[-1]} resolved {s.tasks_solved_ever} of {s.tasks}"
-                        for s in summarise(tasks, mine) if s.cond == job.cond)
+             f"the queue: {job.status}, {job.why}", "", report]
+    saved = usage.load(bench.root)
+    cells = [(arm, c) for arm in job.arms for c in conds_of(job.cond)]
+    calls: dict[tuple[str, str], str] = {}
+    if saved is None:
+        lines += ["", "next: the verdict, which needs how you use cloud agents"]
+        lines += [verdict_command(bench.repo, arm, c) for arm, c in cells]
+    for arm, cond in cells if saved else []:
+        try:
+            v = usage.judge([bench], arm, cond, saved)
+        except (ValueError, KeyError) as e:
+            lines += ["", f"no verdict for {arm} / {cond}: {e}"]
+            continue
+        calls[(arm, cond)] = v.call.upper() + ("" if v.confident else ", not yet decided")
+        lines += ["", f"for {saved.describe()}:", render_verdict(v), "",
+                  "to try other numbers, add --tasks-per-month or --plan to "
+                  + verdict_command(bench.repo, arm, cond, saved=True)]
+
+    def one(s) -> str:
+        call = calls.get((s.arm, s.cond))
+        return (f"{s.arm.split(':', 1)[-1]} resolved {s.tasks_solved_ever} of {s.tasks}"
+                + (f", {call}" if call else ""))
+
+    summary = "; ".join(one(s) for s in summarise(tasks, mine) if s.cond in conds_of(job.cond))
     return "\n".join(lines) + "\n", summary or "no attempts counted"
 
 

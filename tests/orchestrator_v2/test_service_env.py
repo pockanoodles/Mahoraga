@@ -11,6 +11,7 @@ the PATH covers where the arms actually live, and service.env reaches the plist.
 """
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
 import pytest
@@ -186,3 +187,38 @@ def test_load_job_clears_the_disabled_flag_first(monkeypatch):
     assert calls[0][0] == "enable", f"enable must precede load, got {calls}"
     assert service._LABEL in calls[0][1]
     assert calls[1][0] == "load"
+
+
+def test_a_failed_bootstrap_is_a_failure_even_while_the_old_job_is_listed(monkeypatch):
+    """Reinstalling over ssh on 2026-10-13: the bootstrap failed because the old
+    job was still exiting, and `print` still listed that old job."""
+    def _fake_launchctl(*args: str):
+        rc = 5 if args[0] == "bootstrap" else 0
+        return type("R", (), {"returncode": rc, "stdout": "", "stderr": "Bootstrap failed: 5"})()
+
+    monkeypatch.setattr(service, "_launchctl", _fake_launchctl)
+    monkeypatch.setattr(service, "_domain", lambda: "user/502")
+    monkeypatch.setattr(service, "_is_loaded", lambda job=None: True)
+    assert service._load_job() == (False, "Bootstrap failed: 5")
+
+
+def test_install_waits_for_the_old_job_to_exit_before_loading(monkeypatch, tmp_path):
+    import typer
+
+    job = service.Job(label="com.example.w", args=["worker"], log=tmp_path / "w.log")
+    monkeypatch.setattr(type(job), "plist", property(lambda self: tmp_path / "w.plist"))
+    monkeypatch.setattr(service, "_orch_bin", lambda: Path(sys.executable))
+    monkeypatch.setattr(service, "_domain", lambda: "user/502")
+    events: list[str] = []
+    listed = iter([True, True, True, False])  # installed, then tearing down, then gone
+    monkeypatch.setattr(service, "_is_loaded", lambda job=None: next(listed, True))
+    monkeypatch.setattr(service, "_unload", lambda job: events.append("bootout"))
+    monkeypatch.setattr(service, "_load_job", lambda job: events.append("bootstrap") or (True, ""))
+    monkeypatch.setattr(service.time, "sleep", lambda s: events.append("wait"))
+    service.install_job(job)
+    assert events == ["bootout", "wait", "wait", "bootstrap"]
+
+    monkeypatch.setattr(service, "_is_loaded", lambda job=None: True)  # never goes
+    monkeypatch.setattr(service, "_wait_unloaded", lambda job: False)
+    with pytest.raises(typer.Exit):
+        service.install_job(job)

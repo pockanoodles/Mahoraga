@@ -11,7 +11,7 @@ from pathlib import Path
 
 from . import host, manifest
 from .bank import Bench
-from .queue import PENDING, Job, Queue, parse_window
+from .queue import FAILED, PENDING, Job, Queue, parse_window
 from .report import render, summarise
 from .runner import CONDITIONS, load_attempts, load_degraded
 from ..audit import usage
@@ -74,6 +74,11 @@ def morning_path(bench: Bench) -> Path:
 
 def morning(bench: Bench, job: Job) -> tuple[str, str]:
     """(the morning file, a one-line summary for the notification)."""
+    if job.status == FAILED:
+        return (f"Mahoraga: {bench.repo.name}, queued {job.added_at[:10]}\n"
+                f"the night didn't run: {job.why}\n\n"
+                f"fix that and queue it again: mahoraga audit tonight {bench.repo}\n",
+                f"the night didn't run: {job.why}")
     tasks, attempts = bench.load_tasks(), load_attempts(bench)
     mine = [a for a in attempts if a.arm in job.arms]
     report = render(tasks, mine, load_degraded(bench), manifest.load_all(bench))
@@ -109,6 +114,8 @@ def wrap_up(bench: Bench, job: Job, notify=host.notify) -> Path:
     """Write the morning file and say where it is."""
     text, summary = morning(bench, job)
     path = morning_path(bench)
+    path.parent.mkdir(parents=True, exist_ok=True)  # a night that failed may predate the bench
     path.write_text(text)
-    notify(f"Mahoraga: {bench.repo.name}", f"{summary}. mahoraga audit report {bench.repo}")
+    then = "" if job.status == FAILED else f" mahoraga audit report {bench.repo}"
+    notify(f"Mahoraga: {bench.repo.name}", f"{summary}.{then}")
     return path

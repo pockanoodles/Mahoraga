@@ -1349,6 +1349,18 @@ def test_with_usage_saved_the_morning_carries_the_verdict(mined, tmp_path):
     assert message.count("m resolved 1 of 1, ") == 2
 
 
+def test_a_tonight_job_that_cannot_start_still_says_why_by_morning(mined, tmp_path):
+    q = Queue(mined.dir.parent)
+    job = q.add(str(mined.repo), ["fake:m"], "blind", pinned={"m": "sha256:" + "f" * 64},
+                notify=True)
+    seen: list = []
+    _run_notified(q, job, tmp_path, FakeAgent("m", apply_gold), seen)
+    text = tonight.morning_path(mined).read_text()
+    assert "the night didn't run:" in text and "mahoraga audit tonight" in text
+    [(_, message)] = seen
+    assert message.startswith("the night didn't run:") and "audit report" not in message
+
+
 def test_a_job_nobody_asked_about_writes_nothing(mined, tmp_path):
     q = Queue(mined.dir.parent)
     job = q.add(str(mined.repo), ["fake:m"], "blind", pinned=PIN)

@@ -487,6 +487,27 @@ def test_doctor_estimate_uses_measured_minutes_once_there_are_attempts(mined):
     assert "3 attempts left" in after.fmt()
 
 
+def test_doctor_estimate_borrows_minutes_from_the_same_arm_on_other_repos(mined):
+    from backend.orchestrator.agentbench.doctor import ASSUMED, minutes_per_attempt
+
+    agent = FakeAgent("m", apply_gold)
+    run_matrix(mined, [agent], ["blind"])
+    elsewhere = Bench.from_dir(mined.dir.parent / "other-00000000")
+    minutes, source = minutes_per_attempt(elsewhere, {"fake:m"})
+    assert minutes == pytest.approx(1 / 60) and source == "measured on 1 attempt in other repos"
+    # Another arm's minutes say nothing about this one (a 32k run about a 131k one).
+    assert minutes_per_attempt(elsewhere, {"fake:m@ctx=131072"}) == (12.0, ASSUMED)
+
+
+def test_doctor_estimate_counts_nights_after_the_work_queued_ahead(mined):
+    from backend.orchestrator.agentbench.doctor import estimate
+
+    est = estimate(mined, [FakeAgent("m")], ["blind"], night_hours=8.0,
+                   ahead=40, ahead_minutes=40 * 12.0)
+    assert est.pending == 1 and est.nights == 2  # 8 h ahead fills the first night
+    assert "behind 40 attempts already queued (~8.0 h) ≈ 2 night(s)" in est.fmt()
+
+
 # ── Agents ────────────────────────────────────────────────────────────────────
 
 
@@ -1398,6 +1419,27 @@ def test_tonight_mines_queues_and_starts_the_worker_once(repo, tonight_env):
     r = runner.invoke(agentbench_app, args)
     assert r.exit_code == 0 and f"already queued as {job.id}" in r.output
     assert len(Queue(tonight_env["root"]).jobs()) == 1 and len(tonight_env["workers"]) == 2
+
+
+def test_tonight_counts_the_jobs_queued_ahead_of_it(repo, tonight_env):
+    Queue(tonight_env["root"]).add(str(repo["path"]), ["aider:other:1b"], "blind", pinned={},
+                                   window="21:00-08:00")
+    args = ["tonight", str(repo["path"]), "--python", sys.executable]
+    r = CliRunner().invoke(agentbench_app, args)
+    assert r.exit_code == 0, r.output
+    assert "behind 1 attempt already queued (~0.2 h)" in r.output
+    # Run again, it's the same job, and only what is queued before it counts.
+    r = CliRunner().invoke(agentbench_app, args)
+    assert "already queued as" in r.output and "behind 1 attempt" in r.output
+
+
+def test_tonight_says_when_the_commands_it_prints_wont_run(tmp_path):
+    assert tonight.cli_missing(which=lambda name: "/usr/local/bin/mahoraga") is None
+    gone = lambda name: None  # noqa: E731
+    assert "uv tool install mahoraga-audit" in tonight.cli_missing(which=gone, here=tmp_path)
+    (tmp_path / "mahoraga").touch()
+    note = tonight.cli_missing(which=gone, here=tmp_path)
+    assert f"Add {tmp_path} to your PATH" in note and str(tmp_path / "mahoraga") in note
 
 
 def test_tonight_queues_nothing_when_something_needs_fixing(repo, tonight_env):

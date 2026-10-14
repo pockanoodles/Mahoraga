@@ -450,6 +450,96 @@
       "config": {
         "agent": "aider 0.86.2, diff edit format",
         "context": 131072,
+        "dates": "2026-10-13 to 2026-10-14",
+        "machine": "Mac Studio M5 Max, 64 GB (Mac17,14)",
+        "model_digest": "6bac66862d57"
+      },
+      "description": "§3, §4 and §5: the laptop's qwen3.5 at a 131k context on the three outside repositories, and its pooled verdict",
+      "id": "report_2026_10_studio_qwen35_131k_outside",
+      "metrics": {
+        "breakeven_cloud_usd": {
+          "decimals": 2,
+          "value": 5.72
+        },
+        "breakeven_rate": {
+          "decimals": 2,
+          "value": 0.77
+        },
+        "call": {
+          "value": "stay"
+        },
+        "net": {
+          "decimals": 0,
+          "value": -76
+        },
+        "net_hi": {
+          "decimals": 0,
+          "value": -59
+        },
+        "net_lo": {
+          "decimals": 0,
+          "value": -89
+        },
+        "rate": {
+          "decimals": 2,
+          "value": 0.3
+        },
+        "rate_hi": {
+          "decimals": 2,
+          "value": 0.4
+        },
+        "rate_lo": {
+          "decimals": 2,
+          "value": 0.22
+        },
+        "resolved": {
+          "decimals": 0,
+          "value": 28
+        },
+        "tasks": {
+          "decimals": 0,
+          "value": 92
+        }
+      }
+    },
+    {
+      "artifact": "experiments/agentbench/studio-2026-10.jsonl",
+      "config": {
+        "agent": "aider 0.86.2, diff edit format",
+        "context": 131072,
+        "dates": "2026-10-13 to 2026-10-14",
+        "machine": "Mac Studio M5 Max, 64 GB (Mac17,14)"
+      },
+      "description": "§3: qwen3.5 at a 131k context on the same post-release commits",
+      "id": "report_2026_10_qwen35_131k_after_release",
+      "metrics": {
+        "rate": {
+          "decimals": 2,
+          "value": 0.23
+        },
+        "rate_hi": {
+          "decimals": 2,
+          "value": 0.36
+        },
+        "rate_lo": {
+          "decimals": 2,
+          "value": 0.14
+        },
+        "resolved": {
+          "decimals": 0,
+          "value": 13
+        },
+        "tasks": {
+          "decimals": 0,
+          "value": 56
+        }
+      }
+    },
+    {
+      "artifact": "experiments/agentbench/studio-2026-10.jsonl",
+      "config": {
+        "agent": "aider 0.86.2, diff edit format",
+        "context": 131072,
         "dates": "2026-10-05 to 2026-10-07",
         "machine": "Mac Studio M5 Max, 64 GB (Mac17,14)"
       },
@@ -1240,7 +1330,7 @@
   },
   "schema": 1,
   "source": {
-    "commit": "846476d",
+    "commit": "0cec456",
     "repo": "pockanoodles/Mahoraga",
     "version": "2.1.0"
   },

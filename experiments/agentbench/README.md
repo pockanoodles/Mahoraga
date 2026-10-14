@@ -6,7 +6,7 @@ for every claim in `experiments/claims.json` of kind `agentbench`, and CI runs i
 
 | File | Machine | What |
 | --- | --- | --- |
-| `studio-2026-10.jsonl` | Mac Studio M5 Max, 64 GB | qwen3.5 and qwen3.6 under aider, blind, on Mahoraga, more-itertools, click and attrs (2026-10-05 to 2026-10-07) |
+| `studio-2026-10.jsonl` | Mac Studio M5 Max, 64 GB | qwen3.5 and qwen3.6 under aider, blind, on Mahoraga, more-itertools, click and attrs (2026-10-05 to 2026-10-07), and qwen3.5 at a 131k context on the three outside repositories (2026-10-13 to 2026-10-14) |
 | `laptop-2026-09.jsonl` | 16 GB MacBook Pro | qwen3.5 and granite 4.1 under aider on Mahoraga (the probe in `../agent_edit/`), and qwen3.5 on the ops repository |
 
 Each line names the repo, the task's commit and its commit date, the arm,

@@ -435,8 +435,8 @@ different questions.
 
 **Does the README match the data?** Run `orch bench verify`. It recomputes every
 published figure from the per-case JSONL it was derived from and requires it to
-round to exactly the printed value. No models, no network, no API key, no GPU;
-it runs in milliseconds on a fresh clone and in CI on every push, so a headline
+round to exactly the printed value. It needs no models, network, API key or
+GPU, and it runs in milliseconds on a fresh clone and in CI on every push, so a headline
 number cannot be edited without the artifact to back it. Published claims are
 declared in [`experiments/claims.json`](experiments/claims.json). The full
 method and limits are in [`docs/RESULTS.md`](docs/RESULTS.md).
@@ -482,7 +482,7 @@ anything is missing. It then runs the exact published configuration through
 failures escalate to `claude-cli`. Per-case results land in
 `experiments/repro_<date>.jsonl`, and the policy comparison table prints at
 the end (`--json` for machine-readable output). By default the cloud arm also
-runs on kept-local tasks to measure the always-cloud baseline; `--local-only`
+runs on kept-local tasks to measure the always-cloud baseline, and `--local-only`
 skips that spend and drops the baseline row.
 
 Expect small run-to-run variance in pass@1: local decoding is not

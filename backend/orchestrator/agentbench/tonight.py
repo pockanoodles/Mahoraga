@@ -38,13 +38,14 @@ def window_hours(window: str) -> float:
 def larger_model_hint(memory_gb: object) -> str | None:
     """For a machine that can hold more than the default model. qwen3.6 35B-A3B
     is named because it is the one measured: on the 64 GB Studio it resolved
-    31 of 92 outside tasks to qwen3.5's 9 (experiments/claims.json)."""
+    31 of 92 outside tasks to qwen3.5's 28, both at a 131k context. Its 3x lead
+    over qwen3.5 at 32k was the context (experiments/claims.json)."""
     if not isinstance(memory_gb, (int, float)) or memory_gb < LARGE_MEMORY_GB:
         return None
     return (f"this machine has {memory_gb:g} GB, enough for a larger model. On a 64 GB Mac "
-            "Studio, qwen3.6 35B-A3B at a 131k context resolved about three times as many "
-            "tasks as qwen3.5. To measure it here, pull it and pass "
-            "--arm aider:<its tag>@ctx=131072 (alongside the default to compare them).")
+            "Studio, qwen3.6 35B-A3B resolved 31 of 92 tasks to qwen3.5's 28 at the same "
+            "131k context, so it is worth a night only next to the default. To compare "
+            "them here, pull it and add --arm aider:<its tag>@ctx=131072.")
 
 
 def matching_job(queue: Queue, repo: Path, arms: list[str], cond: str,

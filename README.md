@@ -78,16 +78,29 @@ volume that keeps your results).
 ollama pull qwen3.5:latest
 
 mahoraga demo                                   # the app, on the published probe
-mahoraga audit mine ~/code/app                  # tasks from your own history
-mahoraga audit doctor ~/code/app --arm aider:qwen3.5:latest
-mahoraga audit run ~/code/app --arm aider:qwen3.5:latest --until 07:30
-mahoraga audit verdict ~/code/app --arm aider:qwen3.5:latest \
-    --tasks-per-month 200 --plan claude-max-5x --usage-of-cap 0.6
+mahoraga audit tonight ~/code/app \
+    --tasks-per-month 200 --plan claude-max-5x  # set up a night of runs on your repo
+
+# the next morning
+mahoraga audit report ~/code/app
+mahoraga audit verdict ~/code/app --arm aider:qwen3.5:latest --cond blind
 ```
 
 `mahoraga demo` copies the published 18-commit probe into a scratch directory and opens
-the app on it, so you can look around before a night of runs. `orch` still works as an
-alias for `mahoraga`, and `orch agentbench` for `mahoraga audit`.
+the app on it, so you can look around before a night of runs.
+
+`mahoraga audit tonight` does the setup in one go. It mines up to 25 tasks from the
+repo's commits that changed both code and a test, checks that the agent, Ollama and the
+model are there and that the agent can't see the answer, and queues the run for
+21:00–08:00. It then starts the background worker (under launchd on macOS) and tells you
+how many nights the run will take. The verdict also needs how many tasks you give cloud
+agents a month and how you pay for them. Pass them as above, or `tonight` asks once in
+the terminal; they're saved in `usage.json` next to your benches and never leave the
+machine. When the window closes, the report and the verdict are written next to the bench
+and a notification gives the resolved count and the call. Each step also has its
+own command (`mine`, `doctor`, `queue add`, `service install`) for when you want to run
+it by hand. `orch` still works as an alias for `mahoraga`, and `orch agentbench` for
+`mahoraga audit`.
 
 To work on Mahoraga itself:
 

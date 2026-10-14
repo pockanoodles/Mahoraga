@@ -57,13 +57,14 @@ class Estimate:
     nights: int
     tasks: int
     expected_half_width: float  # at the end of the run, for one arm/condition
+    night_hours: float = 8.0
 
     def fmt(self) -> str:
         src = "measured here" if self.measured_minutes else "assumed from the probe"
         if not self.pending:
             return "nothing left to run for these arms and conditions"
         return (f"{self.pending} attempts left at ~{self.minutes_per_attempt:.0f} min each "
-                f"({src}) ≈ {self.nights} night(s) of 8 h. With {self.tasks} tasks, each "
+                f"({src}) ≈ {self.nights} night(s) of {self.night_hours:g} h. With {self.tasks} tasks, each "
                 f"arm/condition's rate will come out within about ±{self.expected_half_width:.0%}.")
 
 
@@ -86,4 +87,4 @@ def estimate(bench: Bench, agents: list[Agent], conds: list[str], repeats: int =
     p = task_rate(by_task).point if by_task else 0.5
     lo, hi = wilson(p * len(tasks), len(tasks))
     return Estimate(pending, minutes, bool(secs), math.ceil(pending / per_night) if pending else 0,
-                    len(tasks), (hi - lo) / 2 if tasks else 0.5)
+                    len(tasks), (hi - lo) / 2 if tasks else 0.5, night_hours)

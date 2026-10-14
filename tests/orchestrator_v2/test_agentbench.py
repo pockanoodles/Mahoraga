@@ -1292,3 +1292,155 @@ def test_a_bench_written_by_a_newer_version_still_loads(mined, repo, tmp_path):
     q.add(str(mined.repo), ["fake:m"], "blind", pinned=PIN)
     q.path.write_text(json.dumps([{**json.loads(q.path.read_text())[0], "from_the_future": 1}]))
     assert len(q.jobs()) == 1
+
+
+# ── Tonight: a repo to an answer by morning ──────────────────────────────────
+
+from backend.orchestrator.agentbench import tonight  # noqa: E402
+from backend.orchestrator.agentbench.guard import Check  # noqa: E402
+from backend.orchestrator.cli.commands import agentbench as ab_cli  # noqa: E402
+
+
+def test_a_window_through_midnight_is_its_real_length():
+    assert tonight.window_hours("21:00-08:00") == 11
+    assert tonight.window_hours("09:00-17:30") == 8.5
+    assert tonight.window_hours("08:00-08:00") == 24
+
+
+def test_only_a_large_machine_hears_about_a_larger_model():
+    assert tonight.larger_model_hint(16) is None
+    assert tonight.larger_model_hint("unknown") is None
+    assert "64 GB" in tonight.larger_model_hint(64)
+
+
+def _run_notified(q, job, tmp_path, agent, seen):
+    run_job(q, job, None, pulled=lambda: {"m:latest": PIN["m"]},
+            guard=lambda root, **kw: _guard(tmp_path, FakeMachine(), **kw),
+            agents_for=lambda arms: [agent], which=lambda n: "/bin/" + n,
+            isolated=lambda bench, config: [], log=lambda m: None,
+            wrap_up=lambda bench, j: tonight.wrap_up(bench, j, notify=lambda *a: seen.append(a)))
+
+
+def test_a_tonight_job_leaves_a_morning_report_and_says_so(mined, tmp_path):
+    q = Queue(mined.dir.parent)
+    job = q.add(str(mined.repo), ["fake:m"], "blind", pinned=PIN, notify=True)
+    seen: list = []
+    _run_notified(q, job, tmp_path, FakeAgent("m", apply_gold), seen)
+    text = tonight.morning_path(mined).read_text()
+    assert "the queue: done, all 1 cells counted" in text
+    assert "mahoraga audit verdict" in text and "--arm fake:m --cond blind" in text
+    assert "--tasks-per-month <how many" in text and "VERDICT" not in text
+    [(title, message)] = seen
+    assert title == f"Mahoraga: {mined.repo.name}" and message.startswith("m resolved 1 of 1")
+
+
+def test_with_usage_saved_the_morning_carries_the_verdict(mined, tmp_path):
+    from backend.orchestrator.audit import usage
+
+    usage.save(mined.root, usage.Usage(tasks_per_month=200, api_spend=150))
+    q = Queue(mined.dir.parent)
+    job = q.add(str(mined.repo), ["fake:m"], "both", pinned=PIN, notify=True)
+    seen: list = []
+    _run_notified(q, job, tmp_path, FakeAgent("m", apply_gold), seen)
+    text = tonight.morning_path(mined).read_text()
+    assert "for 200 tasks a month, $150 a month of API:" in text
+    assert text.count("VERDICT:") == 2 and "--tasks-per-month <how many" not in text
+    [(_, message)] = seen
+    assert message.count("m resolved 1 of 1, ") == 2
+
+
+def test_a_tonight_job_that_cannot_start_still_says_why_by_morning(mined, tmp_path):
+    q = Queue(mined.dir.parent)
+    job = q.add(str(mined.repo), ["fake:m"], "blind", pinned={"m": "sha256:" + "f" * 64},
+                notify=True)
+    seen: list = []
+    _run_notified(q, job, tmp_path, FakeAgent("m", apply_gold), seen)
+    text = tonight.morning_path(mined).read_text()
+    assert "the night didn't run:" in text and "mahoraga audit tonight" in text
+    [(_, message)] = seen
+    assert message.startswith("the night didn't run:") and "audit report" not in message
+
+
+def test_a_job_nobody_asked_about_writes_nothing(mined, tmp_path):
+    q = Queue(mined.dir.parent)
+    job = q.add(str(mined.repo), ["fake:m"], "blind", pinned=PIN)
+    seen: list = []
+    _run_notified(q, job, tmp_path, FakeAgent("m", apply_gold), seen)
+    assert not tonight.morning_path(mined).exists() and seen == []
+
+
+@pytest.fixture
+def tonight_env(tmp_path, monkeypatch):
+    """`tonight` on a machine that passes every check, with the worker faked."""
+    monkeypatch.setenv("MAHORAGA_AGENTBENCH_ROOT", str(tmp_path / "cli-state"))
+    checks = [Check("power", True, "AC"), Check("aider", True, "/bin/aider"),
+              Check("ollama", True, "1 models")]
+    monkeypatch.setattr(Guard, "preflight", lambda self, agents: list(checks))
+    monkeypatch.setattr("backend.orchestrator.agentbench.isolation.check",
+                        lambda bench, config: [Check("isolation: source", True, "hidden")])
+    monkeypatch.setattr("backend.orchestrator.agentbench.ollama.pulled_models",
+                        lambda: {"qwen3.5:latest": "sha256:0123456789abcdef"})
+    monkeypatch.setattr(manifest, "machine", lambda: {"memory_gb": 16})
+    workers: list = []
+    monkeypatch.setattr(ab_cli, "_ensure_worker", lambda: workers.append(1))
+    return {"checks": checks, "workers": workers, "root": tmp_path / "cli-state"}
+
+
+def test_tonight_mines_queues_and_starts_the_worker_once(repo, tonight_env):
+    runner = CliRunner()
+    args = ["tonight", str(repo["path"]), "--python", sys.executable]
+    r = runner.invoke(agentbench_app, args)
+    assert r.exit_code == 0, r.output
+    assert "1 tasks in the bench" in r.output and "in the morning: mahoraga audit report" in r.output
+    [job] = Queue(tonight_env["root"]).jobs()
+    assert job.notify and job.window == "21:00-08:00" and job.arms == ["aider:qwen3.5:latest"]
+    assert job.pinned == {"qwen3.5:latest": "sha256:0123456789abcdef"}
+    r = runner.invoke(agentbench_app, args)
+    assert r.exit_code == 0 and f"already queued as {job.id}" in r.output
+    assert len(Queue(tonight_env["root"]).jobs()) == 1 and len(tonight_env["workers"]) == 2
+
+
+def test_tonight_queues_nothing_when_something_needs_fixing(repo, tonight_env):
+    tonight_env["checks"][1] = Check("aider", False, "aider not on PATH")
+    r = CliRunner().invoke(agentbench_app, ["tonight", str(repo["path"]), "--python", sys.executable])
+    assert r.exit_code == 1 and "install aider: uv tool install" in r.output
+    assert Queue(tonight_env["root"]).jobs() == [] and tonight_env["workers"] == []
+
+
+def test_tonight_waits_out_a_machine_on_battery(repo, tonight_env):
+    tonight_env["checks"][0] = Check("power", False, "on battery (40%)", waits=True)
+    r = CliRunner().invoke(agentbench_app, ["tonight", str(repo["path"]), "--python", sys.executable])
+    assert r.exit_code == 0, r.output
+    assert "the run waits these out" in r.output and len(Queue(tonight_env["root"]).jobs()) == 1
+
+
+def test_tonight_saves_how_you_use_the_cloud_once(repo, tonight_env):
+    from backend.orchestrator.audit import usage
+
+    runner = CliRunner()
+    base = ["tonight", str(repo["path"]), "--python", sys.executable]
+    r = runner.invoke(agentbench_app, base)
+    assert r.exit_code == 0 and "skipped: pass --tasks-per-month" in r.output
+    assert usage.load(tonight_env["root"]) is None
+    r = runner.invoke(agentbench_app, base + ["--tasks-per-month", "120", "--plan", "claude-pro"])
+    assert r.exit_code == 0, r.output
+    assert "saved: 120 tasks a month, claude-pro" in r.output
+    assert "--cond blind\n" in r.output and "--tasks-per-month <how many" not in r.output
+    r = runner.invoke(agentbench_app, base)
+    assert "120 tasks a month, claude-pro, as saved" in r.output
+    r = runner.invoke(agentbench_app, base + ["--plan", "claude-max-20x"])
+    assert r.exit_code != 0 and usage.load(tonight_env["root"]).plan == "claude-pro"
+
+
+def test_tonight_asks_in_a_terminal_and_asks_again_on_a_bad_answer(repo, tonight_env, monkeypatch):
+    from backend.orchestrator.audit import usage
+
+    monkeypatch.setattr(ab_cli, "_interactive", lambda: True)
+    r = CliRunner().invoke(agentbench_app, ["tonight", str(repo["path"]), "--python", sys.executable],
+                           input="lots\n80\nclaude-max-20x\nclaude-max-20x 200\n")
+    assert r.exit_code == 0, r.output
+    assert "a count of tasks, like 120" in r.output and "pass --plan-price" in r.output
+    assert usage.load(tonight_env["root"]) == usage.Usage(80, plan="claude-max-20x", plan_price=200.0)
+    skipped = CliRunner().invoke(agentbench_app, ["tonight", str(repo["path"]), "--python",
+                                                  sys.executable, "--window", "22:00-07:00"])
+    assert "as saved" in skipped.output

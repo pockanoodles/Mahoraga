@@ -9,14 +9,14 @@ from typing import Callable
 
 import httpx
 
-from . import isolation, session
+from . import isolation, session, tonight
 from .agents import Agent, parse_arm
 from .bank import Bench, SuiteConfig
 from .guard import Guard
 from .mine import backfill_dates, mine_new
 from .proc import git
 from .ollama import pulled_models
-from .queue import DONE, FAILED, Job, Queue, pin_problems
+from .queue import DONE, FAILED, PENDING, Job, Queue, pin_problems
 from .runner import CONDITIONS, Attempt, open_cells
 
 
@@ -27,11 +27,23 @@ def run_job(queue: Queue, job: Job, deadline: float | None, *,
             which: Callable[[str], str | None] = shutil.which,
             isolated: Callable[[Bench, SuiteConfig], list[str]] = isolation.problems,
             progress: Callable[[Attempt], None] = lambda a: None,
+            wrap_up: Callable[[Bench, Job], object] = tonight.wrap_up,
             log: Callable[[str], None] = print) -> int:
     """Attempts counted. Every way out of here sets the job's `why`."""
+    bench = Bench(Path(job.repo), root=queue.root)
+
+    def morning() -> None:
+        now = next(j for j in queue.jobs() if j.id == job.id)  # with the why just set
+        try:
+            log(f"job {job.id}: morning report at {wrap_up(bench, now)}")
+        except Exception as e:  # noqa: BLE001 — the report is a courtesy, the job's state isn't
+            log(f"job {job.id}: no morning report: {e}")
+
     def fail(why: str) -> int:
         queue.update(job.id, status=FAILED, why=why)
         log(f"job {job.id} failed: {why}")
+        if job.notify:  # a night that never started still owes the morning an answer
+            morning()
         return 0
 
     try:
@@ -47,7 +59,6 @@ def run_job(queue: Queue, job: Job, deadline: float | None, *,
         return fail("; ".join(problems))
     if missing := sorted({a.name for a in agents if not which(a.name)}):
         return fail(f"not on PATH: {', '.join(missing)}")
-    bench = Bench(Path(job.repo), root=queue.root)
     if job.follow:
         try:
             new = follow(bench, job.fetch, log)
@@ -117,6 +128,10 @@ def run_job(queue: Queue, job: Job, deadline: float | None, *,
     else:
         queue.update(job.id, why="; ".join(filter(None, [
             f"pass done, {left} of {total} cells open; running another", notes])))
+    status = next(j for j in queue.jobs() if j.id == job.id).status
+    # A failed job has had its morning from fail().
+    if job.notify and status != FAILED and (status != PENDING or stopped == "deadline"):
+        morning()
     return len(done)
 
 

@@ -63,6 +63,9 @@ class Check:
     name: str
     ok: bool
     detail: str
+    # A condition of this moment (power, speed) that a queued run waits out,
+    # rather than something to fix before queueing it.
+    waits: bool = False
 
 
 @dataclass
@@ -215,7 +218,7 @@ class Guard:
         else:
             problem = self._power_problem()
             checks.append(Check("power", problem is None, problem or
-                                f"AC, {p.watts}W, battery {p.percent}%"))
+                                f"AC, {p.watts}W, battery {p.percent}%", waits=True))
         for name in sorted({a.name for a in agents}):
             found = shutil.which(name)
             checks.append(Check(name, bool(found), found or f"{name} not on PATH"))
@@ -235,7 +238,8 @@ class Guard:
                                     "so speed isn't judged until an idle reading sets one"))
             else:
                 checks.append(Check(a.model, s >= self.ratio * ref,
-                                    f"{s:.1f} tok/s (idle median on this machine {ref:.1f})"))
+                                    f"{s:.1f} tok/s (idle median on this machine {ref:.1f})",
+                                    waits=True))
         return checks
 
 

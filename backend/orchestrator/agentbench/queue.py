@@ -63,6 +63,8 @@ class Job:
     fetch: bool = False
     # A follow job that is up to date rests until this (epoch secs).
     rest_until: float = 0.0
+    # Write the morning file and notify when a window closes on it (`tonight`).
+    notify: bool = False
 
 
 def _stamp(now: float) -> str:
@@ -129,7 +131,7 @@ class Queue:
     def add(self, repo: str, arms: list[str], cond: str, *, pinned: dict[str, str],
             tasks: list[str] | None = None, repeats: int = 1, window: str | None = None,
             wait_quiet: bool = False, follow: bool = False, fetch: bool = False,
-            now: float | None = None) -> Job:
+            notify: bool = False, now: float | None = None) -> Job:
         if window is not None:
             parse_window(window)
         if follow and tasks:
@@ -137,7 +139,7 @@ class Queue:
         job = Job(id=secrets.token_hex(3), repo=repo, arms=list(arms), cond=cond,
                   tasks=list(tasks or []), repeats=repeats, window=window, pinned=pinned,
                   added_at=_stamp(now or time.time()), wait_quiet=wait_quiet,
-                  follow=follow, fetch=fetch)
+                  follow=follow, fetch=fetch, notify=notify)
         with self.edit() as jobs:
             jobs.append(job)
         return job

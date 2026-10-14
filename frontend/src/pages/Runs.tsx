@@ -22,8 +22,8 @@ export function RunsPage() {
       />
       {r.error && <ErrorNote error={r.error} onRetry={r.reload} />}
       {r.data && runs.length === 0 && (
-        <Empty title="No runs recorded" command="mahoraga audit doctor ~/code/your-repo --arm aider:qwen3.5:latest">
-          Runs appear here once a run starts. Doctor checks the bench and estimates how many nights an answer takes.
+        <Empty title="No runs recorded" command="mahoraga audit tonight ~/code/your-repo">
+          Runs appear here once a run starts. Tonight mines tasks from the repo, checks the machine, queues a night of runs and starts the worker.
         </Empty>
       )}
       {runs.length > 0 && (

@@ -76,6 +76,7 @@ export interface Dict {
     person: string;
     portfolio: string;
     contact: string;
+    privacy: string;
     contributing: string;
     security: string;
     dataflow: string;
@@ -252,6 +253,7 @@ const en: Dict = {
     person: "Kaito Soeno",
     portfolio: "Portfolio",
     contact: "Contact",
+    privacy: "Privacy",
     contributing: "Contributing",
     security: "Security",
     dataflow: "Data flow",
@@ -447,6 +449,7 @@ const ja: Dict = {
     person: "Kaito Soeno",
     portfolio: "作品",
     contact: "お問い合わせ",
+    privacy: "プライバシー",
     contributing: "コントリビューション",
     security: "セキュリティ",
     dataflow: "データフロー",

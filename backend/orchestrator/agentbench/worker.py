@@ -9,14 +9,14 @@ from typing import Callable
 
 import httpx
 
-from . import isolation, session
+from . import isolation, session, tonight
 from .agents import Agent, parse_arm
 from .bank import Bench, SuiteConfig
 from .guard import Guard
 from .mine import backfill_dates, mine_new
 from .proc import git
 from .ollama import pulled_models
-from .queue import DONE, FAILED, Job, Queue, pin_problems
+from .queue import DONE, FAILED, PENDING, Job, Queue, pin_problems
 from .runner import CONDITIONS, Attempt, open_cells
 
 
@@ -27,6 +27,7 @@ def run_job(queue: Queue, job: Job, deadline: float | None, *,
             which: Callable[[str], str | None] = shutil.which,
             isolated: Callable[[Bench, SuiteConfig], list[str]] = isolation.problems,
             progress: Callable[[Attempt], None] = lambda a: None,
+            wrap_up: Callable[[Bench, Job], object] = tonight.wrap_up,
             log: Callable[[str], None] = print) -> int:
     """Attempts counted. Every way out of here sets the job's `why`."""
     def fail(why: str) -> int:
@@ -117,6 +118,12 @@ def run_job(queue: Queue, job: Job, deadline: float | None, *,
     else:
         queue.update(job.id, why="; ".join(filter(None, [
             f"pass done, {left} of {total} cells open; running another", notes])))
+    now = next(j for j in queue.jobs() if j.id == job.id)  # with the why just set
+    if job.notify and (now.status != PENDING or stopped == "deadline"):
+        try:
+            log(f"job {job.id}: morning report at {wrap_up(bench, now)}")
+        except Exception as e:  # noqa: BLE001 — the report is a courtesy, the job's state isn't
+            log(f"job {job.id}: no morning report: {e}")
     return len(done)
 
 

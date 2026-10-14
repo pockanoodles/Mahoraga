@@ -51,3 +51,13 @@ def idle_secs() -> float | None:
     if sys.platform != "darwin":
         return None
     return parse_idle(_run("ioreg", "-c", "IOHIDSystem"))
+
+
+def notify(title: str, message: str) -> None:
+    """A Notification Center banner. The text goes in as arguments, never into
+    the script, so a repo name can't be read as AppleScript."""
+    if sys.platform != "darwin":
+        return
+    _run("osascript", "-e", "on run argv", "-e",
+         "display notification (item 2 of argv) with title (item 1 of argv)",
+         "-e", "end run", title, message)

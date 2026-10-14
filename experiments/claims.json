@@ -315,6 +315,68 @@
       }
     },
     {
+      "id": "report_2026_10_studio_qwen35_131k_outside",
+      "kind": "agentbench",
+      "description": "§3, §4 and §5: the laptop's qwen3.5 at a 131k context on the three outside repositories, and its pooled verdict",
+      "artifact": "experiments/agentbench/studio-2026-10.jsonl",
+      "select": {
+        "cond": "blind",
+        "arm": "aider:qwen3.5:laptop-dec52a4@ctx=131072",
+        "repos": ["more-itertools", "click", "attrs"]
+      },
+      "config": {
+        "machine": "Mac Studio M5 Max, 64 GB (Mac17,14)",
+        "agent": "aider 0.86.2, diff edit format",
+        "dates": "2026-10-13 to 2026-10-14",
+        "context": 131072,
+        "model_digest": "6bac66862d57"
+      },
+      "published_in": ["docs/report/2026-10-local-coding-ai.md"],
+      "metrics": {
+        "tasks": { "value": 92, "decimals": 0 },
+        "resolved": { "value": 28, "decimals": 0 },
+        "rate_lo": { "value": 0.22, "decimals": 2 },
+        "rate_hi": { "value": 0.40, "decimals": 2 },
+        "rate": { "value": 0.30, "decimals": 2 },
+        "call": { "value": "stay" },
+        "net": { "value": -76, "decimals": 0 },
+        "net_lo": { "value": -89, "decimals": 0 },
+        "net_hi": { "value": -59, "decimals": 0 },
+        "breakeven_rate": { "value": 0.77, "decimals": 2 },
+        "breakeven_cloud_usd": { "value": 5.72, "decimals": 2 }
+      },
+      "verdict": {
+        "tasks_per_month": 200,
+        "api_spend": 150
+      }
+    },
+    {
+      "id": "report_2026_10_qwen35_131k_after_release",
+      "kind": "agentbench",
+      "description": "§3: qwen3.5 at a 131k context on the same post-release commits",
+      "artifact": "experiments/agentbench/studio-2026-10.jsonl",
+      "select": {
+        "cond": "blind",
+        "arm": "aider:qwen3.5:laptop-dec52a4@ctx=131072",
+        "repos": ["more-itertools", "click", "attrs"],
+        "committed_from": "2026-04-16"
+      },
+      "config": {
+        "machine": "Mac Studio M5 Max, 64 GB (Mac17,14)",
+        "agent": "aider 0.86.2, diff edit format",
+        "dates": "2026-10-13 to 2026-10-14",
+        "context": 131072
+      },
+      "published_in": ["docs/report/2026-10-local-coding-ai.md"],
+      "metrics": {
+        "tasks": { "value": 56, "decimals": 0 },
+        "resolved": { "value": 13, "decimals": 0 },
+        "rate_lo": { "value": 0.14, "decimals": 2 },
+        "rate_hi": { "value": 0.36, "decimals": 2 },
+        "rate": { "value": 0.23, "decimals": 2 }
+      }
+    },
+    {
       "id": "report_2026_10_qwen36_more_itertools_before",
       "kind": "agentbench",
       "description": "§3: qwen3.6 on more-itertools commits made before its release",

@@ -20,14 +20,16 @@ second machine (a Mac Studio with 64 GB) shows what more memory changes.
 
 For most people the answer is to keep paying for cloud. The model that fits
 this laptop resolves about one real commit in ten on three outside
-repositories (10% of 92 tasks) and about one in five on this project's own
-code. A 64 GB machine runs a larger class of model that resolves about one in
-three (34% of the same 92 tasks), and the repository's own tests caught every
-failure on both machines. Neither rate pays at today's cloud prices, because
-the developer's time to notice a failed attempt outweighs the electricity
-several hundred to one. On the 64 GB machine local starts to pay once a cloud
-task costs about $5, which describes a team paying per token for long agentic
-work rather than a subscriber.
+repositories (10% of 92 tasks) at a 32k context, and about three in ten (30%)
+once the context is raised to 131k. A 64 GB machine runs a larger model that
+resolves about the same share (34% of the same 92 tasks), so most of what
+first looked like a hardware gap was a settings gap. The repository's own
+tests caught every failure on both machines. Neither rate pays at today's
+cloud prices, because the developer's time to notice a failed attempt
+outweighs the electricity several hundred to one. At the wider context, local
+starts to pay once a cloud task costs about $6 (about $5 with the larger
+model), which describes a team paying per token for long agentic work rather
+than a subscriber.
 
 ## 1. The local tier stopped getting new models
 
@@ -69,6 +71,7 @@ nothing that passed before has broken.
 | aider + qwen3.5 (9.7B, 32k) | 16 GB laptop | ops | 9 | 1 | 2% to 43% |
 | aider + qwen3.5 (9.7B, 32k) | 64 GB Studio | Mahoraga | 32 | 6 | 9% to 35% |
 | aider + qwen3.5 (9.7B, 32k) | 64 GB Studio | more-itertools, click, attrs | 92 | 9 | 5% to 18% |
+| aider + qwen3.5 (9.7B, 131k) | 64 GB Studio | more-itertools, click, attrs | 92 | 28 | 22% to 40% |
 | aider + qwen3.6 (35B-A3B, 131k) | 64 GB Studio | Mahoraga | 32 | 13 | 26% to 58% |
 | aider + qwen3.6 (35B-A3B, 131k) | 64 GB Studio | more-itertools, click, attrs | 92 | 31 | 25% to 44% |
 
@@ -77,7 +80,8 @@ laptop's exact model file (checksum verified) with the laptop's settings, so
 they measure the laptop's model on faster hardware. The laptop's own rate may
 sit slightly below them, because its attempts take 8 to 13 minutes and the
 slowest run into the 20-minute timeout. The Studio rows were run overnight on
-2026-10-06 ([Era 36](../../brain/state/findings.md)). Every count in this
+2026-10-06 ([Era 36](../../brain/state/findings.md)), except qwen3.5 at 131k,
+which ran on the night of 2026-10-13 with the same model file. Every count in this
 section and the next is recomputed by `orch bench verify` from one line per
 attempt in [`experiments/agentbench/`](../../experiments/agentbench/), and CI
 runs that check, so a reader can confirm each number without our machines.
@@ -100,7 +104,9 @@ saw the answers in training. Qwen3.6 was released around 2026-04-16, so
 commits made after that date are ones it cannot have seen. The three outside
 repositories hold 56 tasks from such commits. On those it resolves 30% (17 of
 56), against qwen3.5's 4% (2 of 56), and the two intervals do not overlap.
-On more-itertools, the one repository with enough tasks on both sides of the
+Given a 131k context, qwen3.5 resolves 23% of the same commits (13 of 56).
+That interval overlaps qwen3.6's, and qwen3.5 is the older model, so it cannot
+have seen them either. On more-itertools, the one repository with enough tasks on both sides of the
 date, qwen3.6 resolves 6 of 15 earlier commits and 8 of 21 later ones. That flat rate is what an unmemorised model looks like.
 
 ## 4. When local pays
@@ -114,14 +120,17 @@ triage each failure.
 
 | Model (92 outside tasks) | Resolved | Net per month | Local pays once a cloud task costs | Verdict |
 | --- | --- | --- | --- | --- |
-| qwen3.5 (fits 16 GB) | 10% [5%–18%] | −$109 (−$117 to −$96) | $23.06 | STAY |
-| qwen3.6 (needs 24 GB or more) | 34% [25%–44%] | −$70 (−$85 to −$54) | $4.92 | STAY |
+| qwen3.5 at 32k (fits 16 GB) | 10% [5%–18%] | −$109 (−$117 to −$96) | $23.06 | STAY |
+| qwen3.5 at 131k (fits 16 GB) | 30% [22%–40%] | −$76 (−$89 to −$59) | $5.72 | STAY |
+| qwen3.6 at 131k (needs 24 GB or more) | 34% [25%–44%] | −$70 (−$85 to −$54) | $4.92 | STAY |
 
 Local would need to resolve at least 77% of queued tasks to break even at
-$0.75 a task, which is about twice what the larger model manages. Running the
-queue on the laptop costs about $109 a month more in triage time than it
-saves. The bigger machine cuts that loss to about $70, and it moves the
-break-even price from $23 a task to under $5. Earlier, on the ops repository
+$0.75 a task, which is about twice what either model manages at 131k. At a
+32k context, running the queue on the laptop costs about $109 a month more in
+triage time than it saves. Raising the context to 131k cuts that loss to about
+$76 and moves the break-even price from $23 a task to about $6. The bigger
+machine only adds a little to that, with a loss of about $70 and a break-even
+price under $5. Earlier, on the ops repository
 alone, qwen3.5 measured 11% and needed about $20 a task, so the pooled result
 agrees with the first reading.
 
@@ -136,27 +145,44 @@ with either model, so the engine answers that this user is not wasting money.
 Vendor numbers say the step from 16 GB to 24 GB is the only one that changes
 model class ([Era 32](../../brain/state/findings.md)), since the best SWE-bench
 Verified score that fits rises from 47.67 to 70.9. The Studio run is the first
-measurement of that step on real repositories, and it points the same way.
-On the same 92 outside tasks, the 35B model that needs about 21 GB resolves
-three times as many commits as the 9.7B model that fits the laptop (31 against
-9).
+measurement of that step on real repositories. At first it seemed to confirm
+the step, since the 35B model that needs about 21 GB resolved three times as
+many of the 92 outside tasks as the 9.7B model that fits the laptop (31
+against 9). That comparison also changed the context window from 32k to 131k.
+Given the same 131k window, the 9.7B model resolves 28 of the 92, which means
+the context accounts for 19 of the 22 tasks between the two models.
 
-Speed alone does not explain the gap. The laptop's model on the Studio runs at
-about 79 tokens a second instead of 14.5, and its median attempt drops from
+Speed does not explain the gap either. The laptop's model on the Studio runs
+at about 79 tokens a second instead of 14.5, and its median attempt drops from
 8.4 minutes to about one. Its resolve rate on Mahoraga stays within the
 laptop's interval (19% against 28%), so faster hardware gave the same model
-the same answers sooner. More memory pays through the larger model and the
-larger context it makes room for.
+the same answers sooner.
 
-Those two effects are still tangled. Most of qwen3.5's failures on the outside
-repositories were attempts that made no edit at all, and more-itertools keeps
-5,641 lines in one file. At a 32k context that file overflows the prompt, and
-Ollama truncates it without an error.
+The context window explains it. Most of qwen3.5's failures at 32k were
+attempts that made no edit at all, and more-itertools keeps 5,641 lines in one
+file. At a 32k context that file overflows the prompt, and Ollama truncates it
+without an error, so the model never sees the code it was asked to change. At
+131k most of those empty attempts became edits. Task by task, the two models
+at 131k disagree on 21 of the 92 tasks, and each wins about half of them (9 for
+qwen3.5 and 12 for qwen3.6). A split that close to even is what chance alone would
+produce (an exact McNemar test gives p = 0.66), so these tasks show no
+difference between the models.
 
-> **PENDING (running 2026-10-13):** qwen3.5 at a 131k context on the same
-> three repositories. If its rate rises toward the 35B model's, part of the gap
-> belongs to the context window, and a 16 GB owner can recover some of it by
-> raising the window rather than buying memory.
+The setting fits the laptop. Under Ollama on the 16 GB MacBook, qwen3.5 takes
+10.4 GB at a 131k context against 6.1 GB at 32k, and its generation speed on a
+short prompt barely moves (17.6 against 18.7 tokens a second, measured
+2026-10-14). The model is a hybrid that keeps a full attention cache in only 8
+of its 32 layers, which is why the wider window costs about 4 GB rather than
+the 16 a plain transformer of its size would need.
+
+> **PENDING:** the 131k run on the laptop itself. About 1.8 GB of the cache
+> sits off the GPU there, so long prompts may slow attempts into the timeout,
+> and the laptop's rate may land below the Studio's.
+
+For a 16 GB owner, the first change is the context window, and a memory
+upgrade is worth measuring only after it. The larger model still resolves a
+few more tasks (3 more of the 92 and 4 more of the 56 commits made after its
+release), but both differences sit well inside the intervals.
 
 One 9B model (ornith-1.5) claims 70.6 on SWE-bench Verified at a quarter of
 the memory, which would undercut the upgrade if it held. Its figure was
@@ -181,7 +207,11 @@ benchmark's own gates rejected every affected task rather than scoring them.
 The hardware finding was also wrong at first. After the first Studio runs we
 wrote that more memory "bought speed, not solve rate", which compared the 35B
 model on one set of tasks with the laptop's model on another. Running both
-models on the same tasks reversed it within a day.
+models on the same tasks reversed it within a day. The reversal itself then
+overstated the case, because the 35B model ran at a 131k context and the
+laptop's model at 32k. We credited the larger model with a gain that mostly
+came from the wider window, until a night with qwen3.5 at 131k closed 19 of the
+22 tasks between them.
 
 ## 7. Run it on your repository
 
@@ -189,9 +219,9 @@ The measurement takes one command to check and one to run overnight.
 
 ```bash
 mahoraga audit mine    ~/code/your-repo
-mahoraga audit doctor  ~/code/your-repo --arm aider:qwen3.5:latest
-mahoraga audit run     ~/code/your-repo --arm aider:qwen3.5:latest --cond feedback --until 07:30
-mahoraga audit verdict ~/code/your-repo --arm aider:qwen3.5:latest \
+mahoraga audit doctor  ~/code/your-repo --arm aider:qwen3.5:latest@ctx=131072
+mahoraga audit run     ~/code/your-repo --arm aider:qwen3.5:latest@ctx=131072 --cond feedback --until 07:30
+mahoraga audit verdict ~/code/your-repo --arm aider:qwen3.5:latest@ctx=131072 \
     --tasks-per-month 200 --plan claude-max-5x --usage-of-cap 0.6
 ```
 

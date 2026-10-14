@@ -28,6 +28,7 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from xml.sax.saxutils import escape as _xml_escape
@@ -227,10 +228,24 @@ def _load_job(job: Job = DAEMON) -> tuple[bool, str]:
     _launchctl("enable", f"{domain}/{job.label}")
     result = (_launchctl("load", str(job.plist)) if domain.startswith("gui/")
               else _launchctl("bootstrap", domain, str(job.plist)))
-    if _is_loaded(job):
+    # `bootstrap`, unlike `load`, does report failure in its exit code.
+    if _is_loaded(job) and (domain.startswith("gui/") or result.returncode == 0):
         return True, ""
     detail = (result.stderr or result.stdout or "").strip()
     return False, detail or "launchctl reported no error but the job is not listed"
+
+
+def _wait_unloaded(job: Job, timeout: float = 15.0) -> bool:
+    """Wait for launchd to finish tearing a job down. `bootout` returns while the
+    old process is still exiting, and a bootstrap in that window fails. On
+    2026-10-13 a reinstall over ssh did exactly that: `print` still listed the
+    old job, so the install reported success, and then nothing was running."""
+    deadline = time.monotonic() + timeout
+    while _is_loaded(job):
+        if time.monotonic() >= deadline:
+            return False
+        time.sleep(0.5)
+    return True
 
 
 def _unload(job: Job) -> subprocess.CompletedProcess[str]:
@@ -251,6 +266,9 @@ def install_job(job: Job, cli: str = "orch service") -> None:
     typer.echo(f"Wrote plist → {job.plist}")
     if _is_loaded(job):
         _unload(job)
+        if not _wait_unloaded(job):
+            typer.echo(f"the old {job.label} is still loaded; run the install again", err=True)
+            raise typer.Exit(1)
     loaded, detail = _load_job(job)
     if not loaded:
         typer.echo(f"launchctl load failed: {detail}", err=True)

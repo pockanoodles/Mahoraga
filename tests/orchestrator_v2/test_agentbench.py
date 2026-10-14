@@ -1393,7 +1393,7 @@ def test_tonight_mines_queues_and_starts_the_worker_once(repo, tonight_env):
     assert r.exit_code == 0, r.output
     assert "1 tasks in the bench" in r.output and "in the morning: mahoraga audit report" in r.output
     [job] = Queue(tonight_env["root"]).jobs()
-    assert job.notify and job.window == "21:00-08:00" and job.arms == ["aider:qwen3.5:latest"]
+    assert job.notify and job.window == "21:00-08:00" and job.arms == ["aider:qwen3.5:latest@ctx=131072"]
     assert job.pinned == {"qwen3.5:latest": "sha256:0123456789abcdef"}
     r = runner.invoke(agentbench_app, args)
     assert r.exit_code == 0 and f"already queued as {job.id}" in r.output

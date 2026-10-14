@@ -17,7 +17,10 @@ from .runner import CONDITIONS, load_attempts, load_degraded
 from ..audit import usage
 from ..audit.verdict import render as render_verdict
 
-DEFAULT_ARM = "aider:qwen3.5:latest"
+# qwen3.5 keeps a full attention cache in 8 of its 32 layers, so 131k costs
+# about 4 GB more than 32k and fits 16 GB (10.4 GB under Ollama). On the Studio
+# it resolved 28 of 92 outside tasks at 131k against 9 at 32k.
+DEFAULT_ARM = "aider:qwen3.5:latest@ctx=131072"
 DEFAULT_WINDOW = "21:00-08:00"
 # Mining stops at this many candidates: at ~12 min an attempt, one night's worth.
 DEFAULT_LIMIT = 25

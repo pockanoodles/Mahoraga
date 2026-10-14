@@ -189,7 +189,7 @@ def doctor_cmd(
 @app.command("tonight")
 def tonight_cmd(
     repo: Path = _REPO,
-    arms: Optional[List[str]] = typer.Option(None, "--arm", help="<agent>:<model>[@ctx=N], repeatable (default: aider:qwen3.5:latest)."),
+    arms: Optional[List[str]] = typer.Option(None, "--arm", help="<agent>:<model>[@ctx=N], repeatable (default: aider:qwen3.5:latest@ctx=131072)."),
     cond: str = typer.Option("blind", "--cond", help="blind, feedback, or both."),
     window: str = typer.Option(tonight.DEFAULT_WINDOW, "--window", help="HH:MM-HH:MM; no attempt starts outside it."),
     limit: int = typer.Option(tonight.DEFAULT_LIMIT, "--limit", help="Newest commits to mine, if the repo has no tasks yet."),

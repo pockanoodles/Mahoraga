@@ -83,7 +83,7 @@ mahoraga audit tonight ~/code/app \
 
 # the next morning
 mahoraga audit report ~/code/app
-mahoraga audit verdict ~/code/app --arm aider:qwen3.5:latest --cond blind
+mahoraga audit verdict ~/code/app --arm aider:qwen3.5:latest@ctx=131072 --cond blind
 ```
 
 `mahoraga demo` copies the published 18-commit probe into a scratch directory and opens

@@ -195,6 +195,7 @@ def tonight_cmd(
     limit: int = typer.Option(tonight.DEFAULT_LIMIT, "--limit", help="Newest commits to mine, if the repo has no tasks yet."),
     python: Optional[str] = typer.Option(None, "--python", help="Interpreter for the repo's tests."),
     wait_quiet: bool = typer.Option(False, "--wait-quiet", help="Pause while someone else's model is loaded in Ollama."),
+    timeout: Optional[float] = typer.Option(None, "--timeout", help="Seconds per attempt (default: sized to this machine's speed, measured once)."),
     tasks_per_month: Optional[int] = typer.Option(None, "--tasks-per-month", help="Coding tasks you give cloud agents a month (asked once, then saved)."),
     plan_id: Optional[str] = typer.Option(None, "--plan", help="Your plan id from audit/pricing.json, e.g. claude-max-5x."),
     plan_price: Optional[float] = typer.Option(None, "--plan-price", help="Your plan's monthly price, if it isn't verified in pricing.json."),
@@ -270,7 +271,8 @@ def tonight_cmd(
 
         pulled = pulled_models()
         job = queue.add(str(bench.repo), arms, cond, window=window, wait_quiet=wait_quiet,
-                        notify=True, pinned={a.model: pulled[tagged(a.model)] for a in agents})
+                        notify=True, timeout=timeout,
+                        pinned={a.model: pulled[tagged(a.model)] for a in agents})
         typer.echo(f"  queued {job.id}: {' '.join(arms)} {cond}, {window}")
     opens = window_deadline(window, time.time()) is None
     typer.echo(f"  the window opens at {window.split('-')[0]}" if opens else
@@ -479,6 +481,7 @@ def queue_add_cmd(
     wait_quiet: bool = typer.Option(False, "--wait-quiet", help="Pause while someone else's model is loaded in Ollama."),
     follow: bool = typer.Option(False, "--follow", help="Never finish: mine new commits each window and run them."),
     fetch: bool = typer.Option(False, "--fetch", help="With --follow, git fetch first (a repo others commit to)."),
+    timeout: Optional[float] = typer.Option(None, "--timeout", help="Seconds per attempt (default: sized to this machine's speed, measured once)."),
 ) -> None:
     """Queue a run. Each model's digest is pinned now, so the job fails rather
     than measure different weights if a tag moves before it runs."""
@@ -507,7 +510,7 @@ def queue_add_cmd(
     try:
         job = Queue(bench_root()).add(
             str(bench.repo), arms, cond, tasks=tasks, repeats=repeats, window=window,
-            wait_quiet=wait_quiet, follow=follow, fetch=fetch,
+            wait_quiet=wait_quiet, follow=follow, fetch=fetch, timeout=timeout,
             pinned={a.model: pulled[tagged(a.model)] for a in agents})
     except ValueError as e:
         raise typer.BadParameter(str(e))

@@ -149,6 +149,7 @@ def _setup(m: dict, arm: str) -> str:
     model = model.split("@")[0]
     digest = (m.get("models", {}).get("digests") or {}).get(model, "?")
     h, hw, t = m.get("harness", {}), m.get("machine", {}), m.get("tasks", {})
+    limit = (m.get("settings") or {}).get("timeout")
     commit = (h.get("commit") or "")[:9] or "installed"
     version = str((m.get("agents") or {}).get(agent, "?"))
     version = version[len(agent):].strip() if version.startswith(agent) else version
@@ -158,7 +159,8 @@ def _setup(m: dict, arm: str) -> str:
             f"ollama {m.get('models', {}).get('ollama', '?')}, "
             f"mahoraga {h.get('version', '?')} {commit}{' (dirty)' if h.get('dirty') else ''}, "
             f"{hw.get('model', '?')} {hw.get('memory_gb', '?')} GB, "
-            f"prompts {str(t.get('prompts_sha256', '?'))[:12]}")
+            + (f"{limit / 60:.0f}-min limit, " if limit else "")
+            + f"prompts {str(t.get('prompts_sha256', '?'))[:12]}")
 
 
 def ledgers(attempts: list[Attempt], degraded: list[Attempt],

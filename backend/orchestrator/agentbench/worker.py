@@ -9,13 +9,13 @@ from typing import Callable
 
 import httpx
 
-from . import isolation, session, tonight
+from . import isolation, limit, session, tonight
 from .agents import Agent, parse_arm
 from .bank import Bench, SuiteConfig
 from .guard import Guard
 from .mine import backfill_dates, mine_new
 from .proc import git
-from .ollama import pulled_models
+from .ollama import pulled_models, tagged
 from .queue import DONE, FAILED, PENDING, Job, Queue, pin_problems
 from .runner import CONDITIONS, Attempt, open_cells
 
@@ -28,6 +28,7 @@ def run_job(queue: Queue, job: Job, deadline: float | None, *,
             isolated: Callable[[Bench, SuiteConfig], list[str]] = isolation.problems,
             progress: Callable[[Attempt], None] = lambda a: None,
             wrap_up: Callable[[Bench, Job], object] = tonight.wrap_up,
+            limit_for: Callable[..., float] = limit.for_agent,
             log: Callable[[str], None] = print) -> int:
     """Attempts counted. Every way out of here sets the job's `why`."""
     bench = Bench(Path(job.repo), root=queue.root)
@@ -79,6 +80,16 @@ def run_job(queue: Queue, job: Job, deadline: float | None, *,
     if not left:
         return _settle(queue, job, deadline, total, f"all {total} cells counted")
 
+    timeout = job.timeout
+    if timeout is None:
+        try:
+            timeout = max(limit_for(queue.root, a, models.get(tagged(a.model), "?"), log=log)
+                          for a in agents)
+        except (httpx.HTTPError, ValueError) as e:
+            timeout = limit.FLOOR
+            log(f"job {job.id}: couldn't size the attempt limit ({e}); using "
+                f"{timeout / 60:.0f} min")
+
     waited: list[str] = []
 
     def guard_log(msg: str) -> None:
@@ -98,9 +109,11 @@ def run_job(queue: Queue, job: Job, deadline: float | None, *,
 
     try:
         _, done, stopped = session.run(
-            bench, agents, conds, only=only, repeats=job.repeats, deadline=deadline,
+            bench, agents, conds, only=only, timeout=timeout, repeats=job.repeats,
+            deadline=deadline,
             guard=guard(bench.dir.parent, wait_quiet=job.wait_quiet, log=guard_log),
-            settings={"conds": list(conds), "repeats": job.repeats, "queue_job": job.id,
+            settings={"conds": list(conds), "repeats": job.repeats, "timeout": timeout,
+                      "queue_job": job.id,
                       "window": job.window, "wait_quiet": job.wait_quiet, "guarded": True},
             progress=progress, started=started,
             dropped=lambda arm, why: (dropped.append(f"{arm}: {why}"),

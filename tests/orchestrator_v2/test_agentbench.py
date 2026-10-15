@@ -118,7 +118,8 @@ class FakeAgent:
         self.calls: list[dict] = []
 
     def attempt(self, workdir, prompt, *, test_cmd, timeout, hidden=(), readable=()):
-        self.calls.append({"prompt": prompt, "test_cmd": test_cmd, "hidden": hidden})
+        self.calls.append({"prompt": prompt, "test_cmd": test_cmd, "hidden": hidden,
+                           "timeout": timeout})
         sha = _git(FakeAgent.source, "log", "--format=%h", "-1", "--grep=feat: add mul")
         self._edit(workdir, sha)
         return AgentRun(log="", secs=1.0, timed_out=self._timed_out, crashed=self._crashed,
@@ -1179,6 +1180,62 @@ def test_the_worker_refuses_a_bench_that_isnt_isolated(mined, tmp_path):
     [after] = q.jobs()
     assert after.status == FAILED and after.why == "not isolated: isolation: source: readable"
     assert agent.calls == []
+
+
+def test_the_attempt_limit_is_sized_from_reading_and_writing_speed():
+    from backend.orchestrator.agentbench.limit import CEILING, FLOOR, Reading, limit_secs
+
+    # The 16 GB laptop at 131k (2026-10-15 probe, 50k deep): 2.5 calls of 98k
+    # read at 140 tok/s and 8,192 written at 5.8 tok/s is 88 min, so 90.
+    assert limit_secs(Reading(140, 5.8, 50405), 131072, 8192) == 90 * 60
+    assert limit_secs(Reading(1500, 60, 65536), 131072, 8192) == FLOOR  # the Studio
+    assert limit_secs(Reading(10, 1, 65536), 131072, 8192) == CEILING
+
+
+def test_the_attempt_limit_is_measured_once_per_model_and_context(tmp_path):
+    from types import SimpleNamespace
+
+    from backend.orchestrator.agentbench import limit
+
+    reads = []
+
+    def read(model, num_ctx, depth):
+        reads.append((model, num_ctx, depth))
+        return 140.0, 7.0, depth
+
+    wide = SimpleNamespace(model="m", num_ctx=131072, num_predict=8192)
+    for _ in range(2):
+        assert limit.for_agent(tmp_path, wide, "sha256:aa", read=read, log=lambda m: None) == 4800
+    assert reads == [("m", 131072, 65536)]
+    narrow = SimpleNamespace(model="m", num_ctx=32768, num_predict=8192)
+    limit.for_agent(tmp_path, narrow, "sha256:aa", read=read, log=lambda m: None)
+    assert reads[-1] == ("m", 32768, 16384) and len(reads) == 2
+    limit.for_agent(tmp_path, wide, "sha256:bb", read=read, log=lambda m: None)
+    assert len(reads) == 3, "new weights are measured again"
+    # An agent with no local model behind a known context keeps the floor.
+    assert limit.for_agent(tmp_path, FakeAgent("m"), read=read) == limit.FLOOR
+
+
+def test_a_job_runs_at_its_own_limit_or_one_sized_to_the_machine(mined, tmp_path):
+    q = Queue(mined.dir.parent)
+    sized = []
+
+    def run(job, agent):
+        run_job(q, job, None, pulled=lambda: {"m:latest": PIN["m"]},
+                guard=lambda root, **kw: _guard(tmp_path, FakeMachine(), **kw),
+                agents_for=lambda arms: [agent], which=lambda n: "/bin/" + n,
+                isolated=lambda bench, config: [],
+                limit_for=lambda root, a, digest, log: sized.append(digest) or 4800.0,
+                log=lambda m: None)
+
+    auto = FakeAgent("m", apply_gold)
+    run(q.add(str(mined.repo), ["fake:m"], "blind", pinned=PIN), auto)
+    assert [c["timeout"] for c in auto.calls] == [4800.0] and sized == [PIN["m"]]
+    [m] = manifest.load_all(mined)
+    assert m["settings"]["timeout"] == 4800.0, "the receipt says which limit it ran at"
+    own = FakeAgent("m", apply_gold)
+    run(q.add(str(mined.repo), ["fake:m"], "feedback", pinned=PIN, timeout=600), own)
+    assert [c["timeout"] for c in own.calls] == [600] and len(sized) == 1
 
 
 # ── Receipts ──────────────────────────────────────────────────────────────────

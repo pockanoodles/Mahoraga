@@ -275,6 +275,8 @@ class VerdictEvidence(BaseModel):
     tier: str
     label: str
     hardware: str
+    failed: int  # attempts that didn't resolve
+    timed_out: int  # of those, the ones that ran out of time
 
 
 class VerdictAssumptions(BaseModel):

@@ -8,6 +8,8 @@ watches is faked too.
 """
 from __future__ import annotations
 
+import dataclasses
+
 import itertools
 import json
 import subprocess
@@ -874,6 +876,21 @@ def test_the_report_says_how_many_failures_ran_out_of_budget(mined, repo):
     a.extra["capped_calls"] = 2
     assert summarise(mined.load_tasks(), [a])[0].capped == 1
     assert "(1 of the failures hit the generation cap)" in render(mined.load_tasks(), [a])
+
+
+def test_the_report_warns_when_the_clock_set_the_rate(mined, repo):
+    run_matrix(mined, [FakeAgent("m")], ["blind"])
+    [a] = load_attempts(mined)
+    late = [dataclasses.replace(a, timed_out=True, secs=1200.0, rep=i) for i in range(3)]
+    [s] = summarise(mined.load_tasks(), late)
+    assert (s.timed_out, s.limit_minutes, s.time_bound) == (3, 20.0, True)
+    out = render(mined.load_tasks(), late)
+    assert "WARNING: fake:m / blind: 3 of its 3 failed attempts ran out of time at the " \
+           "20-minute limit" in out
+    assert "(3 of the failures ran out of time)" in out
+    # Three timeouts among seven failures are the model's, not the clock's.
+    wrong = [dataclasses.replace(a, rep=i) for i in range(3, 7)]
+    assert "WARNING" not in render(mined.load_tasks(), late + wrong)
 
 
 def test_no_attempt_starts_after_the_deadline(mined, repo):

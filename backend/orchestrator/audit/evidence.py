@@ -43,6 +43,7 @@ def from_benches(benches: list[Bench], arm: str, cond: str) -> Evidence:
     tiers: set[str] = set()
     run_ids: set[str] = set()
     repos = set()
+    failed = timed_out = 0
     for b in benches:
         live = {t.sha for t in b.load_tasks()}
         for a in load_attempts(b):
@@ -53,6 +54,8 @@ def from_benches(benches: list[Bench], arm: str, cond: str) -> Evidence:
             tiers.add(a.tier)
             run_ids.add(a.run_id)
             repos.add(b.name)
+            failed += not a.resolved
+            timed_out += a.timed_out and not a.resolved
     if not per_task:
         raise ValueError(f"no attempts for {arm} / {cond} in {[b.name for b in benches]}")
     if len(tiers) > 1:
@@ -64,4 +67,6 @@ def from_benches(benches: list[Bench], arm: str, cond: str) -> Evidence:
         label=f"{arm} / {cond}, {len(repos)} repo{'s' if len(repos) != 1 else ''} "
               f"({', '.join(sorted(repos))})",
         hardware=_hardware(benches, run_ids),
+        failed=failed,
+        timed_out=timed_out,
     )

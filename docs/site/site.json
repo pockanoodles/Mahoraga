@@ -861,7 +861,7 @@
   },
   "schema": 1,
   "source": {
-    "commit": "e214da3",
+    "commit": "a9b3d9a",
     "repo": "pockanoodles/Mahoraga",
     "version": "2.1.0"
   },
@@ -1268,6 +1268,7 @@
       }
     ],
     "evidence": {
+      "failed": 13,
       "hardware": "unrecorded machine (attempts predate run manifests)",
       "label": "aider:qwen3.5:latest / blind, 1 repo (Mahoraga)",
       "minutes_per_attempt": 8.3175,
@@ -1278,7 +1279,8 @@
         "point": 0.2777777777777778,
         "tasks": 18
       },
-      "tier": "test-verified"
+      "tier": "test-verified",
+      "timed_out": 2
     }
   }
 }

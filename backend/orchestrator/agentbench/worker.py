@@ -9,13 +9,13 @@ from typing import Callable
 
 import httpx
 
-from . import isolation, session, tonight
+from . import isolation, limit, session, tonight
 from .agents import Agent, parse_arm
 from .bank import Bench, SuiteConfig
 from .guard import Guard
 from .mine import backfill_dates, mine_new
 from .proc import git
-from .ollama import pulled_models
+from .ollama import pulled_models, tagged
 from .queue import DONE, FAILED, PENDING, Job, Queue, pin_problems
 from .runner import CONDITIONS, Attempt, open_cells
 
@@ -28,6 +28,7 @@ def run_job(queue: Queue, job: Job, deadline: float | None, *,
             isolated: Callable[[Bench, SuiteConfig], list[str]] = isolation.problems,
             progress: Callable[[Attempt], None] = lambda a: None,
             wrap_up: Callable[[Bench, Job], object] = tonight.wrap_up,
+            limit_for: Callable[..., float] = limit.for_agent,
             log: Callable[[str], None] = print) -> int:
     """Attempts counted. Every way out of here sets the job's `why`."""
     bench = Bench(Path(job.repo), root=queue.root)
@@ -89,6 +90,24 @@ def run_job(queue: Queue, job: Job, deadline: float | None, *,
         elif msg == "resumed":
             queue.update(job.id, why="running")
 
+    g = guard(bench.dir.parent, wait_quiet=job.wait_quiet, log=guard_log)
+    timeout = job.timeout
+    if timeout is None:
+        # The reading loads the model at its full context, so it waits for the
+        # same conditions an attempt does: on AC, nobody else's model loaded.
+        try:
+            limits = [limit_for(queue.root, a, models.get(tagged(a.model), "?"), log=log,
+                                ready=lambda a=a: g.wait_ready(a, deadline)) for a in agents]
+        except (httpx.HTTPError, ValueError) as e:
+            queue.update(job.id, why=f"waiting: couldn't measure this machine for the "
+                                     f"attempt limit ({e})"[:300])
+            return 0
+        if None in limits:
+            queue.update(job.id, why="window closed before the attempt limit could be "
+                                     "measured; resumes at the next window")
+            return 0
+        timeout = max(limits)
+
     dropped: list[str] = []
     runs = list(job.runs)
 
@@ -98,9 +117,11 @@ def run_job(queue: Queue, job: Job, deadline: float | None, *,
 
     try:
         _, done, stopped = session.run(
-            bench, agents, conds, only=only, repeats=job.repeats, deadline=deadline,
-            guard=guard(bench.dir.parent, wait_quiet=job.wait_quiet, log=guard_log),
-            settings={"conds": list(conds), "repeats": job.repeats, "queue_job": job.id,
+            bench, agents, conds, only=only, timeout=timeout, repeats=job.repeats,
+            deadline=deadline,
+            guard=g,
+            settings={"conds": list(conds), "repeats": job.repeats, "timeout": timeout,
+                      "queue_job": job.id,
                       "window": job.window, "wait_quiet": job.wait_quiet, "guarded": True},
             progress=progress, started=started,
             dropped=lambda arm, why: (dropped.append(f"{arm}: {why}"),

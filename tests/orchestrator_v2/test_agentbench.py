@@ -888,8 +888,9 @@ def test_the_report_warns_when_the_clock_set_the_rate(mined, repo):
     assert "WARNING: fake:m / blind: 3 of its 3 failed attempts ran out of time at the " \
            "20-minute limit" in out
     assert "(3 of the failures ran out of time)" in out
-    # One timeout among wrong answers is the model's failure, not the clock's.
-    assert "WARNING" not in render(mined.load_tasks(), [a, late[0]])
+    # Three timeouts among seven failures are the model's, not the clock's.
+    wrong = [dataclasses.replace(a, rep=i) for i in range(3, 7)]
+    assert "WARNING" not in render(mined.load_tasks(), late + wrong)
 
 
 def test_no_attempt_starts_after_the_deadline(mined, repo):

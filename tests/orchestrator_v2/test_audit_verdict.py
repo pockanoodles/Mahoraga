@@ -84,6 +84,9 @@ def test_a_stay_read_off_timeouts_is_not_decided():
     assert (v.call, v.confident) == (STAY, False)
     assert v.reason.startswith("30 of 36 failed attempts ran out of time")
     assert "longer --timeout" in v.sensitivity[0]
+    # Timeouts that are a minority of the failures leave the stay standing.
+    v = decide(dataclasses.replace(ev(4), failed=36, timed_out=17), A, Billing.api(150))
+    assert (v.call, v.confident) == (STAY, True)
     # A split stands, since more time could only raise the rate.
     v = decide(dataclasses.replace(ev(36), failed=4, timed_out=3), A, Billing.api(2000))
     assert (v.call, v.confident) == (SPLIT, True)

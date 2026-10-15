@@ -57,19 +57,21 @@ def reading_speed(model: str, num_ctx: int, depth: int,
     prompt about `depth` tokens deep, the shape of a task that fills the window.
     The prompt starts with a fresh nonce, so no cached prefix shortens it."""
     lines, i = [f"# {secrets.token_hex(8)}"], 0
-    while len(lines) * 12 < depth:  # ~12 tokens a line
+    while len(lines) * 20 < depth:  # ~20 tokens a line (6,773 for 341 lines on qwen3.5)
         lines.append(f"def step_{i}(x):\n    return x * {i % 97} + {i % 13}\n")
         i += 1
     r = httpx.post(f"{base_url}/api/generate", timeout=3 * 3600, json={
         "model": model, "raw": True, "stream": False,
         "prompt": "\n".join(lines) + "\n# The functions above, summarised:\n",
-        "options": {"num_ctx": num_ctx, "num_predict": 128, "temperature": 0}})
+        "options": {"num_ctx": num_ctx, "num_predict": 256, "temperature": 0}})
     r.raise_for_status()
     body = r.json()
     read, wrote = body.get("prompt_eval_count", 0), body.get("eval_count", 0)
     read_s, wrote_s = body.get("prompt_eval_duration", 0) / 1e9, body.get("eval_duration", 0) / 1e9
     if not (read_s and wrote_s):
         raise ValueError(f"Ollama returned no timings for {model}")
+    if wrote < 32:  # a rate over a handful of tokens is mostly startup noise
+        raise ValueError(f"{model} stopped after {wrote} tokens, too few to time")
     return round(read / read_s, 1), round(wrote / wrote_s, 1), read
 
 

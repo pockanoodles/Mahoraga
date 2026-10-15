@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import math
+import os
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Callable
@@ -58,27 +59,42 @@ def _key(model: str, digest: str, num_ctx: int) -> str:
     return f"{ollama.tagged(model)}@{digest[:12]}@ctx={num_ctx}"
 
 
+def _load(p: Path) -> dict:
+    """A file that won't parse is measured again, not trusted or kept."""
+    try:
+        return json.loads(p.read_text()) if p.exists() else {}
+    except ValueError:
+        return {}
+
+
 def for_agent(root: Path, agent, digest: str = "?", *,
               read: Callable[[str, int, int], tuple[float, float, int]] = ollama.reading_speed,
-              log: Callable[[str], None] = print) -> float:
+              ready: Callable[[], bool] = lambda: True,
+              log: Callable[[str], None] = print) -> float | None:
     """This machine's limit for the agent's model and context, measuring the
-    model once if limits.json hasn't seen it. Agents that don't drive a local
-    model through a known context keep the floor."""
+    model once if limits.json hasn't seen it, after `ready` says the machine
+    is fit to (None if it never is, e.g. the window closed while waiting).
+    Agents that don't drive a local model through a known context keep the
+    floor. Delete limits.json to measure again."""
     num_ctx, num_predict = getattr(agent, "num_ctx", None), getattr(agent, "num_predict", None)
     if not num_ctx or not num_predict:
         return FLOOR
     p, key = path(root), _key(agent.model, digest, num_ctx)
-    saved = json.loads(p.read_text()) if p.exists() else {}
+    saved = _load(p)
     if key in saved:
         r = from_record(Reading, saved[key])
     else:
+        if not ready():
+            return None
         depth = min(DEPTH, num_ctx // 2)
         log(f"measuring how fast {agent.model} reads a {depth:,}-token prompt at "
             f"ctx={num_ctx}, once on this machine")
         r = Reading(*read(agent.model, num_ctx, depth))
         saved[key] = asdict(r)
         p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_text(json.dumps(saved, indent=1) + "\n")
+        tmp = p.with_suffix(".tmp")
+        tmp.write_text(json.dumps(saved, indent=1) + "\n")
+        os.replace(tmp, p)
     secs = limit_secs(r, num_ctx, num_predict)
     log(f"{agent.model}: {describe(r, secs)}")
     return secs

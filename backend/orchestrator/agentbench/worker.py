@@ -80,16 +80,6 @@ def run_job(queue: Queue, job: Job, deadline: float | None, *,
     if not left:
         return _settle(queue, job, deadline, total, f"all {total} cells counted")
 
-    timeout = job.timeout
-    if timeout is None:
-        try:
-            timeout = max(limit_for(queue.root, a, models.get(tagged(a.model), "?"), log=log)
-                          for a in agents)
-        except (httpx.HTTPError, ValueError) as e:
-            timeout = limit.FLOOR
-            log(f"job {job.id}: couldn't size the attempt limit ({e}); using "
-                f"{timeout / 60:.0f} min")
-
     waited: list[str] = []
 
     def guard_log(msg: str) -> None:
@@ -99,6 +89,24 @@ def run_job(queue: Queue, job: Job, deadline: float | None, *,
             queue.update(job.id, why=f"waiting: {waited[-1]}")
         elif msg == "resumed":
             queue.update(job.id, why="running")
+
+    g = guard(bench.dir.parent, wait_quiet=job.wait_quiet, log=guard_log)
+    timeout = job.timeout
+    if timeout is None:
+        # The reading loads the model at its full context, so it waits for the
+        # same conditions an attempt does: on AC, nobody else's model loaded.
+        try:
+            limits = [limit_for(queue.root, a, models.get(tagged(a.model), "?"), log=log,
+                                ready=lambda a=a: g.wait_ready(a, deadline)) for a in agents]
+        except (httpx.HTTPError, ValueError) as e:
+            queue.update(job.id, why=f"waiting: couldn't measure this machine for the "
+                                     f"attempt limit ({e})"[:300])
+            return 0
+        if None in limits:
+            queue.update(job.id, why="window closed before the attempt limit could be "
+                                     "measured; resumes at the next window")
+            return 0
+        timeout = max(limits)
 
     dropped: list[str] = []
     runs = list(job.runs)
@@ -111,7 +119,7 @@ def run_job(queue: Queue, job: Job, deadline: float | None, *,
         _, done, stopped = session.run(
             bench, agents, conds, only=only, timeout=timeout, repeats=job.repeats,
             deadline=deadline,
-            guard=guard(bench.dir.parent, wait_quiet=job.wait_quiet, log=guard_log),
+            guard=g,
             settings={"conds": list(conds), "repeats": job.repeats, "timeout": timeout,
                       "queue_job": job.id,
                       "window": job.window, "wait_quiet": job.wait_quiet, "guarded": True},

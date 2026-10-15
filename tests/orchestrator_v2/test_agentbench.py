@@ -1214,6 +1214,14 @@ def test_the_attempt_limit_is_measured_once_per_model_and_context(tmp_path):
     assert len(reads) == 3, "new weights are measured again"
     # An agent with no local model behind a known context keeps the floor.
     assert limit.for_agent(tmp_path, FakeAgent("m"), read=read) == limit.FLOOR
+    # Nothing is read until the machine is fit to, and a file that won't
+    # parse is measured again rather than trusted.
+    other = SimpleNamespace(model="n", num_ctx=131072, num_predict=8192)
+    assert limit.for_agent(tmp_path, other, read=read, ready=lambda: False) is None
+    assert len(reads) == 3
+    limit.path(tmp_path).write_text("{not json")
+    assert limit.for_agent(tmp_path, wide, "sha256:aa", read=read, log=lambda m: None) == 4800
+    assert len(reads) == 4 and json.loads(limit.path(tmp_path).read_text())
 
 
 def test_a_job_runs_at_its_own_limit_or_one_sized_to_the_machine(mined, tmp_path):
@@ -1225,17 +1233,41 @@ def test_a_job_runs_at_its_own_limit_or_one_sized_to_the_machine(mined, tmp_path
                 guard=lambda root, **kw: _guard(tmp_path, FakeMachine(), **kw),
                 agents_for=lambda arms: [agent], which=lambda n: "/bin/" + n,
                 isolated=lambda bench, config: [],
-                limit_for=lambda root, a, digest, log: sized.append(digest) or 4800.0,
+                limit_for=lambda root, a, digest, log, ready: sized.append((digest, ready()))
+                or 4800.0,
                 log=lambda m: None)
 
     auto = FakeAgent("m", apply_gold)
     run(q.add(str(mined.repo), ["fake:m"], "blind", pinned=PIN), auto)
-    assert [c["timeout"] for c in auto.calls] == [4800.0] and sized == [PIN["m"]]
+    # The reading waits on the job's own guard, as an attempt does.
+    assert [c["timeout"] for c in auto.calls] == [4800.0] and sized == [(PIN["m"], True)]
     [m] = manifest.load_all(mined)
     assert m["settings"]["timeout"] == 4800.0, "the receipt says which limit it ran at"
     own = FakeAgent("m", apply_gold)
     run(q.add(str(mined.repo), ["fake:m"], "feedback", pinned=PIN, timeout=600), own)
     assert [c["timeout"] for c in own.calls] == [600] and len(sized) == 1
+
+
+def test_a_job_whose_limit_cant_be_measured_waits_instead_of_guessing(mined, tmp_path):
+    q = Queue(mined.dir.parent)
+    agent = FakeAgent("m", apply_gold)
+
+    def run(job, limit_for):
+        return run_job(q, job, None, pulled=lambda: {"m:latest": PIN["m"]},
+                       guard=lambda root, **kw: _guard(tmp_path, FakeMachine(), **kw),
+                       agents_for=lambda arms: [agent], which=lambda n: "/bin/" + n,
+                       isolated=lambda bench, config: [], limit_for=limit_for,
+                       log=lambda m: None)
+
+    def fails(root, a, digest, log, ready):
+        raise httpx.ConnectError("refused")
+
+    job = q.add(str(mined.repo), ["fake:m"], "blind", pinned=PIN)
+    assert run(job, fails) == 0 and agent.calls == []
+    [after] = q.jobs()
+    assert after.status == PENDING and after.why.startswith("waiting: couldn't measure")
+    assert run(job, lambda root, a, digest, log, ready: None) == 0 and agent.calls == []
+    assert q.jobs()[0].why.startswith("window closed before the attempt limit")
 
 
 # ── Receipts ──────────────────────────────────────────────────────────────────

@@ -147,6 +147,7 @@ def morning(bench: Bench, job: Job) -> tuple[str, str]:
     def one(s) -> str:
         call = calls.get((s.arm, s.cond))
         return (f"{s.arm.split(':', 1)[-1]} resolved {s.tasks_solved_ever} of {s.tasks}"
+                + (f", {s.timed_out} ran out of time" if s.time_bound else "")
                 + (f", {call}" if call else ""))
 
     summary = "; ".join(one(s) for s in summarise(tasks, mine) if s.cond in conds_of(job.cond))

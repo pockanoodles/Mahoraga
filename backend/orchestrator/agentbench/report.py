@@ -6,7 +6,7 @@ from dataclasses import dataclass
 
 from .bank import Task
 from .runner import Attempt
-from .stats import Plan, Rate, plan, task_rate
+from .stats import Plan, Rate, plan, task_rate, time_bound
 
 # The precision the report plans toward: ±10 points is the coarsest interval
 # that still separates "local takes a tenth of the work" from "a third".
@@ -58,10 +58,28 @@ class ArmSummary:
     # Failed attempts with a reply cut off at the generation cap: out of
     # budget rather than wrong, though both count as failures.
     capped: int = 0
+    # Failed attempts that ran out of time, and the limit they ran into.
+    timed_out: int = 0
+    limit_minutes: float = 0.0
 
     @property
     def interval(self) -> Rate:
         return Rate(self.rate, self.rate_lo, self.rate_hi, self.tasks, self.n)
+
+    @property
+    def time_bound(self) -> bool:
+        return time_bound(self.timed_out, self.n - self.resolved)
+
+
+def time_warning(s: ArmSummary) -> str | None:
+    """Said where the rate is read, since a rate the clock cut short reads
+    like a model that can't do the work."""
+    if not s.time_bound:
+        return None
+    return (f"WARNING: {s.arm} / {s.cond}: {s.timed_out} of its {s.n - s.resolved} failed "
+            f"attempts ran out of time at the {s.limit_minutes:.0f}-minute limit before the "
+            "model finished. The rate is a floor set by how fast this machine reads long "
+            "prompts. To measure the model, rerun with a longer --timeout or a smaller @ctx.")
 
 
 def precision_plan(s: ArmSummary) -> Plan:
@@ -84,6 +102,7 @@ def summarise(tasks: list[Task], attempts: list[Attempt]) -> list[ArmSummary]:
         for a in rows:
             per_task[a.sha].append(a.resolved)
         r = task_rate(per_task)
+        late = [a for a in rows if a.timed_out and not a.resolved]
         tiers = {a.tier for a in rows}
         if len(tiers) > 1:  # grade.py: tiers are evidence of different kinds
             raise ValueError(f"{arm}/{cond} mixes grading tiers {sorted(tiers)}")
@@ -101,6 +120,8 @@ def summarise(tasks: list[Task], attempts: list[Attempt]) -> list[ArmSummary]:
             repeats=max(len(v) for v in per_task.values()),
             rate=r.point, rate_lo=r.lo, rate_hi=r.hi, tier=tiers.pop(),
             capped=sum(not a.resolved and a.extra.get("capped_calls", 0) > 0 for a in rows),
+            timed_out=len(late),
+            limit_minutes=round(max((a.secs for a in late), default=0) / 60, 1),
         ))
     return out
 
@@ -220,6 +241,7 @@ def render(tasks: list[Task], attempts: list[Attempt],
             f"{s.median_minutes:>5.1f}m")
     lines.append(f"(grading tier: {', '.join(sorted({s.tier for s in summaries}))}; "
                  "intervals count tasks, not attempts)")
+    lines += [w for s in summaries if (w := time_warning(s))]
     if any(s.repeats > 1 for s in summaries):
         lines.append("")
         lines.append("stability across repeats (tasks solved ever / every time):")
@@ -236,7 +258,8 @@ def render(tasks: list[Task], attempts: list[Attempt],
     for s in summaries:
         lines.append(f"  {s.arm} / {s.cond}: " + "  ".join(
             f"{k}={s.outcomes[k]}" for k in OUTCOMES if k in s.outcomes) +
-            (f"  ({s.capped} of the failures hit the generation cap)" if s.capped else ""))
+            (f"  ({s.capped} of the failures hit the generation cap)" if s.capped else "") +
+            (f"  ({s.timed_out} of the failures ran out of time)" if s.timed_out else ""))
     lines.append("")
     cols = [(s.arm, s.cond) for s in summaries]
     index: dict[tuple[str, str, str], list[Attempt]] = defaultdict(list)

@@ -2,6 +2,7 @@
 and that the engine can say "stay" as readily as "split"."""
 from __future__ import annotations
 
+import dataclasses
 import json
 from pathlib import Path
 
@@ -74,6 +75,21 @@ def test_it_says_split_when_local_pays_even_at_the_low_end():
     v = decide(ev(36), A, Billing.api(2000))  # 90% resolve, $10 a cloud task
     assert (v.call, v.confident) == (SPLIT, True)
     assert v.monthly_usd[0] >= max(5, 0.05 * 2000)
+
+
+def test_a_stay_read_off_timeouts_is_not_decided():
+    # 10% resolve, but 30 of the 36 failures ran out of time: the rate is a floor.
+    late = dataclasses.replace(ev(4), failed=36, timed_out=30)
+    v = decide(late, A, Billing.api(150))
+    assert (v.call, v.confident) == (STAY, False)
+    assert v.reason.startswith("30 of 36 failed attempts ran out of time")
+    assert "longer --timeout" in v.sensitivity[0]
+    # Timeouts that are a minority of the failures leave the stay standing.
+    v = decide(dataclasses.replace(ev(4), failed=36, timed_out=17), A, Billing.api(150))
+    assert (v.call, v.confident) == (STAY, True)
+    # A split stands, since more time could only raise the rate.
+    v = decide(dataclasses.replace(ev(36), failed=4, timed_out=3), A, Billing.api(2000))
+    assert (v.call, v.confident) == (SPLIT, True)
 
 
 def test_an_interval_spanning_the_threshold_is_not_a_confident_call():
@@ -228,6 +244,7 @@ def test_evidence_pools_tasks_across_repos_as_units(tmp_path):
     assert (e.rate.tasks, e.rate.attempts) == (4, 6)
     assert e.rate.point == 0.5  # 2 of 4 tasks, not 4 of 6 attempts
     assert e.minutes_per_attempt == 10 and "2 repos" in e.label
+    assert (e.failed, e.timed_out) == (2, 0)
     assert "predate run manifests" in e.hardware
 
 

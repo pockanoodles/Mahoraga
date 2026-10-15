@@ -33,7 +33,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from backend.orchestrator.agentbench.grade import TEST_VERIFIED
-from backend.orchestrator.agentbench.stats import Rate
+from backend.orchestrator.agentbench.stats import Rate, time_bound
 
 from .pricing import Plan
 
@@ -48,6 +48,8 @@ class Evidence:
     tier: str
     label: str  # what was measured, e.g. "aider:qwen3.5:latest / feedback, 3 repos"
     hardware: str = "unknown hardware"
+    failed: int = 0  # attempts that didn't resolve
+    timed_out: int = 0  # of those, the ones that ran out of time
 
 
 @dataclass(frozen=True)
@@ -133,6 +135,15 @@ def decide(ev: Evidence, a: Assumptions, billing: Billing) -> Verdict:
         v = _decide_api(ev, a, billing)
     else:
         v = _decide_subscription(ev, a, billing)
+    if time_bound(ev.timed_out, ev.failed):
+        # A timeout only lowers the rate, so a split or switch read off it
+        # stands, while a stay may be the machine's speed talking.
+        v.sensitivity.insert(0, f"{ev.timed_out} of {ev.failed} failed attempts ran out of "
+                                "time; a longer --timeout or a smaller context measures the model")
+        if v.call == STAY:
+            v.confident = False
+            v.reason = (f"{ev.timed_out} of {ev.failed} failed attempts ran out of time, so "
+                        "the resolve rate is a floor set by this machine's speed. " + v.reason)
     v.sensitivity.append(hw)
     return v
 

@@ -7,13 +7,17 @@ next day is the result rather than a terminal to go looking in.
 """
 from __future__ import annotations
 
+import shutil
+import sys
 from pathlib import Path
 
 from . import host, manifest
+from .agents import parse_arm
 from .bank import Bench
+from .doctor import minutes_per_attempt
 from .queue import FAILED, PENDING, Job, Queue, parse_window
 from .report import render, summarise
-from .runner import CONDITIONS, load_attempts, load_degraded
+from .runner import CONDITIONS, arm_name, load_attempts, load_degraded, open_cells
 from ..audit import usage
 from ..audit.verdict import render as render_verdict
 
@@ -49,6 +53,41 @@ def larger_model_hint(memory_gb: object) -> str | None:
             "Studio, qwen3.6 35B-A3B resolved 31 of 92 tasks to qwen3.5's 28 at the same "
             "131k context, so it is worth a night only next to the default. To compare "
             "them here, pull it and add --arm aider:<its tag>@ctx=131072.")
+
+
+def queued_ahead(queue: Queue, window: str, job: Job | None = None) -> tuple[int, float]:
+    """Attempts the worker runs before `job` (or before a job added now) and their
+    minutes. The worker takes the first open job in queue order, so that's every
+    pending job ahead of it that runs in the same window, or in no window."""
+    attempts, minutes = 0, 0.0
+    for j in queue.jobs():
+        if job is not None and j.id == job.id:
+            break
+        if j.status != PENDING or j.window not in (window, None):
+            continue
+        try:
+            agents = [parse_arm(a) for a in j.arms]
+        except ValueError:
+            continue  # the worker fails it without running anything
+        bench = Bench(Path(j.repo), root=queue.root)
+        left, _ = open_cells(bench, agents, conds_of(j.cond), set(j.tasks) or None, j.repeats)
+        per, _ = minutes_per_attempt(bench, {arm_name(a) for a in agents})
+        attempts, minutes = attempts + left, minutes + left * per
+    return attempts, minutes
+
+
+def cli_missing(which=shutil.which, here: Path | None = None) -> str | None:
+    """What to do when `mahoraga` doesn't run from a shell, since every command
+    `tonight` prints, and the morning file, starts with it. None when it does.
+    `here` is where this install's scripts are (the interpreter's directory)."""
+    if which("mahoraga"):
+        return None
+    here = here or Path(sys.executable).parent
+    if (here / "mahoraga").exists():
+        return (f"`mahoraga` isn't on your PATH, so the commands below won't run as printed. "
+                f"Add {here} to your PATH, or run them as {here / 'mahoraga'}.")
+    return ("`mahoraga` isn't on your PATH, so the commands below won't run as printed. "
+            "Install it with `uv tool install mahoraga-audit`.")
 
 
 def matching_job(queue: Queue, repo: Path, arms: list[str], cond: str,

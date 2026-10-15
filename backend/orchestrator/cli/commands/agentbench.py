@@ -254,13 +254,16 @@ def tonight_cmd(
         typer.echo(f"  {hint}")
 
     typer.echo("3. the queue")
-    est = estimate(bench, agents, conds, night_hours=tonight.window_hours(window))
-    typer.echo(f"  {est.fmt()}")
     queue = Queue(bench_root())
+    job = tonight.matching_job(queue, bench.repo, arms, cond, window)
+    ahead, ahead_minutes = tonight.queued_ahead(queue, window, job)
+    est = estimate(bench, agents, conds, night_hours=tonight.window_hours(window),
+                   ahead=ahead, ahead_minutes=ahead_minutes)
+    typer.echo(f"  {est.fmt()}")
     if not est.pending:
         typer.echo(f"\nthe report is ready: mahoraga audit report {bench.repo}")
         return
-    if job := tonight.matching_job(queue, bench.repo, arms, cond, window):
+    if job:
         typer.echo(f"  already queued as {job.id}")
     else:
         from backend.orchestrator.agentbench.ollama import pulled_models, tagged
@@ -283,6 +286,8 @@ def tonight_cmd(
         typer.echo("  leave it plugged in with the lid open: the worker keeps it awake on "
                    "power, but closing the lid sleeps it")
 
+    if missing := tonight.cli_missing():
+        typer.echo(f"\n{missing}")
     typer.echo(f"\nin the morning: mahoraga audit report {bench.repo}")
     typer.echo(f"  (also written to {tonight.morning_path(bench)}, with a notification, "
                "when the window closes)")

@@ -1508,6 +1508,17 @@ def test_a_bench_written_by_a_newer_version_still_loads(mined, repo, tmp_path):
     assert len(q.jobs()) == 1
 
 
+def test_a_hand_edited_null_takes_the_field_s_default(tmp_path):
+    q = Queue(tmp_path / "q")
+    q.add("repo", ["fake:m"], "blind", pinned=PIN, window="21:00-08:00")
+    q.path.write_text(json.dumps([{**json.loads(q.path.read_text())[0],
+                                   "rest_until": None, "runs": None, "window": None}]))
+    [job] = q.jobs()
+    assert job.rest_until == 0.0 and job.runs == []
+    assert job.window is None  # no default: a null is a real value here
+    assert q.next_open(now=time.time()) is not None
+
+
 # ── Tonight: a repo to an answer by morning ──────────────────────────────────
 
 from backend.orchestrator.agentbench import tonight  # noqa: E402

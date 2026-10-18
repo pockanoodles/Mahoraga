@@ -30,6 +30,20 @@ def loaded_models(base_url: str = BASE_URL, timeout: float = 10) -> list[str]:
     return [m["name"] for m in r.json().get("models", [])]
 
 
+def loaded_sizes(base_url: str = BASE_URL, timeout: float = 10) -> dict[str, int]:
+    """Loaded models, name -> bytes in memory. Raises httpx.HTTPError if Ollama is down."""
+    r = httpx.get(f"{base_url}/api/ps", timeout=timeout)
+    r.raise_for_status()
+    return {m["name"]: m.get("size", 0) for m in r.json().get("models", [])}
+
+
+def unload(model: str, base_url: str = BASE_URL, timeout: float = 30) -> None:
+    """Drop a model from memory now rather than at the end of its keep-alive."""
+    r = httpx.post(f"{base_url}/api/generate", json={"model": model, "keep_alive": 0},
+                   timeout=timeout)
+    r.raise_for_status()
+
+
 def version(base_url: str = BASE_URL, timeout: float = 10) -> str | None:
     """Ollama's own version. Raises httpx.HTTPError if it is down, and
     ValueError if something that isn't Ollama answers."""

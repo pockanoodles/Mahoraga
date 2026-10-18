@@ -5,7 +5,7 @@ import hashlib
 import json
 import os
 import re
-from dataclasses import asdict, dataclass, field
+from dataclasses import MISSING, Field, asdict, dataclass, field
 from pathlib import Path
 
 DEFAULT_ROOT = Path.home() / ".mahoraga-v2" / "agentbench"
@@ -22,8 +22,18 @@ def from_record(cls, record: dict):
     """A dataclass from a stored record, ignoring fields this version doesn't
     know. A bench outlives the code that wrote it: on 2026-10-13 a worker one
     commit behind crashed on a queue file with a field it had never seen, and
-    tasks gaining `committed` would have stopped that night's run the same way."""
-    return cls(**{k: v for k, v in record.items() if k in cls.__dataclass_fields__})
+    tasks gaining `committed` would have stopped that night's run the same way.
+
+    A null where the field has a non-null default takes the default: on
+    2026-10-18 a hand edit left a queue job's rest_until null, and the worker
+    crashed comparing it with the clock when its window closed."""
+    fields = cls.__dataclass_fields__
+    return cls(**{k: v for k, v in record.items()
+                  if k in fields and not (v is None and _has_default(fields[k]))})
+
+
+def _has_default(f: Field) -> bool:
+    return f.default_factory is not MISSING or f.default not in (MISSING, None)
 
 
 @dataclass

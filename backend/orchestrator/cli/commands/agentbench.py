@@ -397,6 +397,7 @@ def run_cmd(
     ratio: float = _RATIO,
     guarded: bool = typer.Option(True, "--guard/--no-guard", help="Preflight, pause on bad conditions, drop degraded attempts."),
     wait_quiet: bool = typer.Option(False, "--wait-quiet", help="Pause while someone else's model is loaded in Ollama."),
+    memory_floor: Optional[int] = typer.Option(None, "--memory-floor", min=1, max=90, help="Keep this percent of memory free for the machine's owner: wait for it, and stop an attempt that eats into it. For a shared machine."),
     force: bool = typer.Option(False, "--force", help="Run even if preflight fails."),
 ) -> None:
     """Attempt every task with every arm. Resumable: finished attempts are skipped."""
@@ -413,7 +414,7 @@ def run_cmd(
     guard = None
     if guarded:
         guard = Guard(bench_root(), ratio=ratio, wait_idle=wait_idle * 60, wait_quiet=wait_quiet,
-                      log=typer.echo)
+                      memory_floor=memory_floor, log=typer.echo)
         typer.echo("preflight")
         from backend.orchestrator.agentbench import isolation
 
@@ -441,7 +442,8 @@ def run_cmd(
         deadline=deadline, progress=progress,
         settings={"conds": list(conds), "repeats": repeats, "timeout": timeout,
                   "until": until, "wait_idle_min": wait_idle, "guarded": guarded,
-                  "wait_quiet": wait_quiet, "min_speed_ratio": ratio, "forced": force},
+                  "wait_quiet": wait_quiet, "memory_floor": memory_floor,
+                  "min_speed_ratio": ratio, "forced": force},
         started=lambda run_id: typer.echo(f"run {run_id} (manifest: {manifest.path(bench, run_id)})"),
         dropped=lambda arm, why: typer.echo(f"dropped {arm}: {why}"))
     typer.echo(f"{len(done)} attempts run ({stopped})")
@@ -642,6 +644,7 @@ def service_status_cmd() -> None:
 def worker_cmd(
     once: bool = typer.Option(False, "--once", help="Exit when nothing can run now, instead of waiting."),
     poll: float = typer.Option(5, "--poll", help="Minutes between looks at the queue when idle."),
+    memory_floor: Optional[int] = typer.Option(None, "--memory-floor", min=1, max=90, help="Keep this percent of memory free for the machine's owner: wait for it, and stop an attempt that eats into it. For a shared machine."),
 ) -> None:
     """Run queued jobs as their windows open. Meant to stay up (launchd, tmux)."""
     from backend.orchestrator.agentbench.queue import Queue, drain
@@ -661,7 +664,7 @@ def worker_cmd(
         typer.echo(f"[{datetime.now():%m-%d %H:%M:%S}] {msg}")
 
     drain(queue, lambda job, deadline: run_job(queue, job, deadline, progress=_echo_attempt,
-                                               log=stamp),
+                                               memory_floor=memory_floor, log=stamp),
           poll=poll * 60, once=once, log=stamp)
 
 

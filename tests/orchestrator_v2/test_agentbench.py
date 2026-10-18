@@ -35,7 +35,7 @@ from backend.orchestrator.agentbench.mine import (
 from backend.orchestrator.agentbench.grade import TEST_VERIFIED, Grade
 from backend.orchestrator.agentbench.guard import Guard
 from backend.orchestrator.agentbench.stats import plan, task_rate, tasks_needed, wilson
-from backend.orchestrator.agentbench.host import Power, parse_idle, parse_power
+from backend.orchestrator.agentbench.host import Power, parse_idle, parse_power, parse_sysctl_int
 from backend.orchestrator.agentbench.report import outcome, render, summarise
 from backend.orchestrator.agentbench.runner import (
     arm_name, load_attempts, load_degraded, prompt_for, run_attempt, run_matrix,
@@ -1157,6 +1157,93 @@ def test_a_shared_ollama_holding_someone_elses_model_pauses_the_run(tmp_path):
     assert g.problems(FakeAgent("m")) == []  # its own model, and its own derived tag
     assert _guard(tmp_path, FakeMachine(), loaded=lambda: ["gpt-oss:20b"]).problems(
         FakeAgent("m")) == []  # off unless asked
+
+
+class FakeMemory:
+    """The kernel's free percentage, and what Ollama holds, on a 64 GiB machine."""
+    def __init__(self, free: int):
+        self.free, self.loaded = free, {}
+        self.released: list[str] = []
+        self.stops = 0
+
+    def kw(self, floor: int | None = 25) -> dict:
+        return {"memory_floor": floor, "free_pct": lambda: self.free,
+                "mem_total": lambda: 64 << 30, "sizes": lambda: dict(self.loaded),
+                "release": self.release, "stop_agent": self.stop}
+
+    def release(self, model: str) -> None:
+        self.released.append(model)
+        self.loaded.pop(model, None)
+
+    def stop(self) -> None:
+        self.stops += 1
+
+
+def test_parse_sysctl_int():
+    assert parse_sysctl_int("92\n") == 92
+    assert parse_sysctl_int("") is None
+
+
+def test_a_memory_floor_pauses_the_run_and_is_off_unless_asked(tmp_path):
+    mem = FakeMemory(free=20)
+    g = _guard(tmp_path, FakeMachine(), **mem.kw())
+    assert g.problems(FakeAgent("m")) == ["memory: 20% free, under the 25% floor"]
+    mem.free = 30
+    assert g.problems(FakeAgent("m")) == []
+    # The laptop sits at 5% free through every 131k attempt; no floor, no pause.
+    mem.free = 5
+    assert _guard(tmp_path, FakeMachine(), **mem.kw(floor=None)).problems(FakeAgent("m")) == []
+
+
+def test_the_floor_leaves_room_for_a_model_that_is_not_loaded_yet(tmp_path):
+    mem = FakeMemory(free=40)
+    g, agent = _guard(tmp_path, FakeMachine(), **mem.kw()), FakeAgent("m")
+    mem.loaded = {"m:latest": 16 << 30}           # a quarter of the machine
+    assert g.problems(agent) == []                # loaded: already counted in the 40%
+    mem.loaded = {}
+    assert g.problems(agent) == ["memory: 40% free, under the 25% floor plus 25% to load m"]
+    mem.free = 55
+    assert g.problems(agent) == []
+
+
+def test_waiting_on_memory_unloads_the_run_s_own_model(tmp_path):
+    mem = FakeMemory(free=10)
+    mem.loaded = {"m:latest": 1 << 30, "gpt-oss:20b": 1 << 30}
+
+    def sleep(_):  # the owner closes their apps
+        mem.free = 80
+
+    g = _guard(tmp_path, FakeMachine(), sleep=sleep, **mem.kw())
+    assert g.wait_ready(FakeAgent("m"))
+    assert mem.released == ["m:latest"]           # never someone else's
+
+
+def test_memory_under_the_floor_stops_the_attempt_and_gives_it_back(tmp_path):
+    mem = FakeMemory(free=60)
+    mem.loaded = {"m:latest": 16 << 30}
+    m = FakeMachine()
+    probes = []
+    m.speed = lambda model, num_ctx: probes.append(model) or 30.0
+    g, agent = _guard(tmp_path, m, **mem.kw()), FakeAgent("m")
+    with g.watch(agent) as watch:
+        mem.free = 12                             # the owner opens their apps
+        deadline = time.time() + 5
+        while not mem.stops and time.time() < deadline:
+            time.sleep(0.01)
+    assert mem.stops == 1 and mem.released == ["m:latest"]
+    assert watch.degraded == ["memory fell to 12% free, under the 25% floor; "
+                              "stopped the attempt and unloaded the model to give it back"]
+    assert probes == []                           # no speed probe to reload it
+    assert watch.conditions["min_free_pct"] == 12
+
+
+def test_a_low_reading_after_the_attempt_does_not_void_it(tmp_path):
+    mem = FakeMemory(free=60)
+    g, agent = _guard(tmp_path, FakeMachine(), **mem.kw()), FakeAgent("m")
+    g.sample_every = 60                          # only the closing sample runs
+    with g.watch(agent) as watch:
+        mem.free = 12
+    assert watch.degraded == [] and mem.stops == 0
 
 
 # ── Isolation canary ──────────────────────────────────────────────────────────

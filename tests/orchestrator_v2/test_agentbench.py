@@ -894,6 +894,25 @@ def test_the_report_warns_when_the_clock_set_the_rate(mined, repo):
     assert "WARNING" not in render(mined.load_tasks(), late + wrong)
 
 
+def test_the_report_and_the_verdict_print_one_median(mined, repo):
+    run_matrix(mined, [FakeAgent("m")], ["blind"])
+    [a] = load_attempts(mined)
+    four = [dataclasses.replace(a, secs=s, rep=i) for i, s in enumerate((480, 480, 520, 600))]
+    # statistics.median of an even count is the mean of the middle two: 8.33
+    # minutes, where the upper middle read 8.7.
+    assert summarise(mined.load_tasks(), four)[0].median_minutes == 8.3
+
+
+def test_mcnemar_exact_matches_known_values():
+    from backend.orchestrator.agentbench.stats import mcnemar_exact
+
+    assert mcnemar_exact(0, 0) == 1.0
+    assert mcnemar_exact(9, 12) == pytest.approx(0.6636, abs=1e-4)   # qwen3.5 vs qwen3.6 @131k
+    assert mcnemar_exact(7, 1) == pytest.approx(18 / 256)
+    assert mcnemar_exact(1, 7) == mcnemar_exact(7, 1)
+    assert mcnemar_exact(5, 5) == 1.0
+
+
 def test_no_attempt_starts_after_the_deadline(mined, repo):
     agent = FakeAgent("m", apply_gold)
     assert run_matrix(mined, [agent], ["blind"], deadline=time.time() - 1) == []

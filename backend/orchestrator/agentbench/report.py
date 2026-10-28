@@ -1,6 +1,7 @@
 """Summarise a bench's attempts: per-arm totals and a per-task matrix."""
 from __future__ import annotations
 
+import statistics
 from collections import Counter, defaultdict
 from dataclasses import dataclass
 
@@ -97,7 +98,6 @@ def summarise(tasks: list[Task], attempts: list[Attempt]) -> list[ArmSummary]:
     out = []
     for (arm, cond), rows in sorted(groups.items()):
         multi = [a for a in rows if len(by_sha[a.sha].gold_src) > 1]
-        secs = sorted(a.secs for a in rows)
         per_task: dict[str, list[bool]] = defaultdict(list)
         for a in rows:
             per_task[a.sha].append(a.resolved)
@@ -112,7 +112,10 @@ def summarise(tasks: list[Task], attempts: list[Attempt]) -> list[ArmSummary]:
             multi_file_resolved=sum(a.resolved for a in multi), multi_file_n=len(multi),
             broke_other_code=sum(a.regressions > 0 or a.suite_crashed for a in rows),
             touched_tests=sum(bool(a.touched_tests) for a in rows),
-            median_minutes=round(secs[len(secs) // 2] / 60, 1),
+            # The verdict's median (audit/evidence.py), so the report and the
+            # verdict print one figure: the upper middle of an even count read
+            # 8.4 minutes where the verdict read 8.3.
+            median_minutes=round(statistics.median(a.secs for a in rows) / 60, 1),
             outcomes=dict(Counter(outcome(a) for a in rows)),
             tasks=len(per_task),
             tasks_solved_ever=sum(any(v) for v in per_task.values()),

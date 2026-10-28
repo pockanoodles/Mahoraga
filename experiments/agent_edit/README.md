@@ -71,10 +71,10 @@ on PATH.
 
 | Arm | Resolved | Multi-file resolved | Broke other code | Median time |
 | --- | --- | --- | --- | --- |
-| qwen3.5, blind | **5 / 18 (28%)** | 4 / 12 | 7 | 8.4 min |
-| qwen3.5, feedback | **5 / 18 (28%)** | 3 / 12 | 5 | 13.1 min |
-| granite4.1-8b, blind | 0 / 18 | 0 / 12 | 1 | 12.9 min |
-| granite4.1-8b, feedback | 1 / 18 | 0 / 12 | 0 | 11.8 min |
+| qwen3.5, blind | **5 / 18 (28%)** | 4 / 12 | 7 | 8.3 min |
+| qwen3.5, feedback | **5 / 18 (28%)** | 3 / 12 | 5 | 11.7 min |
+| granite4.1-8b, blind | 0 / 18 | 0 / 12 | 1 | 12.7 min |
+| granite4.1-8b, feedback | 1 / 18 | 0 / 12 | 0 | 11.7 min |
 
 No attempt in any arm edited a test file.
 

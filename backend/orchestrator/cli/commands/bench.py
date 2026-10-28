@@ -44,6 +44,7 @@ app = typer.Typer(
 from .bench_report import report_app  # noqa: E402
 app.add_typer(report_app, name="report")
 
+from ...config import ollama_base_url  # noqa: E402
 from ...routing.live_route import (  # noqa: E402
     CloudArmUnavailable,
     load_arms,
@@ -111,9 +112,8 @@ async def _capture_run_context() -> dict[str, Any]:
 
     # Ollama version
     try:
-        ollama_base = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434").rstrip("/")
         async with httpx.AsyncClient(timeout=2.0) as client:
-            resp = await client.get(f"{ollama_base}/api/version")
+            resp = await client.get(f"{ollama_base_url()}/api/version")
             if resp.status_code == 200:
                 ctx["ollama_version"] = resp.json().get("version")
             else:

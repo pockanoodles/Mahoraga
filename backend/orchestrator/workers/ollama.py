@@ -12,6 +12,7 @@ _THINK_TAG_RE = re.compile(r"<think>.*?</think>", re.DOTALL | re.IGNORECASE)
 
 from .base import WorkerAdapter, WorkerEvent, WorkerHealth
 from .postprocess import extract_code, strip_preamble
+from ..config import ollama_base_url
 from ..domain.models import Task, TaskAttempt
 
 logger = logging.getLogger(__name__)
@@ -76,7 +77,7 @@ class OllamaWorker(WorkerAdapter):
         self,
         model: str,
         worker_id: str,
-        base_url: str = "http://localhost:11434",
+        base_url: str | None = None,
         system_prompt: str | None = None,
         options: dict | None = None,
         extra_payload: dict | None = None,
@@ -84,7 +85,7 @@ class OllamaWorker(WorkerAdapter):
     ) -> None:
         self._model = model
         self._worker_id = worker_id
-        self._base_url = base_url.rstrip("/")
+        self._base_url = (base_url or ollama_base_url()).rstrip("/")
         # Priority: explicit arg → legacy lookup by full id → role-derived → fallback.
         if system_prompt is not None:
             self._system_prompt = system_prompt

@@ -43,12 +43,12 @@ import statistics
 
 import httpx
 
+from ..config import ollama_base_url
 from .vocab import CODE_LIKE_BUCKETS, DEBUG_BUCKETS, SECURITY_BUCKETS, PLAN_LIKE_BUCKETS
 
 
 # ── Infrastructure ──────────────────────────────────────────────────────────
 
-_OLLAMA_EMBED_URL = "http://localhost:11434/api/embed"
 _EMBED_MODEL = "nomic-embed-text"
 
 # Bucket groupings imported from vocab — single source of truth.
@@ -340,7 +340,7 @@ async def _embed(text: str) -> list[float] | None:
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
             resp = await client.post(
-                _OLLAMA_EMBED_URL,
+                f"{ollama_base_url()}/api/embed",
                 json={"model": _EMBED_MODEL, "input": text[:2000]},
             )
             if resp.status_code == 200:

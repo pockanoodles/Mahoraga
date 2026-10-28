@@ -4,13 +4,11 @@ import json
 
 import httpx
 
-from ..config import ENABLED_BACKENDS
+from ..config import ENABLED_BACKENDS, ollama_base_url
 from ..domain.models import Dependency, DependencyType, Mission, Task
 from .config import MAX_TASKS
 from .prompt import build_planner_prompt
 from .validator import ValidationError, validate_raw_tasks
-
-_OLLAMA_BASE_URL = "http://localhost:11434"
 
 
 class PlannerError(RuntimeError):
@@ -110,7 +108,7 @@ async def _plan_with_ollama(user_message: str) -> str:
     try:
         async with httpx.AsyncClient(timeout=120.0) as client:
             response = await client.post(
-                f"{_OLLAMA_BASE_URL}/api/chat",
+                f"{ollama_base_url()}/api/chat",
                 json={
                     "model": "qwen3:4b-q4_K_M",
                     "messages": [

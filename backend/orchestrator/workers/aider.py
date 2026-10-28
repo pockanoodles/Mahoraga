@@ -7,11 +7,13 @@ Can use Ollama for free local inference: model="ollama_chat/qwen3:4b"
 from __future__ import annotations
 import asyncio
 import logging
+import os
 import re
 import shutil
 from typing import AsyncGenerator
 
 from .base import WorkerAdapter, WorkerEvent, WorkerHealth
+from ..config import ollama_base_url
 from ..domain.models import Task, TaskAttempt
 
 logger = logging.getLogger(__name__)
@@ -88,6 +90,9 @@ class AiderWorker(WorkerAdapter):
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 cwd=self._cwd,
+                # Aider finds Ollama through OLLAMA_API_BASE: the server the
+                # health check asked, not whatever aider would default to.
+                env={**os.environ, "OLLAMA_API_BASE": ollama_base_url()},
             )
         except FileNotFoundError:
             yield WorkerEvent(
@@ -176,7 +181,7 @@ class AiderWorker(WorkerAdapter):
             try:
                 import httpx
                 resp = await httpx.AsyncClient().get(
-                    "http://localhost:11434/api/tags", timeout=3.0
+                    f"{ollama_base_url()}/api/tags", timeout=3.0
                 )
                 if resp.status_code == 200:
                     model_names = [m["name"] for m in resp.json().get("models", [])]

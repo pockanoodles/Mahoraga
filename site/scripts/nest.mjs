@@ -8,3 +8,4 @@ import { fileURLToPath } from "node:url";
 const site = join(dirname(fileURLToPath(import.meta.url)), "..");
 rmSync(join(site, "dist"), { recursive: true, force: true });
 cpSync(join(site, "out"), join(site, "dist", "mahoraga"), { recursive: true });
+cpSync(join(site, "_headers"), join(site, "dist", "_headers"));

@@ -1,8 +1,10 @@
 # Is local coding AI worth it on a 16 GB Mac? (October 2026)
 
 **Draft.** Every figure here links to the artifact it came from. Sections
-marked PENDING wait on runs that are scheduled, and no number goes into them
-until the run has finished and `orch bench verify` recomputes it.
+marked PENDING wait on runs that are under way on the laptop, which are
+HumanEval+ for section 2 on the night of 2026-10-28 and the laptop's own 131k
+run for sections 3 to 5 over the nights to 2026-10-31. No number goes into
+them until the run has finished and `orch bench verify` recomputes it.
 
 ## The question
 
@@ -21,7 +23,9 @@ second machine (a Mac Studio with 64 GB) shows what more memory changes.
 For most people the answer is to keep paying for cloud. The model that fits
 this laptop resolves about one real commit in ten on three outside
 repositories (10% of 92 tasks) at a 32k context, and about three in ten (30%)
-once the context is raised to 131k. A 64 GB machine runs a larger model that
+once the context is raised to 131k. Both rates come from the laptop's exact
+model file run on a faster machine, and the laptop's own 131k run is still
+under way (PENDING, section 5). A 64 GB machine runs a larger model that
 resolves about the same share (34% of the same 92 tasks), so most of what
 first looked like a hardware gap was a settings gap. The repository's own
 tests caught every failure on both machines. Neither rate pays at today's
@@ -77,9 +81,10 @@ nothing that passed before has broken.
 
 Every attempt was blind and run once. The qwen3.5 rows on the Studio use the
 laptop's exact model file (checksum verified) with the laptop's settings, so
-they measure the laptop's model on faster hardware. The laptop's own rate may
-sit slightly below them, because its attempts take 8 to 13 minutes and the
-slowest run into the 20-minute timeout. The Studio rows were run overnight on
+they measure the laptop's model on faster hardware. The laptop's own run at
+131k is the row this table still lacks (PENDING, section 5), since the laptop
+reads a 100,000-token prompt for over ten minutes and each attempt there needs
+a limit of 90 minutes rather than 20. The Studio rows were run overnight on
 2026-10-06 ([Era 36](../../brain/state/findings.md)), except qwen3.5 at 131k,
 which ran on the night of 2026-10-13 with the same model file. Every count in this
 section and the next is recomputed by `orch bench verify` from one line per
@@ -120,9 +125,12 @@ triage each failure.
 
 | Model (92 outside tasks) | Resolved | Net per month | Local pays once a cloud task costs | Verdict |
 | --- | --- | --- | --- | --- |
-| qwen3.5 at 32k (fits 16 GB) | 10% [5%–18%] | −$109 (−$117 to −$96) | $23.06 | STAY |
-| qwen3.5 at 131k (fits 16 GB) | 30% [22%–40%] | −$76 (−$89 to −$59) | $5.72 | STAY |
+| qwen3.5 at 32k (fits 16 GB, run on the Studio) | 10% [5%–18%] | −$109 (−$117 to −$96) | $23.06 | STAY |
+| qwen3.5 at 131k (fits 16 GB, run on the Studio) | 30% [22%–40%] | −$76 (−$89 to −$59) | $5.72 | STAY |
 | qwen3.6 at 131k (needs 24 GB or more) | 34% [25%–44%] | −$70 (−$85 to −$54) | $4.92 | STAY |
+
+> **PENDING (section 5):** the same verdict on the laptop's own 131k run, on
+> the 47 outside tasks it attempts.
 
 Local would need to resolve at least 77% of queued tasks to break even at
 $0.75 a task, which is about twice what either model manages at 131k. At a
@@ -154,7 +162,7 @@ the context accounts for 19 of the 22 tasks between the two models.
 
 Speed does not explain the gap either. The laptop's model on the Studio runs
 at about 79 tokens a second instead of 14.5, and its median attempt drops from
-8.4 minutes to about one. Its resolve rate on Mahoraga stays within the
+8.3 minutes to 1.4. Its resolve rate on Mahoraga stays within the
 laptop's interval (19% against 28%), so faster hardware gave the same model
 the same answers sooner.
 
@@ -175,9 +183,18 @@ short prompt barely moves (17.6 against 18.7 tokens a second, measured
 of its 32 layers, which is why the wider window costs about 4 GB rather than
 the 16 a plain transformer of its size would need.
 
-> **PENDING:** the 131k run on the laptop itself. About 1.8 GB of the cache
-> sits off the GPU there, so long prompts may slow attempts into the timeout,
-> and the laptop's rate may land below the Studio's.
+Fitting in memory is not the same as running well, which is why the laptop
+needs its own measurement. About 1.8 GB of the cache sits off the GPU at 131k,
+and the laptop reads a long prompt at about 140 tokens a second (measured
+2026-10-15). A single more-itertools request of 100,000 tokens therefore keeps
+it busy for about twelve minutes before the model writes a word. The laptop's
+first two tries at this measurement were set by clocks rather than by the
+model (section 6), so the run below gives each attempt 90 minutes and puts no
+shorter clock inside it.
+
+> **PENDING (running 2026-10-28 to 2026-10-31):** qwen3.5 at 131k on the
+> laptop itself, blind, on 47 tasks from more-itertools and attrs, compared
+> task by task with the Studio's run of the same model file.
 
 For a 16 GB owner, the first change is the context window, and a memory
 upgrade is worth measuring only after it. The larger model still resolves a
@@ -187,8 +204,12 @@ release), but both differences sit well inside the intervals.
 One 9B model (ornith-1.5) claims 70.6 on SWE-bench Verified at a quarter of
 the memory, which would undercut the upgrade if it held. Its figure was
 measured with a scaffold trained alongside the model, so it cannot be compared
-directly with a plain harness, and it has not yet been run on these
-repositories.
+directly with a plain harness. Under aider its replies came back as tool-call
+markup that aider cannot apply (section 6), so it ran under opencode instead,
+and opencode lets a model run the tests itself even in the blind condition.
+That run needs the same control model under opencode before its numbers mean
+anything, and the control had not finished when the Studio was last available,
+so ornith has no result in this report.
 
 ## 6. What we got wrong along the way
 
@@ -213,14 +234,53 @@ laptop's model at 32k. We credited the larger model with a gain that mostly
 came from the wider window, until a night with qwen3.5 at 131k closed 19 of the
 22 tasks between them.
 
+The laptop's own 131k runs went wrong twice before they measured anything.
+The first night gave each attempt 20 minutes, and 26 of its 38 attempts ran
+out of time, because we had measured the laptop's speed on short prompts and
+it reads a long one at about 140 tokens a second. The verdict engine now
+refuses to call a stay decided when most of the failures are timeouts, since
+a timeout can only lower the rate. A longer limit then exposed a second clock
+inside the agent. Aider gives each model request ten minutes unless told
+otherwise, and the laptop needs longer than that to read a prompt of more than
+about 80,000 tokens, so 27 of the first night's 38 attempts lost a request and
+had to send it again. With both clocks in place the laptop seemed to solve far
+fewer tasks than the Studio running the same model file (8 against 14 of the
+same 28), which read like a hardware result until the logs showed the cut
+requests. Mahoraga now gives each request the whole attempt's limit, and the
+laptop's numbers in this report come from a rerun with that fix.
+
+Two more errors came from the agents' interfaces rather than from the models.
+Ornith-1.5 was first recorded under aider as 3 resolved and 99 attempts with
+no edit, but 47 of its replies were tool-call markup that aider cannot apply,
+so those attempts measured the interface and were set aside. The first
+opencode attempt then ran `git show` on the commit that held the answer,
+since each task's clone was built on top of that commit and `git log` showed
+it one step back. Every
+clone is now rebuilt with nothing of the answer in it, and the one attempt
+that saw it was discarded. Aider cannot run shell commands, so no aider result
+in this report was affected.
+
 ## 7. Run it on your repository
 
-The measurement takes one command to check and one to run overnight.
+The measurement takes one command, and the answer is ready the next morning.
+
+```bash
+mahoraga audit tonight ~/code/your-repo
+```
+
+It mines tasks from the repository's own history and checks that the machine
+and the agent are ready. It also measures once how fast the machine reads a
+long prompt, so each attempt gets a limit this machine can finish inside, and
+then it queues the run for the night. The morning file gives the rate, its
+interval and the verdict, after asking once how you pay for cloud. Each step
+is also its own command for anyone who wants to set it by hand, and on a 16 GB
+machine at 131k the hand-set run needs the longer limit.
 
 ```bash
 mahoraga audit mine    ~/code/your-repo
 mahoraga audit doctor  ~/code/your-repo --arm aider:qwen3.5:latest@ctx=131072
-mahoraga audit run     ~/code/your-repo --arm aider:qwen3.5:latest@ctx=131072 --cond feedback --until 07:30
+mahoraga audit run     ~/code/your-repo --arm aider:qwen3.5:latest@ctx=131072 \
+    --cond feedback --timeout 5400 --until 07:30
 mahoraga audit verdict ~/code/your-repo --arm aider:qwen3.5:latest@ctx=131072 \
     --tasks-per-month 200 --plan claude-max-5x --usage-of-cap 0.6
 ```

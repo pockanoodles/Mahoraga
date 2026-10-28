@@ -596,6 +596,37 @@ def test_aider_reads_cap_hits_and_tool_calls_from_its_log(tmp_path, monkeypatch)
     assert run.unreadable == "1 tool calls, which aider can't run"
 
 
+def test_aider_requests_may_take_the_whole_attempt(tmp_path, monkeypatch):
+    seen = {}
+
+    def launch(cmd, *a, **k):
+        seen["cmd"] = cmd
+        return "Tokens: 1k sent, 10 received.\n", False, 3.0
+
+    monkeypatch.setattr("backend.orchestrator.agentbench.agents._launch", launch)
+    monkeypatch.setattr("shutil.which", lambda name: "/bin/" + name)
+    AiderAgent("m:9b", home=tmp_path).attempt(tmp_path, "p", test_cmd=None, timeout=5400.0)
+    cmd = seen["cmd"]
+    # Not litellm's 600 s, which a 16 GB laptop's prefill at 131k outlasts.
+    assert cmd[cmd.index("--timeout") + 1] == "5400"
+
+
+def test_an_attempt_keeps_its_failed_requests_and_the_export_reads_old_logs(mined, repo):
+    from backend.orchestrator.agentbench import export
+    from backend.orchestrator.agentbench.runner import attempt_log
+
+    run_matrix(mined, [FakeAgent("m", request_errors=2)], ["blind"])
+    [a] = load_attempts(mined)
+    assert a.request_errors == 2
+    assert export.request_errors(mined, a) == 2
+    old = dataclasses.replace(a, arm="aider:m", request_errors=None)  # recorded before the count
+    log = attempt_log(mined, old)
+    log.write_text("litellm.APIConnectionError: Ollama_chatException - litellm.Timeout: Connection \n"
+                   "timed out after 600.0 seconds.\nRetrying in 0.2 seconds...\n")
+    assert export.request_errors(mined, old) == 1
+    assert export.request_errors(mined, dataclasses.replace(old, arm="opencode:m")) is None
+
+
 def test_aider_request_errors_count_one_per_failed_request():
     # From the throttled 2026-09-29 run: one failure names two litellm errors.
     log = ("tests/test_slack_client.py\n"

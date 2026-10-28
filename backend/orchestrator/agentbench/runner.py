@@ -70,6 +70,9 @@ class Attempt:
     # Defaults keep attempts recorded before these fields existed loadable.
     tier: str = TEST_VERIFIED
     run_id: str = ""
+    # Model requests that failed (cut by a timeout, an Ollama error). None on
+    # attempts recorded before this was kept: their log still says.
+    request_errors: int | None = None
 
     @property
     def no_edit(self) -> bool:
@@ -104,6 +107,11 @@ def _artifact(bench: Bench, arm: str, cond: str, sha: str, rep: int, ext: str,
     if try_no is not None:  # a degraded attempt: kept apart, one file per try
         return _degraded_dir(bench) / f"{stem}__d{try_no}.{ext}"
     return bench.attempts / f"{stem}.{ext}"
+
+
+def attempt_log(bench: Bench, a: Attempt) -> Path:
+    """The agent's own output for a counted attempt."""
+    return _artifact(bench, a.arm, a.cond, a.sha, a.rep, "log")
 
 
 def _next_degraded_try(bench: Bench, arm: str, cond: str, sha: str, rep: int) -> int:
@@ -205,7 +213,7 @@ def run_attempt(bench: Bench, config: SuiteConfig, task: Task, agent: Agent,
         rep=rep,
         degraded=_degraded(watch, run, edited=bool(set(edited) - set(touched_tests))),
         conditions=watch.conditions if watch else {},
-        tier=g.tier, run_id=run_id,
+        tier=g.tier, run_id=run_id, request_errors=run.request_errors,
     )
     if attempt.degraded:
         attempt.conditions["at"] = time.strftime("%Y-%m-%dT%H:%M:%S")

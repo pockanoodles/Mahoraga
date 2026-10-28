@@ -511,6 +511,12 @@
           "repos": ["more-itertools", "click", "attrs"]
         }
       },
+      "config": {
+        "machine": "Mac Studio M5 Max, 64 GB (Mac17,14)",
+        "agent": "aider 0.86.2, diff edit format",
+        "dates": "2026-10-06 to 2026-10-14",
+        "context": 131072
+      },
       "published_in": ["docs/report/2026-10-local-coding-ai.md"],
       "metrics": {
         "pairs": { "value": 92, "decimals": 0 },

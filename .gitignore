@@ -60,3 +60,10 @@ demo/raw/
 
 # Rendered film — 26MB, regenerable with demo/assemble.sh
 demo/out/
+
+# Per-seed sweep state (bandit state, episodic memory, embedding caches) from
+# `orch benchmark` runs. The summaries beside it are the result artifacts.
+benchmarks/results/*/_runs/
+*.sqlite
+*.sqlite3
+*_cache.json

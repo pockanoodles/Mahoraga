@@ -46,11 +46,83 @@ in one pipeline (source, runner, grader, ledger, verdict).
    attempts, become stay, split or switch, priced for the way you pay (by the token or by
    subscription) and for the time a failed attempt costs you.
 
+```mermaid
+flowchart LR
+    Source[(Your repo history)] --> Mine[Mine tasks]
+    Mine --> Run[Run a local agent]
+    Run --> Grade[Grade with your tests]
+    Grade --> Ledger[(Ledger of attempts)]
+    Ledger --> Rate[Rate and 95% interval, per task]
+    Rate --> Verdict([Stay, split or switch])
+    Ollama[Ollama model] -.-> Run
+```
+
+Mining only keeps a commit when the tests it shipped fail without its fix and pass with
+it, and the task is the commit's parent with that commit's test changes applied and every
+other change (source, docs, config) left out. A task needs the commit to change both
+Python source and a pytest module, and the source change to be 250 lines or fewer.
+
+```mermaid
+flowchart TD
+    C[Commit C that changed code and a test] --> Base["Task tree = parent of C + C's test changes"]
+    Base --> A{"Gate A: C's own tests pass at C?"}
+    A -- no --> D1[Dropped: not satisfiable]
+    A -- yes --> B{"Gate B: at least one of them fails at the base?"}
+    B -- no --> D2[Dropped: tests pass without the fix]
+    B -- yes --> P{"Full suite at the base has passing tests?"}
+    P -- no --> D3[Dropped: no baseline to protect]
+    P -- yes --> K([Kept, with its pass-to-pass baseline])
+```
+
 The verdict checks both ends of the interval, so it calls a split confidently only when
 the pessimistic end still pays, and it is allowed to tell you that you're not wasting
 money. On the published probe, aider and qwen3.5 (9.7B) resolved 5 of 18 real Mahoraga
 commits on a 16 GB Mac, a rate of 28% with an interval of 12% to 51%, which is well short
 of the 77% break-even for a $0.75 cloud task, so the verdict there is to stay.
+
+### How the verdict is decided
+
+The rules below are the ones in `backend/orchestrator/audit/verdict.py`. They run on the
+task-weighted rate and its Wilson interval, which uses the number of tasks and not the number of attempts, because repeats
+of one task are not independent draws. A queued task is one that can wait for an overnight
+run, and by default 25% of your cloud tasks count as queueable. Each failed local attempt
+is charged 3 minutes of your time at $50 an hour, and each attempt is charged its
+electricity (40 W at $0.30 per kWh).
+
+```mermaid
+flowchart TD
+    S([Measured rate with 95% interval]) --> N{"Fewer than 5 tasks?"}
+    N -- yes --> T1["Stay, not confident: mine more tasks"]
+    N -- no --> W{"90% or more of your work can wait, and interval low end is 80% or more?"}
+    W -- yes --> SW1(["Switch, confident"])
+    W -- no --> Bill{"How do you pay?"}
+    Bill -- "per token" --> M["material = larger of $5 and 5% of the monthly bill"]
+    M --> L{"Savings at the interval's low end are at least material?"}
+    L -- yes --> SP1(["Split, confident"])
+    L -- no --> Pt{"Savings at the point estimate are at least material?"}
+    Pt -- yes --> SP2(["Split, not yet confident"])
+    Pt -- no --> H{"Savings at the high end are below material?"}
+    H -- yes --> ST1(["Stay, confident"])
+    H -- no --> ST2(["Stay, not yet confident"])
+    Bill -- subscription --> Dn{"Can local lift you down one plan tier or relieve a cap you hit?"}
+    Dn -- "low end clears it" --> SP3(["Split, confident"])
+    Dn -- "only the point estimate does" --> SP4(["Split, not yet confident"])
+    Dn -- neither --> ST3(["Stay, confident: extra cloud tasks are free on a flat plan"])
+```
+
+For a per-token user, the savings on queued tasks are `p × cloud cost − local cost − (1 − p) × triage cost`, evaluated at the low end,
+the point estimate and the high end of the interval. A task pays to go local once `p` passes `(local + triage) / (cloud + triage)`,
+which is the break-even rate the verdict prints (77% for a $0.75 cloud task on the published probe). For a subscription user, the
+low end must clear the rate needed to drop a tier, or the user must already be at the cap with
+the low end covering at least 10% of their usage. Every assumption prints with the verdict so a reader can disagree with a number
+and not only with the call.
+
+One rule runs after the call. A timeout can only lower a rate, so when at least 3 failed
+attempts ran out of time and they make up half or more of the failures, the rate is a floor
+set by the machine's speed. A split or switch read off it still stands, but a stay becomes
+not yet confident, and the verdict says that a longer `--timeout` or a smaller context would
+measure the model instead.
+
 
 ## Install
 
@@ -95,7 +167,7 @@ model are there and that the agent can't see the answer, and queues the run for
 21:00–08:00. It then starts the background worker (under launchd on macOS) and tells you
 how many nights the run will take. The verdict also needs how many tasks you give cloud
 agents a month and how you pay for them. Pass them as above, or `tonight` asks once in
-the terminal; they're saved in `usage.json` next to your benches and never leave the
+the terminal. They're saved in `usage.json` next to your benches and never leave the
 machine. When the window closes, the report and the verdict are written next to the bench
 and a notification gives the resolved count and the call. Each step also has its
 own command (`mine`, `doctor`, `queue add`, `service install`) for when you want to run
@@ -147,8 +219,8 @@ rejects. The bill then scales with how often the local model actually fails
 rather than with how many tasks there are.
 
 **Measured live, end to end, on the 164-task HumanEval+ benchmark:** the
-cascade reached a verified pass@1 of **0.921** — **94.4% of what the cloud
-model scored on its own** — at **$8.47 per 1,000 tasks instead of $35.97, a
+cascade reached a verified pass@1 of **0.921**, **94.4% of what the cloud
+model scored on its own**, at **$8.47 per 1,000 tasks instead of $35.97, a
 76.5% cost cut.** On a 16 GB laptop, with the judge running free and local.
 
 Every figure in this README is recomputed from the per-case results committed
@@ -159,7 +231,7 @@ and limits: [`docs/RESULTS.md`](docs/RESULTS.md).
 
 ![orch bench verify recomputing every published figure from committed per-case results](docs/assets/verify.gif)
 
-That runs on a fresh clone — regenerate the recording with
+That runs on a fresh clone. Regenerate the recording with
 `vhs demo/verify.tape`.
 
 Mahoraga currently runs two local Ollama arms:
@@ -170,15 +242,15 @@ Mahoraga currently runs two local Ollama arms:
 | `ollama:granite4.1-8b` | `granite4.1:8b` | Tests, reviews, and structured output |
 
 The roster is controlled by [`agents.yaml`](agents.yaml). Cloud and CLI
-adapters — including a `claude-cli` arm that captures real per-task cost for
-benchmarks — remain available but are disabled in the committed
+adapters, including a `claude-cli` arm that captures real per-task cost for
+benchmarks, remain available but are disabled in the committed
 configuration.
 
 ### How it works
 
 The serving path has two tiers, and they do not carry equal weight in this
 repo. **The verification cascade is the tier that carries the numbers.** Agent
-selection is architecture — see the honest accounting below.
+selection is architecture, see the honest accounting below.
 
 ### The cascade
 
@@ -217,7 +289,7 @@ flowchart LR
 ```
 
 Two invariants, both test-pinned. The escalation arm sits **outside** the
-bandit's action space, so the policy can never route to it on its own — only a
+bandit's action space, so the policy can never route to it on its own, only a
 rejection reaches it. And escalation never re-attributes: the bandit still
 observes the local arm's own output, and escalation spend is recorded against
 the escalation arm rather than the local one, so a second tier cannot launder a
@@ -239,7 +311,7 @@ Which local arm answers first is chosen online:
    installed, and falls back to handcrafted context retrieval otherwise.
 
 **This repo does not claim the bandit improves routing.** In head-to-head
-evaluation it never beat round-robin between the two local arms — the arms are
+evaluation it never beat round-robin between the two local arms, the arms are
 not separable *as arms* on these banks, and the reward was independently
 verified not to be the cause. It is architecture here, not a result, and
 [`docs/RESULTS.md`](docs/RESULTS.md) says so in the same words.
@@ -277,31 +349,28 @@ routing state is local under `~/.mahoraga-v2/`.
 Cost is real, not estimated: the `claude-cli` worker records the CLI's
 authoritative per-task dollar figure, local workers record token counts, and
 `orch bench report cost` computes the dollars avoided by local routing against
-a cloud reference model — offline, with zero new inference.
+a cloud reference model, offline, with zero new inference.
 
 ## Evaluation and the escalation cascade
 
 Three committed prompt banks ground the benchmarks:
 
-- [`experiments/prompts_humaneval_plus.jsonl`](experiments/prompts_humaneval_plus.jsonl)
-  — the 164-task HumanEval+ suite converted to the verifiable-bank schema:
+- [`experiments/prompts_humaneval_plus.jsonl`](experiments/prompts_humaneval_plus.jsonl): the 164-task HumanEval+ suite converted to the verifiable-bank schema:
   hidden tests with expected outputs precomputed from the canonical solutions.
   Regenerable from the EvalPlus release with
-  [`experiments/build_humaneval_bank.py`](experiments/build_humaneval_bank.py);
-  a CI test guards the committed bank against rot.
-- [`experiments/prompts_verifiable.jsonl`](experiments/prompts_verifiable.jsonl)
-  — 50 code/debug tasks with hidden tests. A CI guard executes every reference
+  [`experiments/build_humaneval_bank.py`](experiments/build_humaneval_bank.py).
+  A CI test guards the committed bank against rot.
+- [`experiments/prompts_verifiable.jsonl`](experiments/prompts_verifiable.jsonl): 50 code/debug tasks with hidden tests. A CI guard executes every reference
   solution and every labeled mutant on each run, so the bank cannot rot
   silently.
-- [`experiments/prompts_nonverifiable.jsonl`](experiments/prompts_nonverifiable.jsonl)
-  — 30 prose tasks (explain, factual, reason, summarize, instruct) with no
+- [`experiments/prompts_nonverifiable.jsonl`](experiments/prompts_nonverifiable.jsonl): 30 prose tasks (explain, factual, reason, summarize, instruct) with no
   oracle. Ground truth is built in: each row pairs a hand-authored correct
   reference with a subtly flawed, length-matched mutant carrying one labeled
   defect.
 
 On top of the banks sits an escalation cascade: a free local arm answers
-first, a local LLM judge — seeing only the prompt and the output, never the
-hidden tests — votes on the answer, and only judged failures escalate to the
+first, a local LLM judge, seeing only the prompt and the output, never the
+hidden tests, votes on the answer, and only judged failures escalate to the
 cloud arm. The headline result is the full HumanEval+ bank, run live end to
 end (per-case results committed at
 [`experiments/live_route_humaneval_164.jsonl`](experiments/live_route_humaneval_164.jsonl)):
@@ -315,10 +384,10 @@ end (per-case results committed at
 The routed cascade recovers about two-thirds of the quality gap between the
 free local arm and the cloud arm at a 76.5% cost cut. The judge's fail-recall
 is 0.688: it catches roughly seven in ten true local failures and escalates
-them; the rest are served wrong — the quality price of the cost cut.
+them, and the rest are served wrong, which is the quality price of the cost cut.
 
 An earlier 50-task run on the smaller homemade verifiable bank was friendlier
-to the judge — it caught all six true local failures (accuracy 0.920), so the
+to the judge, it caught all six true local failures (accuracy 0.920), so the
 cascade matched cloud quality outright:
 
 | Policy (50-task homemade bank) | pass@1 | $/1k tasks |
@@ -330,9 +399,17 @@ cascade matched cloud quality outright:
 On the non-verifiable bank the same judge scores 0.867 accuracy while
 accepting every correct reference. A tool-augmented mode has the judge write
 and execute a sandboxed Python solver for computable claims, manufacturing
-the hidden test the task lacks; it is recall-only (it can flip an accept to a
+the hidden test the task lacks. It is recall-only (it can flip an accept to a
 reject, never the reverse) and raises accuracy to 0.900 without rejecting a
 single correct answer.
+
+### Benchmarks and trademarks
+
+The comparisons in this README are independent measurements on the author's own code and
+machine, and your own run will give your own numbers. Product and model names (Claude,
+Sonnet, Qwen, Granite, aider, opencode, Ollama and others) belong to their owners and
+imply no endorsement. Each result is tied to the model versions, settings and date stated
+beside it, and a different version or setting can move it.
 
 ```bash
 orch bench verify                              # recompute every published figure from its artifact
@@ -348,7 +425,7 @@ orch bench report verify --input results.jsonl --bank experiments/prompts_verifi
 Only run trusted evaluation data: the live execution gate, the offline
 verifier, and the tool-augmented judge all execute generated code locally.
 
-The cascade on the live serving path — a local arm answers, the free local
+The cascade on the live serving path, a local arm answers, the free local
 judge rejects, and only then does the task reach a paid arm:
 
 ![a live task: local arm answers, local judge rejects, task escalates to claude-cli for $0.05](docs/assets/cascade.gif)
@@ -362,15 +439,15 @@ run in four escalates.
 Reproducibility here has a cheap half and an expensive half, and they answer
 different questions.
 
-**Does the README match the data?** — `orch bench verify`. It recomputes every
+**Does the README match the data?** Run `orch bench verify`. It recomputes every
 published figure from the per-case JSONL it was derived from and requires it to
-round to exactly the printed value. No models, no network, no API key, no GPU;
-it runs in milliseconds on a fresh clone and in CI on every push, so a headline
+round to exactly the printed value. It needs no models, network, API key or
+GPU, and it runs in milliseconds on a fresh clone and in CI on every push, so a headline
 number cannot be edited without the artifact to back it. Published claims are
-declared in [`experiments/claims.json`](experiments/claims.json); the full
+declared in [`experiments/claims.json`](experiments/claims.json). The full
 method and limits are in [`docs/RESULTS.md`](docs/RESULTS.md).
 
-**Is the data real on my hardware?** — `orch bench repro`, below.
+**Is the data real on my hardware?** Run `orch bench repro`, below.
 
 The headline HumanEval+ table above reproduces with one command on a fresh
 clone. Prerequisites:
@@ -393,10 +470,10 @@ clone. Prerequisites:
 
   Both arms run the same model and are handed the identical prompt, so the
   routed pass@1 comparison holds either way. Expect the always-cloud *dollar*
-  column to differ, since API and subscription bill differently — the published
+  column to differ, since API and subscription bill differently, the published
   cost figures are the `claude-cli` ones.
 - The repo installed per the quick start (`pip install -e .`). The API server
-  does not need to be running; the benchmark drives the workers directly.
+  does not need to be running. The benchmark drives the workers directly.
 
 ```bash
 orch bench repro --preflight-only   # check the environment; no inference, no spend
@@ -411,7 +488,7 @@ anything is missing. It then runs the exact published configuration through
 failures escalate to `claude-cli`. Per-case results land in
 `experiments/repro_<date>.jsonl`, and the policy comparison table prints at
 the end (`--json` for machine-readable output). By default the cloud arm also
-runs on kept-local tasks to measure the always-cloud baseline; `--local-only`
+runs on kept-local tasks to measure the always-cloud baseline, and `--local-only`
 skips that spend and drops the baseline row.
 
 Expect small run-to-run variance in pass@1: local decoding is not
@@ -425,7 +502,7 @@ python experiments/build_humaneval_bank.py build
 
 ## Monitoring
 
-The metrics commands read the decision database directly; the server does not
+The metrics commands read the decision database directly. The server does not
 need to be running.
 
 ```bash
@@ -444,13 +521,13 @@ judge verdicts, and spend.
 
 Its counterfactual is self-calibrating. Rather than pricing locally-served
 tasks off a rate table, the baseline is the escalation arm's **own measured
-per-task cost on the same machine in the same window** — every escalation
+per-task cost on the same machine in the same window**, every escalation
 records what it actually charged. With no priced escalation in the window, the
 report says the avoided spend is unknown rather than guessing. Bench rows are
 excluded, since one forced-explore run would otherwise swamp a month of use.
 
-This is a substitution baseline — what those tasks would have cost on the
-escalation arm — not a measure of interactive-session spend, which carries
+This is a substitution baseline, what those tasks would have cost on the
+escalation arm, not a measure of interactive-session spend, which carries
 conversation context and costs considerably more.
 
 ![orch metrics usage and orch metrics funnel side by side](docs/assets/dogfood.gif)
@@ -458,13 +535,13 @@ conversation context and costs considerably more.
 ### The delegation funnel
 
 `orch metrics usage` measures what happened to work that *arrived*. It cannot
-see the work that never did — and the cascade saves nothing on a task that is
+see the work that never did, and the cascade saves nothing on a task that is
 never delegated, so that unmeasured step bounds every other number here.
 
 `orch metrics funnel` closes it. A Claude Code `PostToolUse` hook
 ([`scripts/claude_code_funnel_hook.py`](scripts/claude_code_funnel_hook.py))
-records one line per code-producing action — both delegations and files written
-inline — and the report gives the ratio:
+records one line per code-producing action, both delegations and files written
+inline, and the report gives the ratio:
 
 ```bash
 orch metrics funnel --install-hint    # print the hook config
@@ -473,18 +550,25 @@ orch metrics funnel --since 2026-08-12
 
 The recorder logs no file contents, only derived shape (path, extension, line
 and character counts), writes to `~/.mahoraga-v2/funnel.jsonl`, and exits 0 on
-any failure — a measurement that can interrupt the work it measures gets
+any failure, a measurement that can interrupt the work it measures gets
 uninstalled, and then it measures nothing.
 
 **The reported rate is a lower bound.** A hook cannot tell whether a file needed
 conversation context to write, so the denominator counts everything *shaped*
-like delegable work; actions that clearly are not — in-place edits, non-code
-files, writes too small to be worth a round trip or too large for a
-context-free 8B — are excluded and reported with their reason, so the
+like delegable work. Actions that clearly are not (in-place edits, non-code
+files, and writes too small to be worth a round trip or too large for a
+context-free 8B) are excluded and reported with their reason, so the
 definition is arguable rather than asserted.
 
 The default decision log is
 `~/.mahoraga-v2/routing_decisions.db`.
+
+## Privacy
+
+The audit sends nothing off your machine, and the router sends a task to a cloud model
+only when its local answer fails and the cascade is on. [`DATAFLOW.md`](DATAFLOW.md) lists
+every place data can go, and the privacy policy is at
+[kaitosoeno.com/privacy](https://kaitosoeno.com/privacy).
 
 ## Documentation
 
@@ -498,7 +582,7 @@ The default decision log is
 - [Current research state](brain/state/current_state.md)
 
 The files under `docs/specs/` describe designs and research plans. Their status
-headers may refer to the point at which they were written; use the operator
+headers may refer to the point at which they were written. Use the operator
 guides and running CLI help for current behavior.
 
 ## Development
@@ -514,23 +598,23 @@ branches, validated in CI, and merged through pull requests.
 
 - **The contextual bandit is not shown to improve routing.** Across three
   evaluations it never beat round-robin between the two local arms. The
-  learning machinery is real and running; the claim that it routes better is
+  learning machinery is real and running. The claim that it routes better is
   not supported, and nothing in this repo depends on it. The cascade carries
   every published number.
 - **Every headline figure is a 16 GB result**, which bounds who it generalises
   to. The local arms and the judge are all models that fit in 16 GB of unified
-  memory alongside the OS — a machine with more memory would be running
+  memory alongside the OS, a machine with more memory would be running
   different, better models on both tiers, and the cost-quality tradeoff would
   move.
 - The committed roster expects local Ollama models and is tuned for a single
   16 GB development machine.
-- State is global to one local user; there is no multi-tenant isolation.
+- State is global to one local user. There is no multi-tenant isolation.
 - Quality scoring is useful for routing but remains heuristic outside the
   execution-verified code/debug paths.
 - The judge-gated escalation cascade is live on `/api/task` (and therefore the
   MCP bridge), but its measured numbers come from `orch bench live-route` on
   committed banks. Organic traffic has no oracle, so the serving path reports
-  which tier answered — not whether the answer was right.
+  which tier answered, not whether the answer was right.
 - The judge has a structural blind spot on prose tasks: it reliably catches
   stated falsehoods but misses omissions and most wrong quantities unless the
   tool-augmented solver can compute the answer.
@@ -544,40 +628,40 @@ branches, validated in CI, and merged through pull requests.
 
 The LLM tooling ecosystem has three established layers, each solving a different part of the problem:
 
-**Gateways** (LiteLLM, Bifrost, OpenRouter) normalize provider APIs — unified interface, failover, load balancing across OpenAI/Anthropic/etc. Their routing is rule-based and doesn't adapt.
+**Gateways** (LiteLLM, Bifrost, OpenRouter) normalize provider APIs with a unified interface, failover and load balancing across OpenAI/Anthropic/etc. Their routing is rule-based and doesn't adapt.
 
 **Trained routers** (RouteLLM, LLMRouter) learn to route between models, typically a strong/weak pair, using classifiers trained offline on Chatbot Arena preference data. RouteLLM achieves up to 85% cost savings on cloud-to-cloud routing. But the policy is frozen at training time, routes between two model endpoints, and assumes cloud inference throughout.
 
-**Orchestration frameworks** (CrewAI, LangGraph, Microsoft Agent Framework) coordinate multi-agent workflows — they define what agents *do*, not which agent to dispatch for a given task.
+**Orchestration frameworks** (CrewAI, LangGraph, Microsoft Agent Framework) coordinate multi-agent workflows, they define what agents *do*, not which agent to dispatch for a given task.
 
 The gap Mahoraga was built to probe: no existing system learns *online* which heterogeneous agent to route to, across a pool that spans local models at zero marginal cost alongside cloud APIs.
 
-**What came back is worth stating plainly.** Online *selection between arms* did not pay — the two local arms are not separable as arms on these banks, and the per-prompt oracle's 11.6-point margin over the best single arm says the remaining signal is per-prompt, not per-arm. What did pay was the tier below selection: **verify the free answer, and buy the expensive one only when verification fails.** The interesting question turned out to be not *which model* but *whether this one's answer is good enough* — and answering that locally, for free, is where the cost cut comes from.
+**What came back is worth stating plainly.** Online *selection between arms* did not pay, the two local arms are not separable as arms on these banks, and the per-prompt oracle's 11.6-point margin over the best single arm says the remaining signal is per-prompt, not per-arm. What did pay was the tier below selection: **verify the free answer, and buy the expensive one only when verification fails.** The interesting question turned out to be not *which model* but *whether this one's answer is good enough*, and answering that locally, for free, is where the cost cut comes from.
 
-Mahoraga extends the trained-router category in three ways: online feedback rather than offline training, N heterogeneous agents (CLI tools, local models, cloud APIs) rather than two model endpoints, and local inference as the default cost tier rather than cloud escalation. The bandit accumulates experience from every routing decision and gets incrementally better — no retraining step, no deployment cycle.
+Mahoraga extends the trained-router category in three ways: online feedback rather than offline training, N heterogeneous agents (CLI tools, local models, cloud APIs) rather than two model endpoints, and local inference as the default cost tier rather than cloud escalation. The bandit accumulates experience from every routing decision and gets incrementally better with no retraining step and no deployment cycle.
 
 ## Related work
 
 **Foundational:**
-- **LinUCB** (Li et al., WWW 2010) — the contextual bandit algorithm Mahoraga uses for routing. Originally applied to news article recommendation; the per-arm A/b update rule and UCB exploration bonus are directly adopted here.
-- **RouteLLM** (Ong et al., 2024) — the paper that established learned LLM routing as a problem worth solving. Trains 4 routers (matrix factorization, weighted Elo, BERT, causal LLM) on Chatbot Arena preference data. Binary strong/weak routing, offline, cloud-only. Mahoraga extends it to N heterogeneous agents with online learning.
+- **LinUCB** (Li et al., WWW 2010): the contextual bandit algorithm Mahoraga uses for routing. Originally applied to news article recommendation. The per-arm A/b update rule and UCB exploration bonus are directly adopted here.
+- **RouteLLM** (Ong et al., 2024): the paper that established learned LLM routing as a problem worth solving. Trains 4 routers (matrix factorization, weighted Elo, BERT, causal LLM) on Chatbot Arena preference data. Binary strong/weak routing, offline, cloud-only. Mahoraga extends it to N heterogeneous agents with online learning.
 
 **Online / bandit routing:**
-- **BaRP** (Anonymous, ICLR 2026 submission) — multi-objective contextual bandit for LLM routing with REINFORCE policy gradient. Validates the bandit framing; paper only, no runtime. Mahoraga's two-stage bucketing (keyword classifier → per-bucket bandit) should accelerate convergence by narrowing the action space before the bandit runs — analogous to a hierarchical bandit.
-- **LLM Bandit** (Li, arXiv 2025) — multi-armed bandit with preference conditioning. Partial online learning; offline pretraining requires full-information labels.
-- **MAR** (Zhang et al., 2025) — multi-armed router that avoids full-information supervision.
-- **C2MAB-V** (Dai et al., 2024) — combinatorial contextual volatile MAB; online feedback, no preference tuning.
+- **BaRP** (Anonymous, ICLR 2026 submission): multi-objective contextual bandit for LLM routing with REINFORCE policy gradient. Validates the bandit framing. Paper only, no runtime. Mahoraga's two-stage bucketing (keyword classifier → per-bucket bandit) should accelerate convergence by narrowing the action space before the bandit runs, analogous to a hierarchical bandit.
+- **LLM Bandit** (Li, arXiv 2025): multi-armed bandit with preference conditioning. Partial online learning. Offline pretraining requires full-information labels.
+- **MAR** (Zhang et al., 2025): multi-armed router that avoids full-information supervision.
+- **C2MAB-V** (Dai et al., 2024): combinatorial contextual volatile MAB. Online feedback, no preference tuning.
 
 **Cost-aware cascading:**
-- **FrugalGPT** (Chen et al., 2023) — LLM cascade: try cheap first, escalate on failure. Sequential rather than learned. Mahoraga's escalation path (local → judge → cloud) implements the same intuition with a free local LLM judge replacing the fixed threshold.
-- **AutoMix** (2024) — routes to larger LMs based on approximate correctness of smaller LM output. Complementary; Mahoraga could use AutoMix-style correctness detection as a reward signal.
+- **FrugalGPT** (Chen et al., 2023): LLM cascade: try cheap first, escalate on failure. Sequential rather than learned. Mahoraga's escalation path (local → judge → cloud) implements the same intuition with a free local LLM judge replacing the fixed threshold.
+- **AutoMix** (2024): routes to larger LMs based on approximate correctness of smaller LM output. Complementary. Mahoraga could use AutoMix-style correctness detection as a reward signal.
 
 **Warm start and non-stationarity:**
-- **PILOT** (Panda et al., EMNLP 2025) — warm-starting LinUCB from preference priors reduces regret by Ω(‖θ*−θ_prior‖²). Mahoraga applies this via the benchmark compatibility matrix (`orch benchmark simulate --save-matrix`).
-- **ParetoBandit** (Taberner-Miller et al., March 2026) — geometric forgetting for non-stationary LLM routing. Mahoraga's dLinUCB discount factor (γ=0.98) applies the same mechanism.
+- **PILOT** (Panda et al., EMNLP 2025): warm-starting LinUCB from preference priors reduces regret by Ω(‖θ*−θ_prior‖²). Mahoraga applies this via the benchmark compatibility matrix (`orch benchmark simulate --save-matrix`).
+- **ParetoBandit** (Taberner-Miller et al., March 2026): geometric forgetting for non-stationary LLM routing. Mahoraga's dLinUCB discount factor (γ=0.98) applies the same mechanism.
 
 **Context:**
-- **Bouneffouf & Feraud — "Bandits, LLMs, and Agentic AI"** (AAAI 2026 Tutorial, IBM Research) — survey of how bandit algorithms support adaptive decision-making in agentic systems. Validates the research direction.
+- **Bouneffouf & Feraud: "Bandits, LLMs, and Agentic AI"** (AAAI 2026 Tutorial, IBM Research), a survey of how bandit algorithms support adaptive decision-making in agentic systems. Validates the research direction.
 
 What no existing paper addresses: local hardware state as a routing context feature, HNSW episodic memory for prompt-level priors, and OLS-learned reward weights from implicit user signals.
 
@@ -616,6 +700,10 @@ Bouneffouf, D., & Feraud, R. (2026).
   Bandits, LLMs, and Agentic AI.
   AAAI 2026 Tutorial. IBM Research.
 ```
+
+## Name
+
+Mahoraga takes its name from a figure in Buddhist tradition. It is not affiliated with Jujutsu Kaisen, Gege Akutami or Shueisha.
 
 ## License
 

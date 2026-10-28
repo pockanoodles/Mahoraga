@@ -477,6 +477,9 @@ export function Landing({ t, locale }: { t: Dict; locale: Locale }) {
                 <a href={ja ? "/ja" : "/"}>{t.footer.contact}</a>
               </li>
               <li>
+                <a href={ja ? "/ja/privacy" : "/privacy"}>{t.footer.privacy}</a>
+              </li>
+              <li>
                 <a href={ja ? "/mahoraga/" : "/mahoraga/ja/"} hrefLang={ja ? "en" : "ja"} lang={ja ? "en" : "ja"}>
                   {t.footer.language}
                 </a>

@@ -117,6 +117,12 @@ low end must clear the rate needed to drop a tier, or the user must already be a
 the low end covering at least 10% of their usage. Every assumption prints with the verdict so a reader can disagree with a number
 and not only with the call.
 
+One rule runs after the call. A timeout can only lower a rate, so when at least 3 failed
+attempts ran out of time and they make up half or more of the failures, the rate is a floor
+set by the machine's speed. A split or switch read off it still stands, but a stay becomes
+not yet confident, and the verdict says that a longer `--timeout` or a smaller context would
+measure the model instead.
+
 
 ## Install
 

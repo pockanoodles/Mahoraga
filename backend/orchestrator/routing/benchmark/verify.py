@@ -212,7 +212,11 @@ def verify_claim(claim: dict[str, Any], root: Path) -> ClaimResult:
         elif kind == "agentbench":
             from backend.orchestrator.audit.claims import metrics as audit_metrics
 
-            metrics = audit_metrics(rows, claim)
+            other = (claim.get("versus") or {}).get("artifact")
+            if other and not (root / other).is_file():
+                result.error = f"artifact not found: {other}"
+                return result
+            metrics = audit_metrics(rows, claim, load_rows(root / other) if other else None)
         else:
             result.error = f"unknown claim kind: {kind}"
             return result

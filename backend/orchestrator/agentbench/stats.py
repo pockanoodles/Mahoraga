@@ -66,6 +66,18 @@ def time_bound(timed_out: int, failed: int) -> bool:
     return timed_out >= 3 and 2 * timed_out >= failed
 
 
+def mcnemar_exact(only_a: int, only_b: int) -> float:
+    """Two-sided exact McNemar p for two arms run on the same tasks: how likely
+    a split of the tasks only one arm solved at least this uneven would be if
+    each of those tasks were a coin flip. Tasks both solved, or neither, say
+    nothing about which arm is better."""
+    n = only_a + only_b
+    if n == 0:
+        return 1.0
+    k = min(only_a, only_b)
+    return min(1.0, 2 * sum(math.comb(n, i) for i in range(k + 1)) / 2 ** n)
+
+
 def tasks_needed(p: float, half_width: float, z: float = Z95, cap: int = 10_000) -> int:
     """Fewest tasks whose Wilson interval at rate `p` is no wider than ±half_width."""
     if not 0 < half_width < 0.5:

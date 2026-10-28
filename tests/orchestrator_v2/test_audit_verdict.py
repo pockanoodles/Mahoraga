@@ -281,6 +281,92 @@ def test_export_keeps_counted_attempts_on_live_tasks_with_their_machine(tmp_path
     assert {r["machine"] for r in rows} == {"Mac16,9, 64 GB"}
 
 
+def test_export_says_each_attempts_limit_and_whether_it_ran_out(tmp_path):
+    from backend.orchestrator.agentbench.export import limit_of
+
+    rows = _export(tmp_path, [_bench(tmp_path, "one", {"s1": [True]}, machine=STUDIO)])
+    assert (rows[0]["timed_out"], rows[0]["limit_s"]) == (False, 1200.0)  # the default
+    assert limit_of({"settings": {"timeout": 5400.0}}) == 5400.0
+    assert limit_of({"settings": {"queue_job": "0ee57c"}}) == 1200.0  # a worker run before #60
+    assert limit_of({}) is None  # no manifest: nobody wrote the limit down
+
+
+def _row(sha, ok, *, limit=1200.0, late=False, arm="x:m", machine="Mac16,1, 16 GB", secs=60.0):
+    return {"repo": "r", "sha": sha, "committed": "2026-05-01T00:00:00Z", "arm": arm,
+            "cond": "blind", "rep": 0, "resolved": ok, "secs": secs, "tier": "test-verified",
+            "machine": machine, "timed_out": late, "limit_s": limit}
+
+
+def test_an_attempt_that_ended_inside_a_shorter_limit_stands_at_a_longer_one():
+    from backend.orchestrator.audit.claims import metrics
+
+    rows = [_row("a", True),                                   # ended on its own at 20 min
+            _row("b", False, late=True), _row("b", True, limit=5400.0),  # cut, then rerun
+            _row("c", False, late=True),                       # cut, never rerun: pending
+            _row("d", False, limit=5400.0, late=True),          # ran out at 90 min
+            _row("e", True, limit=9000.0)]                     # can't be cut shorter later
+    at_90 = metrics(rows, {"select": {"arm": "x:m", "cond": "blind", "limit_s": 5400}})
+    assert (at_90["tasks"], at_90["resolved"], at_90["timed_out"]) == (3, 2, 1)
+    at_20 = metrics(rows, {"select": {"arm": "x:m", "cond": "blind", "limit_s": 1200}})
+    assert (at_20["tasks"], at_20["resolved"], at_20["timed_out"]) == (3, 1, 2)
+    old = [{k: v for k, v in r.items() if k not in ("timed_out", "limit_s")} for r in rows]
+    with pytest.raises(ValueError, match="export it again"):
+        metrics(old, {"select": {"arm": "x:m", "cond": "blind", "limit_s": 5400}})
+
+
+def test_a_claimed_stay_read_off_timeouts_is_not_decided():
+    from backend.orchestrator.audit.claims import metrics
+
+    rows = ([_row(f"s{i}", False, late=True, secs=1200.0) for i in range(6)]
+            + [_row(f"t{i}", i < 1, secs=300.0) for i in range(4)])
+    claim = {"select": {"arm": "x:m", "cond": "blind"},
+             "verdict": {"tasks_per_month": 200, "api_spend": 150}}
+    got = metrics(rows, claim)
+    assert (got["failed"], got["timed_out"]) == (9, 6)
+    assert (got["call"], got["confident"]) == (STAY, "no")
+    no_flags = [{k: v for k, v in r.items() if k != "timed_out"} for r in rows]
+    assert metrics(no_flags, claim)["confident"] == "yes"  # an old export can't tell
+
+
+def test_a_paired_claim_counts_the_tasks_only_one_side_solved():
+    from backend.orchestrator.audit.claims import metrics
+
+    laptop = [_row(s, ok) for s, ok in zip("abcdef", (True, False, False, True, False, False))]
+    studio = [_row(s, ok, arm="x:big", machine="Mac17,14, 64 GB")
+              for s, ok in zip("abcdeg", (True, True, True, False, False, True))]
+    claim = {"select": {"arm": "x:m", "cond": "blind"},
+             "versus": {"select": {"arm": "x:big", "cond": "blind"}}}
+    got = metrics(laptop, claim, versus_rows=studio)
+    assert (got["tasks"], got["pairs"]) == (6, 5)  # f and g ran on one side only
+    assert (got["pair_resolved"], got["versus_resolved"]) == (2, 3)
+    assert (got["only_this"], got["only_versus"]) == (1, 2)
+    assert got["mcnemar_p"] == 1.0
+    assert metrics(laptop + studio, claim)["pairs"] == 5  # both sides from one artifact
+    with pytest.raises(ValueError, match="one per task"):
+        metrics(laptop + [_row("a", False)], claim, versus_rows=studio)
+    with pytest.raises(ValueError, match="share no tasks"):
+        metrics(laptop, claim, versus_rows=[_row("z", True, arm="x:big")])
+
+
+def test_verify_reads_the_versus_artifact(tmp_path):
+    from backend.orchestrator.routing.benchmark.verify import verify_claim
+
+    def write(name, rows):
+        (tmp_path / name).write_text("".join(json.dumps(r) + "\n" for r in rows))
+
+    write("laptop.jsonl", [_row(s, s == "a") for s in "abc"])
+    write("studio.jsonl", [_row(s, s != "c", arm="x:big", machine="Mac17,14, 64 GB") for s in "abc"])
+    claim = {"id": "p", "kind": "agentbench", "artifact": "laptop.jsonl",
+             "select": {"arm": "x:m", "cond": "blind"},
+             "versus": {"artifact": "studio.jsonl", "select": {"arm": "x:big", "cond": "blind"}},
+             "metrics": {"pairs": {"value": 3, "decimals": 0},
+                         "only_versus": {"value": 1, "decimals": 0},
+                         "mcnemar_p": {"value": 1.0, "decimals": 2}}}
+    assert verify_claim(claim, tmp_path).ok
+    r = verify_claim({**claim, "versus": {**claim["versus"], "artifact": "gone.jsonl"}}, tmp_path)
+    assert not r.ok and "artifact not found: gone.jsonl" in r.error
+
+
 def test_claim_metrics_are_the_verdict_engines_numbers(tmp_path):
     from backend.orchestrator.audit.claims import metrics
     from backend.orchestrator.audit.evidence import from_benches

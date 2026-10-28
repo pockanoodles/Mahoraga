@@ -125,12 +125,15 @@ def _same_task(a: tuple[str, str], b: tuple[str, str]) -> bool:
 def paired(this: list[dict], other: list[dict]) -> dict[str, float]:
     """Two slices task by task, on the tasks both ran."""
     a, b = _one_per_task(this), _one_per_task(other)
-    pairs = []
+    pairs, taken = [], set()
     for ka in sorted(a):
         hits = [kb for kb in b if _same_task(ka, kb)]
         if len(hits) > 1:
             raise ValueError(f"{ka[0]}/{ka[1]} matches {len(hits)} tasks on the other side")
         if hits:
+            if hits[0] in taken:  # one attempt can't stand in for two tasks
+                raise ValueError(f"{hits[0][0]}/{hits[0][1]} matches more than one task on this side")
+            taken.add(hits[0])
             pairs.append((a[ka], b[hits[0]]))
     if not pairs:
         raise ValueError("the two slices share no tasks")
@@ -156,6 +159,7 @@ def metrics(rows: list[dict], claim: dict[str, Any],
         "resolved": ev.rate.point * ev.rate.tasks,  # tasks solved, repeats as fractions
         "rate": ev.rate.point, "rate_lo": ev.rate.lo, "rate_hi": ev.rate.hi,
         "failed": float(ev.failed), "timed_out": float(ev.timed_out),
+        "minutes": ev.minutes_per_attempt,  # the median attempt
     }
     spec = dict(claim.get("verdict") or {})
     if spec:

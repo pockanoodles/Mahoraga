@@ -362,6 +362,9 @@ def test_pairing_follows_a_sha_that_lengthened_and_refuses_an_ambiguous_one():
         metrics([_row("abc1234", True)], claim,
                 versus_rows=[_row("abc12345", False, arm="x:big"),
                              _row("abc12346", True, arm="x:big")])
+    with pytest.raises(ValueError, match="more than one task on this side"):
+        metrics([_row("abc12345", True), _row("abc12346", False)], claim,
+                versus_rows=[_row("abc1234", False, arm="x:big")])
 
 
 def test_verify_reads_the_versus_artifact(tmp_path):
@@ -400,6 +403,7 @@ def test_claim_metrics_are_the_verdict_engines_numbers(tmp_path):
     v = decide(ev, A, Billing.api(150))
     assert (got["tasks"], got["resolved"]) == (20, 4)
     assert (got["rate"], got["rate_lo"], got["rate_hi"]) == (ev.rate.point, ev.rate.lo, ev.rate.hi)
+    assert got["minutes"] == ev.minutes_per_attempt == 10
     assert got["call"] == v.call == STAY
     assert (got["net_lo"], got["net"], got["net_hi"]) == v.monthly_usd
     assert got["breakeven_rate"] == breakeven_rate(ev, A, 0.75)

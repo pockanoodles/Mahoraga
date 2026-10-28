@@ -281,7 +281,7 @@ def load_arms(
         worker_id=f"ollama:{want}:{local_role}",
         base_url=base_url,
         options=spec.get("options"),
-        extra_payload=spec.get("extra_payload", {"think": False}),
+        extra_payload=spec.get("extra_payload"),
         max_ctx=spec.get("max_ctx"),
     )
 

@@ -57,6 +57,15 @@ _DEFAULT_OPTIONS = {"num_ctx": 4096}
 _MAX_TRANSIENT_RETRIES = 2   # 3 attempts total
 _RETRY_BASE_DELAY_S = 2.0    # 2s → 4s exponential backoff, covers a cold load
 
+# The read timeout detects a stall. It is not a deadline: httpx applies it to
+# each read, so it fires only when Ollama sends nothing for that long. A healthy
+# call is silent longest while it loads the model and prefills the window, so
+# the limit grows with num_ctx. Total time is the caller's deadline (/api/task's
+# timeout_s), the one clock; a fixed 120 s here would be a second, hidden one.
+_STALL_FLOOR_S = 120.0
+_PREFILL_FLOOR_TPS = 100.0   # the laptop prefills ~140 tok/s at 131k (2026-10-15)
+_CONNECT_TIMEOUT_S = 10.0
+
 
 def _role_of(worker_id: str) -> str:
     """Extract trailing role segment from a worker_id like 'ollama:gemma4-e4b:coder'."""
@@ -94,6 +103,8 @@ class OllamaWorker(WorkerAdapter):
         else:
             self._system_prompt = ROLE_PROMPTS.get(_role_of(worker_id), "You are a helpful assistant.")
         self._options = {**_DEFAULT_OPTIONS, **(options or {})}
+        num_ctx = self._options.get("num_ctx") or _DEFAULT_OPTIONS["num_ctx"]
+        self._stall_timeout_s = max(_STALL_FLOOR_S, num_ctx / _PREFILL_FLOOR_TPS)
         self._extra_payload = extra_payload if extra_payload is not None else {"think": False}
         self._max_ctx = max_ctx
         self._role = _role_of(worker_id)
@@ -138,15 +149,18 @@ class OllamaWorker(WorkerAdapter):
         }
 
         full_response: list[str] = []
+        thinking_chars = 0
         _ollama_metrics: dict | None = None
         fail_event: WorkerEvent | None = None
+        timeout = httpx.Timeout(self._stall_timeout_s, connect=_CONNECT_TIMEOUT_S)
         for attempt_no in range(_MAX_TRANSIENT_RETRIES + 1):
             full_response = []
+            thinking_chars = 0
             _ollama_metrics = None
             fail_event = None
             transient = False
             try:
-                async with httpx.AsyncClient(timeout=120.0) as client:
+                async with httpx.AsyncClient(timeout=timeout) as client:
                     async with client.stream(
                         "POST", f"{self._base_url}/api/chat", json=payload,
                     ) as response:
@@ -171,6 +185,7 @@ class OllamaWorker(WorkerAdapter):
                                 content = msg.get("content", "")
                                 if content:
                                     full_response.append(content)
+                                thinking_chars += len(msg.get("thinking") or "")
                                 if chunk.get("done"):
                                     eval_count = chunk.get("eval_count", 0)
                                     eval_duration_ns = chunk.get("eval_duration", 0)
@@ -235,11 +250,17 @@ class OllamaWorker(WorkerAdapter):
 
         # Strip any <think>...</think> reasoning chain. Applies regardless of
         # model — DeepSeek-R1 emits them unconditionally; others don't.
-        summary = _THINK_TAG_RE.sub("", "".join(full_response)).strip()
+        raw = "".join(full_response)
+        answer = _THINK_TAG_RE.sub("", raw)
+        thinking_chars += len(raw) - len(answer)
+        summary = answer.strip()
         if not summary:
+            error = "Ollama returned empty response"
+            if thinking_chars:
+                error += f" after {thinking_chars} characters of reasoning"
             yield WorkerEvent(
                 type="attempt.failed",
-                payload={"error_code": "empty_response", "error": "Ollama returned empty response"},
+                payload={"error_code": "empty_response", "error": error},
             )
             return
 
@@ -252,6 +273,10 @@ class OllamaWorker(WorkerAdapter):
 
         logger.info("OLLAMA WORKER FINAL OUTPUT (first 200 chars): %s", summary[:200])
         if _ollama_metrics:
+            # Reasoning the reply carried, in the thinking field or inline. Above
+            # zero under think: false means the toggle didn't take, and the
+            # tokens and latency here measured a thinking model.
+            _ollama_metrics["thinking_chars"] = thinking_chars
             yield WorkerEvent(type="metrics", payload=_ollama_metrics)
         yield WorkerEvent(type="attempt.completed", payload={"summary": summary})
 

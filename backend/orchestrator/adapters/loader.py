@@ -97,7 +97,10 @@ def load_agent_pool(
             name = f"ollama:{model_id}"
             max_ctx: int | None = spec.get("max_ctx")
             options: dict | None = spec.get("options")
-            extra_payload: dict = spec.get("extra_payload", {})
+            # None when the entry names none, so the worker's default (thinking
+            # off) applies. An empty dict replaced it: granite4.2's entry named
+            # none and it thought through every HumanEval+ prompt (2026-10-28).
+            extra_payload: dict | None = spec.get("extra_payload")
             warm: bool = spec.get("warm", False)
 
             for role in roles:

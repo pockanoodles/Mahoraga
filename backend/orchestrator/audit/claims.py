@@ -108,7 +108,7 @@ def evidence(rows: list[dict]) -> Evidence:
 def _one_per_task(rows: list[dict]) -> dict[tuple[str, str], bool]:
     out: dict[tuple[str, str], bool] = {}
     for r in rows:
-        key = (r["repo"], r["sha"][:7])
+        key = (r["repo"], r["sha"])
         if key in out:
             raise ValueError(f"{r['arm']} has more than one attempt on {r['repo']}/{r['sha']}, "
                              "and a paired test takes one per task")
@@ -116,16 +116,28 @@ def _one_per_task(rows: list[dict]) -> dict[tuple[str, str], bool]:
     return out
 
 
+def _same_task(a: tuple[str, str], b: tuple[str, str]) -> bool:
+    """Short shas lengthen as a repo grows, so two machines can spell one
+    commit with different lengths: one is then a prefix of the other."""
+    return a[0] == b[0] and (a[1].startswith(b[1]) or b[1].startswith(a[1]))
+
+
 def paired(this: list[dict], other: list[dict]) -> dict[str, float]:
     """Two slices task by task, on the tasks both ran."""
     a, b = _one_per_task(this), _one_per_task(other)
-    both = sorted(set(a) & set(b))
-    if not both:
+    pairs = []
+    for ka in sorted(a):
+        hits = [kb for kb in b if _same_task(ka, kb)]
+        if len(hits) > 1:
+            raise ValueError(f"{ka[0]}/{ka[1]} matches {len(hits)} tasks on the other side")
+        if hits:
+            pairs.append((a[ka], b[hits[0]]))
+    if not pairs:
         raise ValueError("the two slices share no tasks")
-    only_a = sum(a[k] and not b[k] for k in both)
-    only_b = sum(b[k] and not a[k] for k in both)
-    return {"pairs": float(len(both)), "pair_resolved": float(sum(a[k] for k in both)),
-            "versus_resolved": float(sum(b[k] for k in both)),
+    only_a = sum(x and not y for x, y in pairs)
+    only_b = sum(y and not x for x, y in pairs)
+    return {"pairs": float(len(pairs)), "pair_resolved": float(sum(x for x, _ in pairs)),
+            "versus_resolved": float(sum(y for _, y in pairs)),
             "only_this": float(only_a), "only_versus": float(only_b),
             "mcnemar_p": mcnemar_exact(only_a, only_b)}
 
@@ -157,7 +169,9 @@ def metrics(rows: list[dict], claim: dict[str, Any],
         out["breakeven_rate"] = breakeven_rate(ev, a, billing.monthly_usd / a.tasks_per_month)
         out["breakeven_cloud_usd"] = breakeven_cloud_cost(ev, a)
     if "versus" in claim:
-        vs = claim["versus"]
-        out.update(paired(picked, select(rows if versus_rows is None else versus_rows,
-                                         vs.get("select") or {})))
+        theirs = select(rows if versus_rows is None else versus_rows,
+                        claim["versus"].get("select") or {})
+        if theirs:
+            evidence(theirs)  # one machine and one grading tier, as for this slice
+        out.update(paired(picked, theirs))
     return out

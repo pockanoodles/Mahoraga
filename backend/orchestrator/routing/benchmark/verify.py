@@ -213,10 +213,17 @@ def verify_claim(claim: dict[str, Any], root: Path) -> ClaimResult:
             from backend.orchestrator.audit.claims import metrics as audit_metrics
 
             other = (claim.get("versus") or {}).get("artifact")
-            if other and not (root / other).is_file():
-                result.error = f"artifact not found: {other}"
-                return result
-            metrics = audit_metrics(rows, claim, load_rows(root / other) if other else None)
+            theirs = None
+            if other:
+                if not (root / other).is_file():
+                    result.error = f"artifact not found: {other}"
+                    return result
+                try:
+                    theirs = load_rows(root / other)
+                except (OSError, json.JSONDecodeError) as exc:
+                    result.error = f"artifact unreadable: {other}: {exc}"
+                    return result
+            metrics = audit_metrics(rows, claim, theirs)
         else:
             result.error = f"unknown claim kind: {kind}"
             return result

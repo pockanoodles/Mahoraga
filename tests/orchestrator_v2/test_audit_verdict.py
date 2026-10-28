@@ -346,6 +346,22 @@ def test_a_paired_claim_counts_the_tasks_only_one_side_solved():
         metrics(laptop + [_row("a", False)], claim, versus_rows=studio)
     with pytest.raises(ValueError, match="share no tasks"):
         metrics(laptop, claim, versus_rows=[_row("z", True, arm="x:big")])
+    with pytest.raises(ValueError, match="2 machines"):  # the other slice is checked too
+        metrics(laptop, claim, versus_rows=studio + [_row("h", True, arm="x:big")])
+
+
+def test_pairing_follows_a_sha_that_lengthened_and_refuses_an_ambiguous_one():
+    from backend.orchestrator.audit.claims import metrics
+
+    claim = {"select": {"arm": "x:m", "cond": "blind"},
+             "versus": {"select": {"arm": "x:big", "cond": "blind"}}}
+    got = metrics([_row("abc1234", True)], claim,
+                  versus_rows=[_row("abc12345", False, arm="x:big")])
+    assert (got["pairs"], got["only_this"]) == (1, 1)
+    with pytest.raises(ValueError, match="matches 2 tasks"):
+        metrics([_row("abc1234", True)], claim,
+                versus_rows=[_row("abc12345", False, arm="x:big"),
+                             _row("abc12346", True, arm="x:big")])
 
 
 def test_verify_reads_the_versus_artifact(tmp_path):
@@ -365,6 +381,9 @@ def test_verify_reads_the_versus_artifact(tmp_path):
     assert verify_claim(claim, tmp_path).ok
     r = verify_claim({**claim, "versus": {**claim["versus"], "artifact": "gone.jsonl"}}, tmp_path)
     assert not r.ok and "artifact not found: gone.jsonl" in r.error
+    (tmp_path / "torn.jsonl").write_text('{"repo": "r", "sha"')
+    r = verify_claim({**claim, "versus": {**claim["versus"], "artifact": "torn.jsonl"}}, tmp_path)
+    assert not r.ok and "artifact unreadable: torn.jsonl" in r.error
 
 
 def test_claim_metrics_are_the_verdict_engines_numbers(tmp_path):

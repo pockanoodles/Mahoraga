@@ -5,6 +5,7 @@ A local-vs-cloud audit for coding agents (direction set 2026-10-02, ADR `brain/d
 
 **Stack:** Python 3.12, FastAPI, aiosqlite, anthropic SDK, httpx  
 **Trunk:** `main` — trunk-based flow: short-lived `feat/`/`fix/`/`chore/` branches → PR → CI (`pytest -m "not slow"`) → merge. Releases are tags (`v2.0`, …), not branches. Semantic-augmented routing spec: `docs/specs/semantic-routing.md`.  
+**Worktrees (2026-10-28):** work on a branch in `.worktrees/<name>` (`git worktree add -b <branch> .worktrees/<name> origin/main`), never in the main checkout. That checkout stays on `main`: launchd runs the daemon (`com.mahoraga.orch`) and the audit worker (`com.mahoraga.audit-worker`) from its working tree, so any branch checked out there becomes their code at the next restart. After a merge, `git pull` there and `launchctl kickstart -k gui/501/<label>` both.  
 **Tests:** `pytest` from project root
 
 ## Repo Layout

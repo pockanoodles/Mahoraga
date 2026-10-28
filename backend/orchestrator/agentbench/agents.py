@@ -64,7 +64,8 @@ class AgentRun:
     unreadable: str = ""
     # Model requests that failed (timeouts, Ollama 500s). The way a slow
     # machine reaches an outcome: without these or a timeout, it didn't.
-    request_errors: int = 0
+    # None for an agent whose output doesn't say (only aider's log does).
+    request_errors: int | None = None
 
 
 class Agent(Protocol):
@@ -181,6 +182,12 @@ class AiderAgent:
     `whole`, which rewrites entire files and is unusable on large ones. Each
     call's generation is capped (`num_predict`) so a thinking-mode runaway
     becomes a failed attempt instead of a hung one.
+
+    Each model request may take the whole attempt's limit. Left alone, aider
+    gives litellm's 600 seconds, and a 16 GB laptop reading a 100k-token
+    prompt at 131k needs longer: from 10-14 to 10-28 its attempts spent their
+    time on requests cut at ten minutes and retried, some never got a reply,
+    and a Studio reading ten times faster never met that clock at all.
     """
 
     name = "aider"
@@ -210,7 +217,8 @@ class AiderAgent:
                "--model-settings-file", settings, "--map-tokens", str(self.map_tokens),
                "--yes-always", "--no-auto-commits", "--no-gitignore", "--no-pretty",
                "--no-stream", "--no-show-model-warnings", "--no-check-update",
-               "--no-analytics", "--no-show-release-notes", "--message", prompt]
+               "--no-analytics", "--no-show-release-notes", "--timeout", f"{timeout:g}",
+               "--message", prompt]
         if test_cmd:
             cmd += ["--auto-test", "--test-cmd", shlex.join(test_cmd)]
         self.home.mkdir(parents=True, exist_ok=True)

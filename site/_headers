@@ -1,0 +1,14 @@
+# Copied to the root of dist/ by scripts/nest.mjs, the one place the asset layer
+# reads it, so paths here are the served URLs.
+#
+# no-transform stops Cloudflare rewriting a page on its way out, which is how it
+# injects its analytics beacon. kaitosoeno.com/privacy says these pages run no
+# analytics, so the response enforces that instead of a dashboard toggle.
+/mahoraga/*
+  Cache-Control: public, max-age=0, must-revalidate, no-transform
+
+# Hashed filenames, so a cached copy can never be stale. `!` drops the page
+# rule's Cache-Control rather than joining the two.
+/mahoraga/_next/static/*
+  ! Cache-Control
+  Cache-Control: public, max-age=31536000, immutable, no-transform

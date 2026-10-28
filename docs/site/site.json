@@ -119,6 +119,10 @@
       "description": "§3: aider + qwen3.5 on Mahoraga's own commits, laptop",
       "id": "report_2026_10_laptop_qwen35_mahoraga",
       "metrics": {
+        "minutes": {
+          "decimals": 1,
+          "value": 8.3
+        },
         "rate_hi": {
           "decimals": 2,
           "value": 0.51
@@ -217,6 +221,10 @@
       "description": "§3: aider + qwen3.5 (the laptop's model file) on Mahoraga, Studio",
       "id": "report_2026_10_studio_qwen35_mahoraga",
       "metrics": {
+        "minutes": {
+          "decimals": 1,
+          "value": 1.4
+        },
         "rate_hi": {
           "decimals": 2,
           "value": 0.35
@@ -576,6 +584,115 @@
           "value": 21
         }
       }
+    },
+    {
+      "artifact": "experiments/agentbench/laptop-2026-10.jsonl",
+      "config": {
+        "agent": "aider 0.86.2, diff edit format",
+        "context": 131072,
+        "dates": "2026-10-14 to 2026-10-15",
+        "harness": "aider with litellm's 600-second request timeout (before #68)",
+        "limit": "20 minutes",
+        "machine": "MacBook Pro M4, 16 GB (Mac16,1)",
+        "model_digest": "6488c96fa5fa",
+        "model_file": "the same GGUF as the Studio's qwen3.5:laptop-dec52a4 (sha256 dec52a44)"
+      },
+      "description": "§6: the laptop's first 131k night, under the 20-minute limit and aider's 600-second request timeout",
+      "id": "report_2026_10_laptop_131k_20min",
+      "metrics": {
+        "call": {
+          "value": "stay"
+        },
+        "confident": {
+          "value": "no"
+        },
+        "failed": {
+          "decimals": 0,
+          "value": 34
+        },
+        "request_errors": {
+          "decimals": 0,
+          "value": 27
+        },
+        "resolved": {
+          "decimals": 0,
+          "value": 4
+        },
+        "tasks": {
+          "decimals": 0,
+          "value": 38
+        },
+        "timed_out": {
+          "decimals": 0,
+          "value": 26
+        }
+      }
+    },
+    {
+      "artifact": "experiments/agentbench/laptop-2026-10.jsonl",
+      "config": {
+        "agent": "aider 0.86.2, diff edit format",
+        "context": 131072,
+        "dates": "2026-10-14 to 2026-10-28",
+        "harness": "aider with litellm's 600-second request timeout (before #68)",
+        "limit": "90 minutes; 2026-10-14 attempts that ended inside 20 minutes stand at it",
+        "machine": "MacBook Pro M4, 16 GB (Mac16,1)",
+        "model_digest": "6488c96fa5fa",
+        "model_file": "the same GGUF as the Studio's qwen3.5:laptop-dec52a4 (sha256 dec52a44)"
+      },
+      "description": "§6: the laptop against the Studio on one model file before the request-timeout fix",
+      "id": "report_2026_10_laptop_vs_studio_request_clock",
+      "metrics": {
+        "pair_resolved": {
+          "decimals": 0,
+          "value": 8
+        },
+        "pairs": {
+          "decimals": 0,
+          "value": 28
+        },
+        "versus_resolved": {
+          "decimals": 0,
+          "value": 14
+        }
+      }
+    },
+    {
+      "artifact": "experiments/agentbench/studio-2026-10.jsonl",
+      "config": {
+        "agent": "aider 0.86.2, diff edit format",
+        "context": 131072,
+        "dates": "2026-10-06 to 2026-10-14",
+        "machine": "Mac Studio M5 Max, 64 GB (Mac17,14)"
+      },
+      "description": "§5: qwen3.5 and qwen3.6 at 131k on the 92 outside tasks, task by task",
+      "id": "report_2026_10_qwen35_vs_qwen36_131k_outside",
+      "metrics": {
+        "mcnemar_p": {
+          "decimals": 2,
+          "value": 0.66
+        },
+        "only_this": {
+          "decimals": 0,
+          "value": 9
+        },
+        "only_versus": {
+          "decimals": 0,
+          "value": 12
+        },
+        "pair_resolved": {
+          "decimals": 0,
+          "value": 28
+        },
+        "pairs": {
+          "decimals": 0,
+          "value": 92
+        },
+        "versus_resolved": {
+          "decimals": 0,
+          "value": 31
+        }
+      }
     }
   ],
   "probe": {
@@ -584,7 +701,7 @@
         "arm": "aider:granite4.1:8b",
         "broke_other_code": 1,
         "cond": "blind",
-        "median_minutes": 12.9,
+        "median_minutes": 12.7,
         "multi_file_n": 12,
         "multi_file_resolved": 0,
         "n": 18,
@@ -601,7 +718,7 @@
         "arm": "aider:granite4.1:8b",
         "broke_other_code": 0,
         "cond": "feedback",
-        "median_minutes": 11.8,
+        "median_minutes": 11.7,
         "multi_file_n": 12,
         "multi_file_resolved": 0,
         "n": 18,
@@ -618,7 +735,7 @@
         "arm": "aider:qwen3.5:latest",
         "broke_other_code": 7,
         "cond": "blind",
-        "median_minutes": 8.4,
+        "median_minutes": 8.3,
         "multi_file_n": 12,
         "multi_file_resolved": 4,
         "n": 18,
@@ -635,7 +752,7 @@
         "arm": "aider:qwen3.5:latest",
         "broke_other_code": 5,
         "cond": "feedback",
-        "median_minutes": 13.1,
+        "median_minutes": 11.7,
         "multi_file_n": 12,
         "multi_file_resolved": 3,
         "n": 18,
@@ -1330,7 +1447,7 @@
   },
   "schema": 1,
   "source": {
-    "commit": "0749b63",
+    "commit": "b285a83",
     "repo": "pockanoodles/Mahoraga",
     "version": "2.1.0"
   },

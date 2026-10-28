@@ -159,6 +159,7 @@ def metrics(rows: list[dict], claim: dict[str, Any],
         "resolved": ev.rate.point * ev.rate.tasks,  # tasks solved, repeats as fractions
         "rate": ev.rate.point, "rate_lo": ev.rate.lo, "rate_hi": ev.rate.hi,
         "failed": float(ev.failed), "timed_out": float(ev.timed_out),
+        "minutes": ev.minutes_per_attempt,  # the median attempt
     }
     spec = dict(claim.get("verdict") or {})
     if spec:

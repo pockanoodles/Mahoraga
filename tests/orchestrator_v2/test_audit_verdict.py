@@ -403,6 +403,7 @@ def test_claim_metrics_are_the_verdict_engines_numbers(tmp_path):
     v = decide(ev, A, Billing.api(150))
     assert (got["tasks"], got["resolved"]) == (20, 4)
     assert (got["rate"], got["rate_lo"], got["rate_hi"]) == (ev.rate.point, ev.rate.lo, ev.rate.hi)
+    assert got["minutes"] == ev.minutes_per_attempt == 10
     assert got["call"] == v.call == STAY
     assert (got["net_lo"], got["net"], got["net_hi"]) == v.monthly_usd
     assert got["breakeven_rate"] == breakeven_rate(ev, A, 0.75)

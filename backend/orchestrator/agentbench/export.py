@@ -9,22 +9,37 @@ rates and verdicts from it (experiments/claims.json).
 
 Only counted attempts are exported, on tasks still in the bench. Degraded
 attempts didn't measure the agent, and no published count includes them.
+
+Each row says whether the attempt ran out of time and the limit its run gave
+it, so a claim can tell a rate the limit set from one the model did, and can
+count an attempt at a longer limit than it ran under (audit/claims.py).
 """
 from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Iterable
+from typing import Iterable, Optional
 
 from . import manifest
 from .bank import Bench
-from .runner import load_attempts
+from .runner import DEFAULT_TIMEOUT, load_attempts
 
 
 def machine_label(m: dict) -> str:
     """The machine a run was on, as evidence.py names it."""
     hw = m.get("machine", {})
     return f"{hw.get('model', '?')}, {hw.get('memory_gb', '?')} GB"
+
+
+def limit_of(m: dict) -> Optional[float]:
+    """The attempt limit, in seconds, a run gave each attempt. `audit run` has
+    recorded it since run manifests began. The worker started recording it when
+    jobs got their own limit, and its runs before that ran under the default,
+    which hasn't changed since the first run. A row with no manifest ran under
+    a limit nobody wrote down."""
+    if not m:
+        return None
+    return float((m.get("settings") or {}).get("timeout") or DEFAULT_TIMEOUT)
 
 
 def rows(bench: Bench, arms: Iterable[str] = (), conds: Iterable[str] = ()) -> list[dict]:
@@ -41,6 +56,7 @@ def rows(bench: Bench, arms: Iterable[str] = (), conds: Iterable[str] = ()) -> l
             "repo": bench.name, "sha": a.sha, "committed": tasks[a.sha].committed,
             "arm": a.arm, "cond": a.cond, "rep": a.rep,
             "resolved": a.resolved, "secs": a.secs, "tier": a.tier,
+            "timed_out": a.timed_out, "limit_s": limit_of(m),
             "run_id": a.run_id,
             "machine": machine_label(m) if m else "unrecorded",
             "digest": ((m.get("models", {}).get("digests") or {}).get(model) or "")[:12],

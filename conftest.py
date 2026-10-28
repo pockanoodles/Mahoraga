@@ -26,3 +26,11 @@ def _no_live_escalation(monkeypatch):
     tests delete this variable and patch `escalate` with a fake.
     """
     monkeypatch.setenv("MAHORAGA_CASCADE", "off")
+
+
+@pytest.fixture(autouse=True)
+def _local_ollama_url(monkeypatch):
+    """Every Ollama call reads OLLAMA_BASE_URL when it runs, so a developer's own
+    setting must not leak into tests that expect the local default. Tests of the
+    variable itself set it back."""
+    monkeypatch.delenv("OLLAMA_BASE_URL", raising=False)

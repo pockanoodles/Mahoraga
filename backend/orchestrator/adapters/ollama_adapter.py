@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING
 import httpx
 
 from .base import AgentAdapter, AgentCapability, AgentStatus, CostEstimate
+from ..config import ollama_base_url as _default_ollama_url
 
 if TYPE_CHECKING:
     from ..domain.models import Task
@@ -31,13 +32,13 @@ class OllamaAdapter(AgentAdapter):
     def __init__(
         self,
         model: str = "qwen3:4b-q4_K_M",
-        ollama_base_url: str = "http://localhost:11434",
+        ollama_base_url: str | None = None,
         name: str = "ollama",
         worker_id: str = "ollama:general",
         capabilities: list[AgentCapability] | None = None,
     ) -> None:
         self._model = model
-        self._base_url = ollama_base_url.rstrip("/")
+        self._base_url = (ollama_base_url or _default_ollama_url()).rstrip("/")
         self._name = name
         self._worker_id = worker_id
         self._capabilities = capabilities if capabilities is not None else _DEFAULT_CAPABILITIES

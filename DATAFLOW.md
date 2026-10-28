@@ -21,7 +21,7 @@ nothing anywhere.
   (for aider, `--no-check-update --no-analytics`), but nothing stops an agent from opening
   a connection if it tries.
 - **The model runs on your machine.** Ollama answers at `http://127.0.0.1:11434` unless
-  you point `OLLAMA_HOST` somewhere else.
+  you point `OLLAMA_BASE_URL` somewhere else.
 - **Results stay local.** Tasks, attempts, run manifests and verdicts are files under
   `~/.mahoraga-v2/`, and nothing uploads them.
 

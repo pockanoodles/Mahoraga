@@ -26,7 +26,7 @@ from ..tracking.pricing import resolve_cost
 import anthropic
 
 from ..verifier.verifier import Verifier
-from ..config import ENABLED_BACKENDS, MahoragaConfig, get_workdir
+from ..config import ENABLED_BACKENDS, MahoragaConfig, get_workdir, ollama_base_url
 from ..workers.claude import ClaudeWorker
 from ..workers.registry import WorkerRegistry
 from ..adapters.registry import AdapterRegistry
@@ -1445,7 +1445,7 @@ async def _is_ollama_warm() -> bool:
     import httpx as _httpx
     try:
         async with _httpx.AsyncClient(timeout=2.0) as client:
-            resp = await client.get("http://localhost:11434/api/ps")
+            resp = await client.get(f"{ollama_base_url()}/api/ps")
             if resp.status_code == 200:
                 return bool(resp.json().get("models"))
     except Exception:

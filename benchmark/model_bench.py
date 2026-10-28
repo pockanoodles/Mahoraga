@@ -6,15 +6,15 @@ from typing import Optional
 
 import httpx
 
+from backend.orchestrator.config import ollama_base_url
 from benchmark.prompts import PROMPT_SETS, ROLES, TIERS
 
-OLLAMA_BASE = "http://localhost:11434"
 LOG_PATH = Path(__file__).parent.parent / "brain" / "benchmarks" / "hardware_log.md"
 PROMPT_TIMEOUT = 120.0
 
 
 def discover_models() -> list[str]:
-    resp = httpx.get(f"{OLLAMA_BASE}/api/tags", timeout=10)
+    resp = httpx.get(f"{ollama_base_url()}/api/tags", timeout=10)
     resp.raise_for_status()
     return [m["name"] for m in resp.json()["models"]]
 
@@ -22,7 +22,7 @@ def discover_models() -> list[str]:
 def run_prompt(model: str, prompt: str, timeout: float = PROMPT_TIMEOUT) -> Optional[dict]:
     try:
         resp = httpx.post(
-            f"{OLLAMA_BASE}/api/generate",
+            f"{ollama_base_url()}/api/generate",
             json={"model": model, "prompt": prompt, "stream": False},
             timeout=timeout,
         )

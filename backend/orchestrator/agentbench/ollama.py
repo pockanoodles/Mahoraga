@@ -5,12 +5,15 @@ nothing here leaves the machine.
 """
 from __future__ import annotations
 
-import os
 import secrets
 
 import httpx
 
-BASE_URL = os.environ.get("OLLAMA_BASE_URL", "http://127.0.0.1:11434")
+from ..config import ollama_base_url
+
+# OLLAMA_BASE_URL is read by the shared reader. The audit's own default is the
+# loopback address, the one DATAFLOW.md names.
+BASE_URL = ollama_base_url("http://127.0.0.1:11434")
 # Tags this bench creates for itself (see `derive`), as opposed to models a person pulled.
 DERIVED_PREFIX = "agentbench/"
 _PROBE ="Write a Python function that parses an ISO 8601 date, with a docstring."

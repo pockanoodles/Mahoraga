@@ -9,9 +9,23 @@ from pathlib import Path
 # main branch:     ["ollama", "claude"]
 ENABLED_BACKENDS: list[str] = ["ollama"]
 
+DEFAULT_OLLAMA_URL = "http://localhost:11434"
+
+
+def ollama_base_url(default: str | None = None) -> str:
+    """Where Ollama is: OLLAMA_BASE_URL if set, else `default`, else the local server.
+
+    The one place that variable is read, so every Ollama call agrees. It is read
+    on each call, because a constant built at import would freeze it. The result
+    has no trailing slash, so callers can append a path.
+    """
+    url = os.environ.get("OLLAMA_BASE_URL", "").strip() or default or DEFAULT_OLLAMA_URL
+    return url.rstrip("/")
+
+
 _DEFAULTS: dict = {
     "active_backend": "ollama",
-    "ollama_base_url": "http://localhost:11434",
+    "ollama_base_url": DEFAULT_OLLAMA_URL,
     "workdir": None,  # None = inherit uvicorn CWD
     "routing_mode": "balanced",  # "local_first" | "balanced" | "quality_first"
 }
@@ -21,7 +35,8 @@ class MahoragaConfig:
     def __init__(self, path: Path | None = None) -> None:
         self._path = path or (Path.home() / ".mahoraga-v2" / "config.json")
 
-    def _load(self) -> dict:
+    def _stored(self) -> dict:
+        """The defaults with the file laid over them, which is what `set` writes back."""
         if not self._path.exists():
             return dict(_DEFAULTS)
         try:
@@ -29,11 +44,18 @@ class MahoragaConfig:
         except (json.JSONDecodeError, OSError):
             return dict(_DEFAULTS)
 
+    def _load(self) -> dict:
+        """What the app reads. OLLAMA_BASE_URL beats a saved URL, the way
+        MAHORAGA_WORKDIR beats a saved workdir, and `set` never writes it to disk."""
+        data = self._stored()
+        data["ollama_base_url"] = ollama_base_url(data["ollama_base_url"])
+        return data
+
     def get(self, key: str):
         return self._load()[key]
 
     def set(self, key: str, value) -> None:
-        data = self._load()
+        data = self._stored()
         data[key] = value
         self._path.parent.mkdir(parents=True, exist_ok=True)
         self._path.write_text(json.dumps(data, indent=2))

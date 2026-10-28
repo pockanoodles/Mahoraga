@@ -12,6 +12,7 @@ import shutil
 from typing import AsyncGenerator
 
 from .base import WorkerAdapter, WorkerEvent, WorkerHealth
+from ..config import ollama_base_url
 from ..domain.models import Task, TaskAttempt
 
 logger = logging.getLogger(__name__)
@@ -176,7 +177,7 @@ class AiderWorker(WorkerAdapter):
             try:
                 import httpx
                 resp = await httpx.AsyncClient().get(
-                    "http://localhost:11434/api/tags", timeout=3.0
+                    f"{ollama_base_url()}/api/tags", timeout=3.0
                 )
                 if resp.status_code == 200:
                     model_names = [m["name"] for m in resp.json().get("models", [])]

@@ -83,7 +83,7 @@ Do not commit credentials.
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `OLLAMA_BASE_URL` | `http://localhost:11434` | Ollama API endpoint |
+| `OLLAMA_BASE_URL` | `http://localhost:11434` | Ollama API endpoint for every call, ahead of `base_url` in `agents.yaml` and `ollama_base_url` in `config.json` |
 | `MAHORAGA_WORKDIR` | Current directory | Worker subprocess directory |
 | `MAHORAGA_MAX_CONCURRENT` | `3` | Global execution limit, clamped to 1–32 |
 | `MAHORAGA_TASK_TIMEOUT` | `120` | Task timeout in seconds |

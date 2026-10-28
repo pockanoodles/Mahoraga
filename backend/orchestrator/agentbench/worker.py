@@ -9,14 +9,14 @@ from typing import Callable
 
 import httpx
 
-from . import isolation, session
+from . import isolation, limit, session, tonight
 from .agents import Agent, parse_arm
 from .bank import Bench, SuiteConfig
 from .guard import Guard
 from .mine import backfill_dates, mine_new
 from .proc import git
-from .ollama import pulled_models
-from .queue import DONE, FAILED, Job, Queue, pin_problems
+from .ollama import pulled_models, tagged
+from .queue import DONE, FAILED, PENDING, Job, Queue, pin_problems
 from .runner import CONDITIONS, Attempt, open_cells
 
 
@@ -27,11 +27,26 @@ def run_job(queue: Queue, job: Job, deadline: float | None, *,
             which: Callable[[str], str | None] = shutil.which,
             isolated: Callable[[Bench, SuiteConfig], list[str]] = isolation.problems,
             progress: Callable[[Attempt], None] = lambda a: None,
+            wrap_up: Callable[[Bench, Job], object] = tonight.wrap_up,
+            limit_for: Callable[..., float] = limit.for_agent,
+            memory_floor: int | None = None,
             log: Callable[[str], None] = print) -> int:
-    """Attempts counted. Every way out of here sets the job's `why`."""
+    """Attempts counted. Every way out of here sets the job's `why`.
+    `memory_floor` belongs to the machine, not the job: the worker's own setting."""
+    bench = Bench(Path(job.repo), root=queue.root)
+
+    def morning() -> None:
+        now = next(j for j in queue.jobs() if j.id == job.id)  # with the why just set
+        try:
+            log(f"job {job.id}: morning report at {wrap_up(bench, now)}")
+        except Exception as e:  # noqa: BLE001 — the report is a courtesy, the job's state isn't
+            log(f"job {job.id}: no morning report: {e}")
+
     def fail(why: str) -> int:
         queue.update(job.id, status=FAILED, why=why)
         log(f"job {job.id} failed: {why}")
+        if job.notify:  # a night that never started still owes the morning an answer
+            morning()
         return 0
 
     try:
@@ -47,7 +62,6 @@ def run_job(queue: Queue, job: Job, deadline: float | None, *,
         return fail("; ".join(problems))
     if missing := sorted({a.name for a in agents if not which(a.name)}):
         return fail(f"not on PATH: {', '.join(missing)}")
-    bench = Bench(Path(job.repo), root=queue.root)
     if job.follow:
         try:
             new = follow(bench, job.fetch, log)
@@ -78,6 +92,25 @@ def run_job(queue: Queue, job: Job, deadline: float | None, *,
         elif msg == "resumed":
             queue.update(job.id, why="running")
 
+    g = guard(bench.dir.parent, wait_quiet=job.wait_quiet, memory_floor=memory_floor,
+              log=guard_log)
+    timeout = job.timeout
+    if timeout is None:
+        # The reading loads the model at its full context, so it waits for the
+        # same conditions an attempt does: on AC, nobody else's model loaded.
+        try:
+            limits = [limit_for(queue.root, a, models.get(tagged(a.model), "?"), log=log,
+                                ready=lambda a=a: g.wait_ready(a, deadline)) for a in agents]
+        except (httpx.HTTPError, ValueError) as e:
+            queue.update(job.id, why=f"waiting: couldn't measure this machine for the "
+                                     f"attempt limit ({e})"[:300])
+            return 0
+        if None in limits:
+            queue.update(job.id, why="window closed before the attempt limit could be "
+                                     "measured; resumes at the next window")
+            return 0
+        timeout = max(limits)
+
     dropped: list[str] = []
     runs = list(job.runs)
 
@@ -87,10 +120,13 @@ def run_job(queue: Queue, job: Job, deadline: float | None, *,
 
     try:
         _, done, stopped = session.run(
-            bench, agents, conds, only=only, repeats=job.repeats, deadline=deadline,
-            guard=guard(bench.dir.parent, wait_quiet=job.wait_quiet, log=guard_log),
-            settings={"conds": list(conds), "repeats": job.repeats, "queue_job": job.id,
-                      "window": job.window, "wait_quiet": job.wait_quiet, "guarded": True},
+            bench, agents, conds, only=only, timeout=timeout, repeats=job.repeats,
+            deadline=deadline,
+            guard=g,
+            settings={"conds": list(conds), "repeats": job.repeats, "timeout": timeout,
+                      "queue_job": job.id,
+                      "window": job.window, "wait_quiet": job.wait_quiet,
+                      "memory_floor": memory_floor, "guarded": True},
             progress=progress, started=started,
             dropped=lambda arm, why: (dropped.append(f"{arm}: {why}"),
                                       log(f"dropped {arm}: {why}")))
@@ -117,6 +153,10 @@ def run_job(queue: Queue, job: Job, deadline: float | None, *,
     else:
         queue.update(job.id, why="; ".join(filter(None, [
             f"pass done, {left} of {total} cells open; running another", notes])))
+    status = next(j for j in queue.jobs() if j.id == job.id).status
+    # A failed job has had its morning from fail().
+    if job.notify and status != FAILED and (status != PENDING or stopped == "deadline"):
+        morning()
     return len(done)
 
 

@@ -198,6 +198,8 @@ export interface Evidence {
   tier: string;
   label: string;
   hardware: string;
+  failed: number;
+  timed_out: number;
 }
 
 export type Call = "stay" | "split" | "switch";

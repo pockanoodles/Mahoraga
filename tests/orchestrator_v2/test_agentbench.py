@@ -8,6 +8,8 @@ watches is faked too.
 """
 from __future__ import annotations
 
+import dataclasses
+
 import itertools
 import json
 import subprocess
@@ -33,7 +35,7 @@ from backend.orchestrator.agentbench.mine import (
 from backend.orchestrator.agentbench.grade import TEST_VERIFIED, Grade
 from backend.orchestrator.agentbench.guard import Guard
 from backend.orchestrator.agentbench.stats import plan, task_rate, tasks_needed, wilson
-from backend.orchestrator.agentbench.host import Power, parse_idle, parse_power
+from backend.orchestrator.agentbench.host import Power, parse_idle, parse_power, parse_sysctl_int
 from backend.orchestrator.agentbench.report import outcome, render, summarise
 from backend.orchestrator.agentbench.runner import (
     arm_name, load_attempts, load_degraded, prompt_for, run_attempt, run_matrix,
@@ -118,7 +120,8 @@ class FakeAgent:
         self.calls: list[dict] = []
 
     def attempt(self, workdir, prompt, *, test_cmd, timeout, hidden=(), readable=()):
-        self.calls.append({"prompt": prompt, "test_cmd": test_cmd, "hidden": hidden})
+        self.calls.append({"prompt": prompt, "test_cmd": test_cmd, "hidden": hidden,
+                           "timeout": timeout})
         sha = _git(FakeAgent.source, "log", "--format=%h", "-1", "--grep=feat: add mul")
         self._edit(workdir, sha)
         return AgentRun(log="", secs=1.0, timed_out=self._timed_out, crashed=self._crashed,
@@ -485,6 +488,27 @@ def test_doctor_estimate_uses_measured_minutes_once_there_are_attempts(mined):
     assert after.pending == 3 and after.measured_minutes
     assert after.minutes_per_attempt == pytest.approx(1 / 60)  # FakeAgent: 1 s
     assert "3 attempts left" in after.fmt()
+
+
+def test_doctor_estimate_borrows_minutes_from_the_same_arm_on_other_repos(mined):
+    from backend.orchestrator.agentbench.doctor import ASSUMED, minutes_per_attempt
+
+    agent = FakeAgent("m", apply_gold)
+    run_matrix(mined, [agent], ["blind"])
+    elsewhere = Bench.from_dir(mined.dir.parent / "other-00000000")
+    minutes, source = minutes_per_attempt(elsewhere, {"fake:m"})
+    assert minutes == pytest.approx(1 / 60) and source == "measured on 1 attempt in other repos"
+    # Another arm's minutes say nothing about this one (a 32k run about a 131k one).
+    assert minutes_per_attempt(elsewhere, {"fake:m@ctx=131072"}) == (12.0, ASSUMED)
+
+
+def test_doctor_estimate_counts_nights_after_the_work_queued_ahead(mined):
+    from backend.orchestrator.agentbench.doctor import estimate
+
+    est = estimate(mined, [FakeAgent("m")], ["blind"], night_hours=8.0,
+                   ahead=40, ahead_minutes=40 * 12.0)
+    assert est.pending == 1 and est.nights == 2  # 8 h ahead fills the first night
+    assert "behind 40 attempts already queued (~8.0 h) ≈ 2 night(s)" in est.fmt()
 
 
 # ── Agents ────────────────────────────────────────────────────────────────────
@@ -855,6 +879,21 @@ def test_the_report_says_how_many_failures_ran_out_of_budget(mined, repo):
     assert "(1 of the failures hit the generation cap)" in render(mined.load_tasks(), [a])
 
 
+def test_the_report_warns_when_the_clock_set_the_rate(mined, repo):
+    run_matrix(mined, [FakeAgent("m")], ["blind"])
+    [a] = load_attempts(mined)
+    late = [dataclasses.replace(a, timed_out=True, secs=1200.0, rep=i) for i in range(3)]
+    [s] = summarise(mined.load_tasks(), late)
+    assert (s.timed_out, s.limit_minutes, s.time_bound) == (3, 20.0, True)
+    out = render(mined.load_tasks(), late)
+    assert "WARNING: fake:m / blind: 3 of its 3 failed attempts ran out of time at the " \
+           "20-minute limit" in out
+    assert "(3 of the failures ran out of time)" in out
+    # Three timeouts among seven failures are the model's, not the clock's.
+    wrong = [dataclasses.replace(a, rep=i) for i in range(3, 7)]
+    assert "WARNING" not in render(mined.load_tasks(), late + wrong)
+
+
 def test_no_attempt_starts_after_the_deadline(mined, repo):
     agent = FakeAgent("m", apply_gold)
     assert run_matrix(mined, [agent], ["blind"], deadline=time.time() - 1) == []
@@ -1120,6 +1159,93 @@ def test_a_shared_ollama_holding_someone_elses_model_pauses_the_run(tmp_path):
         FakeAgent("m")) == []  # off unless asked
 
 
+class FakeMemory:
+    """The kernel's free percentage, and what Ollama holds, on a 64 GiB machine."""
+    def __init__(self, free: int):
+        self.free, self.loaded = free, {}
+        self.released: list[str] = []
+        self.stops = 0
+
+    def kw(self, floor: int | None = 25) -> dict:
+        return {"memory_floor": floor, "free_pct": lambda: self.free,
+                "mem_total": lambda: 64 << 30, "sizes": lambda: dict(self.loaded),
+                "release": self.release, "stop_agent": self.stop}
+
+    def release(self, model: str) -> None:
+        self.released.append(model)
+        self.loaded.pop(model, None)
+
+    def stop(self) -> None:
+        self.stops += 1
+
+
+def test_parse_sysctl_int():
+    assert parse_sysctl_int("92\n") == 92
+    assert parse_sysctl_int("") is None
+
+
+def test_a_memory_floor_pauses_the_run_and_is_off_unless_asked(tmp_path):
+    mem = FakeMemory(free=20)
+    g = _guard(tmp_path, FakeMachine(), **mem.kw())
+    assert g.problems(FakeAgent("m")) == ["memory: 20% free, under the 25% floor"]
+    mem.free = 30
+    assert g.problems(FakeAgent("m")) == []
+    # The laptop sits at 5% free through every 131k attempt; no floor, no pause.
+    mem.free = 5
+    assert _guard(tmp_path, FakeMachine(), **mem.kw(floor=None)).problems(FakeAgent("m")) == []
+
+
+def test_the_floor_leaves_room_for_a_model_that_is_not_loaded_yet(tmp_path):
+    mem = FakeMemory(free=40)
+    g, agent = _guard(tmp_path, FakeMachine(), **mem.kw()), FakeAgent("m")
+    mem.loaded = {"m:latest": 16 << 30}           # a quarter of the machine
+    assert g.problems(agent) == []                # loaded: already counted in the 40%
+    mem.loaded = {}
+    assert g.problems(agent) == ["memory: 40% free, under the 25% floor plus 25% to load m"]
+    mem.free = 55
+    assert g.problems(agent) == []
+
+
+def test_waiting_on_memory_unloads_the_run_s_own_model(tmp_path):
+    mem = FakeMemory(free=10)
+    mem.loaded = {"m:latest": 1 << 30, "gpt-oss:20b": 1 << 30}
+
+    def sleep(_):  # the owner closes their apps
+        mem.free = 80
+
+    g = _guard(tmp_path, FakeMachine(), sleep=sleep, **mem.kw())
+    assert g.wait_ready(FakeAgent("m"))
+    assert mem.released == ["m:latest"]           # never someone else's
+
+
+def test_memory_under_the_floor_stops_the_attempt_and_gives_it_back(tmp_path):
+    mem = FakeMemory(free=60)
+    mem.loaded = {"m:latest": 16 << 30}
+    m = FakeMachine()
+    probes = []
+    m.speed = lambda model, num_ctx: probes.append(model) or 30.0
+    g, agent = _guard(tmp_path, m, **mem.kw()), FakeAgent("m")
+    with g.watch(agent) as watch:
+        mem.free = 12                             # the owner opens their apps
+        deadline = time.time() + 5
+        while not mem.stops and time.time() < deadline:
+            time.sleep(0.01)
+    assert mem.stops == 1 and mem.released == ["m:latest"]
+    assert watch.degraded == ["memory fell to 12% free, under the 25% floor; "
+                              "stopped the attempt and unloaded the model to give it back"]
+    assert probes == []                           # no speed probe to reload it
+    assert watch.conditions["min_free_pct"] == 12
+
+
+def test_a_low_reading_after_the_attempt_does_not_void_it(tmp_path):
+    mem = FakeMemory(free=60)
+    g, agent = _guard(tmp_path, FakeMachine(), **mem.kw()), FakeAgent("m")
+    g.sample_every = 60                          # only the closing sample runs
+    with g.watch(agent) as watch:
+        mem.free = 12
+    assert watch.degraded == [] and mem.stops == 0
+
+
 # ── Isolation canary ──────────────────────────────────────────────────────────
 
 
@@ -1158,6 +1284,94 @@ def test_the_worker_refuses_a_bench_that_isnt_isolated(mined, tmp_path):
     [after] = q.jobs()
     assert after.status == FAILED and after.why == "not isolated: isolation: source: readable"
     assert agent.calls == []
+
+
+def test_the_attempt_limit_is_sized_from_reading_and_writing_speed():
+    from backend.orchestrator.agentbench.limit import CEILING, FLOOR, Reading, limit_secs
+
+    # The 16 GB laptop at 131k (2026-10-15 probe, 50k deep): 2.5 calls of 98k
+    # read at 140 tok/s and 8,192 written at 5.8 tok/s is 88 min, so 90.
+    assert limit_secs(Reading(140, 5.8, 50405), 131072, 8192) == 90 * 60
+    assert limit_secs(Reading(1500, 60, 65536), 131072, 8192) == FLOOR  # the Studio
+    assert limit_secs(Reading(10, 1, 65536), 131072, 8192) == CEILING
+
+
+def test_the_attempt_limit_is_measured_once_per_model_and_context(tmp_path):
+    from types import SimpleNamespace
+
+    from backend.orchestrator.agentbench import limit
+
+    reads = []
+
+    def read(model, num_ctx, depth):
+        reads.append((model, num_ctx, depth))
+        return 140.0, 7.0, depth
+
+    wide = SimpleNamespace(model="m", num_ctx=131072, num_predict=8192)
+    for _ in range(2):
+        assert limit.for_agent(tmp_path, wide, "sha256:aa", read=read, log=lambda m: None) == 4800
+    assert reads == [("m", 131072, 65536)]
+    narrow = SimpleNamespace(model="m", num_ctx=32768, num_predict=8192)
+    limit.for_agent(tmp_path, narrow, "sha256:aa", read=read, log=lambda m: None)
+    assert reads[-1] == ("m", 32768, 16384) and len(reads) == 2
+    limit.for_agent(tmp_path, wide, "sha256:bb", read=read, log=lambda m: None)
+    assert len(reads) == 3, "new weights are measured again"
+    # An agent with no local model behind a known context keeps the floor.
+    assert limit.for_agent(tmp_path, FakeAgent("m"), read=read) == limit.FLOOR
+    # Nothing is read until the machine is fit to, and a file that won't
+    # parse is measured again rather than trusted.
+    other = SimpleNamespace(model="n", num_ctx=131072, num_predict=8192)
+    assert limit.for_agent(tmp_path, other, read=read, ready=lambda: False) is None
+    assert len(reads) == 3
+    limit.path(tmp_path).write_text("{not json")
+    assert limit.for_agent(tmp_path, wide, "sha256:aa", read=read, log=lambda m: None) == 4800
+    assert len(reads) == 4 and json.loads(limit.path(tmp_path).read_text())
+
+
+def test_a_job_runs_at_its_own_limit_or_one_sized_to_the_machine(mined, tmp_path):
+    q = Queue(mined.dir.parent)
+    sized = []
+
+    def run(job, agent):
+        run_job(q, job, None, pulled=lambda: {"m:latest": PIN["m"]},
+                guard=lambda root, **kw: _guard(tmp_path, FakeMachine(), **kw),
+                agents_for=lambda arms: [agent], which=lambda n: "/bin/" + n,
+                isolated=lambda bench, config: [],
+                limit_for=lambda root, a, digest, log, ready: sized.append((digest, ready()))
+                or 4800.0,
+                log=lambda m: None)
+
+    auto = FakeAgent("m", apply_gold)
+    run(q.add(str(mined.repo), ["fake:m"], "blind", pinned=PIN), auto)
+    # The reading waits on the job's own guard, as an attempt does.
+    assert [c["timeout"] for c in auto.calls] == [4800.0] and sized == [(PIN["m"], True)]
+    [m] = manifest.load_all(mined)
+    assert m["settings"]["timeout"] == 4800.0, "the receipt says which limit it ran at"
+    own = FakeAgent("m", apply_gold)
+    run(q.add(str(mined.repo), ["fake:m"], "feedback", pinned=PIN, timeout=600), own)
+    assert [c["timeout"] for c in own.calls] == [600] and len(sized) == 1
+
+
+def test_a_job_whose_limit_cant_be_measured_waits_instead_of_guessing(mined, tmp_path):
+    q = Queue(mined.dir.parent)
+    agent = FakeAgent("m", apply_gold)
+
+    def run(job, limit_for):
+        return run_job(q, job, None, pulled=lambda: {"m:latest": PIN["m"]},
+                       guard=lambda root, **kw: _guard(tmp_path, FakeMachine(), **kw),
+                       agents_for=lambda arms: [agent], which=lambda n: "/bin/" + n,
+                       isolated=lambda bench, config: [], limit_for=limit_for,
+                       log=lambda m: None)
+
+    def fails(root, a, digest, log, ready):
+        raise httpx.ConnectError("refused")
+
+    job = q.add(str(mined.repo), ["fake:m"], "blind", pinned=PIN)
+    assert run(job, fails) == 0 and agent.calls == []
+    [after] = q.jobs()
+    assert after.status == PENDING and after.why.startswith("waiting: couldn't measure")
+    assert run(job, lambda root, a, digest, log, ready: None) == 0 and agent.calls == []
+    assert q.jobs()[0].why.startswith("window closed before the attempt limit")
 
 
 # ── Receipts ──────────────────────────────────────────────────────────────────
@@ -1292,3 +1506,187 @@ def test_a_bench_written_by_a_newer_version_still_loads(mined, repo, tmp_path):
     q.add(str(mined.repo), ["fake:m"], "blind", pinned=PIN)
     q.path.write_text(json.dumps([{**json.loads(q.path.read_text())[0], "from_the_future": 1}]))
     assert len(q.jobs()) == 1
+
+
+def test_a_hand_edited_null_takes_the_field_s_default(tmp_path):
+    q = Queue(tmp_path / "q")
+    q.add("repo", ["fake:m"], "blind", pinned=PIN, window="21:00-08:00")
+    q.path.write_text(json.dumps([{**json.loads(q.path.read_text())[0],
+                                   "rest_until": None, "runs": None, "window": None}]))
+    [job] = q.jobs()
+    assert job.rest_until == 0.0 and job.runs == []
+    assert job.window is None  # no default: a null is a real value here
+    assert q.next_open(now=time.time()) is not None
+
+
+# ── Tonight: a repo to an answer by morning ──────────────────────────────────
+
+from backend.orchestrator.agentbench import tonight  # noqa: E402
+from backend.orchestrator.agentbench.guard import Check  # noqa: E402
+from backend.orchestrator.cli.commands import agentbench as ab_cli  # noqa: E402
+
+
+def test_a_window_through_midnight_is_its_real_length():
+    assert tonight.window_hours("21:00-08:00") == 11
+    assert tonight.window_hours("09:00-17:30") == 8.5
+    assert tonight.window_hours("08:00-08:00") == 24
+
+
+def test_only_a_large_machine_hears_about_a_larger_model():
+    assert tonight.larger_model_hint(16) is None
+    assert tonight.larger_model_hint("unknown") is None
+    assert "64 GB" in tonight.larger_model_hint(64)
+
+
+def _run_notified(q, job, tmp_path, agent, seen):
+    run_job(q, job, None, pulled=lambda: {"m:latest": PIN["m"]},
+            guard=lambda root, **kw: _guard(tmp_path, FakeMachine(), **kw),
+            agents_for=lambda arms: [agent], which=lambda n: "/bin/" + n,
+            isolated=lambda bench, config: [], log=lambda m: None,
+            wrap_up=lambda bench, j: tonight.wrap_up(bench, j, notify=lambda *a: seen.append(a)))
+
+
+def test_a_tonight_job_leaves_a_morning_report_and_says_so(mined, tmp_path):
+    q = Queue(mined.dir.parent)
+    job = q.add(str(mined.repo), ["fake:m"], "blind", pinned=PIN, notify=True)
+    seen: list = []
+    _run_notified(q, job, tmp_path, FakeAgent("m", apply_gold), seen)
+    text = tonight.morning_path(mined).read_text()
+    assert "the queue: done, all 1 cells counted" in text
+    assert "mahoraga audit verdict" in text and "--arm fake:m --cond blind" in text
+    assert "--tasks-per-month <how many" in text and "VERDICT" not in text
+    [(title, message)] = seen
+    assert title == f"Mahoraga: {mined.repo.name}" and message.startswith("m resolved 1 of 1")
+
+
+def test_with_usage_saved_the_morning_carries_the_verdict(mined, tmp_path):
+    from backend.orchestrator.audit import usage
+
+    usage.save(mined.root, usage.Usage(tasks_per_month=200, api_spend=150))
+    q = Queue(mined.dir.parent)
+    job = q.add(str(mined.repo), ["fake:m"], "both", pinned=PIN, notify=True)
+    seen: list = []
+    _run_notified(q, job, tmp_path, FakeAgent("m", apply_gold), seen)
+    text = tonight.morning_path(mined).read_text()
+    assert "for 200 tasks a month, $150 a month of API:" in text
+    assert text.count("VERDICT:") == 2 and "--tasks-per-month <how many" not in text
+    [(_, message)] = seen
+    assert message.count("m resolved 1 of 1, ") == 2
+
+
+def test_a_tonight_job_that_cannot_start_still_says_why_by_morning(mined, tmp_path):
+    q = Queue(mined.dir.parent)
+    job = q.add(str(mined.repo), ["fake:m"], "blind", pinned={"m": "sha256:" + "f" * 64},
+                notify=True)
+    seen: list = []
+    _run_notified(q, job, tmp_path, FakeAgent("m", apply_gold), seen)
+    text = tonight.morning_path(mined).read_text()
+    assert "the night didn't run:" in text and "mahoraga audit tonight" in text
+    [(_, message)] = seen
+    assert message.startswith("the night didn't run:") and "audit report" not in message
+
+
+def test_a_job_nobody_asked_about_writes_nothing(mined, tmp_path):
+    q = Queue(mined.dir.parent)
+    job = q.add(str(mined.repo), ["fake:m"], "blind", pinned=PIN)
+    seen: list = []
+    _run_notified(q, job, tmp_path, FakeAgent("m", apply_gold), seen)
+    assert not tonight.morning_path(mined).exists() and seen == []
+
+
+@pytest.fixture
+def tonight_env(tmp_path, monkeypatch):
+    """`tonight` on a machine that passes every check, with the worker faked."""
+    monkeypatch.setenv("MAHORAGA_AGENTBENCH_ROOT", str(tmp_path / "cli-state"))
+    checks = [Check("power", True, "AC"), Check("aider", True, "/bin/aider"),
+              Check("ollama", True, "1 models")]
+    monkeypatch.setattr(Guard, "preflight", lambda self, agents: list(checks))
+    monkeypatch.setattr("backend.orchestrator.agentbench.isolation.check",
+                        lambda bench, config: [Check("isolation: source", True, "hidden")])
+    monkeypatch.setattr("backend.orchestrator.agentbench.ollama.pulled_models",
+                        lambda: {"qwen3.5:latest": "sha256:0123456789abcdef"})
+    monkeypatch.setattr(manifest, "machine", lambda: {"memory_gb": 16})
+    workers: list = []
+    monkeypatch.setattr(ab_cli, "_ensure_worker", lambda: workers.append(1))
+    return {"checks": checks, "workers": workers, "root": tmp_path / "cli-state"}
+
+
+def test_tonight_mines_queues_and_starts_the_worker_once(repo, tonight_env):
+    runner = CliRunner()
+    args = ["tonight", str(repo["path"]), "--python", sys.executable]
+    r = runner.invoke(agentbench_app, args)
+    assert r.exit_code == 0, r.output
+    assert "1 tasks in the bench" in r.output and "in the morning: mahoraga audit report" in r.output
+    [job] = Queue(tonight_env["root"]).jobs()
+    assert job.notify and job.window == "21:00-08:00" and job.arms == ["aider:qwen3.5:latest@ctx=131072"]
+    assert job.pinned == {"qwen3.5:latest": "sha256:0123456789abcdef"}
+    r = runner.invoke(agentbench_app, args)
+    assert r.exit_code == 0 and f"already queued as {job.id}" in r.output
+    assert len(Queue(tonight_env["root"]).jobs()) == 1 and len(tonight_env["workers"]) == 2
+
+
+def test_tonight_counts_the_jobs_queued_ahead_of_it(repo, tonight_env):
+    Queue(tonight_env["root"]).add(str(repo["path"]), ["aider:other:1b"], "blind", pinned={},
+                                   window="21:00-08:00")
+    args = ["tonight", str(repo["path"]), "--python", sys.executable]
+    r = CliRunner().invoke(agentbench_app, args)
+    assert r.exit_code == 0, r.output
+    assert "behind 1 attempt already queued (~0.2 h)" in r.output
+    # Run again, it's the same job, and only what is queued before it counts.
+    r = CliRunner().invoke(agentbench_app, args)
+    assert "already queued as" in r.output and "behind 1 attempt" in r.output
+
+
+def test_tonight_says_when_the_commands_it_prints_wont_run(tmp_path):
+    assert tonight.cli_missing(which=lambda name: "/usr/local/bin/mahoraga") is None
+    gone = lambda name: None  # noqa: E731
+    assert "uv tool install mahoraga-audit" in tonight.cli_missing(which=gone, here=tmp_path)
+    (tmp_path / "mahoraga").touch()
+    note = tonight.cli_missing(which=gone, here=tmp_path)
+    assert f"Add {tmp_path} to your PATH" in note and str(tmp_path / "mahoraga") in note
+
+
+def test_tonight_queues_nothing_when_something_needs_fixing(repo, tonight_env):
+    tonight_env["checks"][1] = Check("aider", False, "aider not on PATH")
+    r = CliRunner().invoke(agentbench_app, ["tonight", str(repo["path"]), "--python", sys.executable])
+    assert r.exit_code == 1 and "install aider: uv tool install" in r.output
+    assert Queue(tonight_env["root"]).jobs() == [] and tonight_env["workers"] == []
+
+
+def test_tonight_waits_out_a_machine_on_battery(repo, tonight_env):
+    tonight_env["checks"][0] = Check("power", False, "on battery (40%)", waits=True)
+    r = CliRunner().invoke(agentbench_app, ["tonight", str(repo["path"]), "--python", sys.executable])
+    assert r.exit_code == 0, r.output
+    assert "the run waits these out" in r.output and len(Queue(tonight_env["root"]).jobs()) == 1
+
+
+def test_tonight_saves_how_you_use_the_cloud_once(repo, tonight_env):
+    from backend.orchestrator.audit import usage
+
+    runner = CliRunner()
+    base = ["tonight", str(repo["path"]), "--python", sys.executable]
+    r = runner.invoke(agentbench_app, base)
+    assert r.exit_code == 0 and "skipped: pass --tasks-per-month" in r.output
+    assert usage.load(tonight_env["root"]) is None
+    r = runner.invoke(agentbench_app, base + ["--tasks-per-month", "120", "--plan", "claude-pro"])
+    assert r.exit_code == 0, r.output
+    assert "saved: 120 tasks a month, claude-pro" in r.output
+    assert "--cond blind\n" in r.output and "--tasks-per-month <how many" not in r.output
+    r = runner.invoke(agentbench_app, base)
+    assert "120 tasks a month, claude-pro, as saved" in r.output
+    r = runner.invoke(agentbench_app, base + ["--plan", "claude-max-20x"])
+    assert r.exit_code != 0 and usage.load(tonight_env["root"]).plan == "claude-pro"
+
+
+def test_tonight_asks_in_a_terminal_and_asks_again_on_a_bad_answer(repo, tonight_env, monkeypatch):
+    from backend.orchestrator.audit import usage
+
+    monkeypatch.setattr(ab_cli, "_interactive", lambda: True)
+    r = CliRunner().invoke(agentbench_app, ["tonight", str(repo["path"]), "--python", sys.executable],
+                           input="lots\n80\nclaude-max-20x\nclaude-max-20x 200\n")
+    assert r.exit_code == 0, r.output
+    assert "a count of tasks, like 120" in r.output and "pass --plan-price" in r.output
+    assert usage.load(tonight_env["root"]) == usage.Usage(80, plan="claude-max-20x", plan_price=200.0)
+    skipped = CliRunner().invoke(agentbench_app, ["tonight", str(repo["path"]), "--python",
+                                                  sys.executable, "--window", "22:00-07:00"])
+    assert "as saved" in skipped.output

@@ -1,6 +1,7 @@
-"""What the machine is doing: its power source, and whether someone is using it.
+"""What the machine is doing: its power source, its free memory, and whether
+someone is using it.
 
-macOS only (pmset, ioreg). Elsewhere every reading is None, and the guard
+macOS only (pmset, ioreg, sysctl). Elsewhere every reading is None, and the guard
 treats unknown as fine rather than refusing to run.
 """
 from __future__ import annotations
@@ -51,3 +52,32 @@ def idle_secs() -> float | None:
     if sys.platform != "darwin":
         return None
     return parse_idle(_run("ioreg", "-c", "IOHIDSystem"))
+
+
+def parse_sysctl_int(out: str) -> int | None:
+    out = out.strip()
+    return int(out) if out.isdigit() else None
+
+
+def memory_free_pct() -> int | None:
+    """The share of memory the kernel calls available, the number
+    `memory_pressure` prints as "System-wide memory free percentage"."""
+    if sys.platform != "darwin":
+        return None
+    return parse_sysctl_int(_run("sysctl", "-n", "kern.memorystatus_level"))
+
+
+def memory_bytes() -> int | None:
+    if sys.platform != "darwin":
+        return None
+    return parse_sysctl_int(_run("sysctl", "-n", "hw.memsize"))
+
+
+def notify(title: str, message: str) -> None:
+    """A Notification Center banner. The text goes in as arguments, never into
+    the script, so a repo name can't be read as AppleScript."""
+    if sys.platform != "darwin":
+        return
+    _run("osascript", "-e", "on run argv", "-e",
+         "display notification (item 2 of argv) with title (item 1 of argv)",
+         "-e", "end run", title, message)

@@ -59,6 +59,13 @@ def task_rate(per_task: dict[str, list[bool]], z: float = Z95) -> Rate:
                 attempts=sum(len(v) for v in per_task.values()))
 
 
+def time_bound(timed_out: int, failed: int) -> bool:
+    """Whether a rate says more about the machine than the model: most of its
+    failed attempts ran out of time instead of finishing wrong. A timeout can
+    only lower a rate, so such a rate is a floor."""
+    return timed_out >= 3 and 2 * timed_out >= failed
+
+
 def tasks_needed(p: float, half_width: float, z: float = Z95, cap: int = 10_000) -> int:
     """Fewest tasks whose Wilson interval at rate `p` is no wider than ±half_width."""
     if not 0 < half_width < 0.5:

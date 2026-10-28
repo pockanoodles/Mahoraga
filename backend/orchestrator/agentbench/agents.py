@@ -39,8 +39,9 @@ from . import ollama
 from .bank import bench_root
 
 # Context every arm gets unless its spec says otherwise (`@ctx=N`). Sized for
-# a 16 GB machine; a 1,677-line file pulled into aider's chat overflows it, and
-# Ollama truncates the prompt to fit rather than refusing it.
+# a plain transformer on a 16 GB machine; a 1,677-line file pulled into aider's
+# chat overflows it, and Ollama truncates the prompt to fit rather than refusing
+# it. A hybrid model holds far more, which is why tonight.DEFAULT_ARM asks 131k.
 DEFAULT_NUM_CTX = 32768
 
 

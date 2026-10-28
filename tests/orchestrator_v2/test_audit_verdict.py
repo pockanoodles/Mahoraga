@@ -2,6 +2,7 @@
 and that the engine can say "stay" as readily as "split"."""
 from __future__ import annotations
 
+import dataclasses
 import json
 from pathlib import Path
 
@@ -74,6 +75,21 @@ def test_it_says_split_when_local_pays_even_at_the_low_end():
     v = decide(ev(36), A, Billing.api(2000))  # 90% resolve, $10 a cloud task
     assert (v.call, v.confident) == (SPLIT, True)
     assert v.monthly_usd[0] >= max(5, 0.05 * 2000)
+
+
+def test_a_stay_read_off_timeouts_is_not_decided():
+    # 10% resolve, but 30 of the 36 failures ran out of time: the rate is a floor.
+    late = dataclasses.replace(ev(4), failed=36, timed_out=30)
+    v = decide(late, A, Billing.api(150))
+    assert (v.call, v.confident) == (STAY, False)
+    assert v.reason.startswith("30 of 36 failed attempts ran out of time")
+    assert "longer --timeout" in v.sensitivity[0]
+    # Timeouts that are a minority of the failures leave the stay standing.
+    v = decide(dataclasses.replace(ev(4), failed=36, timed_out=17), A, Billing.api(150))
+    assert (v.call, v.confident) == (STAY, True)
+    # A split stands, since more time could only raise the rate.
+    v = decide(dataclasses.replace(ev(36), failed=4, timed_out=3), A, Billing.api(2000))
+    assert (v.call, v.confident) == (SPLIT, True)
 
 
 def test_an_interval_spanning_the_threshold_is_not_a_confident_call():
@@ -228,6 +244,7 @@ def test_evidence_pools_tasks_across_repos_as_units(tmp_path):
     assert (e.rate.tasks, e.rate.attempts) == (4, 6)
     assert e.rate.point == 0.5  # 2 of 4 tasks, not 4 of 6 attempts
     assert e.minutes_per_attempt == 10 and "2 repos" in e.label
+    assert (e.failed, e.timed_out) == (2, 0)
     assert "predate run manifests" in e.hardware
 
 
@@ -372,3 +389,48 @@ def test_evidence_refuses_attempts_from_two_machines(tmp_path):
     c = _bench(tmp_path, "three", {"s3": [True]}, machine={"model": "Mac17,14", "memory_gb": 64})
     with pytest.raises(ValueError, match="2 machines"):
         from_benches([a, c], "fake:m", "feedback")
+
+
+def test_an_answer_about_payment_reads_as_a_plan_or_a_spend():
+    from backend.orchestrator.audit.usage import parse_payment
+
+    assert parse_payment("150") == {"api_spend": 150.0}
+    assert parse_payment("$150") == {"api_spend": 150.0}
+    assert parse_payment("claude-pro") == {"plan": "claude-pro", "plan_price": None}
+    assert parse_payment("claude-max-20x 200") == {"plan": "claude-max-20x", "plan_price": 200.0}
+    for bad in ("", "150 20", "claude-pro cheap", "a b c"):
+        with pytest.raises(ValueError):
+            parse_payment(bad)
+
+
+def test_usage_is_saved_only_when_the_verdict_can_use_it(tmp_path):
+    from backend.orchestrator.audit import usage
+
+    with pytest.raises(ValueError, match="exactly one"):
+        usage.save(tmp_path, usage.Usage(tasks_per_month=10))
+    with pytest.raises(ValueError, match="--plan-price"):
+        usage.save(tmp_path, usage.Usage(tasks_per_month=10, plan="claude-max-20x"))
+    assert usage.load(tmp_path) is None
+    u = usage.Usage(tasks_per_month=200, api_spend=150)
+    usage.save(tmp_path, u)
+    assert usage.load(tmp_path) == u and u.describe() == "200 tasks a month, $150 a month of API"
+
+
+def test_cli_verdict_uses_the_saved_usage_and_flags_override_it(tmp_path, monkeypatch):
+    from typer.testing import CliRunner
+
+    from backend.orchestrator.audit import usage
+    from backend.orchestrator.cli.commands.agentbench import app
+
+    monkeypatch.setenv("MAHORAGA_AGENTBENCH_ROOT", str(tmp_path / "state"))
+    _bench(tmp_path, "one", {f"s{i}": [i < 2] for i in range(10)})
+    args = ["verdict", str(tmp_path / "one"), "--arm", "fake:m"]
+    unsaved = CliRunner().invoke(app, args)
+    assert unsaved.exit_code != 0 and "--tasks-per-month" in _plain(unsaved.output)
+    usage.save(tmp_path / "state", usage.Usage(tasks_per_month=200, api_spend=150))
+    run = CliRunner().invoke(app, args + ["--json"])
+    assert run.exit_code == 0, run.output
+    assert json.loads(run.output)["assumptions"]["tasks_per_month"] == 200
+    run = CliRunner().invoke(app, args + ["--json", "--tasks-per-month", "40", "--plan", "claude-pro"])
+    assert run.exit_code == 0, run.output
+    assert json.loads(run.output)["assumptions"]["tasks_per_month"] == 40

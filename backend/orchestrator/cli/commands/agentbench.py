@@ -4,6 +4,8 @@
 Subcommands
 -----------
 
+  mahoraga audit tonight [REPO]               — mine, check, queue and start the worker:
+                                                an answer by morning
   mahoraga audit mine [REPO]                  — turn commits into gated tasks
   mahoraga audit preflight [REPO] --arm ...   — is this machine fit to run?
   mahoraga audit run [REPO] --arm aider:qwen3.5:latest [--cond blind|feedback|both]
@@ -33,7 +35,7 @@ from typing import List, Optional
 
 import typer
 
-from backend.orchestrator.agentbench import manifest, session
+from backend.orchestrator.agentbench import manifest, session, tonight
 from backend.orchestrator.agentbench.agents import kill_live_agents, parse_arm
 from backend.orchestrator.agentbench.bank import Bench, SuiteConfig, bench_root
 from backend.orchestrator.agentbench.guard import Guard
@@ -104,7 +106,14 @@ def mine_cmd(
     pytest_args: Optional[List[str]] = typer.Option(None, "--pytest-arg", help="Extra pytest arg, e.g. '-m not slow'."),
 ) -> None:
     """Build gated tasks from commits that changed both source and tests."""
-    bench = Bench(repo)
+    if _mine(Bench(repo), limit, max_lines, rev, commits, python, pytest_args) is None:
+        raise typer.Exit(1)
+
+
+def _mine(bench: Bench, limit: int, max_lines: int = 250, rev: str = "HEAD",
+          commits: Optional[List[str]] = None, python: Optional[str] = None,
+          pytest_args: Optional[List[str]] = None):
+    """(tasks, dropped) after mining, or None when there was no commit to try."""
     try:
         prior = bench.load_config()
     except FileNotFoundError:
@@ -121,7 +130,7 @@ def mine_cmd(
         c.sha for c in find_candidates(bench.repo, rev, limit, max_lines)]
     if not shas:
         typer.echo("no candidate commits (need commits changing both source and a test module)")
-        raise typer.Exit(1)
+        return None
     typer.echo(f"building {len(shas)} candidates into {bench.dir}")
 
     def progress(sha, task, reason):
@@ -131,6 +140,7 @@ def mine_cmd(
 
     tasks, dropped = mine(bench, config, shas, progress)
     typer.echo(f"{len(tasks)} tasks in the bench, {len(dropped)} dropped")
+    return tasks, dropped
 
 
 @app.command("preflight")
@@ -176,6 +186,204 @@ def doctor_cmd(
         raise typer.Exit(1)
 
 
+@app.command("tonight")
+def tonight_cmd(
+    repo: Path = _REPO,
+    arms: Optional[List[str]] = typer.Option(None, "--arm", help="<agent>:<model>[@ctx=N], repeatable (default: aider:qwen3.5:latest@ctx=131072)."),
+    cond: str = typer.Option("blind", "--cond", help="blind, feedback, or both."),
+    window: str = typer.Option(tonight.DEFAULT_WINDOW, "--window", help="HH:MM-HH:MM; no attempt starts outside it."),
+    limit: int = typer.Option(tonight.DEFAULT_LIMIT, "--limit", help="Newest commits to mine, if the repo has no tasks yet."),
+    python: Optional[str] = typer.Option(None, "--python", help="Interpreter for the repo's tests."),
+    wait_quiet: bool = typer.Option(False, "--wait-quiet", help="Pause while someone else's model is loaded in Ollama."),
+    timeout: Optional[float] = typer.Option(None, "--timeout", help="Seconds per attempt (default: sized to this machine's speed, measured once)."),
+    tasks_per_month: Optional[int] = typer.Option(None, "--tasks-per-month", help="Coding tasks you give cloud agents a month (asked once, then saved)."),
+    plan_id: Optional[str] = typer.Option(None, "--plan", help="Your plan id from audit/pricing.json, e.g. claude-max-5x."),
+    plan_price: Optional[float] = typer.Option(None, "--plan-price", help="Your plan's monthly price, if it isn't verified in pricing.json."),
+    api_spend: Optional[float] = typer.Option(None, "--api-spend", help="Monthly API spend, USD, if you pay per token."),
+    ratio: float = _RATIO,
+) -> None:
+    """From a repo to an answer by morning: mine, check, queue, start the worker."""
+    import time
+
+    from backend.orchestrator.agentbench import host, isolation
+    from backend.orchestrator.agentbench.doctor import estimate
+    from backend.orchestrator.audit import pricing
+    from backend.orchestrator.agentbench.queue import Queue, parse_window, window_deadline
+
+    if cond not in (*CONDITIONS, "both"):
+        raise typer.BadParameter(f"--cond must be blind, feedback or both, not {cond!r}")
+    try:
+        parse_window(window)
+    except ValueError as e:
+        raise typer.BadParameter(str(e))
+    chosen = bool(arms)
+    arms = list(arms or [tonight.DEFAULT_ARM])
+    agents = _agents(arms)
+    conds = list(CONDITIONS) if cond == "both" else [cond]
+    bench = Bench(repo)
+
+    typer.echo("1. tasks from your history")
+    if bench.load_tasks():
+        typer.echo(f"  {len(bench.load_tasks())} already mined (`mahoraga audit mine` adds more)")
+    else:
+        mined = _mine(bench, limit, python=python)
+        if not mined or not mined[0]:
+            if mined:
+                from collections import Counter
+                for why, n in Counter(mined[1].values()).most_common(3):
+                    typer.echo(f"  {n} dropped: {why}")
+            typer.echo("no tasks to run: a task is a commit that changed source and a test "
+                       "that fails before it and passes after")
+            raise typer.Exit(1)
+
+    typer.echo("2. this machine")
+    checks = Guard(bench_root(), ratio=ratio).preflight(agents)
+    checks += isolation.check(bench, bench.load_config())
+    _print_checks(checks)
+    blocking = [c for c in checks if not c.ok and not c.waits]
+    for c in blocking:
+        if c.name in tonight.INSTALL:
+            typer.echo(f"  install {c.name}: {tonight.INSTALL[c.name]}")
+        elif c.name == "ollama":
+            typer.echo("  start Ollama (open the app, or `ollama serve`)")
+    if blocking:
+        typer.echo("fix the FAIL lines above and run this again; nothing was queued")
+        raise typer.Exit(1)
+    if any(not c.ok for c in checks):
+        typer.echo("  the run waits these out: it starts each attempt only on a healthy machine")
+    if not chosen and (hint := tonight.larger_model_hint(manifest.machine().get("memory_gb"))):
+        typer.echo(f"  {hint}")
+
+    typer.echo("3. the queue")
+    queue = Queue(bench_root())
+    job = tonight.matching_job(queue, bench.repo, arms, cond, window)
+    ahead, ahead_minutes = tonight.queued_ahead(queue, window, job)
+    est = estimate(bench, agents, conds, night_hours=tonight.window_hours(window),
+                   ahead=ahead, ahead_minutes=ahead_minutes)
+    typer.echo(f"  {est.fmt()}")
+    if not est.pending:
+        typer.echo(f"\nthe report is ready: mahoraga audit report {bench.repo}")
+        return
+    if job:
+        typer.echo(f"  already queued as {job.id}")
+    else:
+        from backend.orchestrator.agentbench.ollama import pulled_models, tagged
+
+        pulled = pulled_models()
+        job = queue.add(str(bench.repo), arms, cond, window=window, wait_quiet=wait_quiet,
+                        notify=True, timeout=timeout,
+                        pinned={a.model: pulled[tagged(a.model)] for a in agents})
+        typer.echo(f"  queued {job.id}: {' '.join(arms)} {cond}, {window}")
+    opens = window_deadline(window, time.time()) is None
+    typer.echo(f"  the window opens at {window.split('-')[0]}" if opens else
+               "  the window is open: the first attempt starts within a few minutes")
+
+    typer.echo("4. how you use cloud agents")
+    saved = _tonight_usage(tasks_per_month, plan_id, plan_price, api_spend)
+
+    typer.echo("5. the worker")
+    _ensure_worker()
+    power = host.power()
+    if power.percent is not None:
+        typer.echo("  leave it plugged in with the lid open: the worker keeps it awake on "
+                   "power, but closing the lid sleeps it")
+
+    if missing := tonight.cli_missing():
+        typer.echo(f"\n{missing}")
+    typer.echo(f"\nin the morning: mahoraga audit report {bench.repo}")
+    typer.echo(f"  (also written to {tonight.morning_path(bench)}, with a notification, "
+               "when the window closes)")
+    if saved:
+        typer.echo("  with the verdict for each arm, also on demand:")
+    else:
+        typer.echo("then the verdict, which needs how you use cloud agents:")
+    for arm in arms:
+        for c in tonight.conds_of(cond):
+            typer.echo(f"  {tonight.verdict_command(bench.repo, arm, c, saved=bool(saved))}")
+    if not saved:
+        typer.echo("  plans: " + ", ".join(sorted(pricing.load())) + ", or --api-spend <USD a month>")
+
+
+def _interactive() -> bool:
+    return sys.stdin.isatty()
+
+
+def _tonight_usage(tasks_per_month: Optional[int], plan_id: Optional[str],
+                   plan_price: Optional[float], api_spend: Optional[float]):
+    """What the verdict needs from you: from the flags, what was saved, or
+    asked once in a terminal. Saved under the bench root, never sent anywhere."""
+    from backend.orchestrator.audit import pricing, usage
+
+    saved = usage.load(bench_root())
+    given = any(x is not None for x in (tasks_per_month, plan_id, api_spend))
+    if not given and saved:
+        typer.echo(f"  {saved.describe()}, as saved (change it with --tasks-per-month, "
+                   "--plan or --api-spend)")
+        return saved
+    if not given and not _interactive():
+        typer.echo("  skipped: pass --tasks-per-month and --plan (or --api-spend) and the "
+                   "morning file carries the verdict")
+        return None
+    if given:
+        if plan_id is not None and api_spend is not None:
+            raise typer.BadParameter("give exactly one of --api-spend or --plan")
+        tasks = tasks_per_month or (saved.tasks_per_month if saved else None)
+        if tasks is None:
+            raise typer.BadParameter("--plan and --api-spend need --tasks-per-month")
+        if plan_id is not None or api_spend is not None:
+            paid = {"plan": plan_id, "plan_price": plan_price, "api_spend": api_spend}
+        elif saved:
+            paid = {"plan": saved.plan, "plan_price": saved.plan_price, "api_spend": saved.api_spend}
+        else:
+            raise typer.BadParameter("--tasks-per-month needs --plan or --api-spend")
+        u = usage.Usage(tasks_per_month=tasks, **paid)
+        try:
+            usage.save(bench_root(), u)
+        except (ValueError, KeyError) as e:
+            raise typer.BadParameter(str(e))
+    else:
+        typer.echo("  the verdict weighs your results against what the cloud costs you. "
+                   "Asked once, kept on this machine (blank to skip):")
+        while True:
+            tasks = typer.prompt("  coding tasks you give cloud agents a month", default="",
+                                 show_default=False).strip()
+            if not tasks:
+                typer.echo("  skipped: the morning file prints the verdict command instead")
+                return None
+            if tasks.isdigit() and int(tasks) > 0:
+                break
+            typer.echo(f"  a count of tasks, like 120, not {tasks!r}")
+        while True:
+            answer = typer.prompt(f"  how you pay: a plan ({', '.join(sorted(pricing.load()))}), "
+                                  "a plan and its price, or USD a month of API")
+            try:
+                u = usage.Usage(tasks_per_month=int(tasks), **usage.parse_payment(answer))
+                usage.save(bench_root(), u)
+                break
+            except (ValueError, KeyError) as e:
+                typer.echo(f"  {e}")
+    typer.echo(f"  saved: {u.describe()}")
+    return u
+
+
+def _ensure_worker() -> None:
+    """The launchd worker running, installed if it isn't. An install that
+    already exists keeps its own settings (a workdir, an env)."""
+    if sys.platform != "darwin":
+        typer.echo("  start it and leave it running: mahoraga audit worker "
+                   "(in tmux, or as a systemd user service)")
+        return
+    from backend.orchestrator.cli.commands.service import _is_loaded, install_job, start_job
+
+    job = _worker_job(bench_root())
+    if job.plist.exists() and _is_loaded(job):
+        typer.echo("  running under launchd")
+    elif job.plist.exists():
+        start_job(job, _SERVICE_CLI)
+    else:
+        install_job(job, _SERVICE_CLI)
+
+
 @app.command("run")
 def run_cmd(
     repo: Path = _REPO,
@@ -189,6 +397,7 @@ def run_cmd(
     ratio: float = _RATIO,
     guarded: bool = typer.Option(True, "--guard/--no-guard", help="Preflight, pause on bad conditions, drop degraded attempts."),
     wait_quiet: bool = typer.Option(False, "--wait-quiet", help="Pause while someone else's model is loaded in Ollama."),
+    memory_floor: Optional[int] = typer.Option(None, "--memory-floor", min=1, max=90, help="Keep this percent of memory free for the machine's owner: wait for it, and stop an attempt that eats into it. For a shared machine."),
     force: bool = typer.Option(False, "--force", help="Run even if preflight fails."),
 ) -> None:
     """Attempt every task with every arm. Resumable: finished attempts are skipped."""
@@ -205,7 +414,7 @@ def run_cmd(
     guard = None
     if guarded:
         guard = Guard(bench_root(), ratio=ratio, wait_idle=wait_idle * 60, wait_quiet=wait_quiet,
-                      log=typer.echo)
+                      memory_floor=memory_floor, log=typer.echo)
         typer.echo("preflight")
         from backend.orchestrator.agentbench import isolation
 
@@ -233,7 +442,8 @@ def run_cmd(
         deadline=deadline, progress=progress,
         settings={"conds": list(conds), "repeats": repeats, "timeout": timeout,
                   "until": until, "wait_idle_min": wait_idle, "guarded": guarded,
-                  "wait_quiet": wait_quiet, "min_speed_ratio": ratio, "forced": force},
+                  "wait_quiet": wait_quiet, "memory_floor": memory_floor,
+                  "min_speed_ratio": ratio, "forced": force},
         started=lambda run_id: typer.echo(f"run {run_id} (manifest: {manifest.path(bench, run_id)})"),
         dropped=lambda arm, why: typer.echo(f"dropped {arm}: {why}"))
     typer.echo(f"{len(done)} attempts run ({stopped})")
@@ -273,6 +483,7 @@ def queue_add_cmd(
     wait_quiet: bool = typer.Option(False, "--wait-quiet", help="Pause while someone else's model is loaded in Ollama."),
     follow: bool = typer.Option(False, "--follow", help="Never finish: mine new commits each window and run them."),
     fetch: bool = typer.Option(False, "--fetch", help="With --follow, git fetch first (a repo others commit to)."),
+    timeout: Optional[float] = typer.Option(None, "--timeout", help="Seconds per attempt (default: sized to this machine's speed, measured once)."),
 ) -> None:
     """Queue a run. Each model's digest is pinned now, so the job fails rather
     than measure different weights if a tag moves before it runs."""
@@ -301,7 +512,7 @@ def queue_add_cmd(
     try:
         job = Queue(bench_root()).add(
             str(bench.repo), arms, cond, tasks=tasks, repeats=repeats, window=window,
-            wait_quiet=wait_quiet, follow=follow, fetch=fetch,
+            wait_quiet=wait_quiet, follow=follow, fetch=fetch, timeout=timeout,
             pinned={a.model: pulled[tagged(a.model)] for a in agents})
     except ValueError as e:
         raise typer.BadParameter(str(e))
@@ -433,6 +644,7 @@ def service_status_cmd() -> None:
 def worker_cmd(
     once: bool = typer.Option(False, "--once", help="Exit when nothing can run now, instead of waiting."),
     poll: float = typer.Option(5, "--poll", help="Minutes between looks at the queue when idle."),
+    memory_floor: Optional[int] = typer.Option(None, "--memory-floor", min=1, max=90, help="Keep this percent of memory free for the machine's owner: wait for it, and stop an attempt that eats into it. For a shared machine."),
 ) -> None:
     """Run queued jobs as their windows open. Meant to stay up (launchd, tmux)."""
     from backend.orchestrator.agentbench.queue import Queue, drain
@@ -452,7 +664,7 @@ def worker_cmd(
         typer.echo(f"[{datetime.now():%m-%d %H:%M:%S}] {msg}")
 
     drain(queue, lambda job, deadline: run_job(queue, job, deadline, progress=_echo_attempt,
-                                               log=stamp),
+                                               memory_floor=memory_floor, log=stamp),
           poll=poll * 60, once=once, log=stamp)
 
 
@@ -509,7 +721,7 @@ def verdict_cmd(
     repos: List[Path] = typer.Argument(..., help="Benched repos to pool evidence from."),
     arm: str = typer.Option(..., "--arm", help="The one arm to judge, <agent>:<model>."),
     cond: str = typer.Option("feedback", "--cond", help="blind or feedback (a real queue can run tests)."),
-    tasks_per_month: int = typer.Option(..., "--tasks-per-month", help="Coding tasks you give cloud agents a month."),
+    tasks_per_month: Optional[int] = typer.Option(None, "--tasks-per-month", help="Coding tasks you give cloud agents a month (default: what `tonight` saved)."),
     api_spend: Optional[float] = typer.Option(None, "--api-spend", help="Monthly API spend, USD (API billing)."),
     plan_id: Optional[str] = typer.Option(None, "--plan", help="Subscription plan id from audit/pricing.json, e.g. claude-max-5x."),
     plan_price: Optional[float] = typer.Option(None, "--plan-price", help="Your plan's monthly price, if it isn't verified in pricing.json."),
@@ -522,25 +734,31 @@ def verdict_cmd(
     json_out: bool = typer.Option(False, "--json"),
 ) -> None:
     """Stay, split, or switch: is local worth it for your work, on this machine?"""
-    from backend.orchestrator.audit import pricing
-    from backend.orchestrator.audit.evidence import from_benches
-    from backend.orchestrator.audit.verdict import Assumptions, Billing, decide, render as render_verdict
+    from backend.orchestrator.audit import usage
+    from backend.orchestrator.audit.verdict import render as render_verdict
 
-    if (api_spend is None) == (plan_id is None):
+    if api_spend is not None and plan_id is not None:
         raise typer.BadParameter("give exactly one of --api-spend or --plan")
+    saved = usage.load(bench_root())
+    if tasks_per_month is None and saved is None:
+        raise typer.BadParameter("give --tasks-per-month (`mahoraga audit tonight` asks once "
+                                 "and saves it)")
+    if api_spend is not None:
+        paid = {"api_spend": api_spend}
+    elif plan_id is not None:
+        paid = {"plan": plan_id, "plan_price": plan_price}
+    elif saved is not None:
+        paid = {"plan": saved.plan, "plan_price": saved.plan_price, "api_spend": saved.api_spend}
+    else:
+        raise typer.BadParameter("give exactly one of --api-spend or --plan")
+    u = usage.Usage(tasks_per_month=tasks_per_month or saved.tasks_per_month, **paid)
     try:
-        ev = from_benches([Bench(r) for r in repos], arm, cond)
-        if plan_id:
-            p = pricing.plan(plan_id, plan_price)
-            billing = Billing.subscription(p, pricing.lower_tier(p))
-        else:
-            billing = Billing.api(api_spend)
+        v = usage.judge([Bench(r) for r in repos], arm, cond, u, deferrable_share=deferrable,
+                        triage_minutes=triage, hourly_usd=hourly, watts=watts,
+                        usd_per_kwh=kwh, usage_of_cap=usage_of_cap)
     except (ValueError, KeyError) as e:
         raise typer.BadParameter(str(e))
-    a = Assumptions(tasks_per_month=tasks_per_month, deferrable_share=deferrable,
-                    triage_minutes=triage, hourly_usd=hourly, watts=watts,
-                    usd_per_kwh=kwh, usage_of_cap=usage_of_cap)
-    v = decide(ev, a, billing)
+    ev, a = v.evidence, v.assumptions
     if json_out:
         typer.echo(json.dumps({
             "call": v.call, "confident": v.confident, "reason": v.reason,

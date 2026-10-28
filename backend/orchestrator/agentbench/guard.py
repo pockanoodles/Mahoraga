@@ -8,11 +8,22 @@ like a model failure. None of those attempts measured the agent.
   preflight  before a run: charger, agent binary, Ollama, models, speed
   gate       before each attempt: wait until the machine is on AC, generating
              at >= `ratio` x its reference speed, idle if asked, and, on an
-             Ollama shared with other people, holding none of their models
+             Ollama shared with other people, holding none of their models;
+             with a memory floor, also until the machine has that much memory
+             free plus room for the model to load
   watch      during and after an attempt: an attempt is *degraded* if AC was
-             lost, or if speed fell below the bar *and* the attempt timed out
-             or had requests fail. Degraded attempts are kept for audit but not
-             counted, and the cell is retried
+             lost, if free memory fell under the floor (the attempt is stopped
+             then and there), or if speed fell below the bar *and* the attempt
+             timed out or had requests fail. Degraded attempts are kept for
+             audit but not counted, and the cell is retried
+
+The memory floor exists because the Studio is someone else's machine. On
+2026-10-17 qwen3.6 at 131k ran there while its owner worked in apps that
+aren't Ollama, which the busy check can't see; memory ran out and the run had
+to be killed by hand. With a floor the run gives the memory back on its own:
+it stops the attempt, unloads its model, and waits. It is off by default, since
+a 16 GB laptop sits at the kernel's memory warning through every 131k attempt
+and the only one it would stop is the run itself.
 
 Slowness alone doesn't degrade an attempt. A slow machine changes when tokens
 arrive, not which ones the model can produce: aider samples at temperature 0,
@@ -50,9 +61,9 @@ from typing import Callable
 import httpx
 
 from . import host
-from .agents import DEFAULT_NUM_CTX, Agent
+from .agents import DEFAULT_NUM_CTX, Agent, kill_live_agents
 from .ollama import (BASE_URL, DERIVED_PREFIX, generation_speed, loaded_models,
-                     pulled_models, tagged)
+                     loaded_sizes, pulled_models, tagged, unload)
 
 # Clean readings kept per model; the reference is their median.
 READINGS_KEPT = 10
@@ -63,6 +74,9 @@ class Check:
     name: str
     ok: bool
     detail: str
+    # A condition of this moment (power, speed) that a queued run waits out,
+    # rather than something to fix before queueing it.
+    waits: bool = False
 
 
 @dataclass
@@ -75,21 +89,41 @@ class Watch:
     slow: str = ""
 
 
+def _is_mine(loaded: str, agent: Agent) -> bool:
+    """The agent's model, or a tag this bench derived from it."""
+    mine = tagged(agent.model)
+    return loaded == mine or (loaded.startswith(DERIVED_PREFIX)
+                              and loaded[len(DERIVED_PREFIX):].startswith(mine + "-"))
+
+
 class Guard:
     def __init__(self, root: Path, *, ratio: float = 0.5, min_watts: int = 60,
                  wait_idle: float = 0, clean_idle: float = 300, wait_quiet: bool = False,
+                 memory_floor: int | None = None,
                  poll: float = 60, sample_every: float = 30,
                  power: Callable[[], host.Power] = host.power,
                  idle: Callable[[], float | None] = host.idle_secs,
                  speed: Callable[[str, int | None], float] = generation_speed,
                  pulled: Callable[[], dict[str, str]] = pulled_models,
                  loaded: Callable[[], list[str]] = loaded_models,
+                 free_pct: Callable[[], int | None] = host.memory_free_pct,
+                 mem_total: Callable[[], int | None] = host.memory_bytes,
+                 sizes: Callable[[], dict[str, int]] = loaded_sizes,
+                 release: Callable[[str], None] = unload,
+                 stop_agent: Callable[[], None] = kill_live_agents,
                  sleep: Callable[[float], None] = time.sleep,
                  log: Callable[[str], None] = print) -> None:
         self.path = Path(root) / "speed.json"
         self.ratio, self.min_watts, self.wait_idle = ratio, min_watts, wait_idle
         self.clean_idle, self.wait_quiet = clean_idle, wait_quiet
+        # Percent of memory to leave free for the machine's owner; None = off.
+        self.memory_floor = memory_floor
         self._loaded = loaded
+        self._free_pct, self._mem_total, self._sizes = free_pct, mem_total, sizes
+        self._release, self._stop_agent = release, stop_agent
+        # Bytes each of our models took when last seen loaded, so the gate
+        # can leave room for one that isn't loaded yet.
+        self._model_bytes: dict[str, int] = {}
         self.poll, self.sample_every = poll, sample_every
         self._power, self._idle, self._speed, self._pulled = power, idle, speed, pulled
         self._sleep, self._log = sleep, log
@@ -167,10 +201,30 @@ class Guard:
             loaded = self._loaded()
         except httpx.HTTPError as e:
             return f"ollama error: {e}"
-        mine = tagged(agent.model)
-        others = [m for m in loaded if m != mine and not (
-            m.startswith(DERIVED_PREFIX) and m[len(DERIVED_PREFIX):].startswith(mine + "-"))]
+        others = [m for m in loaded if not _is_mine(m, agent)]
         return f"busy: {', '.join(others)} loaded" if others else None
+
+    def _mine_loaded(self, agent: Agent) -> dict[str, int]:
+        """Our model's loaded copies, name -> bytes; remembers the size."""
+        try:
+            mine = {m: b for m, b in self._sizes().items() if _is_mine(m, agent)}
+        except httpx.HTTPError:
+            return {}
+        if mine:
+            self._model_bytes[tagged(agent.model)] = max(mine.values())
+        return mine
+
+    def _memory_problem(self, agent: Agent) -> str | None:
+        """Under the floor, or would be once our model loads. An unseen model
+        adds nothing, and the watch stops its first attempt if it doesn't fit."""
+        if self.memory_floor is None or (free := self._free_pct()) is None:
+            return None
+        need, why = self.memory_floor, f"the {self.memory_floor}% floor"
+        size, total = self._model_bytes.get(tagged(agent.model)), self._mem_total()
+        if not self._mine_loaded(agent) and size and total:
+            room = round(100 * size / total)
+            need, why = need + room, f"the {self.memory_floor}% floor plus {room}% to load {agent.model}"
+        return f"memory: {free}% free, under {why}" if free < need else None
 
     def problems(self, agent: Agent) -> list[str]:
         """Why an attempt shouldn't start now. Speed is probed last and only
@@ -182,9 +236,19 @@ class Guard:
                 out.append(f"in use (idle {idle:.0f}s, waiting for {self.wait_idle:.0f}s)")
         if self.wait_quiet and (busy := self._busy(agent)):
             out.append(busy)
+        if memory := self._memory_problem(agent):
+            out.append(memory)
         if not out and (slow := self._slow(agent)):
             out.append(slow)
         return out
+
+    def release(self, agent: Agent) -> None:
+        """Unload our model now, so waiting on someone doesn't hold their memory."""
+        for m in self._mine_loaded(agent):
+            try:
+                self._release(m)
+            except httpx.HTTPError:
+                pass  # its keep-alive unloads it anyway
 
     def wait_ready(self, agent: Agent, deadline: float | None = None) -> bool:
         """Block until an attempt can start. False if the deadline passes first."""
@@ -195,6 +259,8 @@ class Guard:
             if [p.split(" ")[0] for p in problems] != shown:  # log changes, not every poll
                 self._log("paused: " + "; ".join(problems))
                 shown = [p.split(" ")[0] for p in problems]
+                if any(p.startswith(("busy:", "memory:")) for p in problems):
+                    self.release(agent)
             self._sleep(self.poll)
         if shown is not None:
             self._log("resumed")
@@ -215,7 +281,10 @@ class Guard:
         else:
             problem = self._power_problem()
             checks.append(Check("power", problem is None, problem or
-                                f"AC, {p.watts}W, battery {p.percent}%"))
+                                f"AC, {p.watts}W, battery {p.percent}%", waits=True))
+        if self.memory_floor is not None and (free := self._free_pct()) is not None:
+            checks.append(Check("memory", free >= self.memory_floor,
+                                f"{free}% free, floor {self.memory_floor}%", waits=True))
         for name in sorted({a.name for a in agents}):
             found = shutil.which(name)
             checks.append(Check(name, bool(found), found or f"{name} not on PATH"))
@@ -235,21 +304,35 @@ class Guard:
                                     "so speed isn't judged until an idle reading sets one"))
             else:
                 checks.append(Check(a.model, s >= self.ratio * ref,
-                                    f"{s:.1f} tok/s (idle median on this machine {ref:.1f})"))
+                                    f"{s:.1f} tok/s (idle median on this machine {ref:.1f})",
+                                    waits=True))
         return checks
 
 
 class _Watching:
-    """Samples power while the agent works; probes speed once it stops.
-    Probing during the attempt would compete with the agent for the model."""
+    """Samples power and memory while the agent works; probes speed once it
+    stops. Probing during the attempt would compete with the agent for the model."""
 
     def __init__(self, guard: Guard, agent: Agent) -> None:
         self.g, self.agent, self.result = guard, agent, Watch()
         self._stop = threading.Event()
         self._samples: list[tuple[host.Power, float | None]] = []
+        self._free: list[int] = []
 
     def _sample(self) -> None:
         self._samples.append((self.g._power(), self.g._idle()))
+        floor = self.g.memory_floor
+        if floor is None or (free := self.g._free_pct()) is None:
+            return
+        self._free.append(free)
+        self.g._mine_loaded(self.agent)  # learn the model's size while it's loaded
+        # Once the agent has stopped, a low reading has nothing left to stop.
+        if free < floor and not self.result.degraded and not self._stop.is_set():
+            self.result.degraded.append(
+                f"memory fell to {free}% free, under the {floor}% floor; "
+                "stopped the attempt and unloaded the model to give it back")
+            self.g._stop_agent()
+            self.g.release(self.agent)
 
     def _loop(self) -> None:
         while not self._stop.wait(self.g.sample_every):
@@ -269,9 +352,11 @@ class _Watching:
         if exc[0] is not None:
             return
         degraded = self.result.degraded
+        out_of_memory = bool(degraded)  # only the memory check fills it before here
         if any(p.on_ac is False for p, _ in self._samples):
             degraded.append("lost AC power during the attempt")
-        slow = self.g._slow(self.agent)
+        # A probe reloads the model the memory check just gave back.
+        slow = None if out_of_memory else self.g._slow(self.agent)
         self.result.slow = slow + " after the attempt" if slow else ""
         idles = [i for _, i in self._samples if i is not None]
         self.result.conditions = {
@@ -282,3 +367,5 @@ class _Watching:
                                 if p.percent is not None), default=None),
             "in_use_share": round(sum(i < 60 for i in idles) / len(idles), 2) if idles else None,
         }
+        if self._free:
+            self.result.conditions["min_free_pct"] = min(self._free)

@@ -102,6 +102,23 @@ async def test_the_aider_health_check_asks_it(monkeypatch):
     assert client.get.call_args.args[0] == f"{STUDIO}/api/tags"
 
 
+async def test_aider_runs_against_the_server_its_health_check_asked(monkeypatch):
+    from types import SimpleNamespace
+
+    monkeypatch.setenv("OLLAMA_BASE_URL", STUDIO)
+    seen = {}
+
+    async def spawn(*cmd, **kw):
+        seen.update(kw)
+        raise FileNotFoundError
+
+    monkeypatch.setattr("backend.orchestrator.workers.aider.asyncio.create_subprocess_exec", spawn)
+    task = SimpleNamespace(title="t", goal="g", done_criteria="")
+    events = [e async for e in AiderWorker().execute(None, task)]
+    assert events[0].payload["error_code"] == "binary_not_found"
+    assert seen["env"]["OLLAMA_API_BASE"] == STUDIO
+
+
 async def test_the_warm_check_asks_it(monkeypatch):
     from backend.orchestrator.service.app import _is_ollama_warm
 

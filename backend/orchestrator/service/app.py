@@ -887,13 +887,11 @@ async def get_settings():
 
     api_key = os.getenv("ANTHROPIC_API_KEY")
     tg_token = os.getenv("TELEGRAM_BOT_TOKEN")
-    brave_key = os.getenv("BRAVE_API_KEY")
 
     return {
         "executor_model": "claude-sonnet-4-6",
         "anthropic_api_key": mask(api_key),
         "telegram_token": mask(tg_token),
-        "brave_api_key": mask(brave_key),
         "configured": bool(api_key),
     }
 

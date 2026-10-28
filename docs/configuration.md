@@ -176,7 +176,6 @@ See [MCP integration](mcp.md).
 | `GEMINI_API_KEY` | Gemini CLI adapter |
 | `AIDER_MODEL` | Aider model override |
 | `TELEGRAM_BOT_TOKEN` | Telegram channel |
-| `BRAVE_API_KEY` | Web search integration |
 
 ## Persistent preferences
 

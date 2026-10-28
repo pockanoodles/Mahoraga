@@ -43,8 +43,7 @@ task to the cloud.
   hosted agents are disabled in `agents.yaml`. Turning one on sends that arm's tasks to
   its vendor.
 - **The Telegram channel is off unless configured.** It talks to Telegram only when
-  `TELEGRAM_BOT_TOKEN` is set. The web-search and URL-reading tools in
-  `backend/orchestrator/tools/` are not wired into any request path.
+  `TELEGRAM_BOT_TOKEN` is set.
 
 ## Downloads
 

@@ -34,5 +34,6 @@
  "degraded": [],
  "conditions": {},
  "tier": "test-verified",
- "run_id": ""
+ "run_id": "",
+ "request_errors": null
 }

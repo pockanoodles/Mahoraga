@@ -161,6 +161,10 @@ def metrics(rows: list[dict], claim: dict[str, Any],
         "failed": float(ev.failed), "timed_out": float(ev.timed_out),
         "minutes": ev.minutes_per_attempt,  # the median attempt
     }
+    if all(r.get("request_errors") is not None for r in picked):
+        # Attempts that lost a model request: on a slow machine, the clock
+        # inside the agent rather than the model.
+        out["request_errors"] = float(sum(r["request_errors"] > 0 for r in picked))
     spec = dict(claim.get("verdict") or {})
     if spec:
         billing = Billing.api(float(spec.pop("api_spend")))

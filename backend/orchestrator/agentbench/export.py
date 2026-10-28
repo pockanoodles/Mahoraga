@@ -21,8 +21,9 @@ from pathlib import Path
 from typing import Iterable, Optional
 
 from . import manifest
+from .agents import aider_request_errors
 from .bank import Bench
-from .runner import DEFAULT_TIMEOUT, load_attempts
+from .runner import DEFAULT_TIMEOUT, Attempt, attempt_log, load_attempts
 
 
 def machine_label(m: dict) -> str:
@@ -42,6 +43,17 @@ def limit_of(m: dict) -> Optional[float]:
     return float((m.get("settings") or {}).get("timeout") or DEFAULT_TIMEOUT)
 
 
+def request_errors(bench: Bench, a: Attempt) -> Optional[int]:
+    """The attempt's failed model requests. Attempts recorded before the count
+    was kept have their aider log, which is where the count comes from."""
+    if a.request_errors is not None:
+        return a.request_errors
+    log = attempt_log(bench, a)
+    if a.arm.startswith("aider:") and log.is_file():
+        return aider_request_errors(log.read_text(errors="replace"))
+    return None
+
+
 def rows(bench: Bench, arms: Iterable[str] = (), conds: Iterable[str] = ()) -> list[dict]:
     arms, conds = set(arms), set(conds)
     tasks = {t.sha: t for t in bench.load_tasks()}
@@ -57,6 +69,7 @@ def rows(bench: Bench, arms: Iterable[str] = (), conds: Iterable[str] = ()) -> l
             "arm": a.arm, "cond": a.cond, "rep": a.rep,
             "resolved": a.resolved, "secs": a.secs, "tier": a.tier,
             "timed_out": a.timed_out, "limit_s": limit_of(m),
+            "request_errors": request_errors(bench, a),
             "run_id": a.run_id,
             "machine": machine_label(m) if m else "unrecorded",
             "digest": ((m.get("models", {}).get("digests") or {}).get(model) or "")[:12],

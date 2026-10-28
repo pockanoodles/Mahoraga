@@ -314,6 +314,17 @@ def test_an_attempt_that_ended_inside_a_shorter_limit_stands_at_a_longer_one():
         metrics(old, {"select": {"arm": "x:m", "cond": "blind", "limit_s": 5400}})
 
 
+def test_a_claim_counts_the_attempts_that_lost_a_model_request():
+    from backend.orchestrator.audit.claims import metrics
+
+    rows = [{**_row("a", True), "request_errors": 0}, {**_row("b", False), "request_errors": 3},
+            {**_row("c", True), "request_errors": 1}]
+    claim = {"select": {"arm": "x:m", "cond": "blind"}}
+    assert metrics(rows, claim)["request_errors"] == 2
+    unknown = rows[:2] + [_row("c", True)]  # an export that couldn't count them
+    assert "request_errors" not in metrics(unknown, claim)
+
+
 def test_a_claimed_stay_read_off_timeouts_is_not_decided():
     from backend.orchestrator.audit.claims import metrics
 

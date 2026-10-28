@@ -390,3 +390,99 @@ async def test_metrics_prompt_eval_rate_guards_zero_duration():
     m = [e for e in events if e.type == "metrics"][0].payload
     assert m["prompt_tokens"] == 42
     assert m["prompt_eval_rate"] == 0.0
+
+
+# ── Thinking and the stall guard (2026-10-28) ────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_metrics_count_the_reasoning_a_reply_carried():
+    """thinking_chars counts the thinking field and inline <think> blocks. Above
+    zero under think: false means the toggle didn't take: granite4.2 reasoned
+    through every HumanEval+ prompt on 2026-10-28 and nothing said so."""
+    worker = OllamaWorker(model="granite4.2:8b", worker_id="ollama:granite4.2-8b:general")
+    lines = [
+        json.dumps({"message": {"content": "", "thinking": "Let me reason"}, "done": False}),
+        json.dumps({"message": {"content": "<think>hmm</think>Paris.", "thinking": ""}, "done": False}),
+        json.dumps({"message": {"content": ""}, "done": True,
+                    "eval_count": 40, "eval_duration": 1_000_000_000}),
+    ]
+    mock_client = _make_stream_mock(lines)
+
+    with patch("backend.orchestrator.workers.ollama.httpx.AsyncClient", return_value=mock_client):
+        events = [ev async for ev in worker.execute(_attempt(), _task())]
+
+    m = [e for e in events if e.type == "metrics"][0].payload
+    assert m["thinking_chars"] == len("Let me reason") + len("<think>hmm</think>")
+    assert [e for e in events if e.type == "attempt.completed"][0].payload["summary"] == "Paris."
+
+
+@pytest.mark.asyncio
+async def test_a_plain_reply_reports_no_reasoning():
+    worker = OllamaWorker(model="granite4.1:8b", worker_id="ollama:granite4.1-8b:general")
+    lines = [json.dumps({"message": {"content": "OK"}, "done": True,
+                         "eval_count": 2, "eval_duration": 1_000_000})]
+    mock_client = _make_stream_mock(lines)
+
+    with patch("backend.orchestrator.workers.ollama.httpx.AsyncClient", return_value=mock_client):
+        events = [ev async for ev in worker.execute(_attempt(), _task())]
+
+    assert [e for e in events if e.type == "metrics"][0].payload["thinking_chars"] == 0
+
+
+@pytest.mark.asyncio
+async def test_a_reply_that_was_all_reasoning_says_so_when_it_fails_empty():
+    worker = OllamaWorker(model="granite4.2:8b", worker_id="ollama:granite4.2-8b:general")
+    lines = [
+        json.dumps({"message": {"content": "", "thinking": "x" * 50}, "done": False}),
+        json.dumps({"message": {"content": ""}, "done": True}),
+    ]
+    mock_client = _make_stream_mock(lines)
+
+    with patch("backend.orchestrator.workers.ollama.httpx.AsyncClient", return_value=mock_client):
+        events = [ev async for ev in worker.execute(_attempt(), _task())]
+
+    assert events[0].payload["error_code"] == "empty_response"
+    assert "after 50 characters of reasoning" in events[0].payload["error"]
+
+
+@pytest.mark.parametrize("num_ctx, stall_s", [
+    (None, 120.0), (4096, 120.0), (32768, 327.68), (131072, 1310.72),
+])
+@pytest.mark.asyncio
+async def test_the_read_timeout_is_a_stall_guard_that_grows_with_the_window(num_ctx, stall_s):
+    """httpx's read timeout fires on silence, and a healthy call's longest
+    silence is a full-window prefill, so the guard scales with num_ctx. Total
+    time is the caller's deadline; a fixed 120 s here was a second clock."""
+    options = {"num_ctx": num_ctx} if num_ctx else None
+    worker = OllamaWorker(model="qwen3.5:latest", worker_id="ollama:coder", options=options)
+    mock_client = _make_stream_mock([json.dumps({"message": {"content": "def f(): ..."}, "done": True})])
+
+    with patch("backend.orchestrator.workers.ollama.httpx.AsyncClient",
+               return_value=mock_client) as client_cls:
+        [ev async for ev in worker.execute(_attempt(), _task())]
+
+    timeout = client_cls.call_args.kwargs["timeout"]
+    assert timeout.read == pytest.approx(stall_s)
+    assert timeout.connect == 10.0
+
+
+def test_a_roster_entry_without_extra_payload_still_turns_thinking_off(tmp_path):
+    """The loader passed {} for an entry that named no extra_payload, which
+    replaced the worker's think: false, so granite4.2 thought (2026-10-28)."""
+    from backend.orchestrator.adapters.loader import load_agent_pool
+
+    roster = tmp_path / "agents.yaml"
+    roster.write_text(
+        "ollama:\n"
+        "  roles: [general]\n"
+        "  models:\n"
+        "    - id: granite4.2-8b\n"
+        "      model: granite4.2:8b\n"
+        "    - id: thinker\n"
+        "      model: qwen3.5:latest\n"
+        "      extra_payload: {think: true}\n"
+    )
+    workers, _ = load_agent_pool(config_path=roster)
+    payloads = {w.id: w._extra_payload for w in workers if isinstance(w, OllamaWorker)}
+    assert payloads["ollama:granite4.2-8b:general"] == {"think": False}
+    assert payloads["ollama:thinker:general"] == {"think": True}

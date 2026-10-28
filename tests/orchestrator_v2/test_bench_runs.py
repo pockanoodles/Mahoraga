@@ -387,3 +387,123 @@ def test_app_bandit_seed_sets_module_variable(monkeypatch, tmp_path):
 
     assert val1_random == val2_random
     assert val1_numpy == val2_numpy
+
+
+# ── The bench's deadline and its error rows (2026-10-28) ────────────────────
+
+PROMPT = "Complete the following Python function.\n\ndef add(a, b): ..."
+
+
+async def test_run_one_sends_its_deadline_and_records_a_504_as_a_timeout():
+    import json as _json
+
+    import httpx
+
+    from backend.orchestrator.cli.commands.bench import _run_one
+
+    sent: dict = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        sent.update(_json.loads(request.content))
+        return httpx.Response(504, json={"detail": {
+            "status": "timed_out", "timeout_s": 300.0, "elapsed_s": 300.1,
+        }})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        row = await _run_one(client, "http://test", PROMPT, "code", "ollama:granite4.2-8b",
+                             timeout_s=300.0)
+
+    assert sent["timeout_s"] == 300.0
+    assert sent["escalate"] is False  # the bench measures the arm, not the cascade
+    assert row["timed_out"] is True
+    assert row["timeout_s"] == 300.0
+    assert "error" in row
+    # The full prompt joins the bank in `bench report verify`, so the timeout
+    # scores as a failure instead of leaving the denominator.
+    assert row["prompt_full"] == PROMPT
+
+
+async def test_run_one_keeps_the_full_prompt_on_a_dropped_connection():
+    import httpx
+
+    from backend.orchestrator.cli.commands.bench import _run_one
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ReadError("connection dropped")
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        row = await _run_one(client, "http://test", PROMPT, "code", "ollama:granite4.2-8b")
+
+    assert row["error"].startswith("ReadError")
+    assert row["prompt_full"] == PROMPT
+
+
+def test_errored_rows_score_as_failures_in_verify(tmp_path):
+    import json as _json
+
+    from backend.orchestrator.routing.verify_replay import evaluate, load_results
+
+    results = tmp_path / "bench.jsonl"
+    results.write_text(_json.dumps({
+        "prompt": PROMPT[:60], "prompt_full": PROMPT, "bucket": "code",
+        "requested_agent": "ollama:granite4.2-8b", "timed_out": True,
+        "error": "timed out at the 300.0s deadline", "elapsed_s": 300.1,
+    }) + "\n")
+    bank = {PROMPT: {"tests": "assert add(1, 2) == 3", "bucket": "code", "entrypoint": "add"}}
+
+    cases, unmatched = evaluate(bank, load_results(results))
+
+    assert unmatched == 0
+    assert [(c.passed, c.empty_output) for c in cases] == [(False, True)]
+
+
+def test_summary_counts_errors_against_the_rate(capsys):
+    from backend.orchestrator.cli.commands.bench import _print_summary
+
+    answered = {"requested_agent": "g", "actual_agent": "g", "success": True, "elapsed_s": 10.0}
+    timed_out = {"requested_agent": "g", "error": "timed out", "timed_out": True, "elapsed_s": 120.0}
+    _print_summary([answered, answered, timed_out, timed_out])
+
+    row = next(line for line in capsys.readouterr().out.splitlines() if line.startswith("g "))
+    n, ans, err, t_o = row.split()[1:5]
+    assert (n, ans, err, t_o) == ("4", "50%", "2", "2")
+
+
+async def test_run_one_records_an_escalation_a_server_made_anyway():
+    import httpx
+
+    from backend.orchestrator.cli.commands.bench import _run_one
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={
+            "status": "success", "agent": "ollama:granite4.1-8b", "output": "def add(a, b): ...",
+            "metrics": {"tokens": 30}, "routing": {},
+            "cascade": {"escalated": True, "escalated_to": "claude-cli"},
+        })
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        row = await _run_one(client, "http://test", PROMPT, "code", "ollama:granite4.1-8b")
+
+    assert row["escalated_to"] == "claude-cli"
+
+
+def test_summary_warns_when_answers_came_from_the_cascade(capsys):
+    from backend.orchestrator.cli.commands.bench import _print_summary
+
+    _print_summary([
+        {"actual_agent": "g", "success": True, "elapsed_s": 1.0, "escalated_to": "claude-cli"},
+        {"actual_agent": "g", "success": True, "elapsed_s": 1.0, "escalated_to": None},
+    ])
+
+    assert "1 of g's 2 answers came from the cascade's escalation arm" in capsys.readouterr().err
+
+
+def test_summary_warns_when_an_arm_reasoned(capsys):
+    from backend.orchestrator.cli.commands.bench import _print_summary
+
+    _print_summary([
+        {"actual_agent": "g", "success": True, "elapsed_s": 1.0, "thinking_chars": 900},
+        {"actual_agent": "g", "success": True, "elapsed_s": 1.0, "thinking_chars": 0},
+    ])
+
+    assert "g reasoned in 1 of 2 replies" in capsys.readouterr().err

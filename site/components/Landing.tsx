@@ -77,10 +77,11 @@ export function Landing({ t, locale }: { t: Dict; locale: Locale }) {
     "mahoraga": { "command": "mahoraga", "args": ["mcp"] }
   }
 }`;
+  const { updated: updatedLabel, ...nav } = t.nav;
 
   return (
     <>
-      <LocalNav t={t.nav} locale={locale} updated={UPDATED} />
+      <LocalNav t={nav} locale={locale} updated={UPDATED} updatedLabel={updatedLabel(UPDATED)} />
       <main id="top">
         {/* ── Hero: where local stands ── */}
         <section className="hero" data-hero aria-labelledby="hero-title">

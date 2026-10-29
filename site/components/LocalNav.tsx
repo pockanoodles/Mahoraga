@@ -12,7 +12,19 @@ import { Mark } from "./Mark";
 
 const SECTIONS = ["log", "engine", "run"] as const;
 
-export function LocalNav({ t, locale, updated }: { t: Dict["nav"]; locale: Locale; updated: string }) {
+// A function can't cross into a client component, so the date's label comes
+// formatted from the server, next to the date the <time> element carries.
+export function LocalNav({
+  t,
+  locale,
+  updated,
+  updatedLabel,
+}: {
+  t: Omit<Dict["nav"], "updated">;
+  locale: Locale;
+  updated: string;
+  updatedLabel: string;
+}) {
   const bar = useRef<HTMLElement>(null);
   const [overHero, setOverHero] = useState(true);
   const [current, setCurrent] = useState<string | null>(null);
@@ -67,7 +79,7 @@ export function LocalNav({ t, locale, updated }: { t: Dict["nav"]; locale: Local
         </nav>
         <div className="lnav__end">
           <time className="lnav__meta" dateTime={updated}>
-            {t.updated(updated)}
+            {updatedLabel}
           </time>
           <a className="lnav__lang" href={other.href} hrefLang={other.lang} lang={other.lang}>
             {other.label}

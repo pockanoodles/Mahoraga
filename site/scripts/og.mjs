@@ -24,8 +24,9 @@ const pick = (re, what) => {
 };
 const htmlClass = pick(/<html[^>]*\sclass="([^"]+)"/, "<html> font classes");
 const sheets = [...page.matchAll(/<link rel="stylesheet" href="([^"]+)"/g)].map((m) => m[1]);
+const question = pick(/<h1[^>]*>([\s\S]*?)<\/h1>/, "h1 (the question)");
 const eyebrow = pick(/<p class="hero__eyebrow">([\s\S]*?)<\/p>/, "hero eyebrow");
-const answer = pick(/<h1[^>]*>([\s\S]*?)<\/h1>/, "h1");
+const answer = pick(/<p class="hero__statement">([\s\S]*?)<\/p>/, "hero answer");
 const chart = pick(/(<figure class="standing"[\s\S]*?<\/figure>)/, "hero chart");
 const mark = readFileSync(join(site, "public", "brand", "mark-dark.svg"), "utf8");
 
@@ -42,7 +43,8 @@ ${sheets.map((href) => `<link rel="stylesheet" href="${href}">`).join("\n")}
   .card__brand svg { width: 34px; height: 34px; }
   .card__url { justify-self: end; align-self: center; font-size: 19px; color: var(--mh-muted); }
   .card__text { grid-row: 2; align-self: end; }
-  .card__text .hero__statement { font-size: 52px; }
+  .card__ask { margin-bottom: 30px; font-size: 23px; font-weight: 500; line-height: 1.3; color: var(--mh-muted); text-wrap: balance; }
+  .card__text .hero__statement { font-size: 50px; }
   .card__chart { grid-row: 2; align-self: center; }
   .card__chart .standing { --label: 8.5rem; --value: 4.25rem; --gap: 14px; --row: 18px; }
   .card__chart .standing__label { font-size: 13px; }
@@ -57,8 +59,9 @@ ${sheets.map((href) => `<link rel="stylesheet" href="${href}">`).join("\n")}
   <p class="card__brand">${mark}<span>Mahoraga</span></p>
   <p class="card__url">kaitosoeno.com/mahoraga</p>
   <div class="card__text">
+    <p class="card__ask">${question}</p>
     <p class="hero__eyebrow">${eyebrow}</p>
-    <h1 class="hero__statement">${answer}</h1>
+    <p class="hero__statement">${answer}</p>
   </div>
   <div class="card__chart">${chart}</div>
 </div>

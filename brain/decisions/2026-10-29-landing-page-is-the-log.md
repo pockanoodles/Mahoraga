@@ -22,9 +22,12 @@ corrections in its section 6.
 
 ## Decision
 
-1. **The page opens on where local stands, and the H1 gives the answer.** The hero draws the
-   three October claims against the rate local needs at $0.75 a task, and says that for most
-   people the answer is still to keep paying for cloud. The laptop's own run is a row marked
+1. **The page opens on the question it answers, and the answer sits under it**, the way a
+   paper states its question and then its finding. The question is the H1, in a panel of its
+   own, and the dated answer under it says that for most people the answer is still to keep
+   paying for cloud (Kaito's call, the same day, after the first draft led with the answer
+   alone). The hero draws the three October claims against the rate local needs at $0.75 a
+   task. The laptop's own run is a row marked
    running, with no interim counts, since reading a rate while it runs is how a measurement
    fools its author.
 2. **A dated log replaces the evidence and corrections sections.** `content/log.ts` holds every

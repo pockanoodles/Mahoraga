@@ -21,8 +21,9 @@ const LOCALES = [
     nav: ["Research", "Engine", "Install"],
     stay: "Stay",
     open: "Not yet decided",
+    answer: "For most people, the answer is still to keep paying for cloud.",
     h1: {
-      research: "For most people, the answer is still to keep paying for cloud.",
+      research: "Should you keep paying for cloud coding AI, or run a model on your own machine?",
       engine: "One pipeline, from a repository's history to a verdict.",
       install: "Run it on your own repository.",
     },
@@ -33,8 +34,9 @@ const LOCALES = [
     nav: ["研究", "エンジン", "インストール"],
     stay: "継続",
     open: "未確定",
+    answer: "多くの人にとって、答えは今もクラウドに払い続けることです。",
     h1: {
-      research: "多くの人にとって、答えは今もクラウドに払い続けることです。",
+      research: "クラウドのコーディング AI に払い続けるべきか、それとも自分のマシンでモデルを動かすべきか。",
       engine: "リポジトリの履歴から判定まで、ひとつのパイプラインで。",
       install: "あなたのリポジトリで動かす。",
     },
@@ -87,6 +89,10 @@ async function shared(page, loc, name, tag) {
 }
 
 async function research(page, loc, vp, tag) {
+  // The question is the h1, in its own panel, and the dated answer follows it.
+  check((await page.locator(".hero__question h1").count()) === 1, `${tag}: the question is the h1, in its own panel`);
+  check((await page.textContent(".hero__answer .hero__statement"))?.trim() === loc.answer, `${tag}: the answer follows the question`);
+
   // The hero chart: measured rows draw an interval and a rate, and the run still
   // under way shows no rate at all, since a number read mid-run would be peeking.
   const measured = page.locator(".standing__row:not(.standing__row--running)");
@@ -167,7 +173,7 @@ async function research(page, loc, vp, tag) {
   await page.evaluate(() => window.scrollTo(0, 0));
   await page.waitForTimeout(300);
   check((await page.getAttribute(".lnav", "data-clear")) !== null, `${tag}: the bar is clear over the hero`);
-  await page.evaluate(() => window.scrollTo(0, window.innerHeight * 1.5));
+  await page.evaluate(() => window.scrollTo(0, document.querySelector("[data-hero]").getBoundingClientRect().bottom + window.scrollY));
   await page.waitForTimeout(300);
   check((await page.getAttribute(".lnav", "data-clear")) === null, `${tag}: the bar frosts past the hero`);
   return entries.length;
@@ -260,11 +266,12 @@ for (const [loc, width, height] of [[LOCALES[0], 1000, 558], [LOCALES[0], 1280, 
   const page = await browser.newPage({ viewport: { width, height } });
   await page.goto(BASE + loc.root, { waitUntil: "networkidle" });
   await page.waitForTimeout(1200); // the hero's rise animation
-  const [nav, chart, text, cta, h1] = await Promise.all([".lnav", ".standing", ".hero__text", ".hero__cta", ".hero__statement"].map((s) => box(page, s)));
+  const [nav, chart, text, cta, ask, answer] = await Promise.all([".lnav", ".standing", ".hero__text", ".hero__cta", ".hero__question", ".hero__statement"].map((s) => box(page, s)));
   check(chart.top >= nav.bottom - 1, `${tag}: the chart starts below the bar`);
   check(text.top >= nav.bottom - 1 && cta.top >= nav.bottom - 1, `${tag}: the answer and its actions start below the bar`);
   check(!meets(chart, text) && !meets(chart, cta) && !meets(text, cta), `${tag}: the chart, the answer and its actions don't overlap`);
-  check(h1.bottom <= height, `${tag}: the answer is on the first screen`);
+  check(ask.bottom <= answer.top, `${tag}: the answer sits under the question`);
+  check(answer.bottom <= height, `${tag}: the question and its answer are on the first screen`);
   const clipped = await page.locator(".hero .standing span, .hero .standing p").evaluateAll((els) =>
     els.filter((e) => { const b = e.getBoundingClientRect(); return b.width > 0 && (b.left < -1 || b.right > window.innerWidth + 1); }).length,
   );

@@ -11,7 +11,7 @@ export type Locale = "en" | "ja";
 export interface Dict {
   meta: Record<"research" | "engine" | "install", { title: string; description: string }>;
   nav: { research: string; engine: string; install: string; github: string; label: string; updated: (date: string) => string };
-  hero: { eyebrow: string; statement: string; sub: string; cta: string; more: string };
+  hero: { questionLabel: string; question: string; eyebrow: string; statement: string; sub: string; cta: string; more: string };
   standing: {
     title: (n: number) => string;
     caption: (n: number) => string;
@@ -161,6 +161,8 @@ const en: Dict = {
   },
   nav: { research: "Research", engine: "Engine", install: "Install", github: "GitHub", label: "Mahoraga", updated: (d) => `Updated ${d}` },
   hero: {
+    questionLabel: "The question",
+    question: "Should you keep paying for cloud coding AI, or run a model on your own machine?",
     eyebrow: "Where local stands, October 2026",
     statement: "For most people, the answer is still to keep paying for cloud.",
     sub: "Mahoraga measures local coding AI on real code, and this page is its log. Each attempt is graded by the repository's own tests, and every number here is recomputed from committed data.",
@@ -406,6 +408,8 @@ const ja: Dict = {
   },
   nav: { research: "研究", engine: "エンジン", install: "インストール", github: "GitHub", label: "Mahoraga", updated: (d) => `${d} 更新` },
   hero: {
+    questionLabel: "問い",
+    question: "クラウドのコーディング AI に払い続けるべきか、それとも自分のマシンでモデルを動かすべきか。",
     eyebrow: "ローカルの現在地（2026 年 10 月）",
     statement: "多くの人にとって、答えは今もクラウドに払い続けることです。",
     sub: "Mahoraga は実際のコードでローカルのコーディング AI を測り、このページはその記録です。各試行はそのリポジトリ自身のテストで採点し、ここにある数字はすべてコミット済みのデータから計算し直しています。",

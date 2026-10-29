@@ -40,11 +40,19 @@ export function Research({ t, locale }: { t: Dict; locale: Locale }) {
       {/* ── Hero: where local stands ── */}
       <section className="hero" data-hero aria-labelledby="hero-title">
         <div className="hero__stage" aria-hidden />
+        {/* The question the research answers is the page's main text, and the
+            current answer sits under it, dated, as a paper states its finding. */}
         <div className="hero__text">
-          <p className="hero__eyebrow">{t.hero.eyebrow}</p>
-          <h1 id="hero-title" className="hero__statement">
-            {t.hero.statement}
-          </h1>
+          <div className="hero__question">
+            <p className="hero__label">{t.hero.questionLabel}</p>
+            <h1 id="hero-title" className="hero__ask">
+              {t.hero.question}
+            </h1>
+          </div>
+          <div className="hero__answer">
+            <p className="hero__eyebrow">{t.hero.eyebrow}</p>
+            <p className="hero__statement">{t.hero.statement}</p>
+          </div>
           <p className="hero__sub">{t.hero.sub}</p>
         </div>
         <div className="hero__chart">

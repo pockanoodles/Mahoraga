@@ -343,8 +343,9 @@ code,
   animation: rise var(--mh-dur-enter) var(--mh-ease) both;
 }
 
+.hero__label,
 .hero__eyebrow {
-  margin-bottom: var(--mh-s-4);
+  margin-bottom: var(--mh-s-3);
   font-size: 12px;
   font-weight: 500;
   letter-spacing: 0.12em;
@@ -352,11 +353,32 @@ code,
   color: var(--mh-faint);
 }
 
-.hero__statement {
-  font-size: clamp(32px, min(3.8vw, 6.6svh), 62px);
+/* The question is the page's main text, in a panel of its own. */
+.hero__question {
+  padding: var(--mh-s-5) var(--mh-s-6);
+  border: 1px solid var(--mh-line);
+  border-radius: var(--mh-radius-panel);
+  background: var(--mh-surface);
+}
+
+.hero__ask {
+  font-size: clamp(26px, min(2.9vw, 5svh), 46px);
   font-weight: 600;
-  line-height: 1.02;
-  letter-spacing: -0.035em;
+  line-height: 1.06;
+  letter-spacing: -0.03em;
+  text-wrap: pretty;
+}
+
+/* The answer as it stands, under the question it answers. */
+.hero__answer {
+  margin-top: var(--mh-s-5);
+}
+
+.hero__statement {
+  font-size: clamp(22px, min(2.4vw, 4.2svh), 38px);
+  font-weight: 600;
+  line-height: 1.06;
+  letter-spacing: -0.03em;
   text-wrap: balance;
 }
 
@@ -454,8 +476,20 @@ code,
     justify-content: space-between;
   }
 
+  .hero__question {
+    padding: var(--mh-s-4) var(--mh-s-5) var(--mh-s-5);
+  }
+
+  .hero__ask {
+    font-size: clamp(26px, 7.2vw, 36px);
+  }
+
+  .hero__answer {
+    margin-top: var(--mh-s-5);
+  }
+
   .hero__statement {
-    font-size: clamp(32px, 8.6vw, 44px);
+    font-size: clamp(22px, 6vw, 30px);
   }
 }
 
@@ -1808,6 +1842,7 @@ html.js .reveal:not([data-shown]) {
   align-items: center;
   justify-content: center;
   gap: calc(0.8 * var(--site-rem));
+  white-space: nowrap;
   min-width: calc(7 * var(--site-rem));
   padding: 0 calc(1.25 * var(--site-rem));
 }
@@ -1898,6 +1933,11 @@ html.js .reveal:not([data-shown]) {
     --gap: var(--mh-s-3);
   }
 
+  /* 「92 件中 9 件」 needs a little more room than "9 of 92". */
+  :lang(ja) .standing {
+    --value: 5.25rem;
+  }
+
   .standing__row,
   .standing__be-label,
   .standing__axis {
@@ -1960,15 +2000,26 @@ html.js .reveal:not([data-shown]) {
   line-break: strict;
 }
 
-:lang(ja) :is(.hero__statement, .h2, .step__title, .vdemo__means, .entry__title) {
+:lang(ja) :is(.hero__ask, .hero__statement, .h2, .step__title, .vdemo__means, .entry__title) {
   letter-spacing: 0.01em;
   line-height: 1.3;
   font-feature-settings: "palt";
   word-break: auto-phrase;
 }
 
+/* Japanese sets larger at the same size, so both steps sit lower, with the
+   question still the larger of the two. */
+:lang(ja) .hero__ask {
+  font-size: clamp(24px, min(2.6vw, 4.6svh), 40px);
+}
+
 :lang(ja) .hero__statement {
-  font-size: clamp(28px, 3.6vw, 56px);
+  font-size: clamp(20px, min(2.1vw, 3.8svh), 32px);
+}
+
+/* A label breaks between phrases, never inside コンテキスト. */
+:lang(ja) .standing__label {
+  word-break: auto-phrase;
 }
 
 :lang(ja) .h2 {
@@ -1986,6 +2037,7 @@ html.js .reveal:not([data-shown]) {
 :lang(ja) .pipeline__caption,
 :lang(ja) .vdemo__assumed-title,
 :lang(ja) .notes__title,
+:lang(ja) .hero__label,
 :lang(ja) .hero__eyebrow,
 :lang(ja) .standing__title,
 :lang(ja) .log__month-title,

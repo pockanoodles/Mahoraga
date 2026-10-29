@@ -15,7 +15,9 @@ import { Mark } from "./Mark";
 import { Replay } from "./Replay";
 import { Reveal } from "./Reveal";
 import { Run } from "./Run";
+import { SettingsGrid } from "./SettingsGrid";
 import { SiteMenu } from "./SiteMenu";
+import { Specimen } from "./Specimen";
 import { Standing } from "./Standing";
 import { VerdictDemo } from "./VerdictDemo";
 
@@ -40,6 +42,12 @@ export function Landing({ t, locale }: { t: Dict; locale: Locale }) {
   const replay = data.probe.replay;
   const run = claim(STANDING.note);
   const dates = cfg(run, "dates");
+  const settings = data.settings;
+  const solved = (key: string) => {
+    const arm = settings.arms.find((a) => a.key === key);
+    if (!arm) throw new Error(`site.json has no settings arm ${key}`);
+    return arm.resolved;
+  };
 
   const notes = [
     t.notes.standing({
@@ -109,6 +117,39 @@ export function Landing({ t, locale }: { t: Dict; locale: Locale }) {
           </div>
         </section>
 
+        {/* ── One task in full ── */}
+        <section id="task" className="band" aria-labelledby="task-title">
+          <div className="band__body band__body--wide">
+            <Reveal>
+              <h2 id="task-title" className="h2 center">
+                {t.specimen.title}
+              </h2>
+              <p className="lede center">{t.specimen.lead}</p>
+            </Reveal>
+            <Reveal delay={80}>
+              <Specimen t={t.specimen} locale={locale} />
+            </Reveal>
+          </div>
+        </section>
+
+        {/* ── The setting that mattered ── */}
+        <section id="settings" className="band" aria-labelledby="settings-title">
+          <div className="band__body band__body--wide">
+            <Reveal>
+              <h2 id="settings-title" className="h2 center">
+                {t.settings.title}
+              </h2>
+              <p className="lede center">
+                {t.settings.lead({ k32: solved("32k"), k131: solved("131k"), k35: solved("35b"), n: settings.tasks.length })}
+              </p>
+            </Reveal>
+            <Reveal delay={80}>
+              <SettingsGrid arms={settings.arms} tasks={settings.tasks} pairs={settings.pairs} locale={locale} />
+            </Reveal>
+            <p className="sgrid__advice center">{t.settings.advice}</p>
+          </div>
+        </section>
+
         {/* ── The log ── */}
         <section id="log" className="band" aria-labelledby="log-title">
           <div className="band__body band__body--wide">
@@ -123,6 +164,11 @@ export function Landing({ t, locale }: { t: Dict; locale: Locale }) {
               {t.log.ledger}{" "}
               <a className="textlink" href={blob("brain/state/findings.md")} target="_blank" rel="noreferrer">
                 {t.log.ledgerLink} <span aria-hidden>↗</span>
+              </a>
+            </p>
+            <p className="small center">
+              <a className="textlink" href="/mahoraga/log.xml" type="application/atom+xml">
+                {t.log.follow}
               </a>
             </p>
           </div>
@@ -191,7 +237,7 @@ export function Landing({ t, locale }: { t: Dict; locale: Locale }) {
               <p className="lede center">{t.verdict.lead}</p>
             </Reveal>
             <Reveal delay={80}>
-              <VerdictDemo locale={locale} initial={PRICE} note={t.verdict.note(entryFor(vd.claim).date, ev.tasks, vd.assumptions.tasks_per_month)} />
+              <VerdictDemo demo={vd} locale={locale} initial={PRICE} note={t.verdict.note(entryFor(vd.claim).date, ev.tasks, vd.assumptions.tasks_per_month)} />
             </Reveal>
           </div>
         </section>

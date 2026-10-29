@@ -11,7 +11,11 @@ export function metadataFor(locale: Locale): Metadata {
     metadataBase: new URL(SITE),
     title: t.title,
     description: t.description,
-    alternates: { canonical: PATHS[locale], languages: { en: PATHS.en, ja: PATHS.ja, "x-default": PATHS.en } },
+    alternates: {
+      canonical: PATHS[locale],
+      languages: { en: PATHS.en, ja: PATHS.ja, "x-default": PATHS.en },
+      types: { "application/atom+xml": [{ url: "/mahoraga/log.xml", title: copy.en.log.feed }] },
+    },
     icons: { icon: "/mahoraga/favicon.svg" },
     openGraph: {
       type: "website",

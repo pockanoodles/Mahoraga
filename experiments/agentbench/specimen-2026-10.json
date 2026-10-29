@@ -1,0 +1,49 @@
+{
+  "attempt": {
+    "arm": "aider:qwen3.5:latest@ctx=131072",
+    "cond": "blind",
+    "edited_files": [
+      "more_itertools/more.py"
+    ],
+    "f2p_pass": 2,
+    "f2p_total": 2,
+    "hit_gold_file": true,
+    "llm_calls": 2,
+    "regressions": 0,
+    "rep": 0,
+    "request_errors": 0,
+    "resolved": true,
+    "run_id": "20261028T210128-d9eb",
+    "secs": 2736.9,
+    "suite_crashed": false,
+    "tier": "test-verified",
+    "timed_out": false,
+    "tokens_recv": 2200.0,
+    "tokens_sent": 210000.0
+  },
+  "committed": "2026-09-29T17:58:58+02:00",
+  "f2p": [
+    "tests.test_more.IchunkedTests::test_negative",
+    "tests.test_more.IchunkedTests::test_zero_nonempty"
+  ],
+  "gold_diff": "diff --git a/more_itertools/more.py b/more_itertools/more.py\nindex c128bc9..940b800 100755\n--- a/more_itertools/more.py\n+++ b/more_itertools/more.py\n@@ -3718,6 +3718,11 @@ def ichunked(iterable, n):\n     [8, 9, 10, 11]\n \n     \"\"\"\n+    if n is not None and n < 0:\n+        raise ValueError('n must be at least 0')\n+    if n == 0:\n+        return\n+\n     iterator = iter(iterable)\n     for first in iterator:\n         rest = islice(iterator, n - 1)\n",
+  "gold_lines": 5,
+  "gold_src": [
+    "more_itertools/more.py"
+  ],
+  "p2p": 765,
+  "patch": "diff --git a/more_itertools/more.py b/more_itertools/more.py\nindex c128bc9..b57dcae 100755\n--- a/more_itertools/more.py\n+++ b/more_itertools/more.py\n@@ -3718,6 +3718,11 @@ def ichunked(iterable, n):\n     [8, 9, 10, 11]\n \n     \"\"\"\n+    if n < 0:\n+        raise ValueError('n must be at least 0')\n+    elif n == 0:\n+        return\n+    \n     iterator = iter(iterable)\n     for first in iterator:\n         rest = islice(iterator, n - 1)\n",
+  "picked": "The first task in the bench's own order that this arm has a counted attempt on, chosen by position and not by outcome.",
+  "repo": "more-itertools",
+  "run": {
+    "agent": "aider 0.86.2",
+    "harness": "b07b584ce",
+    "limit_s": 5400.0,
+    "machine": "Apple M4, 16 GB (Mac16,1)",
+    "ollama": "0.35.1",
+    "started_at": "2026-10-28T21:01:28-0400"
+  },
+  "sha": "f89d7a3",
+  "subject": "Issue 1304: make ichunked match chunked for n=0 and negative n",
+  "upstream": "https://github.com/more-itertools/more-itertools"
+}

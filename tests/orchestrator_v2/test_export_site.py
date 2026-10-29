@@ -96,7 +96,8 @@ def test_the_committed_export_is_what_the_exporter_makes_now():
 
 
 def test_the_private_ops_figures_are_not_exported(site):
-    assert set(site) == {"schema", "source", "claims", "probe", "verdict_demo"}
+    assert set(site) == {"schema", "source", "claims", "probe", "verdict_demo", "settings",
+                         "specimen"}
 
 
 # ── Claims: claims.json, and only what its artifacts still back ──────────────
@@ -243,6 +244,121 @@ def test_the_curve_at_the_claims_own_price_is_the_verdict_the_claim_publishes(si
     assert row["call"] == published["call"]["value"]
     assert round(row["monthly_usd"]["point"]) == published["net"]["value"]
     assert round(row["breakeven"], 2) == published["breakeven_rate"]["value"]
+
+
+def test_every_point_carries_the_bar_a_split_must_clear(site):
+    """5% of the month's cloud bill, never under $5, written out here."""
+    tasks = site["verdict_demo"]["assumptions"]["tasks_per_month"]
+    for row in site["verdict_demo"]["curve"]:
+        assert row["bar"] == pytest.approx(max(5.0, 0.05 * row["cloud_usd_per_task"] * tasks))
+
+
+def test_each_triage_curve_is_the_headline_verdict_with_only_triage_changed(site):
+    claim, rows = _headline()
+    ev = audit_claims.evidence(rows)
+    a = Assumptions(**{k: v for k, v in claim["verdict"].items() if k != "api_spend"})
+    demo_verdict = site["verdict_demo"]
+    offered = [t["triage_minutes"] for t in demo_verdict["by_triage"]]
+    assert sorted({*offered, a.triage_minutes}) == sorted(export.TRIAGE_MINUTES)
+    assert a.triage_minutes not in offered  # the claim's own curve is `curve`, once
+    prices = [row["cloud_usd_per_task"] for row in demo_verdict["curve"]]
+    for t in demo_verdict["by_triage"]:
+        # The calculator keeps the slider's position when triage changes, so
+        # every curve has to sit on the same prices, point for point.
+        assert [row["cloud_usd_per_task"] for row in t["curve"]] == prices
+        at = Assumptions(**{**asdict(a), "triage_minutes": t["triage_minutes"]})
+        assert t["triage_usd"] == pytest.approx(t["triage_minutes"] / 60 * a.hourly_usd)
+        for row in t["curve"]:
+            v = decide(ev, at, Billing.api(row["cloud_usd_per_task"] * a.tasks_per_month))
+            assert (row["call"], row["confident"], row["reason"]) == (v.call, v.confident, v.reason)
+    # More minutes per failure can only raise the rate local needs to pay.
+    by_minutes = {t["triage_minutes"]: t["curve"] for t in demo_verdict["by_triage"]}
+    by_minutes[a.triage_minutes] = demo_verdict["curve"]
+    at_price = [by_minutes[m][10]["breakeven"] for m in sorted(by_minutes)]
+    assert at_price == sorted(at_price)
+
+
+def test_the_costs_are_an_attempts_electricity_and_a_failures_triage(site):
+    claim, rows = _headline()
+    ev = audit_claims.evidence(rows)
+    a = Assumptions(**{k: v for k, v in claim["verdict"].items() if k != "api_spend"})
+    costs = site["verdict_demo"]["costs"]
+    assert costs["attempt_usd"] == pytest.approx(a.watts / 1000 * ev.minutes_per_attempt / 60
+                                                 * a.usd_per_kwh)
+    assert costs["triage_usd"] == pytest.approx(a.triage_minutes / 60 * a.hourly_usd)
+    assert costs["triage_usd"] > 100 * costs["attempt_usd"]  # the report's "several hundred to one"
+
+
+# ── The settings exhibit ─────────────────────────────────────────────────────
+
+
+def _claim(cid: str) -> dict:
+    return next(c for c in json.loads(CLAIMS.read_text())["claims"] if c["id"] == cid)
+
+
+def _slice(cid: str) -> list[dict]:
+    c = _claim(cid)
+    rows = [json.loads(line) for line in (ROOT / c["artifact"]).read_text().splitlines()
+            if line.strip()]
+    return audit_claims.select(rows, c["select"])
+
+
+def test_each_settings_squares_count_to_its_claims_published_figures(site):
+    settings = site["settings"]
+    assert [a["key"] for a in settings["arms"]] == [k for k, _ in export.SETTINGS]
+    for arm, (key, cid) in zip(settings["arms"], export.SETTINGS):
+        published = _claim(cid)["metrics"]
+        lit = sum(t["resolved"][key] for t in settings["tasks"])
+        assert lit == arm["resolved"] == published["resolved"]["value"]
+        assert len(settings["tasks"]) == published["tasks"]["value"]
+        assert arm["rate"]["point"] == pytest.approx(lit / len(settings["tasks"]))
+
+
+def test_a_square_is_one_commit_read_from_every_settings_slice(site):
+    tasks = site["settings"]["tasks"]
+    for key, cid in export.SETTINGS:
+        by_task = {(r["repo"], r["sha"]): r["resolved"] for r in _slice(cid)}
+        assert {(t["repo"], t["sha"]) for t in tasks} == set(by_task)
+        assert all(t["resolved"][key] == by_task[t["repo"], t["sha"]] for t in tasks)
+    # Ordered by repository and commit date, so no outcome decides where a square sits.
+    assert [(t["repo"], t["committed"]) for t in tasks] == sorted(
+        (t["repo"], t["committed"]) for t in tasks)
+    assert all(t["url"] == f"{export.UPSTREAM[t['repo']]}/commit/{t['sha']}" for t in tasks)
+
+
+def test_the_settings_pairs_are_the_paired_test_the_report_publishes(site):
+    pairs = {(p["from"], p["to"]): p for p in site["settings"]["pairs"]}
+    assert list(pairs) == [("32k", "131k"), ("131k", "35b")]
+    published = _claim("report_2026_10_qwen35_vs_qwen36_131k_outside")["metrics"]
+    p = pairs["131k", "35b"]
+    for k in ("pairs", "pair_resolved", "versus_resolved", "only_this", "only_versus"):
+        assert p[k] == published[k]["value"]
+    assert round(p["mcnemar_p"], 2) == published["mcnemar_p"]["value"]
+    net = pairs["32k", "131k"]
+    assert net["versus_resolved"] - net["pair_resolved"] == net["only_versus"] - net["only_this"]
+
+
+def test_a_repository_with_no_public_upstream_is_refused(monkeypatch):
+    monkeypatch.setattr(export, "UPSTREAM", {k: v for k, v in export.UPSTREAM.items()
+                                             if k != "click"})
+    with pytest.raises(export.ExportError, match="no public upstream for click"):
+        export.build_site(commit=COMMIT)
+
+
+# ── The specimen ─────────────────────────────────────────────────────────────
+
+
+def test_the_specimen_is_its_artifact_verbatim(site):
+    assert site["specimen"] == json.loads(export.SPECIMEN.read_text())
+
+
+def test_a_specimen_whose_counts_contradict_its_outcome_is_refused(tmp_path):
+    s = json.loads(export.SPECIMEN.read_text())
+    s["attempt"]["regressions"] = 1
+    bad = tmp_path / "specimen.json"
+    bad.write_text(json.dumps(s))
+    with pytest.raises(export.ExportError, match="contradict"):
+        export._specimen(bad)
 
 
 def test_the_export_refuses_a_headline_claims_json_does_not_hold(monkeypatch):

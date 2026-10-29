@@ -1,4 +1,22 @@
-# Current State — 2026-10-13
+# Current State — 2026-10-29
+
+## 2026-10-29: the landing page is the log, and the October report is on main
+
+#48 (the October report, its PENDING blocks still open) merged as 87a6cb9 on Kaito's word.
+The landing page was rebuilt on `feat/site-edition` as the audit's running log, with
+exhibits made from its data (ADR `2026-10-29-landing-page-is-the-log.md`). It built and
+passed the browser sweep on the morning of 10-29, after the laptop's run had ended for the
+night.
+
+Still open, in order:
+1. The clean run reaches 47 of 47. Night 1 filled 10, so at that pace it needs a fifth night
+   (Nov 2) past the script's four-night cap, which is Kaito's call. Then the laptop export, its claims, the
+   report's PENDING blocks, a log entry, and `HEADLINE` moving to the laptop's row go in one
+   follow-up PR.
+2. Deploy the page (`npx wrangler deploy` from `site/`) once Kaito has looked at it, then flip
+   the Mahoraga row in personal-website `content/projects.ts`.
+3. The pip release plan (local, `docs/plans/2026-10-pip-release.md`) renames `backend` only
+   after the edition's claims are written, as its own PR.
 
 ## Read this first — 2026-10-13: measurement comes first, publishing waits
 

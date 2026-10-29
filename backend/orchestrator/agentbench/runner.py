@@ -114,6 +114,11 @@ def attempt_log(bench: Bench, a: Attempt) -> Path:
     return _artifact(bench, a.arm, a.cond, a.sha, a.rep, "log")
 
 
+def attempt_patch(bench: Bench, a: Attempt) -> Path:
+    """The diff a counted attempt left in its clone, as the grader saw it."""
+    return _artifact(bench, a.arm, a.cond, a.sha, a.rep, "patch")
+
+
 def _next_degraded_try(bench: Bench, arm: str, cond: str, sha: str, rep: int) -> int:
     stem = _artifact(bench, arm, cond, sha, rep, "json", 0).name[:-len("__d0.json")]
     d = _degraded_dir(bench)

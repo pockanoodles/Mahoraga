@@ -21,6 +21,38 @@ export interface Dict {
     running: string;
     runningNote: string;
   };
+  specimen: {
+    title: string;
+    lead: string;
+    fix: (files: string) => string;
+    agent: string;
+    resolved: string;
+    unresolved: string;
+    tests: (pass: number, total: number, broke: number, kept: string) => string;
+    minutes: (m: string) => string;
+    tokens: (sent: string, recv: string, calls: number) => string;
+    machine: (machine: string, date: string) => string;
+    picked: string;
+  };
+  settings: {
+    title: string;
+    lead: (a: { k32: number; k131: number; k35: number; n: number }) => string;
+    label: (n: number, repos: string[]) => string;
+    choose: string;
+    options: Record<string, { label: string; note: string }>;
+    count: (n: number) => string;
+    baseline: string;
+    change: (gained: number, lost: number, from: string, p: number) => string;
+    solved: string;
+    missed: string;
+    changed: string;
+    order: string;
+    keys: string;
+    hint: string;
+    open: string;
+    commit: string;
+    advice: string;
+  };
   log: {
     title: string;
     lead: string;
@@ -29,6 +61,8 @@ export interface Dict {
     sources: string;
     ledger: string;
     ledgerLink: string;
+    feed: string;
+    follow: string;
   };
   engine: {
     title: string;
@@ -61,6 +95,9 @@ export interface Dict {
     assumed: string;
     assumptions: (a: { tasks: number; share: string; triage: number; hourly: number; watts: number; kwh: number }) => string[];
     note: (date: string, tasks: number, perMonth: number) => string;
+    triage: string;
+    minutes: (m: number) => string;
+    costs: (power: string, time: string) => string;
   };
   headless: { title: string; lead: string; mcpNote: string; viewer: string };
   privacy: { title: string; items: { title: string; body: string }[]; link: string };
@@ -127,6 +164,52 @@ const en: Dict = {
     running: "Running",
     runningNote: "On the 16 GB laptop, through October 31",
   },
+  specimen: {
+    title: "Each task is a real commit with the fix taken out.",
+    lead: "The agent starts from the code as it stood before the fix, and the commit's own tests decide whether its attempt counts.",
+    fix: (files) => `The fix the bench took out of ${files}`,
+    agent: "What the agent wrote in its place",
+    resolved: "Resolved",
+    unresolved: "Not resolved",
+    tests: (pass, total, broke, kept) =>
+      `${pass === total ? (total === 1 ? "The commit's one test now passes" : total === 2 ? "Both of the commit's tests now pass" : `All ${total} of the commit's tests now pass`) : `${pass} of the commit's ${total} tests now pass`}, and ${
+        broke === 0 ? `none of the ${kept} tests that passed before broke.` : `${broke} of the ${kept} tests that passed before broke.`
+      }`,
+    minutes: (m) => `${m} minutes for the attempt`,
+    tokens: (sent, recv, calls) => `About ${sent} tokens read and ${recv} written, over ${calls} model ${calls === 1 ? "call" : "calls"}`,
+    machine: (machine, date) => `${machine}, the night of ${date}`,
+    picked:
+      "This is the first task of the laptop's own run at 131k, which is still under way. It was picked by its position and not by its outcome, and one attempt says nothing about the rate.",
+  },
+  settings: {
+    title: "The upgrade that mattered was a setting.",
+    lead: ({ k32, k131, k35, n }) =>
+      `A 131k context window took the laptop's model from ${k32} to ${k131} of ${n} commits. A 35B model that needs 24 GB or more solved ${k35}, ${
+        k35 > k131 ? `which is only ${k35 - k131} more` : k35 === k131 ? "the same number" : `which is ${k131 - k35} fewer`
+      }.`,
+    label: (n, repos) => `${n} commits from ${andList(repos)}, one square each`,
+    choose: "Setting",
+    options: {
+      "32k": { label: "qwen3.5 at 32k", note: "The bench's default window. A long file overflows it, and Ollama cuts the prompt to fit without an error." },
+      "131k": { label: "qwen3.5 at 131k", note: "The same model file, with a window big enough for the files it reads." },
+      "35b": { label: "qwen3.6 35B at 131k", note: "A 35B model, which needs 24 GB of memory or more." },
+    },
+    count: (n) => `of ${n} commits solved`,
+    baseline: "Choose a larger window or a larger model to see which commits change.",
+    change: (gained, lost, from, p) =>
+      `Of the commits only one of the two solved, ${gained || "none"} went to this setting and ${lost || "none"} to ${from}. A paired test gives p ${
+        p < 0.001 ? "below 0.001" : `= ${p.toFixed(2)}`
+      }, so ${p < 0.05 ? "a split like this would be rare if the two did equally well" : "chance alone could produce a split like this"}.`,
+    solved: "Solved",
+    missed: "Not solved",
+    changed: "Changed with this setting",
+    order: "Squares run by repository and then by commit date, so no outcome decides where one sits.",
+    keys: "Commits, one square each. Use the arrow keys to step through them.",
+    hint: "Point at or tap a square to see its commit and how each setting did on it.",
+    open: "Open the commit",
+    commit: "Commit",
+    advice: "If you run a local agent, check its context window before you buy more memory.",
+  },
   log: {
     title: "Every result is in the log, and so is every correction.",
     lead: "Each entry is dated and links to the attempts it came from. A correction also says what was wrong and what changed.",
@@ -143,6 +226,8 @@ const en: Dict = {
     sources: "Sources",
     ledger: "The findings ledger in the repository has every experiment since April, including the ones this log leaves out.",
     ledgerLink: "Read the findings ledger",
+    feed: "Mahoraga's log",
+    follow: "Follow new entries in a feed reader",
   },
   engine: {
     title: "One pipeline, from a repository's history to a verdict.",
@@ -200,6 +285,9 @@ const en: Dict = {
     ],
     note: (date, tasks, perMonth) =>
       `Computed by the engine on the ${tasks} tasks behind the ${date} entry, for an API user with ${perMonth} cloud tasks a month.`,
+    triage: "Minutes to check a failed attempt",
+    minutes: (m) => `${m} min`,
+    costs: (power, time) => `One local attempt burns about ${power} of electricity, and checking a failed one costs ${time} of your time.`,
   },
   headless: {
     title: "Built to be scripted.",
@@ -309,6 +397,53 @@ const ja: Dict = {
     running: "実行中",
     runningNote: "16 GB のノートで、10 月 31 日まで",
   },
+  specimen: {
+    title: "各タスクは、修正を抜き取った実際のコミットです。",
+    lead: "エージェントは修正前のコードから始め、その試行を成功と数えるかどうかは、コミット自身のテストが決めます。",
+    fix: (files) => `ベンチが ${files} から抜き取った修正`,
+    agent: "その代わりにエージェントが書いたもの",
+    resolved: "解決",
+    unresolved: "未解決",
+    tests: (pass, total, broke, kept) =>
+      `${pass === total ? (total === 1 ? "コミットのテスト 1 件が通り" : `コミットのテスト ${total} 件がすべて通り`) : `コミットのテスト ${total} 件のうち ${pass} 件が通り`}、${
+        broke === 0 ? `もともと通っていた ${kept} 件のテストも一つも壊れていません。` : `もともと通っていた ${kept} 件のうち ${broke} 件が壊れました。`
+      }`,
+    minutes: (m) => `試行時間 ${m} 分`,
+    tokens: (sent, recv, calls) => `モデル呼び出し ${calls} 回、読んだトークン約 ${sent}、書いたトークン約 ${recv}`,
+    machine: (machine, date) => `${machine}、${date}の夜`,
+    picked: "ノート本体での 131k の計測（まだ進行中）から、結果ではなく順番で選んだ最初のタスクです。1 回の試行からは、解決率については何もわかりません。",
+  },
+  settings: {
+    title: "効いたのは、設定ひとつでした。",
+    lead: ({ k32, k131, k35, n }) =>
+      `コンテキストウィンドウを 131k に広げると、ノートのモデルが解いたコミットは ${n} 件中 ${k32} 件から ${k131} 件に増えました。24 GB 以上が必要な 35B のモデルは ${k35} 件で、${
+        k35 > k131 ? `差は ${k35 - k131} 件だけです` : k35 === k131 ? "同じ件数です" : `${k131 - k35} 件少ない結果です`
+      }。`,
+    label: (n, repos) => `${repos.join("、")} のコミット ${n} 件（1 マスが 1 コミット）`,
+    choose: "設定",
+    options: {
+      "32k": { label: "qwen3.5・32k", note: "ベンチの既定のウィンドウです。長いファイルは収まらず、Ollama がエラーなしでプロンプトを切り詰めます。" },
+      "131k": { label: "qwen3.5・131k", note: "同じモデルファイルに、読むファイルが収まる大きさのウィンドウを与えたものです。" },
+      "35b": { label: "qwen3.6 35B・131k", note: "24 GB 以上が必要な 35B のモデルです。" },
+    },
+    count: (n) => `件を解決（${n} 件中）`,
+    baseline: "より大きなウィンドウやモデルを選ぶと、どのコミットが変わるかがわかります。",
+    change: (gained, lost, from, p) =>
+      `どちらか一方だけが解いたコミットのうち、${gained} 件はこの設定、${lost} 件は ${from} が解きました。${
+        p < 0.05
+          ? `対応のある検定で p は ${p < 0.001 ? "0.001 未満" : p.toFixed(2)} です。2 つの実力が同じなら、こうした分かれ方はまれです。`
+          : `対応のある検定で p = ${p.toFixed(2)} です。こうした分かれ方は、偶然だけでも生じます。`
+      }`,
+    solved: "解決",
+    missed: "未解決",
+    changed: "この設定で変わったコミット",
+    order: "マスはリポジトリごとに、コミット日の古い順に並べています。結果で並びを決めてはいません。",
+    keys: "1 マスが 1 コミットです。矢印キーで順に見られます。",
+    hint: "マスにカーソルを合わせるかタップすると、そのコミットと各設定での結果が見られます。",
+    open: "コミットを開く",
+    commit: "コミット",
+    advice: "ローカルのエージェントを使うなら、メモリを買い足す前に、コンテキストウィンドウを確かめてください。",
+  },
   log: {
     title: "結果はすべて記録に残し、訂正もすべて残しています。",
     lead: "各エントリには日付と、もとになった試行へのリンクがあります。訂正には、何が間違っていて何を変えたかも書いています。",
@@ -325,6 +460,8 @@ const ja: Dict = {
     sources: "出典",
     ledger: "リポジトリの所見台帳には、この記録で省いたものも含めて、4 月以降のすべての実験が残っています。",
     ledgerLink: "所見台帳を読む",
+    feed: "Mahoraga の記録",
+    follow: "新しい記録をフィードで受け取る（英語）",
   },
   engine: {
     title: "リポジトリの履歴から判定まで、ひとつのパイプラインで。",
@@ -416,6 +553,9 @@ const ja: Dict = {
     ],
     note: (date, tasks, perMonth) =>
       `${date} のエントリの ${tasks} タスクを根拠に、月 ${perMonth} 件のクラウドタスクを API で使う場合をエンジンが計算しました。`,
+    triage: "失敗した試行の確認にかかる時間",
+    minutes: (m) => `${m} 分`,
+    costs: (power, time) => `ローカルの試行 1 回の電気代は約 ${power} で、失敗した試行を確認する時間は、時給に換算すると ${time} です。`,
   },
   headless: {
     title: "スクリプトから使うための設計。",
@@ -500,6 +640,11 @@ const ja: Dict = {
 function usdJa(x: number): string {
   const abs = Math.round(Math.abs(x)).toLocaleString("en-US");
   return x < 0 ? `−$${abs}` : `$${abs}`;
+}
+
+/** "a, b and c", without the serial comma, as the page's English writes lists. */
+function andList(xs: string[]): string {
+  return xs.length < 2 ? xs.join("") : `${xs.slice(0, -1).join(", ")} and ${xs[xs.length - 1]}`;
 }
 
 export const copy: Record<Locale, Dict> = { en, ja };

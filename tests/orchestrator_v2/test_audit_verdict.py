@@ -11,7 +11,8 @@ import pytest
 from backend.orchestrator.agentbench.stats import Rate, task_rate
 from backend.orchestrator.audit import pricing
 from backend.orchestrator.audit.verdict import (
-    SPLIT, STAY, SWITCH, Assumptions, Billing, Evidence, breakeven_rate, decide, render, usd,
+    SPLIT, STAY, SWITCH, Assumptions, Billing, Evidence, breakeven_rate, decide, materiality,
+    render,
 )
 
 
@@ -100,15 +101,38 @@ def test_an_interval_spanning_the_threshold_is_not_a_confident_call():
     assert lo < mid < hi
 
 
-def test_a_losing_net_reads_as_minus_dollars_not_dollar_minus():
+def test_a_loss_is_said_in_words_with_a_positive_figure():
     # 5 of 18 at $5 a cloud task: the point loses money, the top of the interval wins.
     v = decide(ev(5, tasks=18), A, Billing.api(1000))
     assert (v.call, v.confident) == (STAY, False) and v.monthly_usd[1] < 0
-    assert f"(~{usd(v.monthly_usd[1])}/mo)" in v.reason and "$-" not in v.reason
+    assert f"costs ${-v.monthly_usd[1]:.0f}/mo more than cloud" in v.reason
+    assert "$-" not in v.reason and "−" not in v.reason
     # A split that isn't safe to rely on: the point pays, the low end of the interval loses.
     v = decide(ev(3, tasks=6), A, Billing.api(1500))
     assert (v.call, v.confident) == (SPLIT, False) and v.monthly_usd[0] < 0
-    assert f"reaches {usd(v.monthly_usd[0])}/mo" in v.reason and "$-" not in v.reason
+    assert f"loses ${-v.monthly_usd[0]:.0f}/mo" in v.reason
+    assert "$-" not in v.reason and "−" not in v.reason
+
+
+def test_a_saving_under_the_bar_is_a_stay_that_names_the_bar():
+    # 30% at $10 a task: the point saves money, but less than 5% of a $2,000 bill.
+    v = decide(ev(12), A, Billing.api(2000))
+    lo, mid, hi = v.monthly_usd
+    assert (v.call, v.confident) == (STAY, False) and 0 < mid < 100 <= hi
+    assert f"saves about ${mid:.0f}/mo" in v.reason
+    assert "That is under 5% of your cloud bill ($100/mo), the smallest saving" in v.reason
+    assert materiality(Billing.api(2000)) == 100 and materiality(Billing.api(40)) == 5
+
+
+def test_no_reason_carries_a_dash_or_a_semicolon():
+    cases = [decide(ev(k, tasks=n), A, Billing.api(spend))
+             for k, n, spend in ((4, 40, 150), (36, 40, 2000), (12, 40, 2000), (5, 18, 1000),
+                                 (3, 6, 1500), (2, 3, 150))]
+    cases += [decide(ev(4), A, max5()), decide(ev(30), dataclasses.replace(
+        A, deferrable_share=0.5), Billing.subscription(pricing.plan("claude-pro"), None))]
+    for v in cases:
+        assert not any(c in v.reason for c in "—–;"), v.reason
+    assert "—" not in render(cases[0])
 
 
 def test_break_even_rate_matches_the_formula():

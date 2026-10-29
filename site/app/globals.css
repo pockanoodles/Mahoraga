@@ -2015,3 +2015,445 @@ html.js .reveal:not([data-shown]) {
   gap: var(--mh-s-5);
   margin-top: var(--mh-s-4);
 }
+
+/* ── Exhibits: one task in full, the settings grid, the triage control ──── */
+/* The accent keeps its one meaning here: what the local agent did. The
+   agent's own lines, a commit a setting solved, and the share of work it took. */
+
+.specimen {
+  max-width: var(--mh-measure-section);
+  margin: var(--mh-s-8) auto 0;
+  padding: var(--mh-s-6);
+  border-radius: var(--mh-radius-panel);
+  background: var(--mh-surface);
+}
+
+.specimen__where {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--mh-s-3);
+  font-size: 14px;
+  color: var(--mh-faint);
+}
+
+.specimen__where a {
+  color: var(--mh-muted);
+  transition: color var(--mh-dur-micro) var(--mh-ease);
+}
+
+.specimen__where a:hover {
+  color: var(--mh-ink);
+}
+
+.specimen__subject {
+  margin-top: var(--mh-s-2);
+  font-size: clamp(19px, 1.6vw, 24px);
+  font-weight: 600;
+  line-height: 1.25;
+  letter-spacing: -0.015em;
+  text-wrap: balance;
+}
+
+.specimen__diffs {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: var(--mh-s-4);
+  margin-top: var(--mh-s-5);
+}
+
+.specimen__diff {
+  min-width: 0;
+  border-radius: var(--mh-radius-control);
+  background: var(--mh-raised);
+  overflow: hidden;
+}
+
+.specimen__diff-label {
+  padding: var(--mh-s-3) var(--mh-s-4);
+  border-bottom: 1px solid var(--mh-line);
+  font-size: 13px;
+  color: var(--mh-muted);
+}
+
+.specimen__code {
+  padding: var(--mh-s-3) 0;
+  overflow-x: auto;
+  font-family: var(--mh-font-mono);
+  font-size: 12.5px;
+  line-height: 1.7;
+}
+
+.specimen__code code {
+  font-size: inherit;
+}
+
+.specimen__code span {
+  display: block;
+  padding: 0 var(--mh-s-4);
+  white-space: pre;
+  color: var(--mh-muted);
+}
+
+.specimen__code .hunk {
+  color: var(--mh-faint);
+}
+
+.specimen__code .add {
+  background: var(--mh-selected);
+  color: var(--mh-ink);
+}
+
+.specimen__code .del {
+  color: var(--mh-faint);
+  text-decoration: line-through;
+}
+
+/* The agent's diff is the local work, so its added lines carry the accent. */
+.specimen__diff--agent .add {
+  background: var(--mh-accent-wash);
+  color: var(--mh-accent-text);
+}
+
+.specimen__result {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  column-gap: var(--mh-s-4);
+  row-gap: var(--mh-s-2);
+  align-items: baseline;
+  margin-top: var(--mh-s-5);
+}
+
+.specimen__outcome {
+  padding: 2px var(--mh-s-3);
+  border: 1px solid var(--mh-line-strong);
+  border-radius: var(--mh-radius-pill);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--mh-muted);
+}
+
+.specimen__outcome[data-resolved] {
+  border-color: var(--mh-accent);
+  color: var(--mh-accent-text);
+}
+
+.specimen__tests {
+  font-size: 16px;
+  color: var(--mh-ink);
+  text-wrap: pretty;
+}
+
+.specimen__facts {
+  grid-column: 2;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--mh-s-1) var(--mh-s-5);
+  padding: 0;
+  list-style: none;
+  font-size: 14px;
+  color: var(--mh-muted);
+}
+
+.specimen__picked {
+  grid-column: 2;
+  font-size: 13px;
+  color: var(--mh-faint);
+}
+
+/* The settings grid */
+
+.sgrid {
+  max-width: var(--mh-measure-section);
+  margin: var(--mh-s-8) auto 0;
+}
+
+.sgrid__seg {
+  display: flex;
+  flex-wrap: wrap;
+  width: fit-content;
+  max-width: 100%;
+  margin: 0 auto;
+}
+
+.seg__item[aria-checked="true"] {
+  background: var(--mh-raised);
+  box-shadow: 0 0 0 1px var(--mh-line-strong);
+  color: var(--mh-ink);
+}
+
+.sgrid__head {
+  margin-top: var(--mh-s-6);
+  text-align: center;
+}
+
+.sgrid__count {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: var(--mh-s-3);
+}
+
+.sgrid__k {
+  font-size: clamp(44px, 5vw, 64px);
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: -0.03em;
+  font-variant-numeric: tabular-nums;
+  color: var(--mh-accent-text);
+}
+
+.sgrid__n {
+  font-size: 17px;
+  color: var(--mh-muted);
+}
+
+.sgrid__note {
+  margin-top: var(--mh-s-3);
+  font-size: 15px;
+  color: var(--mh-muted);
+}
+
+.sgrid__change {
+  max-width: var(--mh-measure-lede);
+  min-height: 3em;
+  margin: var(--mh-s-3) auto 0;
+  font-size: 15px;
+  color: var(--mh-ink);
+  text-wrap: pretty;
+}
+
+.sgrid__plot {
+  display: grid;
+  gap: var(--mh-s-4);
+  margin-top: var(--mh-s-6);
+  padding: var(--mh-s-5);
+  border-radius: var(--mh-radius-panel);
+  background: var(--mh-surface);
+  outline-offset: 2px;
+}
+
+.sgrid__repo {
+  display: grid;
+  grid-template-columns: 9rem minmax(0, 1fr);
+  align-items: start;
+  gap: var(--mh-s-4);
+}
+
+.sgrid__repo-name {
+  padding-top: 1px;
+  font-family: var(--mh-font-mono);
+  font-size: 12.5px;
+  color: var(--mh-faint);
+}
+
+.sgrid__squares {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  padding: 0;
+  list-style: none;
+}
+
+.sgrid__sq {
+  display: block;
+  width: 16px;
+  height: 16px;
+  border: 1px solid var(--mh-line-strong);
+  border-radius: 4px;
+  outline: 1.5px solid transparent;
+  outline-offset: 2px;
+  transition:
+    background-color var(--mh-dur-ui) var(--mh-ease) calc(var(--i, 0) * 5ms),
+    border-color var(--mh-dur-ui) var(--mh-ease) calc(var(--i, 0) * 5ms),
+    outline-color var(--mh-dur-ui) var(--mh-ease),
+    transform var(--mh-dur-micro) var(--mh-ease);
+}
+
+.sgrid__sq[data-solved] {
+  border-color: var(--mh-accent);
+  background: var(--mh-accent);
+}
+
+.sgrid__sq[data-change="gained"] {
+  outline-color: var(--mh-ink);
+}
+
+.sgrid__sq[data-change="lost"] {
+  outline: 1.5px dashed var(--mh-faint);
+}
+
+.sgrid__sq[data-active] {
+  transform: scale(1.3);
+}
+
+.sgrid__tip {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--mh-s-2) var(--mh-s-5);
+  min-height: 74px;
+  padding-top: var(--mh-s-4);
+  border-top: 1px solid var(--mh-line);
+  font-size: 14px;
+}
+
+.sgrid__tip-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--mh-s-3);
+  color: var(--mh-muted);
+}
+
+.sgrid__tip-rows {
+  grid-column: 1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--mh-s-1) var(--mh-s-5);
+  padding: 0;
+  list-style: none;
+  color: var(--mh-faint);
+}
+
+.sgrid__tip-rows li {
+  display: flex;
+  gap: var(--mh-s-2);
+}
+
+.sgrid__tip-rows li[data-solved] span:last-child {
+  color: var(--mh-accent-text);
+}
+
+.sgrid__tip-rows li[data-current] span:first-child {
+  color: var(--mh-ink);
+}
+
+.sgrid__tip-open {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  color: var(--mh-ink);
+  border-bottom: 1px solid var(--mh-line-strong);
+}
+
+.sgrid__tip-hint {
+  grid-column: 1 / -1;
+  color: var(--mh-faint);
+}
+
+.sgrid__caption {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: var(--mh-s-2) var(--mh-s-5);
+  margin-top: var(--mh-s-4);
+  font-size: 13px;
+  color: var(--mh-faint);
+}
+
+.sgrid__legend {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--mh-s-2);
+}
+
+.sgrid__key {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  margin-left: var(--mh-s-2);
+  border: 1px solid var(--mh-line-strong);
+  border-radius: 3px;
+}
+
+.sgrid__key:first-child {
+  margin-left: 0;
+}
+
+.sgrid__key[data-solved] {
+  border-color: var(--mh-accent);
+  background: var(--mh-accent);
+}
+
+.sgrid__key[data-change="gained"] {
+  outline: 1.5px solid var(--mh-ink);
+  outline-offset: 2px;
+}
+
+.sgrid__advice {
+  max-width: var(--mh-measure-lede);
+  margin: var(--mh-s-6) auto 0;
+  font-size: clamp(17px, 1.3vw, 20px);
+  font-weight: 500;
+  color: var(--mh-ink);
+  text-wrap: balance;
+}
+
+/* The calculator's triage control */
+
+.vdemo__control--triage {
+  margin-top: var(--mh-s-5);
+}
+
+.vdemo__seg {
+  display: flex;
+  flex-wrap: wrap;
+  width: fit-content;
+  max-width: 100%;
+  margin-top: var(--mh-s-2);
+}
+
+.vdemo__costs {
+  margin-top: var(--mh-s-3);
+  font-size: 14px;
+  color: var(--mh-muted);
+  text-wrap: pretty;
+}
+
+@media (max-width: 900px) {
+  .specimen__diffs {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 760px) {
+  .specimen {
+    padding: var(--mh-s-5) var(--mh-s-4);
+  }
+
+  .specimen__result {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .specimen__facts,
+  .specimen__picked {
+    grid-column: 1;
+  }
+
+  .sgrid__plot {
+    padding: var(--mh-s-4);
+  }
+
+  .sgrid__repo {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--mh-s-2);
+  }
+
+  .sgrid__sq {
+    width: 14px;
+    height: 14px;
+  }
+
+  .sgrid__tip {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .sgrid__tip-open {
+    grid-column: 1;
+    grid-row: auto;
+    justify-self: start;
+  }
+}
+
+:lang(ja) :is(.specimen__tests, .sgrid__change, .sgrid__advice) {
+  line-height: 1.7;
+}

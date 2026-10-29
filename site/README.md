@@ -9,14 +9,20 @@ with the personal site, which stays the origin for every other path. English is 
 
 - **Numbers:** `../docs/site/site.json`, written by `scripts/export_site.py` from committed
   results. The page formats them and never types one in, so a page and the engine can't
-  disagree. Regenerate it on the commit you release from.
+  disagree. Regenerate it on the commit you release from. Server components read it
+  through `lib/data.ts`. Client components get their numbers as props and import only
+  `lib/format.ts`, so the export never ships to the browser.
+- **The log:** `content/log.ts`, one dated entry per finding, correction or voided run,
+  each reading its numbers from a claim. The same entries render the Atom feed at
+  `/mahoraga/log.xml` (`app/log.xml/route.ts`).
+- **The specimen:** one attempt kept whole in `../experiments/agentbench/specimen-2026-10.json`,
+  written by `scripts/specimen.py` from the bench that ran it. Rerun that script for a new
+  edition's first task, then the export.
 - **Brand:** `../brand/` (tokens, the wheel mark, `BRAND.md`).
 - **Copy:** `content/copy.ts`, both languages behind one interface, so a missing Japanese
   line fails the build.
 - **Install channels:** `content/channels.ts`. Each channel's command is shown as live only
   once that channel is published.
-- **App screenshots:** `public/app/` (`verdict-dark.png`, `verdict-dark-narrow.png`), taken
-  from `mahoraga demo`. Until they exist the slot renders as a labelled box.
 
 `scripts/prepare.mjs` copies the brand and the export in before every build.
 

@@ -58,10 +58,71 @@ export interface ReplayStep {
 export interface CurvePoint {
   cloud_usd_per_task: number;
   breakeven: number;
+  bar: number; // the smallest monthly saving the engine calls a split (audit.verdict.materiality)
   call: "stay" | "split" | "switch";
   confident: boolean;
   monthly_usd: { lo: number; point: number; hi: number };
   reason: string;
+}
+
+/** One outside commit, and whether each setting solved it. */
+export interface SettingsTask {
+  repo: string;
+  sha: string;
+  committed: string;
+  url: string;
+  resolved: Record<string, boolean>;
+}
+
+export interface SettingsArm {
+  key: string;
+  claim: string;
+  arm: string;
+  context: number;
+  machine: string;
+  resolved: number;
+  rate: Rate;
+}
+
+/** Two neighbouring settings task by task (audit.claims.paired). */
+export interface SettingsPair {
+  from: string;
+  to: string;
+  pairs: number;
+  pair_resolved: number;
+  versus_resolved: number;
+  only_this: number; // solved under `from` only
+  only_versus: number; // solved under `to` only
+  mcnemar_p: number;
+}
+
+/** One attempt kept whole (scripts/specimen.py). */
+export interface Specimen {
+  picked: string;
+  repo: string;
+  upstream: string;
+  sha: string;
+  subject: string;
+  committed: string;
+  gold_src: string[];
+  gold_lines: number;
+  gold_diff: string;
+  f2p: string[];
+  p2p: number;
+  patch: string;
+  attempt: {
+    arm: string;
+    resolved: boolean;
+    f2p_pass: number;
+    f2p_total: number;
+    regressions: number;
+    secs: number;
+    llm_calls: number;
+    tokens_sent: number;
+    tokens_recv: number;
+    run_id: string;
+  };
+  run: { started_at: string; machine: string; harness: string; agent: string; ollama: string | null; limit_s: number };
 }
 
 export interface SiteData {
@@ -91,7 +152,13 @@ export interface SiteData {
       lines: string[];
     };
     curve: CurvePoint[];
+    // An attempt's electricity and a failed attempt's triage, in dollars.
+    costs: { attempt_usd: number; triage_usd: number };
+    // The same curve at each other triage time the calculator offers.
+    by_triage: { triage_minutes: number; triage_usd: number; curve: CurvePoint[] }[];
   };
+  settings: { order: string; arms: SettingsArm[]; tasks: SettingsTask[]; pairs: SettingsPair[] };
+  specimen: Specimen;
 }
 
 export const data = raw as unknown as SiteData;
@@ -129,12 +196,7 @@ export function cfg(c: Claim, key: string): string {
   return String(v);
 }
 
-export const pct = (x: number, digits = 0) => `${(x * 100).toFixed(digits)}%`;
-
-export function usd(x: number, digits = 0): string {
-  const abs = Math.abs(x).toLocaleString("en-US", { minimumFractionDigits: digits, maximumFractionDigits: digits });
-  return x < 0 ? `−$${abs}` : `$${abs}`;
-}
+export { pct, usd } from "./format";
 
 /** The curve point for a given cloud price, or the nearest one. */
 export function curveAt(usdPerTask: number): CurvePoint {

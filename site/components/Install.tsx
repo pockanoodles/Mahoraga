@@ -26,7 +26,7 @@ export function Install({ t, locale }: { t: Dict; locale: Locale }) {
   const at = curveAt(PRICE);
   const httpReq = `curl -s localhost:8000/api/audit/verdict \\
   -H 'Content-Type: application/json' \\
-  -d '{"arm": "${vd.select.arm}", "cond": "${vd.select.cond}",
+  -d '{"arm": "${ARM}", "cond": "${vd.select.cond}",
        "billing": {"kind": "api", "monthly_usd": ${PRICE * vd.assumptions.tasks_per_month}},
        "assumptions": {"tasks_per_month": ${vd.assumptions.tasks_per_month}}}'`;
   const r3 = (x: number) => Number(x.toFixed(3));

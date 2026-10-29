@@ -70,12 +70,22 @@ hero. Controls are 48px pills (32px in the app's dense toolbars). Panels are 18p
 soft rectangles, one level deep and never nested. No shadows. Depth on the landing page comes
 from lighting (the stage), and in the app from the surface steps.
 
+Corners are concentric, as Apple's are. A control in a panel's corner keeps the corner's
+centre, so its radius is the panel's less the gap between them, never below
+`--mh-radius-floor` (the code panel's tabs sit 12px into an 18px corner, so they are 6px). A
+pill inside a pill is concentric when its inset is the difference of the two radii, which is
+why the install commands are 44px capsules around a 32px copy button.
+
 ## Motion
 
 One curve, `cubic-bezier(0.2, 0.8, 0.2, 1)`. UI feedback 160–240ms, entrances 700ms with a
 12–16px rise, staggered 60–90ms in a series. Scroll-linked motion is CSS
 (`animation-timeline`) behind `@supports`, never a scroll listener. Everything has a
 reduced-motion state that shows the final frame.
+
+Motion reveals a figure and never changes what it says. A figure opens on its finding, a
+number changes only when the reader changes a setting, and it rolls to its new value. A
+segmented control's thumb slides to the reader's choice.
 
 ## Voice
 

@@ -118,27 +118,38 @@ async function research(page, loc, vp, tag) {
     check((await page.locator("#task").count()) === 0, `${tag}: the export carries no specimen, so there is no #task section`);
   }
 
-  // The settings grid steps to the second setting once it is seen. Each
-  // setting's count is the squares it lights and the share the hero prints
-  // for the same setting, and only a setting with one before it rings changes.
+  // The settings grid opens on its finding, the second setting, already in
+  // the server's HTML, and never changes the setting itself. Each setting's
+  // count is the squares it lights and the share the hero prints for the same
+  // setting, only a setting with one before it rings changes, and the squares
+  // stay where they are whichever setting the reader picks.
+  const served = await (await page.request.get(page.url())).text();
+  const picked = [...served.matchAll(/role="radio" aria-checked="(true|false)"/g)].map((m) => m[1]);
+  check(picked.join(",") === "false,true,false", `${tag}: the server's HTML opens the grid on the second setting (${picked.join(",")})`);
   const grid = page.locator("#settings .sgrid");
   await grid.evaluate((el) => window.scrollTo(0, el.getBoundingClientRect().top + window.scrollY - window.innerHeight * 0.2));
   await page.waitForTimeout(1200);
   const settings = grid.locator('[role="radio"]');
-  check((await settings.nth(1).getAttribute("aria-checked")) === "true", `${tag}: the grid steps to the second setting once seen`);
+  check((await settings.nth(1).getAttribute("aria-checked")) === "true", `${tag}: the grid is still on the second setting once seen`);
   const counts = [];
+  const tops = [];
   for (let i = 0; i < (await settings.count()); i++) {
     await settings.nth(i).click();
-    const k = Number((await grid.locator(".sgrid__k").textContent())?.trim());
+    const k = Number((await grid.locator(".sgrid__k .sr-only").textContent())?.trim());
     const lit = await grid.locator(".sgrid__sq[data-solved]").count();
     const n = await grid.locator(".sgrid__sq").count();
     const rings = await grid.locator(".sgrid__sq[data-change]").count();
     counts.push(k);
+    tops.push(Math.round((await grid.locator(".sgrid__plot").boundingBox()).y));
     check(k === lit, `${tag}: setting ${i + 1} counts the squares it lights (${k}/${lit})`);
     check(`${Math.round((100 * k) / n)}%` === heroPct[i], `${tag}: setting ${i + 1} is the hero's ${heroPct[i]} (${k} of ${n})`);
     check(i === 0 ? rings === 0 : rings > 0, `${tag}: setting ${i + 1} rings ${rings} changed commits`);
   }
   check(counts.length === 3 && counts[2] !== counts[1], `${tag}: choosing 35B changes the count (${counts.join(" → ")})`);
+  check(new Set(tops).size === 1, `${tag}: the squares stay put across settings (${tops.join(", ")})`);
+  await settings.nth(2).focus();
+  await page.keyboard.press("ArrowLeft");
+  check((await settings.nth(1).getAttribute("aria-checked")) === "true", `${tag}: the arrow keys move the setting`);
   await grid.locator(".sgrid__plot").focus();
   await page.keyboard.press("ArrowRight");
   check((await grid.locator(".sgrid__tip-head").count()) === 1, `${tag}: the arrow keys step through the commits`);
@@ -289,9 +300,11 @@ for (const [loc, width, height] of [[LOCALES[0], 1000, 558], [LOCALES[0], 1280, 
   const page = await ctx.newPage();
   await page.goto(`${BASE}/mahoraga/`, { waitUntil: "networkidle" });
   const sq = page.locator("#settings .sgrid__sq").first();
-  // A reader looks, then taps: the scroll lands at once, and the taps wait for the grid's one step.
+  // A reader looks, then taps: the scroll lands at once, and the taps wait for
+  // hydration (the picker's thumb is placed by its script), since a tap before
+  // it is a plain link.
   await sq.evaluate((el) => el.scrollIntoView({ block: "center", behavior: "instant" }));
-  await page.locator("#settings [role=radio]").nth(1).and(page.locator('[aria-checked="true"]')).waitFor();
+  await page.locator("#settings .seg[data-thumb]").waitFor();
   let opened = 0;
   ctx.on("page", () => opened++);
   // A browser's first new tab took 2 s to appear on 10-29, and later ones about

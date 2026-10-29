@@ -132,6 +132,10 @@
   --mh-radius-panel: 18px;
   --mh-radius-control: 10px;
   --mh-radius-small: 6px;
+  /* Concentric corners: a shape inside another's corner keeps that corner's
+     centre, so its radius is the outer radius less the gap between them, and
+     never less than this floor. */
+  --mh-radius-floor: 4px;
   --mh-control: 48px;
   --mh-control-compact: 32px;
 

@@ -13,6 +13,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { copy, type Locale } from "@/content/copy";
 import type { CurvePoint, SiteData } from "@/lib/data";
 import { pct, priceText, usd, usdSmall } from "@/lib/format";
+import { Segmented } from "./Segmented";
 
 const MIN = Math.log10(0.1);
 const MAX = Math.log10(30);
@@ -106,13 +107,13 @@ export function VerdictDemo({
         <p id="vdemo-triage" className="vdemo__label">
           {t.triage}
         </p>
-        <div className="seg vdemo__seg" role="radiogroup" aria-labelledby="vdemo-triage">
-          {minutes.map((x) => (
-            <button key={x} type="button" role="radio" aria-checked={x === m} className="seg__item" onClick={() => setM(x)}>
-              {t.minutes(x)}
-            </button>
-          ))}
-        </div>
+        <Segmented
+          className="vdemo__seg"
+          labelledBy="vdemo-triage"
+          options={minutes.map((x) => ({ key: x, label: t.minutes(x) }))}
+          value={m}
+          onChange={setM}
+        />
         <p className="vdemo__costs">{t.costs(usdSmall(demo.costs.attempt_usd), usdSmall(triageUsd))}</p>
       </div>
 

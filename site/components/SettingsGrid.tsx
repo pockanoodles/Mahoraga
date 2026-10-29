@@ -3,15 +3,16 @@
 // The settings exhibit: the same outside commits under three settings, one
 // square each. Choosing a setting lights the commits it solved, and the
 // squares that changed from the setting before it carry a ring, so the reader
-// sees which commits moved as well as how many. It opens on the first setting and
-// steps to the second once it scrolls into view, which is the finding itself.
+// sees which commits moved as well as how many. It opens on the first paired
+// comparison's setting, which is the finding, and never changes the setting
+// itself: a figure that swaps its own number reads as a page that glitched.
 // Every square is a row of the engine's export (site.json settings), placed in
 // an order no outcome decides, and every count and test is the export's.
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { copy, type Locale } from "@/content/copy";
 import type { SettingsArm, SettingsPair, SettingsTask } from "@/lib/data";
-
-const STEP_DELAY_MS = 700;
+import { Count } from "./Count";
+import { Segmented } from "./Segmented";
 
 export function SettingsGrid({
   arms,
@@ -25,15 +26,13 @@ export function SettingsGrid({
   locale: Locale;
 }) {
   const t = copy[locale].settings;
-  const [key, setKey] = useState(arms[0].key);
+  const [key, setKey] = useState(pairs[0]?.to ?? arms[0].key);
   const [active, setActive] = useState<number | null>(null);
   // A touch shows a commit on the first tap and opens it on the second. The
   // square a tap showed is kept in a ref, since the click that follows the
   // touch can arrive before a state update renders.
   const touch = useRef(false);
   const shown = useRef<number | null>(null);
-  const chosen = useRef(false); // the reader chose a setting, so the page stops choosing
-  const box = useRef<HTMLElement>(null);
   const arm = arms.find((a) => a.key === key) ?? arms[0];
   const n = tasks.length;
   const names = useMemo(() => [...new Set(tasks.map((x) => x.repo))], [tasks]);
@@ -48,47 +47,25 @@ export function SettingsGrid({
     return out;
   }, [tasks]);
 
-  useEffect(() => {
-    const el = box.current;
-    if (!el || arms.length < 2) return;
-    const step = () => {
-      if (!chosen.current) setKey(arms[1].key);
-    };
-    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
-      step();
-      return;
-    }
-    let timer = 0;
-    const io = new IntersectionObserver(
-      ([e]) => {
-        if (!e.isIntersecting) return;
-        io.disconnect();
-        timer = window.setTimeout(step, STEP_DELAY_MS);
-      },
-      { rootMargin: "0px 0px -25% 0px" },
-    );
-    io.observe(el);
-    return () => {
-      io.disconnect();
-      window.clearTimeout(timer);
-    };
-  }, [arms]);
-
-  // The paired test that leads into this setting from the one before it. The
+  // The paired test that leads into a setting from the one before it. The
   // rings and the change line both compare against that setting, whichever
   // one the reader chose last.
   const into = pairs.find((p) => p.to === key);
-  const from = into ? arms.find((a) => a.key === into.from) : undefined;
   const label = (k: string) => {
     const o = t.options[k];
     if (!o) throw new Error(`copy.ts has no settings option for ${k}`);
     return o.label;
   };
-
-  const choose = (k: string) => {
-    chosen.current = true;
-    setKey(k);
+  const lines = (k: string) => {
+    const p = pairs.find((x) => x.to === k);
+    const from = p && arms.find((a) => a.key === p.from);
+    return {
+      note: t.options[k]?.note ?? label(k),
+      change: p && from ? t.change(p.only_versus, p.only_this, label(from.key), p.mcnemar_p) : t.baseline,
+    };
   };
+  const now = lines(key);
+
   const change = (task: SettingsTask) => {
     if (!into || task.resolved[into.from] === task.resolved[key]) return undefined;
     return task.resolved[key] ? "gained" : "lost";
@@ -98,25 +75,38 @@ export function SettingsGrid({
   const move = (d: number) => setActive((a) => Math.max(0, Math.min(n - 1, (a ?? -1) + d)));
 
   return (
-    <figure ref={box} className="sgrid" aria-label={t.label(n, names)}>
-      <div className="seg sgrid__seg" role="radiogroup" aria-label={t.choose}>
-        {arms.map((a) => (
-          <button key={a.key} type="button" role="radio" aria-checked={a.key === key} className="seg__item" onClick={() => choose(a.key)}>
-            {label(a.key)}
-          </button>
-        ))}
-      </div>
+    <figure className="sgrid" aria-label={t.label(n, names)}>
+      <Segmented
+        className="sgrid__seg"
+        label={t.choose}
+        options={arms.map((a) => ({ key: a.key, label: label(a.key) }))}
+        value={key}
+        onChange={setKey}
+      />
 
-      <div className="sgrid__head" aria-live="polite">
+      {/* Every setting's lines share one cell, so the tallest sets the head's
+          height and the squares below stay put when the reader switches. A
+          screen reader hears the current setting's lines once, from the live line. */}
+      <div className="sgrid__head" aria-hidden>
         <p className="sgrid__count">
-          <span className="sgrid__k">{arm.resolved}</span>
+          <Count className="sgrid__k" value={arm.resolved} max={n} />
           <span className="sgrid__n">{t.count(n)}</span>
         </p>
-        <p className="sgrid__note">{t.options[key]?.note ?? label(key)}</p>
-        <p className="sgrid__change">
-          {into && from ? t.change(into.only_versus, into.only_this, label(from.key), into.mcnemar_p) : t.baseline}
-        </p>
+        <div className="sgrid__lines">
+          {arms.map((a) => {
+            const l = lines(a.key);
+            return (
+              <div key={a.key} className="sgrid__line" data-on={a.key === key || undefined}>
+                <p className="sgrid__note">{l.note}</p>
+                <p className="sgrid__change">{l.change}</p>
+              </div>
+            );
+          })}
+        </div>
       </div>
+      <p className="sr-only" aria-live="polite">
+        {locale === "ja" ? `${arm.resolved} ${t.count(n)}。${now.note}${now.change}` : `${arm.resolved} ${t.count(n)}. ${now.note} ${now.change}`}
+      </p>
 
       <div
         className="sgrid__plot"

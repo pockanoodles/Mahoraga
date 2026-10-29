@@ -8,7 +8,8 @@
     "build": "npm run prepare-assets && next build && node scripts/nest.mjs",
     "typecheck": "npm run prepare-assets && tsc --noEmit",
     "preview": "npm run build && wrangler dev --port 3222",
-    "verify": "node scripts/verify.mjs"
+    "verify": "node scripts/verify.mjs",
+    "og": "node scripts/og.mjs"
   },
   "dependencies": {
     "next": "15.5.21",

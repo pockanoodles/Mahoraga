@@ -39,6 +39,8 @@ from .pricing import Plan
 
 STAY, SPLIT, SWITCH = "stay", "split", "switch"
 MIN_TASKS = 5  # below this an interval is too wide to decide anything
+MIN_SAVING = 5.0  # $/mo: the smallest saving an API verdict calls a split, however small the bill
+SAVING_SHARE = 0.05  # and at least this share of the monthly cloud bill
 
 
 @dataclass(frozen=True)
@@ -107,11 +109,13 @@ class Verdict:
     sensitivity: list[str] = field(default_factory=list)
 
 
-def _local_cost(ev: Evidence, a: Assumptions) -> float:
+def attempt_cost(ev: Evidence, a: Assumptions) -> float:
+    """The electricity one local attempt burns, in dollars."""
     return a.watts / 1000 * (ev.minutes_per_attempt / 60) * a.usd_per_kwh
 
 
-def _triage_cost(a: Assumptions) -> float:
+def triage_cost(a: Assumptions) -> float:
+    """The developer's time to see a local attempt failed and hand the task over."""
     return a.triage_minutes / 60 * a.hourly_usd
 
 
@@ -120,12 +124,12 @@ def decide(ev: Evidence, a: Assumptions, billing: Billing) -> Verdict:
         raise ValueError(f"v1 decides on test-verified evidence only, not {ev.tier!r}")
     if not 0 < a.deferrable_share <= 1 or a.tasks_per_month <= 0:
         raise ValueError("tasks_per_month must be > 0 and deferrable_share in (0, 1]")
-    hw = (f"Measured on {ev.hardware}. Other hardware needs its own run; the "
-          "tier map's figures for it are projections from vendor numbers, not measurements.")
+    hw = (f"Measured on {ev.hardware}. Other hardware needs its own run, because the "
+          "tier map's figures for it are projections from vendor numbers.")
     if ev.rate.tasks < MIN_TASKS:
         return Verdict(STAY, False,
-                       f"Only {ev.rate.tasks} tasks measured — too few to decide; "
-                       f"mine more tasks before trusting any call.",
+                       f"Only {ev.rate.tasks} tasks were measured, which is too few to decide, "
+                       f"so mine more tasks before trusting any call.",
                        ev, a, billing, sensitivity=[hw])
     if a.deferrable_share >= 0.9 and ev.rate.lo >= 0.8:
         return Verdict(SWITCH, True,
@@ -155,7 +159,7 @@ def breakeven_rate(ev: Evidence, a: Assumptions, cloud_per_task: float) -> float
     Above 1 when a cloud task costs less than a local attempt's electricity,
     which reads as "no resolve rate pays". One formula in one place: the
     verdict's sensitivity line, the API and the site export all call this."""
-    return (_local_cost(ev, a) + _triage_cost(a)) / (cloud_per_task + _triage_cost(a))
+    return (attempt_cost(ev, a) + triage_cost(a)) / (cloud_per_task + triage_cost(a))
 
 
 def breakeven_cloud_cost(ev: Evidence, a: Assumptions) -> float | None:
@@ -165,19 +169,27 @@ def breakeven_cloud_cost(ev: Evidence, a: Assumptions) -> float | None:
     p = ev.rate.point
     if p <= 0:
         return None
-    return (_local_cost(ev, a) + (1 - p) * _triage_cost(a)) / p
+    return (attempt_cost(ev, a) + (1 - p) * triage_cost(a)) / p
+
+
+def materiality(b: Billing) -> float:
+    """The smallest monthly saving an API verdict calls a split: 5% of the bill,
+    and never under $5. A saving below it isn't worth changing how you work, so
+    the verdict stays and its reason names the figure. The site export reads it
+    from here, as it reads the break-even."""
+    return max(MIN_SAVING, SAVING_SHARE * b.monthly_usd)
 
 
 def _decide_api(ev: Evidence, a: Assumptions, b: Billing) -> Verdict:
     cloud = b.monthly_usd / a.tasks_per_month
-    local, triage = _local_cost(ev, a), _triage_cost(a)
+    local, triage = attempt_cost(ev, a), triage_cost(a)
     queued = a.tasks_per_month * a.deferrable_share
 
     def net(p: float) -> float:
         return queued * (p * cloud - local - (1 - p) * triage)
 
     lo, mid, hi = net(ev.rate.lo), net(ev.rate.point), net(ev.rate.hi)
-    material = max(5.0, 0.05 * b.monthly_usd)
+    material = materiality(b)
     p_star = breakeven_rate(ev, a, cloud)
     sens = [f"Pays once local resolves ≥ {p_star:.0%} of queued tasks "
             f"(measured {ev.rate.fmt()})."]
@@ -186,27 +198,39 @@ def _decide_api(ev: Evidence, a: Assumptions, b: Billing) -> Verdict:
         sens.append(f"At the measured rate it pays once a cloud task costs ≥ ${c_star:.2f} "
                     f"(yours: ${cloud:.2f}).")
     per = f"${cloud:.2f}/task"
+    # A saving under the bar isn't worth changing how you work, so it reads as a
+    # stay. Each reason the bar decides says what the bar is, and a loss is said
+    # as what local costs more, never as a negative saving.
+    bar = (f"5% of your cloud bill (${material:.0f}/mo)" if material > MIN_SAVING
+           else f"${material:.0f}/mo")
+    nets = (lo, mid, hi)
     if lo >= material:
-        return Verdict(SPLIT, True, f"Even at the low end of the interval, routing the queueable "
-                       f"share to local saves ≥ ${lo:.0f}/mo at {per}.", ev, a, b, (lo, mid, hi), sens)
+        return Verdict(SPLIT, True, f"Even at the low end of the interval, sending the work that "
+                       f"can wait to local saves at least ${lo:.0f}/mo at {per}.", ev, a, b, nets, sens)
     if mid >= material:
-        return Verdict(SPLIT, False, f"Likely saves ~${mid:.0f}/mo at {per}, but the interval "
-                       f"reaches {usd(lo)}/mo — measure more before relying on it.",
-                       ev, a, b, (lo, mid, hi), sens)
+        low = (f"At the low end of the interval it loses ${-lo:.0f}/mo" if lo < 0 else
+               f"The low end of the interval saves only ${lo:.0f}/mo, under {bar}")
+        return Verdict(SPLIT, False, f"Local likely saves about ${mid:.0f}/mo at {per}. {low}, so "
+                       "measure more before relying on it.", ev, a, b, nets, sens)
+    under = f"That is under {bar}, the smallest saving that calls for a split."
     if hi < material:
-        return Verdict(STAY, True, f"You're not wasting money: even at the optimistic end, local "
-                       f"saves under ${material:.0f}/mo at {per}.", ev, a, b, (lo, mid, hi), sens)
-    return Verdict(STAY, False, f"Not yet worth it at the measured rate (~{usd(mid)}/mo), "
-                   f"though the optimistic end reaches ${hi:.0f}/mo.", ev, a, b, (lo, mid, hi), sens)
+        top = (f"local costs ${-hi:.0f}/mo more than cloud at {per}." if hi < 0 else
+               f"local saves only ${hi:.0f}/mo at {per}. {under}")
+        return Verdict(STAY, True, f"You're not wasting money. Even at the optimistic end of the "
+                       f"interval, {top}", ev, a, b, nets, sens)
+    now = (f"At the measured rate local costs ${-mid:.0f}/mo more than cloud at {per}." if mid < 0
+           else f"At the measured rate local saves about ${mid:.0f}/mo at {per}. {under}")
+    return Verdict(STAY, False, f"{now} The optimistic end of the interval reaches "
+                   f"${hi:.0f}/mo.", ev, a, b, nets, sens)
 
 
 def _decide_subscription(ev: Evidence, a: Assumptions, b: Billing) -> Verdict:
     plan, lower = b.plan, b.lower
     queued = a.tasks_per_month * a.deferrable_share
-    run_cost = queued * _local_cost(ev, a)
+    run_cost = queued * attempt_cost(ev, a)
 
     def failed_cost(p: float) -> float:
-        return queued * (1 - p) * _triage_cost(a)
+        return queued * (1 - p) * triage_cost(a)
 
     sens: list[str] = []
     headroom = a.usage_of_cap >= 1 and a.deferrable_share * ev.rate.lo >= 0.10
@@ -221,26 +245,27 @@ def _decide_subscription(ev: Evidence, a: Assumptions, b: Billing) -> Verdict:
 
         nets = (net(ev.rate.lo), net(ev.rate.point), net(ev.rate.hi))
         if p_down <= 0:
-            return Verdict(STAY, True, f"Your usage already fits {lower.name}: you can drop a "
-                           f"tier without local at all (saves ${saving:.0f}/mo).", ev, a, b, None,
+            return Verdict(STAY, True, f"Your usage already fits {lower.name}, so you can drop a "
+                           f"tier without local at all and save ${saving:.0f}/mo.", ev, a, b, None,
                            [f"Based on using {a.usage_of_cap:.0%} of {plan.name}'s cap."])
         sens.append(f"Dropping to {lower.name} (−${saving:.0f}/mo) needs local to take "
                     f"≥ {min(p_down, 1):.0%} of your queueable work (measured {ev.rate.fmt()}).")
         if p_down > 1:
             sens[-1] += " That's more than the queueable share allows, whatever the model."
         if ev.rate.lo >= p_down and nets[0] > 0:
-            return Verdict(SPLIT, True, f"Local can take enough work to move you to {lower.name}: "
-                           f"saves ~${nets[1]:.0f}/mo.", ev, a, b, nets, sens)
+            return Verdict(SPLIT, True, f"Local can take enough work to move you to {lower.name}, "
+                           f"which saves about ${nets[1]:.0f}/mo.", ev, a, b, nets, sens)
         if ev.rate.point >= p_down and nets[1] > 0:
-            return Verdict(SPLIT, False, f"At the measured rate you could move to {lower.name} "
-                           f"(~${nets[1]:.0f}/mo), but the interval's low end can't — measure more.",
-                           ev, a, b, nets, sens)
+            return Verdict(SPLIT, False, f"At the measured rate you could move to {lower.name} and "
+                           f"save about ${nets[1]:.0f}/mo, but the interval's low end can't, so "
+                           "measure more first.", ev, a, b, nets, sens)
     if headroom:
-        return Verdict(SPLIT, True, f"You hit your cap and local would take ~{freed} of your "
-                       "tasks off it. That buys headroom, not money.", ev, a, b, None, sens)
-    reason = ("You're not wasting money: on a flat plan each extra cloud task is free, and "
-              f"local would free only ~{freed} of your usage")
-    reason += (" — which matters only if you hit the cap." if a.usage_of_cap < 1
+        return Verdict(SPLIT, True, f"You hit your cap, and local would take about {freed} of your "
+                       "tasks off it. That buys headroom under the cap and saves no money.",
+                       ev, a, b, None, sens)
+    reason = ("You're not wasting money, because on a flat plan each extra cloud task is free. "
+              f"Local would free only about {freed} of your usage")
+    reason += (", which matters only if you hit the cap." if a.usage_of_cap < 1
                else ", too little to relieve the cap.")
     return Verdict(STAY, True, reason, ev, a, b, None, sens)
 
@@ -250,9 +275,9 @@ def usd(x: float) -> str:
 
 
 def render(v: Verdict) -> str:
-    sure = "" if v.confident else " (not yet decided — the interval spans the threshold)"
+    sure = "" if v.confident else " (not yet decided, because the interval spans the threshold)"
     out = [f"VERDICT: {v.call.upper()}{sure}", "", v.reason, "",
-           f"evidence: {v.evidence.label} — resolve {v.evidence.rate.fmt()} over "
+           f"evidence: {v.evidence.label}, resolve {v.evidence.rate.fmt()} over "
            f"{v.evidence.rate.tasks} tasks ({v.evidence.rate.attempts} attempts), "
            f"{v.evidence.tier}, ~{v.evidence.minutes_per_attempt:.0f} min/attempt"]
     if v.billing.kind == "api":

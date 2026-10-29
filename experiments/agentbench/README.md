@@ -10,6 +10,12 @@ for every claim in `experiments/claims.json` of kind `agentbench`, and CI runs i
 | `laptop-2026-09.jsonl` | 16 GB MacBook Pro | qwen3.5 and granite 4.1 under aider on Mahoraga (the probe in `../agent_edit/`), and qwen3.5 on the ops repository |
 | `laptop-2026-10.jsonl` | 16 GB MacBook Pro (M4, Mac16,1) | qwen3.5 at 131k under aider, blind, on more-itertools and attrs, before the request-timeout fix: the 20-minute night of 2026-10-14 and the 90-minute nights of 2026-10-17, 2026-10-19 and 2026-10-28. Kept as the record of what section 6 describes, not as a result |
 
+`specimen-2026-10.json` is not a ledger. It keeps one attempt whole for the landing page:
+the first task of the laptop's clean 131k run (more-itertools `f89d7a3`, picked by its
+position in the bench, not by its outcome), with the commit's own fix, the agent's diff,
+the grader's counts and the run it came from. `scripts/specimen.py` writes it from the
+bench, and `scripts/export_site.py` refuses it if its outcome and its counts disagree.
+
 Each line names the repo, the task's commit and its commit date, the arm,
 the condition and repeat, whether the attempt resolved the task, how long it
 took, the run it came from, and the machine and model digest that run recorded.

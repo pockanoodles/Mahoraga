@@ -11,7 +11,7 @@ export default function NotFound() {
         <main className="lost">
           <Mark size={44} />
           <h1 className="h2">Nothing here.</h1>
-          <p className="lede">That page isn&apos;t part of Mahoraga&apos;s site, which has one page in English and one in Japanese.</p>
+          <p className="lede">That page isn&apos;t part of Mahoraga&apos;s site, which is in English and Japanese.</p>
           <p className="lost__links">
             <a className="pill" href="/mahoraga/">
               Mahoraga

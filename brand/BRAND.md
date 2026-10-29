@@ -6,11 +6,13 @@ can disagree with a reason instead of a hex.
 
 ## The idea
 
-Mahoraga answers one question about your own code, which is whether local coding AI is
-worth it on your machine, and it answers with a measurement and its uncertainty. The look
-follows from that. It is calm and exact, and its one colour marks the share of work your
-machine can take. Spacing comes from ui-master Design 03 ("Studio"), which is the spacing
-Kaito picked on 2026-10-12. The landing page sits on the same black as the rest of
+Mahoraga is an engine that keeps measuring whether local coding AI is worth it on real
+code, and the landing page is its log. Each entry answers with a measurement and its
+uncertainty, and the corrections and voided runs stay in the log next to the findings. The
+page opens on the latest answer and the chart behind it, so a reader meets the result before
+the method. The look follows from that. It is calm and exact, and its one colour marks the
+share of work local can take. Spacing comes from ui-master Design 03 ("Studio"), which is the
+spacing Kaito picked on 2026-10-12. The landing page sits on the same black as the rest of
 kaitosoeno.com, so it continues the site instead of interrupting it.
 
 ## Mark
@@ -79,4 +81,4 @@ reduced-motion state that shows the final frame.
 
 Plain, specific, and honest about uncertainty. Every number on a page comes from
 `docs/site/site.json`, which the engine generates from committed data, and carries the
-sentence that says what it means. The product is allowed to say "you're not wasting money".
+sentence that says what it means. The engine is allowed to say "you're not wasting money".

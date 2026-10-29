@@ -1,26 +1,49 @@
 "use client";
 
-// The verdict, played with. The slider sets what one cloud task costs; the
-// page then shows the engine's own verdict for that price, looked up from the
-// curve the exporter computed (site.json verdict_demo.curve). There is no
-// verdict logic in this file: it only picks the nearest precomputed point.
+// The verdict, played with. The slider sets what one cloud task costs and the
+// second control how long a failed local attempt takes you to check. The page
+// then shows the engine's own verdict for that pair, looked up from the curves
+// the exporter computed (site.json verdict_demo) on the evidence of the claim
+// the page leads with: one curve at the claim's triage time, and one at each
+// other time offered, which differ from it in triage alone. There is no
+// verdict logic in this file. It only picks the nearest precomputed point, and
+// its numbers arrive as props, so the export never ships to the browser.
+// `note` says where the evidence is in the log, which only the page knows.
 import { useEffect, useMemo, useRef, useState } from "react";
 import { copy, type Locale } from "@/content/copy";
-import { data, pct, usd, type CurvePoint } from "@/lib/data";
+import type { CurvePoint, SiteData } from "@/lib/data";
+import { pct, priceText, usd, usdSmall } from "@/lib/format";
 
 const MIN = Math.log10(0.1);
 const MAX = Math.log10(30);
 
-function priceText(x: number) {
-  return x < 1 ? `$${x.toFixed(2)}` : Number.isInteger(x) ? `$${x}` : `$${x.toFixed(2)}`;
-}
-
-export function VerdictDemo({ locale, initial = 0.75 }: { locale: Locale; initial?: number }) {
+export function VerdictDemo({
+  demo,
+  locale,
+  initial = 0.75,
+  note,
+}: {
+  demo: SiteData["verdict_demo"];
+  locale: Locale;
+  initial?: number;
+  note: string;
+}) {
   const t = copy[locale].verdict;
-  const curve = data.verdict_demo.curve;
-  const ev = data.verdict_demo.evidence.rate;
-  const [i, setI] = useState(() => nearest(curve, initial));
+  const a = demo.assumptions;
+  const ev = demo.evidence.rate;
+  const curves = useMemo(() => {
+    const out = new Map<number, { curve: CurvePoint[]; triageUsd: number }>([
+      [a.triage_minutes, { curve: demo.curve, triageUsd: demo.costs.triage_usd }],
+    ]);
+    for (const c of demo.by_triage) out.set(c.triage_minutes, { curve: c.curve, triageUsd: c.triage_usd });
+    return out;
+  }, [demo, a.triage_minutes]);
+  const minutes = useMemo(() => [...curves.keys()].sort((x, y) => x - y), [curves]);
+  const [m, setM] = useState(a.triage_minutes);
+  const { curve, triageUsd } = curves.get(m) ?? curves.get(a.triage_minutes)!;
+  const [i, setI] = useState(() => nearest(demo.curve, initial));
   const p = curve[i];
+
   const box = useRef<HTMLDivElement>(null);
   const [w, setW] = useState(0);
   useEffect(() => {
@@ -31,18 +54,17 @@ export function VerdictDemo({ locale, initial = 0.75 }: { locale: Locale; initia
     return () => ro.disconnect();
   }, []);
 
-  const a = data.verdict_demo.assumptions;
   const lines = useMemo(
     () =>
       t.assumptions({
         tasks: a.tasks_per_month,
         share: pct(a.deferrable_share),
-        triage: a.triage_minutes,
+        triage: m,
         hourly: a.hourly_usd,
         watts: a.watts,
         kwh: a.usd_per_kwh,
       }),
-    [t, a],
+    [t, a, m],
   );
 
   const pad = 10;
@@ -78,6 +100,20 @@ export function VerdictDemo({ locale, initial = 0.75 }: { locale: Locale; initia
             </span>
           ))}
         </div>
+      </div>
+
+      <div className="vdemo__control vdemo__control--triage">
+        <p id="vdemo-triage" className="vdemo__label">
+          {t.triage}
+        </p>
+        <div className="seg vdemo__seg" role="radiogroup" aria-labelledby="vdemo-triage">
+          {minutes.map((x) => (
+            <button key={x} type="button" role="radio" aria-checked={x === m} className="seg__item" onClick={() => setM(x)}>
+              {t.minutes(x)}
+            </button>
+          ))}
+        </div>
+        <p className="vdemo__costs">{t.costs(usdSmall(demo.costs.attempt_usd), usdSmall(triageUsd))}</p>
       </div>
 
       <div className="vdemo__result" aria-live="polite">
@@ -126,7 +162,9 @@ export function VerdictDemo({ locale, initial = 0.75 }: { locale: Locale; initia
         <div>
           <dt>{t.facts.breakeven}</dt>
           <dd>{pct(p.breakeven)}</dd>
-          <dd className="vdemo__fact-note">{priceText(p.cloud_usd_per_task)} {t.perTask}</dd>
+          <dd className="vdemo__fact-note">
+            {priceText(p.cloud_usd_per_task)} {t.perTask}
+          </dd>
         </div>
         <div>
           <dt>{t.facts.net}</dt>
@@ -142,7 +180,7 @@ export function VerdictDemo({ locale, initial = 0.75 }: { locale: Locale; initia
             <li key={l}>{l}</li>
           ))}
         </ul>
-        <p className="vdemo__note">{t.note(a.tasks_per_month)}</p>
+        <p className="vdemo__note">{note}</p>
       </div>
     </div>
   );

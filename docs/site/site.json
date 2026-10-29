@@ -1446,8 +1446,1094 @@
     ]
   },
   "schema": 1,
+  "settings": {
+    "arms": [
+      {
+        "arm": "aider:qwen3.5:laptop-dec52a4",
+        "claim": "report_2026_10_studio_qwen35_outside",
+        "context": 32768,
+        "key": "32k",
+        "machine": "Mac Studio M5 Max, 64 GB (Mac17,14)",
+        "rate": {
+          "attempts": 92,
+          "hi": 0.17556779590448654,
+          "lo": 0.052323756835206625,
+          "point": 0.09782608695652174,
+          "tasks": 92
+        },
+        "resolved": 9
+      },
+      {
+        "arm": "aider:qwen3.5:laptop-dec52a4@ctx=131072",
+        "claim": "report_2026_10_studio_qwen35_131k_outside",
+        "context": 131072,
+        "key": "131k",
+        "machine": "Mac Studio M5 Max, 64 GB (Mac17,14)",
+        "rate": {
+          "attempts": 92,
+          "hi": 0.40464273379656535,
+          "lo": 0.21973694050923143,
+          "point": 0.30434782608695654,
+          "tasks": 92
+        },
+        "resolved": 28
+      },
+      {
+        "arm": "aider:qwen3.6:35b-a3b-coding@ctx=131072",
+        "claim": "report_2026_10_studio_qwen36_outside",
+        "context": 131072,
+        "key": "35b",
+        "machine": "Mac Studio M5 Max, 64 GB (Mac17,14)",
+        "rate": {
+          "attempts": 92,
+          "hi": 0.4383470167521093,
+          "lo": 0.248636045169388,
+          "point": 0.33695652173913043,
+          "tasks": 92
+        },
+        "resolved": 31
+      }
+    ],
+    "order": "By repository, then by commit date, oldest first, with no sorting by outcome.",
+    "pairs": [
+      {
+        "from": "32k",
+        "mcnemar_p": 6.604194641113281e-05,
+        "only_this": 2.0,
+        "only_versus": 21.0,
+        "pair_resolved": 9.0,
+        "pairs": 92.0,
+        "to": "131k",
+        "versus_resolved": 28.0
+      },
+      {
+        "from": "131k",
+        "mcnemar_p": 0.6636238098144531,
+        "only_this": 9.0,
+        "only_versus": 12.0,
+        "pair_resolved": 28.0,
+        "pairs": 92.0,
+        "to": "35b",
+        "versus_resolved": 31.0
+      }
+    ],
+    "tasks": [
+      {
+        "committed": "2024-08-06",
+        "repo": "attrs",
+        "resolved": {
+          "131k": true,
+          "32k": false,
+          "35b": false
+        },
+        "sha": "7373d88",
+        "url": "https://github.com/python-attrs/attrs/commit/7373d88"
+      },
+      {
+        "committed": "2024-08-06",
+        "repo": "attrs",
+        "resolved": {
+          "131k": false,
+          "32k": false,
+          "35b": false
+        },
+        "sha": "6fda0a4",
+        "url": "https://github.com/python-attrs/attrs/commit/6fda0a4"
+      },
+      {
+        "committed": "2024-08-06",
+        "repo": "attrs",
+        "resolved": {
+          "131k": false,
+          "32k": false,
+          "35b": false
+        },
+        "sha": "5d6d21a",
+        "url": "https://github.com/python-attrs/attrs/commit/5d6d21a"
+      },
+      {
+        "committed": "2024-10-26",
+        "repo": "attrs",
+        "resolved": {
+          "131k": false,
+          "32k": false,
+          "35b": true
+        },
+        "sha": "1921da6",
+        "url": "https://github.com/python-attrs/attrs/commit/1921da6"
+      },
+      {
+        "committed": "2024-11-17",
+        "repo": "attrs",
+        "resolved": {
+          "131k": false,
+          "32k": false,
+          "35b": false
+        },
+        "sha": "e21793e",
+        "url": "https://github.com/python-attrs/attrs/commit/e21793e"
+      },
+      {
+        "committed": "2024-11-25",
+        "repo": "attrs",
+        "resolved": {
+          "131k": true,
+          "32k": true,
+          "35b": true
+        },
+        "sha": "13105a6",
+        "url": "https://github.com/python-attrs/attrs/commit/13105a6"
+      },
+      {
+        "committed": "2024-12-10",
+        "repo": "attrs",
+        "resolved": {
+          "131k": false,
+          "32k": false,
+          "35b": false
+        },
+        "sha": "1e07f46",
+        "url": "https://github.com/python-attrs/attrs/commit/1e07f46"
+      },
+      {
+        "committed": "2025-02-09",
+        "repo": "attrs",
+        "resolved": {
+          "131k": false,
+          "32k": false,
+          "35b": true
+        },
+        "sha": "75723b7",
+        "url": "https://github.com/python-attrs/attrs/commit/75723b7"
+      },
+      {
+        "committed": "2025-02-09",
+        "repo": "attrs",
+        "resolved": {
+          "131k": true,
+          "32k": true,
+          "35b": true
+        },
+        "sha": "e048efc",
+        "url": "https://github.com/python-attrs/attrs/commit/e048efc"
+      },
+      {
+        "committed": "2025-03-08",
+        "repo": "attrs",
+        "resolved": {
+          "131k": false,
+          "32k": true,
+          "35b": true
+        },
+        "sha": "1c962d1",
+        "url": "https://github.com/python-attrs/attrs/commit/1c962d1"
+      },
+      {
+        "committed": "2025-03-13",
+        "repo": "attrs",
+        "resolved": {
+          "131k": true,
+          "32k": true,
+          "35b": true
+        },
+        "sha": "3b0378d",
+        "url": "https://github.com/python-attrs/attrs/commit/3b0378d"
+      },
+      {
+        "committed": "2025-06-18",
+        "repo": "attrs",
+        "resolved": {
+          "131k": false,
+          "32k": false,
+          "35b": false
+        },
+        "sha": "577c782",
+        "url": "https://github.com/python-attrs/attrs/commit/577c782"
+      },
+      {
+        "committed": "2025-07-27",
+        "repo": "attrs",
+        "resolved": {
+          "131k": false,
+          "32k": false,
+          "35b": false
+        },
+        "sha": "937b1e2",
+        "url": "https://github.com/python-attrs/attrs/commit/937b1e2"
+      },
+      {
+        "committed": "2025-07-28",
+        "repo": "attrs",
+        "resolved": {
+          "131k": true,
+          "32k": true,
+          "35b": false
+        },
+        "sha": "cbaef3f",
+        "url": "https://github.com/python-attrs/attrs/commit/cbaef3f"
+      },
+      {
+        "committed": "2025-07-29",
+        "repo": "attrs",
+        "resolved": {
+          "131k": true,
+          "32k": false,
+          "35b": true
+        },
+        "sha": "5bab46d",
+        "url": "https://github.com/python-attrs/attrs/commit/5bab46d"
+      },
+      {
+        "committed": "2025-08-04",
+        "repo": "attrs",
+        "resolved": {
+          "131k": false,
+          "32k": false,
+          "35b": false
+        },
+        "sha": "6e3786c",
+        "url": "https://github.com/python-attrs/attrs/commit/6e3786c"
+      },
+      {
+        "committed": "2026-03-07",
+        "repo": "attrs",
+        "resolved": {
+          "131k": false,
+          "32k": false,
+          "35b": false
+        },
+        "sha": "862696a",
+        "url": "https://github.com/python-attrs/attrs/commit/862696a"
+      },
+      {
+        "committed": "2026-03-14",
+        "repo": "attrs",
+        "resolved": {
+          "131k": false,
+          "32k": false,
+          "35b": false
+        },
+        "sha": "ce89f5d",
+        "url": "https://github.com/python-attrs/attrs/commit/ce89f5d"
+      },
+      {
+        "committed": "2026-03-14",
+        "repo": "attrs",
+        "resolved": {
+          "131k": true,
+          "32k": false,
+          "35b": true
+        },
+        "sha": "af9c510",
+        "url": "https://github.com/python-attrs/attrs/commit/af9c510"
+      },
+      {
+        "committed": "2026-03-14",
+        "repo": "attrs",
+        "resolved": {
+          "131k": false,
+          "32k": false,
+          "35b": false
+        },
+        "sha": "a572c3a",
+        "url": "https://github.com/python-attrs/attrs/commit/a572c3a"
+      },
+      {
+        "committed": "2026-03-14",
+        "repo": "attrs",
+        "resolved": {
+          "131k": false,
+          "32k": false,
+          "35b": false
+        },
+        "sha": "48b8611",
+        "url": "https://github.com/python-attrs/attrs/commit/48b8611"
+      },
+      {
+        "committed": "2026-04-16",
+        "repo": "attrs",
+        "resolved": {
+          "131k": false,
+          "32k": false,
+          "35b": false
+        },
+        "sha": "0f758fe",
+        "url": "https://github.com/python-attrs/attrs/commit/0f758fe"
+      },
+      {
+        "committed": "2026-07-31",
+        "repo": "attrs",
+        "resolved": {
+          "131k": true,
+          "32k": false,
+          "35b": true
+        },
+        "sha": "97f8d17",
+        "url": "https://github.com/python-attrs/attrs/commit/97f8d17"
+      },
+      {
+        "committed": "2026-08-01",
+        "repo": "attrs",
+        "resolved": {
+          "131k": false,
+          "32k": false,
+          "35b": false
+        },
+        "sha": "4b5b295",
+        "url": "https://github.com/python-attrs/attrs/commit/4b5b295"
+      },
+      {
+        "committed": "2026-08-01",
+        "repo": "attrs",
+        "resolved": {
+          "131k": false,
+          "32k": false,
+          "35b": false
+        },
+        "sha": "5aa76a4",
+        "url": "https://github.com/python-attrs/attrs/commit/5aa76a4"
+      },
+      {
+        "committed": "2026-05-27",
+        "repo": "click",
+        "resolved": {
+          "131k": false,
+          "32k": false,
+          "35b": false
+        },
+        "sha": "665736b",
+        "url": "https://github.com/pallets/click/commit/665736b"
+      },
+      {
+        "committed": "2026-05-28",
+        "repo": "click",
+        "resolved": {
+          "131k": false,
+          "32k": false,
+          "35b": false
+        },
+        "sha": "684b3f5",
+        "url": "https://github.com/pallets/click/commit/684b3f5"
+      },
+      {
+        "committed": "2026-05-29",
+        "repo": "click",
+        "resolved": {
+          "131k": false,
+          "32k": false,
+          "35b": true
+        },
+        "sha": "399919f",
+        "url": "https://github.com/pallets/click/commit/399919f"
+      },
+      {
+        "committed": "2026-06-03",
+        "repo": "click",
+        "resolved": {
+          "131k": false,
+          "32k": true,
+          "35b": false
+        },
+        "sha": "051bb0f",
+        "url": "https://github.com/pallets/click/commit/051bb0f"
+      },
+      {
+        "committed": "2026-06-26",
+        "repo": "click",
+        "resolved": {
+          "131k": false,
+          "32k": false,
+          "35b": false
+        },
+        "sha": "27b3ee2",
+        "url": "https://github.com/pallets/click/commit/27b3ee2"
+      },
+      {
+        "committed": "2026-07-01",
+        "repo": "click",
+        "resolved": {
+          "131k": false,
+          "32k": false,
+          "35b": false
+        },
+        "sha": "93ba007",
+        "url": "https://github.com/pallets/click/commit/93ba007"
+      },
+      {
+        "committed": "2026-07-07",
+        "repo": "click",
+        "resolved": {
+          "131k": false,
+          "32k": false,
+          "35b": false
+        },
+        "sha": "9f9b149",
+        "url": "https://github.com/pallets/click/commit/9f9b149"
+      },
+      {
+        "committed": "2026-07-08",
+        "repo": "click",
+        "resolved": {
+          "131k": false,
+          "32k": false,
+          "35b": false
+        },
+        "sha": "07c909f",
+        "url": "https://github.com/pallets/click/commit/07c909f"
+      },
+      {
+        "committed": "2026-07-09",
+        "repo": "click",
+        "resolved": {
+          "131k": false,
+          "32k": false,
+          "35b": false
+        },
+        "sha": "3495fba",
+        "url": "https://github.com/pallets/click/commit/3495fba"
+      },
+      {
+        "committed": "2026-07-09",
+        "repo": "click",
+        "resolved": {
+          "131k": false,
+          "32k": false,
+          "35b": false
+        },
+        "sha": "71f2baf",
+        "url": "https://github.com/pallets/click/commit/71f2baf"
+      },
+      {
+        "committed": "2026-07-16",
+        "repo": "click",
+        "resolved": {
+          "131k": false,
+          "32k": false,
+          "35b": false
+        },
+        "sha": "7a0a344",
+        "url": "https://github.com/pallets/click/commit/7a0a344"
+      },
+      {
+        "committed": "2026-07-17",
+        "repo": "click",
+        "resolved": {
+          "131k": false,
+          "32k": false,
+          "35b": false
+        },
+        "sha": "051725f",
+        "url": "https://github.com/pallets/click/commit/051725f"
+      },
+      {
+        "committed": "2026-07-17",
+        "repo": "click",
+        "resolved": {
+          "131k": false,
+          "32k": false,
+          "35b": true
+        },
+        "sha": "fbdd434",
+        "url": "https://github.com/pallets/click/commit/fbdd434"
+      },
+      {
+        "committed": "2026-07-17",
+        "repo": "click",
+        "resolved": {
+          "131k": true,
+          "32k": false,
+          "35b": true
+        },
+        "sha": "8ee83dd",
+        "url": "https://github.com/pallets/click/commit/8ee83dd"
+      },
+      {
+        "committed": "2026-07-20",
+        "repo": "click",
+        "resolved": {
+          "131k": true,
+          "32k": false,
+          "35b": true
+        },
+        "sha": "c2ed414",
+        "url": "https://github.com/pallets/click/commit/c2ed414"
+      },
+      {
+        "committed": "2026-07-31",
+        "repo": "click",
+        "resolved": {
+          "131k": false,
+          "32k": false,
+          "35b": true
+        },
+        "sha": "047adef",
+        "url": "https://github.com/pallets/click/commit/047adef"
+      },
+      {
+        "committed": "2026-08-13",
+        "repo": "click",
+        "resolved": {
+          "131k": true,
+          "32k": true,
+          "35b": true
+        },
+        "sha": "a2ac583",
+        "url": "https://github.com/pallets/click/commit/a2ac583"
+      },
+      {
+        "committed": "2026-08-15",
+        "repo": "click",
+        "resolved": {
+          "131k": false,
+          "32k": false,
+          "35b": false
+        },
+        "sha": "f316d5c",
+        "url": "https://github.com/pallets/click/commit/f316d5c"
+      },
+      {
+        "committed": "2026-08-15",
+        "repo": "click",
+        "resolved": {
+          "131k": false,
+          "32k": false,
+          "35b": true
+        },
+        "sha": "1f9cd54",
+        "url": "https://github.com/pallets/click/commit/1f9cd54"
+      },
+      {
+        "committed": "2026-08-17",
+        "repo": "click",
+        "resolved": {
+          "131k": false,
+          "32k": false,
+          "35b": false
+        },
+        "sha": "bc32a92",
+        "url": "https://github.com/pallets/click/commit/bc32a92"
+      },
+      {
+        "committed": "2026-08-19",
+        "repo": "click",
+        "resolved": {
+          "131k": false,
+          "32k": false,
+          "35b": false
+        },
+        "sha": "a6256bf",
+        "url": "https://github.com/pallets/click/commit/a6256bf"
+      },
+      {
+        "committed": "2026-08-19",
+        "repo": "click",
+        "resolved": {
+          "131k": false,
+          "32k": false,
+          "35b": false
+        },
+        "sha": "a1d8785",
+        "url": "https://github.com/pallets/click/commit/a1d8785"
+      },
+      {
+        "committed": "2026-08-29",
+        "repo": "click",
+        "resolved": {
+          "131k": false,
+          "32k": false,
+          "35b": false
+        },
+        "sha": "f58ca3e",
+        "url": "https://github.com/pallets/click/commit/f58ca3e"
+      },
+      {
+        "committed": "2026-08-31",
+        "repo": "click",
+        "resolved": {
+          "131k": false,
+          "32k": false,
+          "35b": false
+        },
+        "sha": "fc518e4",
+        "url": "https://github.com/pallets/click/commit/fc518e4"
+      },
+      {
+        "committed": "2026-09-02",
+        "repo": "click",
+        "resolved": {
+          "131k": false,
+          "32k": false,
+          "35b": false
+        },
+        "sha": "271effb",
+        "url": "https://github.com/pallets/click/commit/271effb"
+      },
+      {
+        "committed": "2026-09-08",
+        "repo": "click",
+        "resolved": {
+          "131k": false,
+          "32k": false,
+          "35b": false
+        },
+        "sha": "22177f8",
+        "url": "https://github.com/pallets/click/commit/22177f8"
+      },
+      {
+        "committed": "2026-09-10",
+        "repo": "click",
+        "resolved": {
+          "131k": true,
+          "32k": false,
+          "35b": false
+        },
+        "sha": "f25f697",
+        "url": "https://github.com/pallets/click/commit/f25f697"
+      },
+      {
+        "committed": "2026-09-10",
+        "repo": "click",
+        "resolved": {
+          "131k": true,
+          "32k": false,
+          "35b": true
+        },
+        "sha": "05f6fd0",
+        "url": "https://github.com/pallets/click/commit/05f6fd0"
+      },
+      {
+        "committed": "2026-09-11",
+        "repo": "click",
+        "resolved": {
+          "131k": false,
+          "32k": false,
+          "35b": false
+        },
+        "sha": "f67c2bb",
+        "url": "https://github.com/pallets/click/commit/f67c2bb"
+      },
+      {
+        "committed": "2026-09-11",
+        "repo": "click",
+        "resolved": {
+          "131k": false,
+          "32k": false,
+          "35b": false
+        },
+        "sha": "e2bddbc",
+        "url": "https://github.com/pallets/click/commit/e2bddbc"
+      },
+      {
+        "committed": "2026-09-22",
+        "repo": "click",
+        "resolved": {
+          "131k": false,
+          "32k": false,
+          "35b": false
+        },
+        "sha": "b90faad",
+        "url": "https://github.com/pallets/click/commit/b90faad"
+      },
+      {
+        "committed": "2025-12-30",
+        "repo": "more-itertools",
+        "resolved": {
+          "131k": false,
+          "32k": false,
+          "35b": false
+        },
+        "sha": "073d234",
+        "url": "https://github.com/more-itertools/more-itertools/commit/073d234"
+      },
+      {
+        "committed": "2025-12-30",
+        "repo": "more-itertools",
+        "resolved": {
+          "131k": true,
+          "32k": false,
+          "35b": false
+        },
+        "sha": "b0aa91e",
+        "url": "https://github.com/more-itertools/more-itertools/commit/b0aa91e"
+      },
+      {
+        "committed": "2025-12-31",
+        "repo": "more-itertools",
+        "resolved": {
+          "131k": false,
+          "32k": false,
+          "35b": false
+        },
+        "sha": "d9adeb4",
+        "url": "https://github.com/more-itertools/more-itertools/commit/d9adeb4"
+      },
+      {
+        "committed": "2026-01-02",
+        "repo": "more-itertools",
+        "resolved": {
+          "131k": false,
+          "32k": false,
+          "35b": false
+        },
+        "sha": "def2d82",
+        "url": "https://github.com/more-itertools/more-itertools/commit/def2d82"
+      },
+      {
+        "committed": "2026-01-02",
+        "repo": "more-itertools",
+        "resolved": {
+          "131k": true,
+          "32k": false,
+          "35b": false
+        },
+        "sha": "06f3181",
+        "url": "https://github.com/more-itertools/more-itertools/commit/06f3181"
+      },
+      {
+        "committed": "2026-01-28",
+        "repo": "more-itertools",
+        "resolved": {
+          "131k": false,
+          "32k": false,
+          "35b": true
+        },
+        "sha": "f91c733",
+        "url": "https://github.com/more-itertools/more-itertools/commit/f91c733"
+      },
+      {
+        "committed": "2026-02-02",
+        "repo": "more-itertools",
+        "resolved": {
+          "131k": false,
+          "32k": false,
+          "35b": false
+        },
+        "sha": "be5793a",
+        "url": "https://github.com/more-itertools/more-itertools/commit/be5793a"
+      },
+      {
+        "committed": "2026-02-09",
+        "repo": "more-itertools",
+        "resolved": {
+          "131k": true,
+          "32k": false,
+          "35b": false
+        },
+        "sha": "db4f41b",
+        "url": "https://github.com/more-itertools/more-itertools/commit/db4f41b"
+      },
+      {
+        "committed": "2026-03-31",
+        "repo": "more-itertools",
+        "resolved": {
+          "131k": false,
+          "32k": false,
+          "35b": false
+        },
+        "sha": "18c57c7",
+        "url": "https://github.com/more-itertools/more-itertools/commit/18c57c7"
+      },
+      {
+        "committed": "2026-03-31",
+        "repo": "more-itertools",
+        "resolved": {
+          "131k": false,
+          "32k": false,
+          "35b": false
+        },
+        "sha": "8089263",
+        "url": "https://github.com/more-itertools/more-itertools/commit/8089263"
+      },
+      {
+        "committed": "2026-03-31",
+        "repo": "more-itertools",
+        "resolved": {
+          "131k": true,
+          "32k": true,
+          "35b": true
+        },
+        "sha": "d63a26e",
+        "url": "https://github.com/more-itertools/more-itertools/commit/d63a26e"
+      },
+      {
+        "committed": "2026-03-31",
+        "repo": "more-itertools",
+        "resolved": {
+          "131k": true,
+          "32k": true,
+          "35b": true
+        },
+        "sha": "93c1cf8",
+        "url": "https://github.com/more-itertools/more-itertools/commit/93c1cf8"
+      },
+      {
+        "committed": "2026-03-31",
+        "repo": "more-itertools",
+        "resolved": {
+          "131k": true,
+          "32k": false,
+          "35b": true
+        },
+        "sha": "71b46b0",
+        "url": "https://github.com/more-itertools/more-itertools/commit/71b46b0"
+      },
+      {
+        "committed": "2026-04-02",
+        "repo": "more-itertools",
+        "resolved": {
+          "131k": true,
+          "32k": false,
+          "35b": true
+        },
+        "sha": "52cfcfe",
+        "url": "https://github.com/more-itertools/more-itertools/commit/52cfcfe"
+      },
+      {
+        "committed": "2026-04-10",
+        "repo": "more-itertools",
+        "resolved": {
+          "131k": true,
+          "32k": false,
+          "35b": true
+        },
+        "sha": "edb3346",
+        "url": "https://github.com/more-itertools/more-itertools/commit/edb3346"
+      },
+      {
+        "committed": "2026-05-13",
+        "repo": "more-itertools",
+        "resolved": {
+          "131k": false,
+          "32k": false,
+          "35b": true
+        },
+        "sha": "ba7ef94",
+        "url": "https://github.com/more-itertools/more-itertools/commit/ba7ef94"
+      },
+      {
+        "committed": "2026-06-09",
+        "repo": "more-itertools",
+        "resolved": {
+          "131k": true,
+          "32k": false,
+          "35b": false
+        },
+        "sha": "842a2b1",
+        "url": "https://github.com/more-itertools/more-itertools/commit/842a2b1"
+      },
+      {
+        "committed": "2026-06-17",
+        "repo": "more-itertools",
+        "resolved": {
+          "131k": false,
+          "32k": false,
+          "35b": true
+        },
+        "sha": "43decdd",
+        "url": "https://github.com/more-itertools/more-itertools/commit/43decdd"
+      },
+      {
+        "committed": "2026-06-29",
+        "repo": "more-itertools",
+        "resolved": {
+          "131k": true,
+          "32k": false,
+          "35b": true
+        },
+        "sha": "f51a53b",
+        "url": "https://github.com/more-itertools/more-itertools/commit/f51a53b"
+      },
+      {
+        "committed": "2026-06-30",
+        "repo": "more-itertools",
+        "resolved": {
+          "131k": true,
+          "32k": false,
+          "35b": true
+        },
+        "sha": "d64a7d6",
+        "url": "https://github.com/more-itertools/more-itertools/commit/d64a7d6"
+      },
+      {
+        "committed": "2026-07-02",
+        "repo": "more-itertools",
+        "resolved": {
+          "131k": true,
+          "32k": false,
+          "35b": true
+        },
+        "sha": "958990e",
+        "url": "https://github.com/more-itertools/more-itertools/commit/958990e"
+      },
+      {
+        "committed": "2026-07-12",
+        "repo": "more-itertools",
+        "resolved": {
+          "131k": true,
+          "32k": false,
+          "35b": false
+        },
+        "sha": "d992be0",
+        "url": "https://github.com/more-itertools/more-itertools/commit/d992be0"
+      },
+      {
+        "committed": "2026-07-16",
+        "repo": "more-itertools",
+        "resolved": {
+          "131k": false,
+          "32k": false,
+          "35b": false
+        },
+        "sha": "069b300",
+        "url": "https://github.com/more-itertools/more-itertools/commit/069b300"
+      },
+      {
+        "committed": "2026-07-19",
+        "repo": "more-itertools",
+        "resolved": {
+          "131k": true,
+          "32k": false,
+          "35b": false
+        },
+        "sha": "0e6acdf",
+        "url": "https://github.com/more-itertools/more-itertools/commit/0e6acdf"
+      },
+      {
+        "committed": "2026-09-02",
+        "repo": "more-itertools",
+        "resolved": {
+          "131k": false,
+          "32k": false,
+          "35b": false
+        },
+        "sha": "dc2664b",
+        "url": "https://github.com/more-itertools/more-itertools/commit/dc2664b"
+      },
+      {
+        "committed": "2026-09-03",
+        "repo": "more-itertools",
+        "resolved": {
+          "131k": true,
+          "32k": false,
+          "35b": true
+        },
+        "sha": "7847d43",
+        "url": "https://github.com/more-itertools/more-itertools/commit/7847d43"
+      },
+      {
+        "committed": "2026-09-04",
+        "repo": "more-itertools",
+        "resolved": {
+          "131k": false,
+          "32k": false,
+          "35b": false
+        },
+        "sha": "ce676d2",
+        "url": "https://github.com/more-itertools/more-itertools/commit/ce676d2"
+      },
+      {
+        "committed": "2026-09-07",
+        "repo": "more-itertools",
+        "resolved": {
+          "131k": false,
+          "32k": false,
+          "35b": true
+        },
+        "sha": "1fd388b",
+        "url": "https://github.com/more-itertools/more-itertools/commit/1fd388b"
+      },
+      {
+        "committed": "2026-09-09",
+        "repo": "more-itertools",
+        "resolved": {
+          "131k": false,
+          "32k": false,
+          "35b": false
+        },
+        "sha": "6b1907d",
+        "url": "https://github.com/more-itertools/more-itertools/commit/6b1907d"
+      },
+      {
+        "committed": "2026-09-11",
+        "repo": "more-itertools",
+        "resolved": {
+          "131k": false,
+          "32k": false,
+          "35b": false
+        },
+        "sha": "752799b",
+        "url": "https://github.com/more-itertools/more-itertools/commit/752799b"
+      },
+      {
+        "committed": "2026-09-12",
+        "repo": "more-itertools",
+        "resolved": {
+          "131k": false,
+          "32k": false,
+          "35b": false
+        },
+        "sha": "e426d25",
+        "url": "https://github.com/more-itertools/more-itertools/commit/e426d25"
+      },
+      {
+        "committed": "2026-09-14",
+        "repo": "more-itertools",
+        "resolved": {
+          "131k": false,
+          "32k": false,
+          "35b": false
+        },
+        "sha": "def2dab",
+        "url": "https://github.com/more-itertools/more-itertools/commit/def2dab"
+      },
+      {
+        "committed": "2026-09-17",
+        "repo": "more-itertools",
+        "resolved": {
+          "131k": false,
+          "32k": false,
+          "35b": false
+        },
+        "sha": "2b8d5cd",
+        "url": "https://github.com/more-itertools/more-itertools/commit/2b8d5cd"
+      },
+      {
+        "committed": "2026-09-18",
+        "repo": "more-itertools",
+        "resolved": {
+          "131k": false,
+          "32k": false,
+          "35b": true
+        },
+        "sha": "670b715",
+        "url": "https://github.com/more-itertools/more-itertools/commit/670b715"
+      },
+      {
+        "committed": "2026-09-22",
+        "repo": "more-itertools",
+        "resolved": {
+          "131k": false,
+          "32k": false,
+          "35b": false
+        },
+        "sha": "3eb4053",
+        "url": "https://github.com/more-itertools/more-itertools/commit/3eb4053"
+      },
+      {
+        "committed": "2026-09-29",
+        "repo": "more-itertools",
+        "resolved": {
+          "131k": false,
+          "32k": false,
+          "35b": false
+        },
+        "sha": "f89d7a3",
+        "url": "https://github.com/more-itertools/more-itertools/commit/f89d7a3"
+      }
+    ]
+  },
   "source": {
-    "commit": "b285a83",
+    "commit": "f0c23c6",
     "repo": "pockanoodles/Mahoraga",
     "version": "2.1.0"
   },
@@ -1467,406 +2553,2142 @@
       "usd_per_kwh": 0.3,
       "watts": 40.0
     },
+    "by_triage": [
+      {
+        "curve": [
+          {
+            "bar": 5.0,
+            "breakeven": 0.893439642857143,
+            "call": "stay",
+            "cloud_usd_per_task": 0.1,
+            "confident": true,
+            "monthly_usd": {
+              "hi": -22.81052242282695,
+              "lo": -31.439459442902535,
+              "point": -27.490951449275364
+            },
+            "reason": "You're not wasting money. Even at the optimistic end of the interval, local costs $23/mo more than cloud at $0.10/task."
+          },
+          {
+            "bar": 5.0,
+            "breakeven": 0.8656162629757786,
+            "call": "stay",
+            "cloud_usd_per_task": 0.13,
+            "confident": true,
+            "monthly_usd": {
+              "hi": -22.203558322132103,
+              "lo": -31.10985403213869,
+              "point": -27.03442971014493
+            },
+            "reason": "You're not wasting money. Even at the optimistic end of the interval, local costs $22/mo more than cloud at $0.13/task."
+          },
+          {
+            "bar": 5.0,
+            "breakeven": 0.839473489932886,
+            "call": "stay",
+            "cloud_usd_per_task": 0.16,
+            "confident": true,
+            "monthly_usd": {
+              "hi": -21.596594221437254,
+              "lo": -30.780248621374838,
+              "point": -26.57790797101449
+            },
+            "reason": "You're not wasting money. Even at the optimistic end of the interval, local costs $22/mo more than cloud at $0.16/task."
+          },
+          {
+            "bar": 5.0,
+            "breakeven": 0.7992431309904153,
+            "call": "stay",
+            "cloud_usd_per_task": 0.21,
+            "confident": true,
+            "monthly_usd": {
+              "hi": -20.58498738694584,
+              "lo": -30.23090627010176,
+              "point": -25.8170384057971
+            },
+            "reason": "You're not wasting money. Even at the optimistic end of the interval, local costs $21/mo more than cloud at $0.21/task."
+          },
+          {
+            "bar": 5.0,
+            "breakeven": 0.7697326153846153,
+            "call": "stay",
+            "cloud_usd_per_task": 0.25,
+            "confident": true,
+            "monthly_usd": {
+              "hi": -19.775701919352713,
+              "lo": -29.7914323890833,
+              "point": -25.208342753623192
+            },
+            "reason": "You're not wasting money. Even at the optimistic end of the interval, local costs $20/mo more than cloud at $0.25/task."
+          },
+          {
+            "bar": 5.0,
+            "breakeven": 0.755779758308157,
+            "call": "stay",
+            "cloud_usd_per_task": 0.27,
+            "confident": true,
+            "monthly_usd": {
+              "hi": -19.371059185556145,
+              "lo": -29.571695448574065,
+              "point": -24.903994927536232
+            },
+            "reason": "You're not wasting money. Even at the optimistic end of the interval, local costs $19/mo more than cloud at $0.27/task."
+          },
+          {
+            "bar": 5.0,
+            "breakeven": 0.7046847887323945,
+            "call": "stay",
+            "cloud_usd_per_task": 0.35,
+            "confident": true,
+            "monthly_usd": {
+              "hi": -17.752488250369886,
+              "lo": -28.69274768653714,
+              "point": -23.686603623188407
+            },
+            "reason": "You're not wasting money. Even at the optimistic end of the interval, local costs $18/mo more than cloud at $0.35/task."
+          },
+          {
+            "bar": 5.0,
+            "breakeven": 0.6548772251308901,
+            "call": "stay",
+            "cloud_usd_per_task": 0.44,
+            "confident": true,
+            "monthly_usd": {
+              "hi": -15.931595948285338,
+              "lo": -27.703931454245602,
+              "point": -22.317038405797103
+            },
+            "reason": "You're not wasting money. Even at the optimistic end of the interval, local costs $16/mo more than cloud at $0.44/task."
+          },
+          {
+            "bar": 5.0,
+            "breakeven": 0.62540775,
+            "call": "stay",
+            "cloud_usd_per_task": 0.5,
+            "confident": true,
+            "monthly_usd": {
+              "hi": -14.717667746895643,
+              "lo": -27.044720632717905,
+              "point": -21.403994927536232
+            },
+            "reason": "You're not wasting money. Even at the optimistic end of the interval, local costs $15/mo more than cloud at $0.50/task."
+          },
+          {
+            "bar": 5.7,
+            "breakeven": 0.5942116389548694,
+            "call": "stay",
+            "cloud_usd_per_task": 0.57,
+            "confident": true,
+            "monthly_usd": {
+              "hi": -13.301418178607666,
+              "lo": -26.275641340935596,
+              "point": -20.338777536231884
+            },
+            "reason": "You're not wasting money. Even at the optimistic end of the interval, local costs $13/mo more than cloud at $0.57/task."
+          },
+          {
+            "bar": 7.300000000000001,
+            "breakeven": 0.533396801705757,
+            "call": "stay",
+            "cloud_usd_per_task": 0.73,
+            "confident": true,
+            "monthly_usd": {
+              "hi": -10.064276308235144,
+              "lo": -24.517745816861744,
+              "point": -17.903994927536232
+            },
+            "reason": "You're not wasting money. Even at the optimistic end of the interval, local costs $10/mo more than cloud at $0.73/task."
+          },
+          {
+            "bar": 7.5,
+            "breakeven": 0.5266591578947368,
+            "call": "stay",
+            "cloud_usd_per_task": 0.75,
+            "confident": true,
+            "monthly_usd": {
+              "hi": -9.659633574438576,
+              "lo": -24.29800887635251,
+              "point": -17.599647101449275
+            },
+            "reason": "You're not wasting money. Even at the optimistic end of the interval, local costs $10/mo more than cloud at $0.75/task."
+          },
+          {
+            "bar": 9.3,
+            "breakeven": 0.4728981096408318,
+            "call": "stay",
+            "cloud_usd_per_task": 0.93,
+            "confident": true,
+            "monthly_usd": {
+              "hi": -6.017848970269488,
+              "lo": -22.32037641176943,
+              "point": -14.860516666666665
+            },
+            "reason": "You're not wasting money. Even at the optimistic end of the interval, local costs $6/mo more than cloud at $0.93/task."
+          },
+          {
+            "bar": 10.0,
+            "breakeven": 0.454842,
+            "call": "stay",
+            "cloud_usd_per_task": 1.0,
+            "confident": true,
+            "monthly_usd": {
+              "hi": -4.60159940198151,
+              "lo": -21.55129711998712,
+              "point": -13.79529927536232
+            },
+            "reason": "You're not wasting money. Even at the optimistic end of the interval, local costs $5/mo more than cloud at $1.00/task."
+          },
+          {
+            "bar": 11.9,
+            "breakeven": 0.41213031301482705,
+            "call": "stay",
+            "cloud_usd_per_task": 1.19,
+            "confident": true,
+            "monthly_usd": {
+              "hi": -0.7574934309141412,
+              "lo": -19.463796185149423,
+              "point": -10.903994927536232
+            },
+            "reason": "You're not wasting money. Even at the optimistic end of the interval, local costs $1/mo more than cloud at $1.19/task."
+          },
+          {
+            "bar": 15.3,
+            "breakeven": 0.3528393511988717,
+            "call": "stay",
+            "cloud_usd_per_task": 1.53,
+            "confident": true,
+            "monthly_usd": {
+              "hi": 6.121433043627469,
+              "lo": -15.728268196492486,
+              "point": -5.730081884057969
+            },
+            "reason": "You're not wasting money. Even at the optimistic end of the interval, local saves only $6/mo at $1.53/task. That is under 5% of your cloud bill ($15/mo), the smallest saving that calls for a split."
+          },
+          {
+            "bar": 19.6,
+            "breakeven": 0.29852398568019095,
+            "call": "stay",
+            "cloud_usd_per_task": 1.96,
+            "confident": true,
+            "monthly_usd": {
+              "hi": 14.821251820253625,
+              "lo": -11.00392397554401,
+              "point": 0.8133963768115926
+            },
+            "reason": "You're not wasting money. Even at the optimistic end of the interval, local saves only $15/mo at $1.96/task. That is under 5% of your cloud bill ($20/mo), the smallest saving that calls for a split."
+          },
+          {
+            "bar": 20.0,
+            "breakeven": 0.29430952941176475,
+            "call": "stay",
+            "cloud_usd_per_task": 2.0,
+            "confident": true,
+            "monthly_usd": {
+              "hi": 15.630537287846755,
+              "lo": -10.564450094525549,
+              "point": 1.4220920289855055
+            },
+            "reason": "You're not wasting money. Even at the optimistic end of the interval, local saves only $16/mo at $2.00/task. That is under 5% of your cloud bill ($20/mo), the smallest saving that calls for a split."
+          },
+          {
+            "bar": 25.1,
+            "breakeven": 0.24941485543369893,
+            "call": "stay",
+            "cloud_usd_per_task": 2.51,
+            "confident": false,
+            "monthly_usd": {
+              "hi": 25.94892699965917,
+              "lo": -4.961158111540154,
+              "point": 9.182961594202894
+            },
+            "reason": "At the measured rate local saves about $9/mo at $2.51/task. That is under 5% of your cloud bill ($25/mo), the smallest saving that calls for a split. The optimistic end of the interval reaches $26/mo."
+          },
+          {
+            "bar": 32.2,
+            "breakeven": 0.2057262335526316,
+            "call": "stay",
+            "cloud_usd_per_task": 3.22,
+            "confident": false,
+            "monthly_usd": {
+              "hi": 40.31374404943725,
+              "lo": 2.8395032765375694,
+              "point": 19.987309420289854
+            },
+            "reason": "At the measured rate local saves about $20/mo at $3.22/task. That is under 5% of your cloud bill ($32/mo), the smallest saving that calls for a split. The optimistic end of the interval reaches $40/mo."
+          },
+          {
+            "bar": 41.300000000000004,
+            "breakeven": 0.16800745466756214,
+            "call": "stay",
+            "cloud_usd_per_task": 4.13,
+            "confident": false,
+            "monthly_usd": {
+              "hi": 58.72498843718097,
+              "lo": 12.837534069707596,
+              "point": 33.83513550724638
+            },
+            "reason": "At the measured rate local saves about $34/mo at $4.13/task. That is under 5% of your cloud bill ($41/mo), the smallest saving that calls for a split. The optimistic end of the interval reaches $59/mo."
+          },
+          {
+            "bar": 50.0,
+            "breakeven": 0.1429503428571429,
+            "call": "stay",
+            "cloud_usd_per_task": 5.0,
+            "confident": false,
+            "monthly_usd": {
+              "hi": 76.32694735733155,
+              "lo": 22.396090981859167,
+              "point": 47.07426594202899
+            },
+            "reason": "At the measured rate local saves about $47/mo at $5.00/task. That is under 5% of your cloud bill ($50/mo), the smallest saving that calls for a split. The optimistic end of the interval reaches $76/mo."
+          },
+          {
+            "bar": 52.900000000000006,
+            "breakeven": 0.1361802395209581,
+            "call": "stay",
+            "cloud_usd_per_task": 5.29,
+            "confident": false,
+            "monthly_usd": {
+              "hi": 82.19426699738176,
+              "lo": 25.58227661924302,
+              "point": 51.48730942028985
+            },
+            "reason": "At the measured rate local saves about $51/mo at $5.29/task. That is under 5% of your cloud bill ($53/mo), the smallest saving that calls for a split. The optimistic end of the interval reaches $82/mo."
+          },
+          {
+            "bar": 67.8,
+            "breakeven": 0.10952850262697024,
+            "call": "split",
+            "cloud_usd_per_task": 6.78,
+            "confident": false,
+            "monthly_usd": {
+              "hi": 112.34015066522586,
+              "lo": 41.952678687180764,
+              "point": 74.16122246376813
+            },
+            "reason": "Local likely saves about $74/mo at $6.78/task. The low end of the interval saves only $42/mo, under 5% of your cloud bill ($68/mo), so measure more before relying on it."
+          },
+          {
+            "bar": 86.80000000000001,
+            "breakeven": 0.08765350385423967,
+            "call": "split",
+            "cloud_usd_per_task": 8.68,
+            "confident": false,
+            "monthly_usd": {
+              "hi": 150.78121037589958,
+              "lo": 62.82768803555774,
+              "point": 103.074265942029
+            },
+            "reason": "Local likely saves about $103/mo at $8.68/task. The low end of the interval saves only $63/mo, under 5% of your cloud bill ($87/mo), so measure more before relying on it."
+          },
+          {
+            "bar": 100.0,
+            "breakeven": 0.07697326153846154,
+            "call": "split",
+            "cloud_usd_per_task": 10.0,
+            "confident": false,
+            "monthly_usd": {
+              "hi": 177.4876308064729,
+              "lo": 77.33032610916703,
+              "point": 123.16122246376813
+            },
+            "reason": "Local likely saves about $123/mo at $10.00/task. The low end of the interval saves only $77/mo, under 5% of your cloud bill ($100/mo), so measure more before relying on it."
+          },
+          {
+            "bar": 111.30000000000001,
+            "breakeven": 0.06970273056561717,
+            "call": "split",
+            "cloud_usd_per_task": 11.13,
+            "confident": false,
+            "monthly_usd": {
+              "hi": 200.3499452659789,
+              "lo": 89.74546324793862,
+              "point": 140.3568746376812
+            },
+            "reason": "Local likely saves about $140/mo at $11.13/task. The low end of the interval saves only $90/mo, under 5% of your cloud bill ($111/mo), so measure more before relying on it."
+          },
+          {
+            "bar": 142.6,
+            "breakeven": 0.055248034452296826,
+            "call": "split",
+            "cloud_usd_per_task": 14.26,
+            "confident": false,
+            "monthly_usd": {
+              "hi": 263.67653310514135,
+              "lo": 124.13429443763332,
+              "point": 187.98730942028988
+            },
+            "reason": "Local likely saves about $188/mo at $14.26/task. The low end of the interval saves only $124/mo, under 5% of your cloud bill ($143/mo), so measure more before relying on it."
+          },
+          {
+            "bar": 182.70000000000002,
+            "breakeven": 0.043650863723608456,
+            "call": "split",
+            "cloud_usd_per_task": 18.27,
+            "confident": false,
+            "monthly_usd": {
+              "hi": 344.8074012313527,
+              "lo": 168.19155100973424,
+              "point": 249.00904855072469
+            },
+            "reason": "Local likely saves about $249/mo at $18.27/task. The low end of the interval saves only $168/mo, under 5% of your cloud bill ($183/mo), so measure more before relying on it."
+          },
+          {
+            "bar": 200.0,
+            "breakeven": 0.040026096000000004,
+            "call": "split",
+            "cloud_usd_per_task": 20.0,
+            "confident": false,
+            "monthly_usd": {
+              "hi": 379.80899770475554,
+              "lo": 187.19879636378278,
+              "point": 275.33513550724643
+            },
+            "reason": "Local likely saves about $275/mo at $20.00/task. The low end of the interval saves only $187/mo, under 5% of your cloud bill ($200/mo), so measure more before relying on it."
+          },
+          {
+            "bar": 234.10000000000002,
+            "breakeven": 0.034396136394885195,
+            "call": "split",
+            "cloud_usd_per_task": 23.41,
+            "confident": false,
+            "monthly_usd": {
+              "hi": 448.80058381706993,
+              "lo": 224.66394472060668,
+              "point": 327.2264398550725
+            },
+            "reason": "Local likely saves about $327/mo at $23.41/task. The low end of the interval saves only $225/mo, under 5% of your cloud bill ($234/mo), so measure more before relying on it."
+          },
+          {
+            "bar": 300.0,
+            "breakeven": 0.027044659459459462,
+            "call": "split",
+            "cloud_usd_per_task": 30.0,
+            "confident": false,
+            "monthly_usd": {
+              "hi": 582.1303646030382,
+              "lo": 297.06726661839843,
+              "point": 427.5090485507246
+            },
+            "reason": "Local likely saves about $428/mo at $30.00/task. The low end of the interval saves only $297/mo, under 5% of your cloud bill ($300/mo), so measure more before relying on it."
+          }
+        ],
+        "triage_minutes": 1.0,
+        "triage_usd": 0.8333333333333334
+      },
+      {
+        "curve": [
+          {
+            "bar": 5.0,
+            "breakeven": 0.9437039622641509,
+            "call": "stay",
+            "cloud_usd_per_task": 0.1,
+            "confident": true,
+            "monthly_usd": {
+              "hi": -47.61707518130339,
+              "lo": -63.95042025501789,
+              "point": -56.47645869565218
+            },
+            "reason": "You're not wasting money. Even at the optimistic end of the interval, local costs $48/mo more than cloud at $0.10/task."
+          },
+          {
+            "bar": 5.0,
+            "breakeven": 0.9279463821892393,
+            "call": "stay",
+            "cloud_usd_per_task": 0.13,
+            "confident": true,
+            "monthly_usd": {
+              "hi": -47.010111080608546,
+              "lo": -63.62081484425405,
+              "point": -56.01993695652175
+            },
+            "reason": "You're not wasting money. Even at the optimistic end of the interval, local costs $47/mo more than cloud at $0.13/task."
+          },
+          {
+            "bar": 5.0,
+            "breakeven": 0.9127063868613139,
+            "call": "stay",
+            "cloud_usd_per_task": 0.16,
+            "confident": true,
+            "monthly_usd": {
+              "hi": -46.4031469799137,
+              "lo": -63.2912094334902,
+              "point": -55.56341521739131
+            },
+            "reason": "You're not wasting money. Even at the optimistic end of the interval, local costs $46/mo more than cloud at $0.16/task."
+          },
+          {
+            "bar": 5.0,
+            "breakeven": 0.8883891651865009,
+            "call": "stay",
+            "cloud_usd_per_task": 0.21,
+            "confident": true,
+            "monthly_usd": {
+              "hi": -45.39154014542228,
+              "lo": -62.74186708221712,
+              "point": -54.80254565217392
+            },
+            "reason": "You're not wasting money. Even at the optimistic end of the interval, local costs $45/mo more than cloud at $0.21/task."
+          },
+          {
+            "bar": 5.0,
+            "breakeven": 0.8698488695652175,
+            "call": "stay",
+            "cloud_usd_per_task": 0.25,
+            "confident": true,
+            "monthly_usd": {
+              "hi": -44.582254677829155,
+              "lo": -62.302393201198655,
+              "point": -54.19385
+            },
+            "reason": "You're not wasting money. Even at the optimistic end of the interval, local costs $45/mo more than cloud at $0.25/task."
+          },
+          {
+            "bar": 5.0,
+            "breakeven": 0.8608659208261619,
+            "call": "stay",
+            "cloud_usd_per_task": 0.27,
+            "confident": true,
+            "monthly_usd": {
+              "hi": -44.17761194403259,
+              "lo": -62.082656260689426,
+              "point": -53.88950217391304
+            },
+            "reason": "You're not wasting money. Even at the optimistic end of the interval, local costs $44/mo more than cloud at $0.27/task."
+          },
+          {
+            "bar": 5.0,
+            "breakeven": 0.8267158677685952,
+            "call": "stay",
+            "cloud_usd_per_task": 0.35,
+            "confident": true,
+            "monthly_usd": {
+              "hi": -42.55904100884633,
+              "lo": -61.203708498652496,
+              "point": -52.67211086956522
+            },
+            "reason": "You're not wasting money. Even at the optimistic end of the interval, local costs $43/mo more than cloud at $0.35/task."
+          },
+          {
+            "bar": 5.0,
+            "breakeven": 0.7913973101265822,
+            "call": "stay",
+            "cloud_usd_per_task": 0.44,
+            "confident": true,
+            "monthly_usd": {
+              "hi": -40.738148706761784,
+              "lo": -60.214892266360955,
+              "point": -51.30254565217391
+            },
+            "reason": "You're not wasting money. Even at the optimistic end of the interval, local costs $41/mo more than cloud at $0.44/task."
+          },
+          {
+            "bar": 5.0,
+            "breakeven": 0.7694816923076923,
+            "call": "stay",
+            "cloud_usd_per_task": 0.5,
+            "confident": true,
+            "monthly_usd": {
+              "hi": -39.524220505372085,
+              "lo": -59.55568144483326,
+              "point": -50.389502173913044
+            },
+            "reason": "You're not wasting money. Even at the optimistic end of the interval, local costs $40/mo more than cloud at $0.50/task."
+          },
+          {
+            "bar": 5.7,
+            "breakeven": 0.7453995529061103,
+            "call": "stay",
+            "cloud_usd_per_task": 0.57,
+            "confident": true,
+            "monthly_usd": {
+              "hi": -38.10797093708411,
+              "lo": -58.78660215305096,
+              "point": -49.32428478260869
+            },
+            "reason": "You're not wasting money. Even at the optimistic end of the interval, local costs $38/mo more than cloud at $0.57/task."
+          },
+          {
+            "bar": 7.300000000000001,
+            "breakeven": 0.6956371349095968,
+            "call": "stay",
+            "cloud_usd_per_task": 0.73,
+            "confident": true,
+            "monthly_usd": {
+              "hi": -34.870829066711586,
+              "lo": -57.0287066289771,
+              "point": -46.889502173913044
+            },
+            "reason": "You're not wasting money. Even at the optimistic end of the interval, local costs $35/mo more than cloud at $0.73/task."
+          },
+          {
+            "bar": 7.5,
+            "breakeven": 0.6898801379310344,
+            "call": "stay",
+            "cloud_usd_per_task": 0.75,
+            "confident": true,
+            "monthly_usd": {
+              "hi": -34.466186332915015,
+              "lo": -56.80896968846787,
+              "point": -46.585154347826084
+            },
+            "reason": "You're not wasting money. Even at the optimistic end of the interval, local costs $34/mo more than cloud at $0.75/task."
+          },
+          {
+            "bar": 9.3,
+            "breakeven": 0.6420578947368422,
+            "call": "stay",
+            "cloud_usd_per_task": 0.93,
+            "confident": true,
+            "monthly_usd": {
+              "hi": -30.824401728745933,
+              "lo": -54.83133722388479,
+              "point": -43.846023913043474
+            },
+            "reason": "You're not wasting money. Even at the optimistic end of the interval, local costs $31/mo more than cloud at $0.93/task."
+          },
+          {
+            "bar": 10.0,
+            "breakeven": 0.625203875,
+            "call": "stay",
+            "cloud_usd_per_task": 1.0,
+            "confident": true,
+            "monthly_usd": {
+              "hi": -29.408152160457956,
+              "lo": -54.062257932102476,
+              "point": -42.78080652173914
+            },
+            "reason": "You're not wasting money. Even at the optimistic end of the interval, local costs $29/mo more than cloud at $1.00/task."
+          },
+          {
+            "bar": 11.9,
+            "breakeven": 0.5836208868144691,
+            "call": "stay",
+            "cloud_usd_per_task": 1.19,
+            "confident": true,
+            "monthly_usd": {
+              "hi": -25.564046189390588,
+              "lo": -51.974756997264784,
+              "point": -39.889502173913044
+            },
+            "reason": "You're not wasting money. Even at the optimistic end of the interval, local costs $26/mo more than cloud at $1.19/task."
+          },
+          {
+            "bar": 15.3,
+            "breakeven": 0.5215465067778937,
+            "call": "stay",
+            "cloud_usd_per_task": 1.53,
+            "confident": true,
+            "monthly_usd": {
+              "hi": -18.685119714848973,
+              "lo": -48.23922900860784,
+              "point": -34.71558913043478
+            },
+            "reason": "You're not wasting money. Even at the optimistic end of the interval, local costs $19/mo more than cloud at $1.53/task."
+          },
+          {
+            "bar": 19.6,
+            "breakeven": 0.4597087316176471,
+            "call": "stay",
+            "cloud_usd_per_task": 1.96,
+            "confident": true,
+            "monthly_usd": {
+              "hi": -9.985300938222819,
+              "lo": -43.51488478765937,
+              "point": -28.17211086956522
+            },
+            "reason": "You're not wasting money. Even at the optimistic end of the interval, local costs $10/mo more than cloud at $1.96/task."
+          },
+          {
+            "bar": 20.0,
+            "breakeven": 0.4546937272727273,
+            "call": "stay",
+            "cloud_usd_per_task": 2.0,
+            "confident": true,
+            "monthly_usd": {
+              "hi": -9.17601547062969,
+              "lo": -43.07541090664091,
+              "point": -27.563415217391306
+            },
+            "reason": "You're not wasting money. Even at the optimistic end of the interval, local costs $9/mo more than cloud at $2.00/task."
+          },
+          {
+            "bar": 25.1,
+            "breakeven": 0.39917246608140466,
+            "call": "stay",
+            "cloud_usd_per_task": 2.51,
+            "confident": true,
+            "monthly_usd": {
+              "hi": 1.1423742411827253,
+              "lo": -37.472118923655515,
+              "point": -19.80254565217392
+            },
+            "reason": "You're not wasting money. Even at the optimistic end of the interval, local saves only $1/mo at $2.51/task. That is under 5% of your cloud bill ($25/mo), the smallest saving that calls for a split."
+          },
+          {
+            "bar": 32.2,
+            "breakeven": 0.3411753751705321,
+            "call": "stay",
+            "cloud_usd_per_task": 3.22,
+            "confident": true,
+            "monthly_usd": {
+              "hi": 15.507191290960803,
+              "lo": -29.67145753557779,
+              "point": -8.998197826086956
+            },
+            "reason": "You're not wasting money. Even at the optimistic end of the interval, local saves only $16/mo at $3.22/task. That is under 5% of your cloud bill ($32/mo), the smallest saving that calls for a split."
+          },
+          {
+            "bar": 41.300000000000004,
+            "breakeven": 0.28761535365152385,
+            "call": "stay",
+            "cloud_usd_per_task": 4.13,
+            "confident": true,
+            "monthly_usd": {
+              "hi": 33.918435678704526,
+              "lo": -19.673426742407763,
+              "point": 4.849628260869565
+            },
+            "reason": "You're not wasting money. Even at the optimistic end of the interval, local saves only $34/mo at $4.13/task. That is under 5% of your cloud bill ($41/mo), the smallest saving that calls for a split."
+          },
+          {
+            "bar": 50.0,
+            "breakeven": 0.25008155,
+            "call": "stay",
+            "cloud_usd_per_task": 5.0,
+            "confident": false,
+            "monthly_usd": {
+              "hi": 51.52039459885511,
+              "lo": -10.11486983025619,
+              "point": 18.088758695652174
+            },
+            "reason": "At the measured rate local saves about $18/mo at $5.00/task. That is under 5% of your cloud bill ($50/mo), the smallest saving that calls for a split. The optimistic end of the interval reaches $52/mo."
+          },
+          {
+            "bar": 52.900000000000006,
+            "breakeven": 0.2396564925730714,
+            "call": "stay",
+            "cloud_usd_per_task": 5.29,
+            "confident": false,
+            "monthly_usd": {
+              "hi": 57.38771423890532,
+              "lo": -6.928684192872336,
+              "point": 22.501802173913042
+            },
+            "reason": "At the measured rate local saves about $23/mo at $5.29/task. That is under 5% of your cloud bill ($53/mo), the smallest saving that calls for a split. The optimistic end of the interval reaches $57/mo."
+          },
+          {
+            "bar": 67.8,
+            "breakeven": 0.19738086029992108,
+            "call": "stay",
+            "cloud_usd_per_task": 6.78,
+            "confident": false,
+            "monthly_usd": {
+              "hi": 87.53359790674943,
+              "lo": 9.441717875065404,
+              "point": 45.17571521739131
+            },
+            "reason": "At the measured rate local saves about $45/mo at $6.78/task. That is under 5% of your cloud bill ($68/mo), the smallest saving that calls for a split. The optimistic end of the interval reaches $88/mo."
+          },
+          {
+            "bar": 86.80000000000001,
+            "breakeven": 0.16113501932989693,
+            "call": "stay",
+            "cloud_usd_per_task": 8.68,
+            "confident": false,
+            "monthly_usd": {
+              "hi": 125.97465761742315,
+              "lo": 30.316727223442385,
+              "point": 74.08875869565217
+            },
+            "reason": "At the measured rate local saves about $74/mo at $8.68/task. That is under 5% of your cloud bill ($87/mo), the smallest saving that calls for a split. The optimistic end of the interval reaches $126/mo."
+          },
+          {
+            "bar": 100.0,
+            "breakeven": 0.14290374285714288,
+            "call": "stay",
+            "cloud_usd_per_task": 10.0,
+            "confident": false,
+            "monthly_usd": {
+              "hi": 152.68107804799646,
+              "lo": 44.819365297051675,
+              "point": 94.17571521739131
+            },
+            "reason": "At the measured rate local saves about $94/mo at $10.00/task. That is under 5% of your cloud bill ($100/mo), the smallest saving that calls for a split. The optimistic end of the interval reaches $153/mo."
+          },
+          {
+            "bar": 111.30000000000001,
+            "breakeven": 0.1302847356082313,
+            "call": "split",
+            "cloud_usd_per_task": 11.13,
+            "confident": false,
+            "monthly_usd": {
+              "hi": 175.54339250750243,
+              "lo": 57.23450243582325,
+              "point": 111.37136739130437
+            },
+            "reason": "Local likely saves about $111/mo at $11.13/task. The low end of the interval saves only $57/mo, under 5% of your cloud bill ($111/mo), so measure more before relying on it."
+          },
+          {
+            "bar": 142.6,
+            "breakeven": 0.10468043114273756,
+            "call": "split",
+            "cloud_usd_per_task": 14.26,
+            "confident": false,
+            "monthly_usd": {
+              "hi": 238.86998034666487,
+              "lo": 91.62333362551794,
+              "point": 159.00180217391306
+            },
+            "reason": "Local likely saves about $159/mo at $14.26/task. The low end of the interval saves only $92/mo, under 5% of your cloud bill ($143/mo), so measure more before relying on it."
+          },
+          {
+            "bar": 182.70000000000002,
+            "breakeven": 0.08362533021233907,
+            "call": "split",
+            "cloud_usd_per_task": 18.27,
+            "confident": false,
+            "monthly_usd": {
+              "hi": 320.0008484728762,
+              "lo": 135.6805901976189,
+              "point": 220.02354130434787
+            },
+            "reason": "Local likely saves about $220/mo at $18.27/task. The low end of the interval saves only $136/mo, under 5% of your cloud bill ($183/mo), so measure more before relying on it."
+          },
+          {
+            "bar": 200.0,
+            "breakeven": 0.07694816923076923,
+            "call": "split",
+            "cloud_usd_per_task": 20.0,
+            "confident": false,
+            "monthly_usd": {
+              "hi": 355.00244494627907,
+              "lo": 154.68783555166743,
+              "point": 246.34962826086962
+            },
+            "reason": "Local likely saves about $246/mo at $20.00/task. The low end of the interval saves only $155/mo, under 5% of your cloud bill ($200/mo), so measure more before relying on it."
+          },
+          {
+            "bar": 234.10000000000002,
+            "breakeven": 0.06648452744915592,
+            "call": "split",
+            "cloud_usd_per_task": 23.41,
+            "confident": false,
+            "monthly_usd": {
+              "hi": 423.9940310585935,
+              "lo": 192.15298390849136,
+              "point": 298.2409326086957
+            },
+            "reason": "Local likely saves about $298/mo at $23.41/task. The low end of the interval saves only $192/mo, under 5% of your cloud bill ($234/mo), so measure more before relying on it."
+          },
+          {
+            "bar": 300.0,
+            "breakeven": 0.05264874736842105,
+            "call": "split",
+            "cloud_usd_per_task": 30.0,
+            "confident": false,
+            "monthly_usd": {
+              "hi": 557.3238118445618,
+              "lo": 264.5563058062831,
+              "point": 398.5235413043478
+            },
+            "reason": "Local likely saves about $399/mo at $30.00/task. The low end of the interval saves only $265/mo, under 5% of your cloud bill ($300/mo), so measure more before relying on it."
+          }
+        ],
+        "triage_minutes": 2.0,
+        "triage_usd": 1.6666666666666667
+      },
+      {
+        "curve": [
+          {
+            "bar": 5.0,
+            "breakeven": 0.976689921875,
+            "call": "stay",
+            "cloud_usd_per_task": 0.1,
+            "confident": true,
+            "monthly_usd": {
+              "hi": -122.03673345673269,
+              "lo": -161.48330269136395,
+              "point": -143.4329804347826
+            },
+            "reason": "You're not wasting money. Even at the optimistic end of the interval, local costs $122/mo more than cloud at $0.10/task."
+          },
+          {
+            "bar": 5.0,
+            "breakeven": 0.9698705197827773,
+            "call": "stay",
+            "cloud_usd_per_task": 0.13,
+            "confident": true,
+            "monthly_usd": {
+              "hi": -121.42976935603784,
+              "lo": -161.15369728060008,
+              "point": -142.97645869565216
+            },
+            "reason": "You're not wasting money. Even at the optimistic end of the interval, local costs $121/mo more than cloud at $0.13/task."
+          },
+          {
+            "bar": 5.0,
+            "breakeven": 0.9631456856702618,
+            "call": "stay",
+            "cloud_usd_per_task": 0.16,
+            "confident": true,
+            "monthly_usd": {
+              "hi": -120.82280525534301,
+              "lo": -160.82409186983625,
+              "point": -142.51993695652172
+            },
+            "reason": "You're not wasting money. Even at the optimistic end of the interval, local costs $121/mo more than cloud at $0.16/task."
+          },
+          {
+            "bar": 5.0,
+            "breakeven": 0.9521424980959634,
+            "call": "stay",
+            "cloud_usd_per_task": 0.21,
+            "confident": true,
+            "monthly_usd": {
+              "hi": -119.8111984208516,
+              "lo": -160.27474951856317,
+              "point": -141.7590673913043
+            },
+            "reason": "You're not wasting money. Even at the optimistic end of the interval, local costs $120/mo more than cloud at $0.21/task."
+          },
+          {
+            "bar": 5.0,
+            "breakeven": 0.9435193207547169,
+            "call": "stay",
+            "cloud_usd_per_task": 0.25,
+            "confident": true,
+            "monthly_usd": {
+              "hi": -119.00191295325845,
+              "lo": -159.8352756375447,
+              "point": -141.1503717391304
+            },
+            "reason": "You're not wasting money. Even at the optimistic end of the interval, local costs $119/mo more than cloud at $0.25/task."
+          },
+          {
+            "bar": 5.0,
+            "breakeven": 0.9392660405709993,
+            "call": "stay",
+            "cloud_usd_per_task": 0.27,
+            "confident": true,
+            "monthly_usd": {
+              "hi": -118.59727021946189,
+              "lo": -159.61553869703548,
+              "point": -140.84602391304347
+            },
+            "reason": "You're not wasting money. Even at the optimistic end of the interval, local costs $119/mo more than cloud at $0.27/task."
+          },
+          {
+            "bar": 5.0,
+            "breakeven": 0.9226295940959409,
+            "call": "stay",
+            "cloud_usd_per_task": 0.35,
+            "confident": true,
+            "monthly_usd": {
+              "hi": -116.97869928427565,
+              "lo": -158.73659093499853,
+              "point": -139.62863260869563
+            },
+            "reason": "You're not wasting money. Even at the optimistic end of the interval, local costs $117/mo more than cloud at $0.35/task."
+          },
+          {
+            "bar": 5.0,
+            "breakeven": 0.9046042691751084,
+            "call": "stay",
+            "cloud_usd_per_task": 0.44,
+            "confident": true,
+            "monthly_usd": {
+              "hi": -115.15780698219109,
+              "lo": -157.747774702707,
+              "point": -138.2590673913043
+            },
+            "reason": "You're not wasting money. Even at the optimistic end of the interval, local costs $115/mo more than cloud at $0.44/task."
+          },
+          {
+            "bar": 5.0,
+            "breakeven": 0.8929736428571428,
+            "call": "stay",
+            "cloud_usd_per_task": 0.5,
+            "confident": true,
+            "monthly_usd": {
+              "hi": -113.94387878080138,
+              "lo": -157.0885638811793,
+              "point": -137.34602391304344
+            },
+            "reason": "You're not wasting money. Even at the optimistic end of the interval, local costs $114/mo more than cloud at $0.50/task."
+          },
+          {
+            "bar": 5.7,
+            "breakeven": 0.8797769880365938,
+            "call": "stay",
+            "cloud_usd_per_task": 0.57,
+            "confident": true,
+            "monthly_usd": {
+              "hi": -112.52762921251343,
+              "lo": -156.319484589397,
+              "point": -136.2808065217391
+            },
+            "reason": "You're not wasting money. Even at the optimistic end of the interval, local costs $113/mo more than cloud at $0.57/task."
+          },
+          {
+            "bar": 7.300000000000001,
+            "breakeven": 0.8510300204220557,
+            "call": "stay",
+            "cloud_usd_per_task": 0.73,
+            "confident": true,
+            "monthly_usd": {
+              "hi": -109.29048734214089,
+              "lo": -154.56158906532315,
+              "point": -133.84602391304347
+            },
+            "reason": "You're not wasting money. Even at the optimistic end of the interval, local costs $109/mo more than cloud at $0.73/task."
+          },
+          {
+            "bar": 7.5,
+            "breakeven": 0.8475682033898304,
+            "call": "stay",
+            "cloud_usd_per_task": 0.75,
+            "confident": true,
+            "monthly_usd": {
+              "hi": -108.88584460834431,
+              "lo": -154.34185212481393,
+              "point": -133.5416760869565
+            },
+            "reason": "You're not wasting money. Even at the optimistic end of the interval, local costs $109/mo more than cloud at $0.75/task."
+          },
+          {
+            "bar": 9.3,
+            "breakeven": 0.817634466971877,
+            "call": "stay",
+            "cloud_usd_per_task": 0.93,
+            "confident": true,
+            "monthly_usd": {
+              "hi": -105.24406000417524,
+              "lo": -152.36421966023084,
+              "point": -130.80254565217388
+            },
+            "reason": "You're not wasting money. Even at the optimistic end of the interval, local costs $105/mo more than cloud at $0.93/task."
+          },
+          {
+            "bar": 10.0,
+            "breakeven": 0.8065568387096773,
+            "call": "stay",
+            "cloud_usd_per_task": 1.0,
+            "confident": true,
+            "monthly_usd": {
+              "hi": -103.82781043588727,
+              "lo": -151.5951403684485,
+              "point": -129.73732826086953
+            },
+            "reason": "You're not wasting money. Even at the optimistic end of the interval, local costs $104/mo more than cloud at $1.00/task."
+          },
+          {
+            "bar": 11.9,
+            "breakeven": 0.7779484131922837,
+            "call": "stay",
+            "cloud_usd_per_task": 1.19,
+            "confident": true,
+            "monthly_usd": {
+              "hi": -99.9837044648199,
+              "lo": -149.50763943361082,
+              "point": -126.84602391304345
+            },
+            "reason": "You're not wasting money. Even at the optimistic end of the interval, local costs $100/mo more than cloud at $1.19/task."
+          },
+          {
+            "bar": 15.3,
+            "breakeven": 0.7315173200702164,
+            "call": "stay",
+            "cloud_usd_per_task": 1.53,
+            "confident": true,
+            "monthly_usd": {
+              "hi": -93.10477799027828,
+              "lo": -145.7721114449539,
+              "point": -121.6721108695652
+            },
+            "reason": "You're not wasting money. Even at the optimistic end of the interval, local costs $93/mo more than cloud at $1.53/task."
+          },
+          {
+            "bar": 19.6,
+            "breakeven": 0.6801757889009792,
+            "call": "stay",
+            "cloud_usd_per_task": 1.96,
+            "confident": true,
+            "monthly_usd": {
+              "hi": -84.40495921365212,
+              "lo": -141.0477672240054,
+              "point": -115.12863260869564
+            },
+            "reason": "You're not wasting money. Even at the optimistic end of the interval, local costs $84/mo more than cloud at $1.96/task."
+          },
+          {
+            "bar": 20.0,
+            "breakeven": 0.6757638378378378,
+            "call": "stay",
+            "cloud_usd_per_task": 2.0,
+            "confident": true,
+            "monthly_usd": {
+              "hi": -83.59567374605899,
+              "lo": -140.60829334298694,
+              "point": -114.51993695652172
+            },
+            "reason": "You're not wasting money. Even at the optimistic end of the interval, local costs $84/mo more than cloud at $2.00/task."
+          },
+          {
+            "bar": 25.1,
+            "breakeven": 0.624145332001997,
+            "call": "stay",
+            "cloud_usd_per_task": 2.51,
+            "confident": true,
+            "monthly_usd": {
+              "hi": -73.27728403424658,
+              "lo": -135.00500136000156,
+              "point": -106.75906739130431
+            },
+            "reason": "You're not wasting money. Even at the optimistic end of the interval, local costs $73/mo more than cloud at $2.51/task."
+          },
+          {
+            "bar": 32.2,
+            "breakeven": 0.5641530234657038,
+            "call": "stay",
+            "cloud_usd_per_task": 3.22,
+            "confident": true,
+            "monthly_usd": {
+              "hi": -58.9124669844685,
+              "lo": -127.20433997192384,
+              "point": -95.95471956521737
+            },
+            "reason": "You're not wasting money. Even at the optimistic end of the interval, local costs $59/mo more than cloud at $3.22/task."
+          },
+          {
+            "bar": 41.300000000000004,
+            "breakeven": 0.5022752511048613,
+            "call": "stay",
+            "cloud_usd_per_task": 4.13,
+            "confident": true,
+            "monthly_usd": {
+              "hi": -40.50122259672479,
+              "lo": -117.20630917875381,
+              "point": -82.10689347826084
+            },
+            "reason": "You're not wasting money. Even at the optimistic end of the interval, local costs $41/mo more than cloud at $4.13/task."
+          },
+          {
+            "bar": 50.0,
+            "breakeven": 0.45460476363636354,
+            "call": "stay",
+            "cloud_usd_per_task": 5.0,
+            "confident": true,
+            "monthly_usd": {
+              "hi": -22.8992636765742,
+              "lo": -107.64775226660224,
+              "point": -68.86776304347823
+            },
+            "reason": "You're not wasting money. Even at the optimistic end of the interval, local costs $23/mo more than cloud at $5.00/task."
+          },
+          {
+            "bar": 52.900000000000006,
+            "breakeven": 0.44066376454000694,
+            "call": "stay",
+            "cloud_usd_per_task": 5.29,
+            "confident": true,
+            "monthly_usd": {
+              "hi": -17.031944036523996,
+              "lo": -104.4615666292184,
+              "point": -64.45471956521736
+            },
+            "reason": "You're not wasting money. Even at the optimistic end of the interval, local costs $17/mo more than cloud at $5.29/task."
+          },
+          {
+            "bar": 67.8,
+            "breakeven": 0.38068303897685746,
+            "call": "stay",
+            "cloud_usd_per_task": 6.78,
+            "confident": true,
+            "monthly_usd": {
+              "hi": 13.113939631320125,
+              "lo": -88.09116456128065,
+              "point": -41.7808065217391
+            },
+            "reason": "You're not wasting money. Even at the optimistic end of the interval, local saves only $13/mo at $6.78/task. That is under 5% of your cloud bill ($68/mo), the smallest saving that calls for a split."
+          },
+          {
+            "bar": 86.80000000000001,
+            "breakeven": 0.32438066943435384,
+            "call": "stay",
+            "cloud_usd_per_task": 8.68,
+            "confident": true,
+            "monthly_usd": {
+              "hi": 51.554999341993835,
+              "lo": -67.21615521290366,
+              "point": -12.86776304347823
+            },
+            "reason": "You're not wasting money. Even at the optimistic end of the interval, local saves only $52/mo at $8.68/task. That is under 5% of your cloud bill ($87/mo), the smallest saving that calls for a split."
+          },
+          {
+            "bar": 100.0,
+            "breakeven": 0.2941560235294117,
+            "call": "stay",
+            "cloud_usd_per_task": 10.0,
+            "confident": true,
+            "monthly_usd": {
+              "hi": 78.26141977256715,
+              "lo": -52.713517139294375,
+              "point": 7.219193478260899
+            },
+            "reason": "You're not wasting money. Even at the optimistic end of the interval, local saves only $78/mo at $10.00/task. That is under 5% of your cloud bill ($100/mo), the smallest saving that calls for a split."
+          },
+          {
+            "bar": 111.30000000000001,
+            "breakeven": 0.27242604053170616,
+            "call": "stay",
+            "cloud_usd_per_task": 11.13,
+            "confident": true,
+            "monthly_usd": {
+              "hi": 101.12373423207313,
+              "lo": -40.29838000052279,
+              "point": 24.414845652173955
+            },
+            "reason": "You're not wasting money. Even at the optimistic end of the interval, local saves only $101/mo at $11.13/task. That is under 5% of your cloud bill ($111/mo), the smallest saving that calls for a split."
+          },
+          {
+            "bar": 142.6,
+            "breakeven": 0.2261510672937771,
+            "call": "stay",
+            "cloud_usd_per_task": 14.26,
+            "confident": false,
+            "monthly_usd": {
+              "hi": 164.45032207123558,
+              "lo": -5.9095488108281025,
+              "point": 72.04528043478264
+            },
+            "reason": "At the measured rate local saves about $72/mo at $14.26/task. That is under 5% of your cloud bill ($143/mo), the smallest saving that calls for a split. The optimistic end of the interval reaches $164/mo."
+          },
+          {
+            "bar": 182.70000000000002,
+            "breakeven": 0.1857321497548655,
+            "call": "stay",
+            "cloud_usd_per_task": 18.27,
+            "confident": false,
+            "monthly_usd": {
+              "hi": 245.58119019744692,
+              "lo": 38.147707761272834,
+              "point": 133.06701956521744
+            },
+            "reason": "At the measured rate local saves about $133/mo at $18.27/task. That is under 5% of your cloud bill ($183/mo), the smallest saving that calls for a split. The optimistic end of the interval reaches $246/mo."
+          },
+          {
+            "bar": 200.0,
+            "breakeven": 0.17243628965517238,
+            "call": "stay",
+            "cloud_usd_per_task": 20.0,
+            "confident": false,
+            "monthly_usd": {
+              "hi": 280.58278667084977,
+              "lo": 57.15495311532137,
+              "point": 159.39310652173918
+            },
+            "reason": "At the measured rate local saves about $159/mo at $20.00/task. That is under 5% of your cloud bill ($200/mo), the smallest saving that calls for a split. The optimistic end of the interval reaches $281/mo."
+          },
+          {
+            "bar": 234.10000000000002,
+            "breakeven": 0.151113634715339,
+            "call": "stay",
+            "cloud_usd_per_task": 23.41,
+            "confident": false,
+            "monthly_usd": {
+              "hi": 349.5743727831642,
+              "lo": 94.62010147214531,
+              "point": 211.28441086956528
+            },
+            "reason": "At the measured rate local saves about $211/mo at $23.41/task. That is under 5% of your cloud bill ($234/mo), the smallest saving that calls for a split. The optimistic end of the interval reaches $350/mo."
+          },
+          {
+            "bar": 300.0,
+            "breakeven": 0.12196713170731706,
+            "call": "split",
+            "cloud_usd_per_task": 30.0,
+            "confident": false,
+            "monthly_usd": {
+              "hi": 482.9041535691324,
+              "lo": 167.02342336993706,
+              "point": 311.5670195652174
+            },
+            "reason": "Local likely saves about $312/mo at $30.00/task. The low end of the interval saves only $167/mo, under 5% of your cloud bill ($300/mo), so measure more before relying on it."
+          }
+        ],
+        "triage_minutes": 5.0,
+        "triage_usd": 4.166666666666666
+      },
+      {
+        "curve": [
+          {
+            "bar": 5.0,
+            "breakeven": 0.9882067588932807,
+            "call": "stay",
+            "cloud_usd_per_task": 0.1,
+            "confident": true,
+            "monthly_usd": {
+              "hi": -246.0694972491149,
+              "lo": -324.0381067519407,
+              "point": -288.3605166666666
+            },
+            "reason": "You're not wasting money. Even at the optimistic end of the interval, local costs $246/mo more than cloud at $0.10/task."
+          },
+          {
+            "bar": 5.0,
+            "breakeven": 0.9847038597873178,
+            "call": "stay",
+            "cloud_usd_per_task": 0.13,
+            "confident": true,
+            "monthly_usd": {
+              "hi": -245.46253314842005,
+              "lo": -323.7085013411769,
+              "point": -287.9039949275362
+            },
+            "reason": "You're not wasting money. Even at the optimistic end of the interval, local costs $245/mo more than cloud at $0.13/task."
+          },
+          {
+            "bar": 5.0,
+            "breakeven": 0.9812257064364207,
+            "call": "stay",
+            "cloud_usd_per_task": 0.16,
+            "confident": true,
+            "monthly_usd": {
+              "hi": -244.8555690477252,
+              "lo": -323.378895930413,
+              "point": -287.44747318840575
+            },
+            "reason": "You're not wasting money. Even at the optimistic end of the interval, local costs $245/mo more than cloud at $0.16/task."
+          },
+          {
+            "bar": 5.0,
+            "breakeven": 0.975483066718689,
+            "call": "stay",
+            "cloud_usd_per_task": 0.21,
+            "confident": true,
+            "monthly_usd": {
+              "hi": -243.8439622132338,
+              "lo": -322.82955357913994,
+              "point": -286.6866036231884
+            },
+            "reason": "You're not wasting money. Even at the optimistic end of the interval, local costs $244/mo more than cloud at $0.21/task."
+          },
+          {
+            "bar": 5.0,
+            "breakeven": 0.9709371262135923,
+            "call": "stay",
+            "cloud_usd_per_task": 0.25,
+            "confident": true,
+            "monthly_usd": {
+              "hi": -243.03467674564067,
+              "lo": -322.3900796981215,
+              "point": -286.07790797101444
+            },
+            "reason": "You're not wasting money. Even at the optimistic end of the interval, local costs $243/mo more than cloud at $0.25/task."
+          },
+          {
+            "bar": 5.0,
+            "breakeven": 0.9686800077489346,
+            "call": "stay",
+            "cloud_usd_per_task": 0.27,
+            "confident": true,
+            "monthly_usd": {
+              "hi": -242.6300340118441,
+              "lo": -322.1703427576122,
+              "point": -285.7735601449275
+            },
+            "reason": "You're not wasting money. Even at the optimistic end of the interval, local costs $243/mo more than cloud at $0.27/task."
+          },
+          {
+            "bar": 5.0,
+            "breakeven": 0.9597555086372361,
+            "call": "stay",
+            "cloud_usd_per_task": 0.35,
+            "confident": true,
+            "monthly_usd": {
+              "hi": -241.0114630766578,
+              "lo": -321.29139499557533,
+              "point": -284.5561688405797
+            },
+            "reason": "You're not wasting money. Even at the optimistic end of the interval, local costs $241/mo more than cloud at $0.35/task."
+          },
+          {
+            "bar": 5.0,
+            "breakeven": 0.9499099924012159,
+            "call": "stay",
+            "cloud_usd_per_task": 0.44,
+            "confident": true,
+            "monthly_usd": {
+              "hi": -239.19057077457327,
+              "lo": -320.3025787632838,
+              "point": -283.1866036231884
+            },
+            "reason": "You're not wasting money. Even at the optimistic end of the interval, local costs $239/mo more than cloud at $0.44/task."
+          },
+          {
+            "bar": 5.0,
+            "breakeven": 0.9434577735849057,
+            "call": "stay",
+            "cloud_usd_per_task": 0.5,
+            "confident": true,
+            "monthly_usd": {
+              "hi": -237.9766425731836,
+              "lo": -319.6433679417561,
+              "point": -282.2735601449275
+            },
+            "reason": "You're not wasting money. Even at the optimistic end of the interval, local costs $238/mo more than cloud at $0.50/task."
+          },
+          {
+            "bar": 5.7,
+            "breakeven": 0.9360400973418196,
+            "call": "stay",
+            "cloud_usd_per_task": 0.57,
+            "confident": true,
+            "monthly_usd": {
+              "hi": -236.56039300489562,
+              "lo": -318.8742886499738,
+              "point": -281.2083427536232
+            },
+            "reason": "You're not wasting money. Even at the optimistic end of the interval, local costs $237/mo more than cloud at $0.57/task."
+          },
+          {
+            "bar": 7.300000000000001,
+            "breakeven": 0.9195156675248253,
+            "call": "stay",
+            "cloud_usd_per_task": 0.73,
+            "confident": true,
+            "monthly_usd": {
+              "hi": -233.32325113452308,
+              "lo": -317.11639312589995,
+              "point": -278.7735601449275
+            },
+            "reason": "You're not wasting money. Even at the optimistic end of the interval, local costs $233/mo more than cloud at $0.73/task."
+          },
+          {
+            "bar": 7.5,
+            "breakeven": 0.9174910458715597,
+            "call": "stay",
+            "cloud_usd_per_task": 0.75,
+            "confident": true,
+            "monthly_usd": {
+              "hi": -232.9186084007265,
+              "lo": -316.89665618539067,
+              "point": -278.46921231884056
+            },
+            "reason": "You're not wasting money. Even at the optimistic end of the interval, local costs $233/mo more than cloud at $0.75/task."
+          },
+          {
+            "bar": 9.3,
+            "breakeven": 0.8996628643396906,
+            "call": "stay",
+            "cloud_usd_per_task": 0.93,
+            "confident": true,
+            "monthly_usd": {
+              "hi": -229.27682379655744,
+              "lo": -314.91902372080756,
+              "point": -275.73008188405794
+            },
+            "reason": "You're not wasting money. Even at the optimistic end of the interval, local costs $229/mo more than cloud at $0.93/task."
+          },
+          {
+            "bar": 10.0,
+            "breakeven": 0.8929153928571429,
+            "call": "stay",
+            "cloud_usd_per_task": 1.0,
+            "confident": true,
+            "monthly_usd": {
+              "hi": -227.86057422826946,
+              "lo": -314.1499444290253,
+              "point": -274.66486449275357
+            },
+            "reason": "You're not wasting money. Even at the optimistic end of the interval, local costs $228/mo more than cloud at $1.00/task."
+          },
+          {
+            "bar": 11.9,
+            "breakeven": 0.8751008400420022,
+            "call": "stay",
+            "cloud_usd_per_task": 1.19,
+            "confident": true,
+            "monthly_usd": {
+              "hi": -224.01646825720206,
+              "lo": -312.06244349418756,
+              "point": -271.7735601449275
+            },
+            "reason": "You're not wasting money. Even at the optimistic end of the interval, local costs $224/mo more than cloud at $1.19/task."
+          },
+          {
+            "bar": 15.3,
+            "breakeven": 0.8449351470091248,
+            "call": "stay",
+            "cloud_usd_per_task": 1.53,
+            "confident": true,
+            "monthly_usd": {
+              "hi": -217.13754178266046,
+              "lo": -308.3269155055306,
+              "point": -266.5996471014492
+            },
+            "reason": "You're not wasting money. Even at the optimistic end of the interval, local costs $217/mo more than cloud at $1.53/task."
+          },
+          {
+            "bar": 19.6,
+            "breakeven": 0.8096383095854922,
+            "call": "stay",
+            "cloud_usd_per_task": 1.96,
+            "confident": true,
+            "monthly_usd": {
+              "hi": -208.4377230060343,
+              "lo": -303.6025712845822,
+              "point": -260.0561688405797
+            },
+            "reason": "You're not wasting money. Even at the optimistic end of the interval, local costs $208/mo more than cloud at $1.96/task."
+          },
+          {
+            "bar": 20.0,
+            "breakeven": 0.8065042258064516,
+            "call": "stay",
+            "cloud_usd_per_task": 2.0,
+            "confident": true,
+            "monthly_usd": {
+              "hi": -207.62843753844118,
+              "lo": -303.1630974035637,
+              "point": -259.44747318840575
+            },
+            "reason": "You're not wasting money. Even at the optimistic end of the interval, local costs $208/mo more than cloud at $2.00/task."
+          },
+          {
+            "bar": 25.1,
+            "breakeven": 0.7685715032277898,
+            "call": "stay",
+            "cloud_usd_per_task": 2.51,
+            "confident": true,
+            "monthly_usd": {
+              "hi": -197.3100478266288,
+              "lo": -297.5598054205783,
+              "point": -251.68660362318835
+            },
+            "reason": "You're not wasting money. Even at the optimistic end of the interval, local costs $197/mo more than cloud at $2.51/task."
+          },
+          {
+            "bar": 32.2,
+            "breakeven": 0.7213396133871898,
+            "call": "stay",
+            "cloud_usd_per_task": 3.22,
+            "confident": true,
+            "monthly_usd": {
+              "hi": -182.9452307768507,
+              "lo": -289.7591440325006,
+              "point": -240.8822557971014
+            },
+            "reason": "You're not wasting money. Even at the optimistic end of the interval, local costs $183/mo more than cloud at $3.22/task."
+          },
+          {
+            "bar": 41.300000000000004,
+            "breakeven": 0.6686715966836053,
+            "call": "stay",
+            "cloud_usd_per_task": 4.13,
+            "confident": true,
+            "monthly_usd": {
+              "hi": -164.53398638910696,
+              "lo": -279.7611132393306,
+              "point": -227.03442971014488
+            },
+            "reason": "You're not wasting money. Even at the optimistic end of the interval, local costs $165/mo more than cloud at $4.13/task."
+          },
+          {
+            "bar": 50.0,
+            "breakeven": 0.625040775,
+            "call": "stay",
+            "cloud_usd_per_task": 5.0,
+            "confident": true,
+            "monthly_usd": {
+              "hi": -146.9320274689564,
+              "lo": -270.202556327179,
+              "point": -213.79529927536228
+            },
+            "reason": "You're not wasting money. Even at the optimistic end of the interval, local costs $147/mo more than cloud at $5.00/task."
+          },
+          {
+            "bar": 52.900000000000006,
+            "breakeven": 0.6117355272816247,
+            "call": "stay",
+            "cloud_usd_per_task": 5.29,
+            "confident": true,
+            "monthly_usd": {
+              "hi": -141.0647078289062,
+              "lo": -267.0163706897951,
+              "point": -209.3822557971014
+            },
+            "reason": "You're not wasting money. Even at the optimistic end of the interval, local costs $141/mo more than cloud at $5.29/task."
+          },
+          {
+            "bar": 67.8,
+            "breakeven": 0.5514254741949712,
+            "call": "stay",
+            "cloud_usd_per_task": 6.78,
+            "confident": true,
+            "monthly_usd": {
+              "hi": -110.91882416106206,
+              "lo": -250.6459686218574,
+              "point": -186.70834275362313
+            },
+            "reason": "You're not wasting money. Even at the optimistic end of the interval, local costs $111/mo more than cloud at $6.78/task."
+          },
+          {
+            "bar": 86.80000000000001,
+            "breakeven": 0.4898438675548589,
+            "call": "stay",
+            "cloud_usd_per_task": 8.68,
+            "confident": true,
+            "monthly_usd": {
+              "hi": -72.47776445038836,
+              "lo": -229.7709592734804,
+              "point": -157.79529927536225
+            },
+            "reason": "You're not wasting money. Even at the optimistic end of the interval, local costs $72/mo more than cloud at $8.68/task."
+          },
+          {
+            "bar": 100.0,
+            "breakeven": 0.4545751090909091,
+            "call": "stay",
+            "cloud_usd_per_task": 10.0,
+            "confident": true,
+            "monthly_usd": {
+              "hi": -45.77134401981504,
+              "lo": -215.26832119987117,
+              "point": -137.70834275362313
+            },
+            "reason": "You're not wasting money. Even at the optimistic end of the interval, local costs $46/mo more than cloud at $10.00/task."
+          },
+          {
+            "bar": 111.30000000000001,
+            "breakeven": 0.42818343894502486,
+            "call": "stay",
+            "cloud_usd_per_task": 11.13,
+            "confident": true,
+            "monthly_usd": {
+              "hi": -22.90902956030907,
+              "lo": -202.85318406109957,
+              "point": -120.51269057971008
+            },
+            "reason": "You're not wasting money. Even at the optimistic end of the interval, local costs $23/mo more than cloud at $11.13/task."
+          },
+          {
+            "bar": 142.6,
+            "breakeven": 0.3688644290351136,
+            "call": "stay",
+            "cloud_usd_per_task": 14.26,
+            "confident": true,
+            "monthly_usd": {
+              "hi": 40.417558278853384,
+              "lo": -168.46435287140486,
+              "point": -72.8822557971014
+            },
+            "reason": "You're not wasting money. Even at the optimistic end of the interval, local saves only $40/mo at $14.26/task. That is under 5% of your cloud bill ($143/mo), the smallest saving that calls for a split."
+          },
+          {
+            "bar": 182.70000000000002,
+            "breakeven": 0.3132643904272647,
+            "call": "stay",
+            "cloud_usd_per_task": 18.27,
+            "confident": true,
+            "monthly_usd": {
+              "hi": 121.54842640506472,
+              "lo": -124.40709629930393,
+              "point": -11.860516666666587
+            },
+            "reason": "You're not wasting money. Even at the optimistic end of the interval, local saves only $122/mo at $18.27/task. That is under 5% of your cloud bill ($183/mo), the smallest saving that calls for a split."
+          },
+          {
+            "bar": 200.0,
+            "breakeven": 0.29413683529411766,
+            "call": "stay",
+            "cloud_usd_per_task": 20.0,
+            "confident": true,
+            "monthly_usd": {
+              "hi": 156.5500228784676,
+              "lo": -105.3998509452554,
+              "point": 14.465570289855156
+            },
+            "reason": "You're not wasting money. Even at the optimistic end of the interval, local saves only $157/mo at $20.00/task. That is under 5% of your cloud bill ($200/mo), the smallest saving that calls for a split."
+          },
+          {
+            "bar": 234.10000000000002,
+            "breakeven": 0.26253944135251495,
+            "call": "stay",
+            "cloud_usd_per_task": 23.41,
+            "confident": true,
+            "monthly_usd": {
+              "hi": 225.541608990782,
+              "lo": -67.93470258843146,
+              "point": 66.35687463768124
+            },
+            "reason": "You're not wasting money. Even at the optimistic end of the interval, local saves only $226/mo at $23.41/task. That is under 5% of your cloud bill ($234/mo), the smallest saving that calls for a split."
+          },
+          {
+            "bar": 300.0,
+            "breakeven": 0.21740548695652176,
+            "call": "stay",
+            "cloud_usd_per_task": 30.0,
+            "confident": false,
+            "monthly_usd": {
+              "hi": 358.8713897767502,
+              "lo": 4.468619309360289,
+              "point": 166.63948333333335
+            },
+            "reason": "At the measured rate local saves about $167/mo at $30.00/task. That is under 5% of your cloud bill ($300/mo), the smallest saving that calls for a split. The optimistic end of the interval reaches $359/mo."
+          }
+        ],
+        "triage_minutes": 10.0,
+        "triage_usd": 8.333333333333332
+      }
+    ],
+    "claim": "report_2026_10_studio_qwen35_131k_outside",
+    "costs": {
+      "attempt_usd": 0.0005436666666666668,
+      "triage_usd": 2.5
+    },
     "curve": [
       {
-        "breakeven": 0.9621782692307691,
+        "bar": 5.0,
+        "breakeven": 0.9617475641025641,
         "call": "stay",
         "cloud_usd_per_task": 0.1,
         "confident": true,
         "monthly_usd": {
-          "hi": -58.94872123668746,
-          "lo": -108.83349570938942,
-          "point": -88.97206388888888
+          "hi": -72.42362793977985,
+          "lo": -96.46138106713325,
+          "point": -85.46196594202898
         },
-        "reason": "You're not wasting money: even at the optimistic end, local saves under $5/mo at $0.10/task."
+        "reason": "You're not wasting money. Even at the optimistic end of the interval, local costs $72/mo more than cloud at $0.10/task."
       },
       {
-        "breakeven": 0.9512028517110266,
+        "bar": 5.0,
+        "breakeven": 0.9507770595690749,
         "call": "stay",
         "cloud_usd_per_task": 0.13,
         "confident": true,
         "monthly_usd": {
-          "hi": -58.185631385572314,
-          "lo": -108.64599940988239,
-          "point": -88.55539722222223
+          "hi": -71.816663839085,
+          "lo": -96.1317756563694,
+          "point": -85.00544420289854
         },
-        "reason": "You're not wasting money: even at the optimistic end, local saves under $5/mo at $0.13/task."
+        "reason": "You're not wasting money. Even at the optimistic end of the interval, local costs $72/mo more than cloud at $0.13/task."
       },
       {
-        "breakeven": 0.9404749999999998,
+        "bar": 5.0,
+        "breakeven": 0.9400540100250626,
         "call": "stay",
         "cloud_usd_per_task": 0.16,
         "confident": true,
         "monthly_usd": {
-          "hi": -57.422541534457174,
-          "lo": -108.45850311037535,
-          "point": -88.13873055555555
+          "hi": -71.20969973839014,
+          "lo": -95.80217024560555,
+          "point": -84.54892246376812
         },
-        "reason": "You're not wasting money: even at the optimistic end, local saves under $5/mo at $0.16/task."
+        "reason": "You're not wasting money. Even at the optimistic end of the interval, local costs $71/mo more than cloud at $0.16/task."
       },
       {
-        "breakeven": 0.9231230627306273,
+        "bar": 5.0,
+        "breakeven": 0.9227098400984011,
         "call": "stay",
         "cloud_usd_per_task": 0.21,
         "confident": true,
         "monthly_usd": {
-          "hi": -56.150725115931934,
-          "lo": -108.1460092778636,
-          "point": -87.44428611111111
+          "hi": -70.19809290389874,
+          "lo": -95.25282789433247,
+          "point": -83.78805289855073
         },
-        "reason": "You're not wasting money: even at the optimistic end, local saves under $5/mo at $0.21/task."
+        "reason": "You're not wasting money. Even at the optimistic end of the interval, local costs $70/mo more than cloud at $0.21/task."
       },
       {
-        "breakeven": 0.9096958181818181,
+        "bar": 5.0,
+        "breakeven": 0.9092886060606061,
         "call": "stay",
         "cloud_usd_per_task": 0.25,
         "confident": true,
         "monthly_usd": {
-          "hi": -55.13327198111173,
-          "lo": -107.89601421185422,
-          "point": -86.88873055555555
+          "hi": -69.3888074363056,
+          "lo": -94.81335401331401,
+          "point": -83.17935724637681
         },
-        "reason": "You're not wasting money: even at the optimistic end, local saves under $5/mo at $0.25/task."
+        "reason": "You're not wasting money. Even at the optimistic end of the interval, local costs $69/mo more than cloud at $0.25/task."
       },
       {
-        "breakeven": 0.9031276173285198,
+        "bar": 5.0,
+        "breakeven": 0.9027233453670277,
         "call": "stay",
         "cloud_usd_per_task": 0.27,
         "confident": true,
         "monthly_usd": {
-          "hi": -54.62454541370164,
-          "lo": -107.77101667884952,
-          "point": -86.61095277777778
+          "hi": -68.98416470250903,
+          "lo": -94.59361707280478,
+          "point": -82.87500942028984
         },
-        "reason": "You're not wasting money: even at the optimistic end, local saves under $5/mo at $0.27/task."
+        "reason": "You're not wasting money. Even at the optimistic end of the interval, local costs $69/mo more than cloud at $0.27/task."
       },
       {
-        "breakeven": 0.8777766666666665,
+        "bar": 5.0,
+        "breakeven": 0.8773837426900585,
         "call": "stay",
         "cloud_usd_per_task": 0.35,
         "confident": true,
         "monthly_usd": {
-          "hi": -52.58963914406125,
-          "lo": -107.27102654683071,
-          "point": -85.49984166666667
+          "hi": -67.36559376732278,
+          "lo": -93.71466931076785,
+          "point": -81.65761811594203
         },
-        "reason": "You're not wasting money: even at the optimistic end, local saves under $5/mo at $0.35/task."
+        "reason": "You're not wasting money. Even at the optimistic end of the interval, local costs $67/mo more than cloud at $0.35/task."
       },
       {
-        "breakeven": 0.8509059523809523,
+        "bar": 5.0,
+        "breakeven": 0.8505250566893424,
         "call": "stay",
         "cloud_usd_per_task": 0.44,
         "confident": true,
         "monthly_usd": {
-          "hi": -50.30036959071582,
-          "lo": -106.70853764830959,
-          "point": -84.24984166666667
+          "hi": -65.54470146523823,
+          "lo": -92.7258530784763,
+          "point": -80.28805289855072
         },
-        "reason": "You're not wasting money: even at the optimistic end, local saves under $5/mo at $0.44/task."
+        "reason": "You're not wasting money. Even at the optimistic end of the interval, local costs $66/mo more than cloud at $0.44/task."
       },
       {
-        "breakeven": 0.8338878333333333,
+        "bar": 5.0,
+        "breakeven": 0.8335145555555555,
         "call": "stay",
         "cloud_usd_per_task": 0.5,
         "confident": true,
         "monthly_usd": {
-          "hi": -48.77418988848553,
-          "lo": -106.33354504929551,
-          "point": -83.41650833333334
+          "hi": -64.33077326384853,
+          "lo": -92.06664225694861,
+          "point": -79.37500942028986
         },
-        "reason": "You're not wasting money: even at the optimistic end, local saves under $5/mo at $0.50/task."
+        "reason": "You're not wasting money. Even at the optimistic end of the interval, local costs $64/mo more than cloud at $0.50/task."
       },
       {
-        "breakeven": 0.8148741042345277,
+        "bar": 5.7,
+        "breakeven": 0.8145093376764387,
         "call": "stay",
         "cloud_usd_per_task": 0.57,
         "confident": true,
         "monthly_usd": {
-          "hi": -46.99364690255019,
-          "lo": -105.89605368377906,
-          "point": -82.44428611111111
+          "hi": -62.914523695560554,
+          "lo": -91.2975629651663,
+          "point": -78.3097920289855
         },
-        "reason": "You're not wasting money: even at the optimistic end, local saves under $6/mo at $0.57/task."
+        "reason": "You're not wasting money. Even at the optimistic end of the interval, local costs $63/mo more than cloud at $0.57/task."
       },
       {
-        "breakeven": 0.7745088235294117,
+        "bar": 7.300000000000001,
+        "breakeven": 0.7741621259029928,
         "call": "stay",
         "cloud_usd_per_task": 0.73,
         "confident": true,
         "monthly_usd": {
-          "hi": -42.92383436326942,
-          "lo": -104.8960734197415,
-          "point": -80.2220638888889
+          "hi": -59.677381825188036,
+          "lo": -89.53966744109245,
+          "point": -75.87500942028986
         },
-        "reason": "You're not wasting money: even at the optimistic end, local saves under $7/mo at $0.73/task."
+        "reason": "You're not wasting money. Even at the optimistic end of the interval, local costs $60/mo more than cloud at $0.73/task."
       },
       {
-        "breakeven": 0.7697426153846153,
+        "bar": 7.5,
+        "breakeven": 0.7693980512820513,
         "call": "stay",
         "cloud_usd_per_task": 0.75,
         "confident": true,
         "monthly_usd": {
-          "hi": -42.41510779585932,
-          "lo": -104.7710758867368,
-          "point": -79.94428611111111
+          "hi": -59.27273909139147,
+          "lo": -89.31993050058323,
+          "point": -75.57066159420289
         },
-        "reason": "You're not wasting money: even at the optimistic end, local saves under $8/mo at $0.75/task."
+        "reason": "You're not wasting money. Even at the optimistic end of the interval, local costs $59/mo more than cloud at $0.75/task."
       },
       {
-        "breakeven": 0.7293479591836733,
+        "bar": 9.3,
+        "breakeven": 0.7290214771622935,
         "call": "stay",
         "cloud_usd_per_task": 0.93,
         "confident": true,
         "monthly_usd": {
-          "hi": -37.83656868916845,
-          "lo": -103.64609808969452,
-          "point": -77.44428611111111
+          "hi": -55.630954487222375,
+          "lo": -87.34229803600014,
+          "point": -72.83153115942028
         },
-        "reason": "You're not wasting money: even at the optimistic end, local saves under $9/mo at $0.93/task."
+        "reason": "You're not wasting money. Even at the optimistic end of the interval, local costs $56/mo more than cloud at $0.93/task."
       },
       {
-        "breakeven": 0.714761,
+        "bar": 10.0,
+        "breakeven": 0.7144410476190476,
         "call": "stay",
         "cloud_usd_per_task": 1.0,
         "confident": true,
         "monthly_usd": {
-          "hi": -36.05602570323312,
-          "lo": -103.20860672417808,
-          "point": -76.47206388888888
+          "hi": -54.214704918934395,
+          "lo": -86.57321874421783,
+          "point": -71.76631376811594
         },
-        "reason": "You're not wasting money: even at the optimistic end, local saves under $10/mo at $1.00/task."
+        "reason": "You're not wasting money. Even at the optimistic end of the interval, local costs $54/mo more than cloud at $1.00/task."
       },
       {
-        "breakeven": 0.6779575880758807,
+        "bar": 11.9,
+        "breakeven": 0.6776541102077688,
         "call": "stay",
         "cloud_usd_per_task": 1.19,
         "confident": true,
         "monthly_usd": {
-          "hi": -31.223123312837203,
-          "lo": -102.02113016063348,
-          "point": -73.833175
+          "hi": -50.37059894786703,
+          "lo": -84.48571780938013,
+          "point": -68.87500942028986
         },
-        "reason": "You're not wasting money: even at the optimistic end, local saves under $12/mo at $1.19/task."
+        "reason": "You're not wasting money. Even at the optimistic end of the interval, local costs $50/mo more than cloud at $1.19/task."
       },
       {
-        "breakeven": 0.6207601736972704,
+        "bar": 15.3,
+        "breakeven": 0.6204822994210091,
         "call": "stay",
         "cloud_usd_per_task": 1.53,
         "confident": true,
         "monthly_usd": {
-          "hi": -22.574771666865562,
-          "lo": -99.89617209955362,
-          "point": -69.11095277777778
+          "hi": -43.49167247332542,
+          "lo": -80.7501898207232,
+          "point": -63.701096376811584
         },
-        "reason": "You're not wasting money: even at the optimistic end, local saves under $15/mo at $1.53/task."
+        "reason": "You're not wasting money. Even at the optimistic end of the interval, local costs $43/mo more than cloud at $1.53/task."
       },
       {
-        "breakeven": 0.5609110986547085,
+        "bar": 19.6,
+        "breakeven": 0.5606600149476831,
         "call": "stay",
         "cloud_usd_per_task": 1.96,
         "confident": true,
         "monthly_usd": {
-          "hi": -11.63715046754849,
-          "lo": -97.20872513995265,
-          "point": -63.138730555555554
+          "hi": -34.79185369669926,
+          "lo": -76.02584559977473,
+          "point": -57.15761811594202
         },
-        "reason": "You're not wasting money: even at the optimistic end, local saves under $20/mo at $1.96/task."
+        "reason": "You're not wasting money. Even at the optimistic end of the interval, local costs $35/mo more than cloud at $1.96/task."
       },
       {
-        "breakeven": 0.5559252222222222,
+        "bar": 20.0,
+        "breakeven": 0.5556763703703704,
         "call": "stay",
         "cloud_usd_per_task": 2.0,
         "confident": true,
         "monthly_usd": {
-          "hi": -10.619697332728295,
-          "lo": -96.95873007394326,
-          "point": -62.583175000000004
+          "hi": -33.982568229106136,
+          "lo": -75.58637171875627,
+          "point": -56.548922463768115
         },
-        "reason": "You're not wasting money: even at the optimistic end, local saves under $20/mo at $2.00/task."
+        "reason": "You're not wasting money. Even at the optimistic end of the interval, local costs $34/mo more than cloud at $2.00/task."
       },
       {
-        "breakeven": 0.49933403193612774,
+        "bar": 25.1,
+        "breakeven": 0.49911051230871595,
         "call": "stay",
         "cloud_usd_per_task": 2.51,
         "confident": true,
         "monthly_usd": {
-          "hi": 2.352830136229156,
-          "lo": -93.7712929823235,
-          "point": -55.49984166666667
+          "hi": -23.66417851729372,
+          "lo": -69.98307973577087,
+          "point": -48.788052898550724
         },
-        "reason": "You're not wasting money: even at the optimistic end, local saves under $25/mo at $2.51/task."
+        "reason": "You're not wasting money. Even at the optimistic end of the interval, local costs $24/mo more than cloud at $2.51/task."
       },
       {
-        "breakeven": 0.43735375874125865,
+        "bar": 32.2,
+        "breakeven": 0.43715798368298364,
         "call": "stay",
         "cloud_usd_per_task": 3.22,
         "confident": true,
         "monthly_usd": {
-          "hi": 20.41262327928759,
-          "lo": -89.33388056065677,
-          "point": -45.638730555555554
+          "hi": -9.299361467515643,
+          "lo": -62.18241834769314,
+          "point": -37.98370507246376
         },
-        "reason": "You're not wasting money: even at the optimistic end, local saves under $32/mo at $3.22/task."
+        "reason": "You're not wasting money. Even at the optimistic end of the interval, local costs $9/mo more than cloud at $3.22/task."
       },
       {
-        "breakeven": 0.37732481146304675,
+        "bar": 41.300000000000004,
+        "breakeven": 0.37715590749120165,
         "call": "stay",
         "cloud_usd_per_task": 4.13,
-        "confident": false,
+        "confident": true,
         "monthly_usd": {
-          "hi": 43.55968209644699,
-          "lo": -83.64649280894308,
-          "point": -32.999841666666676
+          "hi": 9.111882920228076,
+          "lo": -52.18438755452311,
+          "point": -24.13587898550724
         },
-        "reason": "Not yet worth it at the measured rate (~−$33/mo), though the optimistic end reaches $44/mo."
+        "reason": "You're not wasting money. Even at the optimistic end of the interval, local saves only $9/mo at $4.13/task. That is under 5% of your cloud bill ($41/mo), the smallest saving that calls for a split."
       },
       {
-        "breakeven": 0.3335551333333333,
+        "bar": 50.0,
+        "breakeven": 0.3334058222222222,
         "call": "stay",
         "cloud_usd_per_task": 5.0,
-        "confident": false,
+        "confident": true,
         "monthly_usd": {
-          "hi": 65.68928777878618,
-          "lo": -78.20910012323876,
-          "point": -20.91650833333334
+          "hi": 26.71384184037866,
+          "lo": -42.62583064237154,
+          "point": -10.896748550724633
         },
-        "reason": "Not yet worth it at the measured rate (~−$21/mo), though the optimistic end reaches $66/mo."
+        "reason": "You're not wasting money. Even at the optimistic end of the interval, local saves only $27/mo at $5.00/task. That is under 5% of your cloud bill ($50/mo), the smallest saving that calls for a split."
       },
       {
-        "breakeven": 0.32113780487804877,
+        "bar": 52.900000000000006,
+        "breakeven": 0.32099405220367994,
         "call": "stay",
         "cloud_usd_per_task": 5.29,
-        "confident": false,
+        "confident": true,
         "monthly_usd": {
-          "hi": 73.06582300623258,
-          "lo": -76.39663589467067,
-          "point": -16.888730555555554
+          "hi": 32.58116148042887,
+          "lo": -39.43964500498769,
+          "point": -6.4837050724637635
         },
-        "reason": "Not yet worth it at the measured rate (~−$17/mo), though the optimistic end reaches $73/mo."
+        "reason": "You're not wasting money. Even at the optimistic end of the interval, local saves only $33/mo at $5.29/task. That is under 5% of your cloud bill ($53/mo), the smallest saving that calls for a split."
       },
       {
-        "breakeven": 0.2695758081896551,
+        "bar": 67.8,
+        "breakeven": 0.26945513649425284,
         "call": "stay",
         "cloud_usd_per_task": 6.78,
-        "confident": false,
+        "confident": true,
         "monthly_usd": {
-          "hi": 110.96595227828479,
-          "lo": -67.08431968582077,
-          "point": 3.8057138888888953
+          "hi": 62.727045148272985,
+          "lo": -23.06924293704995,
+          "point": 16.1902079710145
         },
-        "reason": "Not yet worth it at the measured rate (~$4/mo), though the optimistic end reaches $111/mo."
+        "reason": "You're not wasting money. Even at the optimistic end of the interval, local saves only $63/mo at $6.78/task. That is under 5% of your cloud bill ($68/mo), the smallest saving that calls for a split."
       },
       {
-        "breakeven": 0.22376238819320213,
+        "bar": 86.80000000000001,
+        "breakeven": 0.22366222420989865,
         "call": "stay",
         "cloud_usd_per_task": 8.68,
         "confident": false,
         "monthly_usd": {
-          "hi": 159.29497618224394,
-          "lo": -55.2095540503746,
-          "point": 30.194602777777778
+          "hi": 101.16810485894669,
+          "lo": -2.194233588672967,
+          "point": 45.10325144927537
         },
-        "reason": "Not yet worth it at the measured rate (~$30/mo), though the optimistic end reaches $159/mo."
+        "reason": "At the measured rate local saves about $45/mo at $8.68/task. That is under 5% of your cloud bill ($87/mo), the smallest saving that calls for a split. The optimistic end of the interval reaches $101/mo."
       },
       {
-        "breakeven": 0.20013308,
+        "bar": 100.0,
+        "breakeven": 0.20004349333333335,
         "call": "stay",
         "cloud_usd_per_task": 10.0,
         "confident": false,
         "monthly_usd": {
-          "hi": 192.8709296313103,
-          "lo": -46.95971687206462,
-          "point": 48.52793611111112
+          "hi": 127.87452528952001,
+          "lo": 12.30840448493632,
+          "point": 65.1902079710145
         },
-        "reason": "Not yet worth it at the measured rate (~$49/mo), though the optimistic end reaches $193/mo."
+        "reason": "At the measured rate local saves about $65/mo at $10.00/task. That is under 5% of your cloud bill ($100/mo), the smallest saving that calls for a split. The optimistic end of the interval reaches $128/mo."
       },
       {
-        "breakeven": 0.18354097578870138,
+        "bar": 111.30000000000001,
+        "breakeven": 0.1834588163365126,
         "call": "stay",
         "cloud_usd_per_task": 11.13,
         "confident": false,
         "monthly_usd": {
-          "hi": 221.61398068998074,
-          "lo": -39.89735625729926,
-          "point": 64.22238055555559
+          "hi": 150.736839749026,
+          "lo": 24.723541623707902,
+          "point": 82.38586014492756
         },
-        "reason": "Not yet worth it at the measured rate (~$64/mo), though the optimistic end reaches $222/mo."
+        "reason": "At the measured rate local saves about $82/mo at $11.13/task. That is under 5% of your cloud bill ($111/mo), the smallest saving that calls for a split. The optimistic end of the interval reaches $151/mo."
       },
       {
-        "breakeven": 0.14926393198090693,
+        "bar": 142.6,
+        "breakeven": 0.14919711614956246,
         "call": "stay",
         "cloud_usd_per_task": 14.26,
         "confident": false,
         "monthly_usd": {
-          "hi": 301.2296884896609,
-          "lo": -20.33524234206424,
-          "point": 107.69460277777779
+          "hi": 214.06342758818843,
+          "lo": 59.112372813402594,
+          "point": 130.01629492753625
         },
-        "reason": "Not yet worth it at the measured rate (~$108/mo), though the optimistic end reaches $301/mo."
+        "reason": "At the measured rate local saves about $130/mo at $14.26/task. That is under 5% of your cloud bill ($143/mo), the smallest saving that calls for a split. The optimistic end of the interval reaches $214/mo."
       },
       {
-        "breakeven": 0.12044600385170919,
-        "call": "stay",
+        "bar": 182.70000000000002,
+        "breakeven": 0.12039208794735998,
+        "call": "split",
         "cloud_usd_per_task": 18.27,
         "confident": false,
         "monthly_usd": {
-          "hi": 403.2293652553852,
-          "lo": 4.726763025377423,
-          "point": 163.38904722222222
+          "hi": 295.19429571439974,
+          "lo": 103.16962938550351,
+          "point": 191.03803405797106
         },
-        "reason": "Not yet worth it at the measured rate (~$163/mo), though the optimistic end reaches $403/mo."
+        "reason": "Local likely saves about $191/mo at $18.27/task. The low end of the interval saves only $103/mo, under 5% of your cloud bill ($183/mo), so measure more before relying on it."
       },
       {
-        "breakeven": 0.11118504444444444,
-        "call": "stay",
+        "bar": 200.0,
+        "breakeven": 0.11113527407407407,
+        "call": "split",
         "cloud_usd_per_task": 20.0,
         "confident": false,
         "monthly_usd": {
-          "hi": 447.23421333635855,
-          "lo": 15.539049630283696,
-          "point": 187.416825
+          "hi": 330.19589218780266,
+          "lo": 122.17687473955206,
+          "point": 217.3641210144928
         },
-        "reason": "Not yet worth it at the measured rate (~$187/mo), though the optimistic end reaches $447/mo."
+        "reason": "Local likely saves about $217/mo at $20.00/task. The low end of the interval saves only $122/mo, under 5% of your cloud bill ($200/mo), so measure more before relying on it."
       },
       {
-        "breakeven": 0.09655204554226167,
+        "bar": 234.10000000000002,
+        "breakeven": 0.09650882542133024,
         "call": "split",
         "cloud_usd_per_task": 23.41,
         "confident": false,
         "monthly_usd": {
-          "hi": 533.9720930797799,
-          "lo": 36.85112900758447,
-          "point": 234.77793611111113
+          "hi": 399.18747830011705,
+          "lo": 159.642023096376,
+          "point": 269.2554253623189
         },
-        "reason": "Likely saves ~$235/mo at $23.41/task, but the interval reaches $37/mo — measure more before relying on it."
+        "reason": "Local likely saves about $269/mo at $23.41/task. The low end of the interval saves only $160/mo, under 5% of your cloud bill ($234/mo), so measure more before relying on it."
       },
       {
-        "breakeven": 0.07697426153846153,
+        "bar": 300.0,
+        "breakeven": 0.07693980512820513,
         "call": "split",
         "cloud_usd_per_task": 30.0,
         "confident": false,
         "monthly_usd": {
-          "hi": 701.5974970414068,
-          "lo": 78.03781613263199,
-          "point": 326.30571388888893
+          "hi": 532.5172590860853,
+          "lo": 232.04534499416775,
+          "point": 369.538034057971
         },
-        "reason": "Likely saves ~$326/mo at $30.00/task, but the interval reaches $78/mo — measure more before relying on it."
+        "reason": "Local likely saves about $370/mo at $30.00/task. The low end of the interval saves only $232/mo, under 5% of your cloud bill ($300/mo), so measure more before relying on it."
       }
     ],
     "evidence": {
-      "failed": 13,
-      "hardware": "unrecorded machine (attempts predate run manifests)",
-      "label": "aider:qwen3.5:latest / blind, 1 repo (Mahoraga)",
-      "minutes_per_attempt": 8.3175,
+      "failed": 64,
+      "hardware": "Mac17,14, 64 GB",
+      "label": "aider:qwen3.5:laptop-dec52a4@ctx=131072 / blind, attrs, click, more-itertools",
+      "minutes_per_attempt": 2.7183333333333337,
       "rate": {
-        "attempts": 18,
-        "hi": 0.5087265674100965,
-        "lo": 0.1249975330046966,
-        "point": 0.2777777777777778,
-        "tasks": 18
+        "attempts": 92,
+        "hi": 0.40464273379656535,
+        "lo": 0.21973694050923143,
+        "point": 0.30434782608695654,
+        "tasks": 92
       },
       "tier": "test-verified",
-      "timed_out": 2
+      "timed_out": 0
+    },
+    "select": {
+      "arm": "aider:qwen3.5:laptop-dec52a4@ctx=131072",
+      "cond": "blind",
+      "repos": [
+        "more-itertools",
+        "click",
+        "attrs"
+      ]
     }
   }
 }

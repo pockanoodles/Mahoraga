@@ -1,17 +1,18 @@
 "use client";
 
-// The hero: the published probe, replayed. Each of the 18 commits lands in the
-// order the probe ran them, and the 95% interval on the resolve rate is drawn
-// as it stood after each one, so the band visibly settles as evidence arrives
-// (not at every step: one resolve near the end widens it slightly, and the
-// drawing shows that too). The break-even line is where local would start to
+// The engine section's exhibit: the first probe, replayed. Each of the 18
+// commits lands in the order the probe ran them, and the 95% interval on the
+// resolve rate is drawn as it stood after each one, so the band visibly
+// settles as evidence arrives (not at every step: one resolve near the end
+// widens it slightly, and the drawing shows that too). It starts the first
+// time it scrolls into view. The break-even line is where local would start to
 // pay at the stated cloud price. Every number is the engine's (site.json
 // probe.replay, computed with agentbench.stats.task_rate); nothing is
 // interpolated except the drawing between two real steps while it animates.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { copy, type Locale } from "@/content/copy";
 import type { ProbeTask, ReplayStep } from "@/lib/data";
-import { pct } from "@/lib/data";
+import { pct } from "@/lib/format";
 
 const STEP_MS = 125;
 const LEAD_MS = 450;
@@ -37,12 +38,12 @@ export function Replay({
 }) {
   const t = copy[locale];
   const labels = {
-    chart: t.hero.chartLabel(steps.length),
-    axisTasks: t.hero.axisTasks,
+    chart: t.replay.chartLabel(steps.length),
+    axisTasks: t.replay.axisTasks,
     breakeven: breakevenLabel,
-    resolved: t.hero.resolved,
-    interval: t.hero.interval,
-    replay: t.hero.replay,
+    resolved: t.replay.resolved,
+    interval: t.replay.interval,
+    replay: t.replay.replay,
     outcome: (o: string) => t.outcomes[o] ?? o,
   };
   const box = useRef<HTMLDivElement>(null);
@@ -50,6 +51,7 @@ export function Replay({
   const [k, setK] = useState(0); // how many steps have landed (fractional while drawing)
   const [run, setRun] = useState(0);
   const [active, setActive] = useState<number | null>(null);
+  const [seen, setSeen] = useState(false);
   const N = steps.length;
   const done = k >= N;
   const byS = useMemo(() => new Map(tasks.map((t) => [t.sha, t])), [tasks]);
@@ -62,11 +64,29 @@ export function Replay({
     return () => ro.disconnect();
   }, []);
 
+  // Below the fold, so it waits for the reader instead of finishing unseen.
+  useEffect(() => {
+    const el = box.current;
+    if (!el) return;
+    const io = new IntersectionObserver(
+      ([e]) => {
+        if (e.isIntersecting) {
+          setSeen(true);
+          io.disconnect();
+        }
+      },
+      { rootMargin: "0px 0px -20% 0px" },
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, []);
+
   useEffect(() => {
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
       setK(N);
       return;
     }
+    if (!seen) return;
     setK(0);
     let raf = 0;
     let start = 0;
@@ -80,7 +100,7 @@ export function Replay({
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [N, run]);
+  }, [N, run, seen]);
 
   const { w, h } = size;
   const narrow = w < 560;

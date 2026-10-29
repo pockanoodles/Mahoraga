@@ -1,8 +1,7 @@
-import { metadataFor, viewport } from "../_lib/meta";
+import { viewport } from "../_lib/meta";
 import { mono, sans } from "../_lib/fonts";
 import "../globals.css";
 
-export const metadata = metadataFor("en");
 export { viewport };
 
 export default function EnLayout({ children }: Readonly<{ children: React.ReactNode }>) {

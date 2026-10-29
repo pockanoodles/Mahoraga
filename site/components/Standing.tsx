@@ -13,7 +13,10 @@ export function Standing({ t, locale, refs }: { t: Dict["standing"]; locale: Loc
     return { ...r, rate: num(c, "rate"), lo: num(c, "rate_lo"), hi: num(c, "rate_hi"), k: num(c, "resolved"), n: num(c, "tasks") };
   });
   const be = num(claim(STANDING.breakeven), "breakeven_rate");
-  const tasks = rows[0].n; // every measured row is the same task set
+  // The title and caption say every measured row is on the same tasks, so a row
+  // on another set (the laptop's own run attempts fewer) has to change them first.
+  const tasks = rows[0].n;
+  if (rows.some((r) => r.n !== tasks)) throw new Error(`the hero's rows are on different task sets (${rows.map((r) => r.n).join(", ")})`);
 
   return (
     <figure className="standing" aria-labelledby="standing-title" style={{ ["--be" as string]: be }}>

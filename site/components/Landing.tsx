@@ -89,7 +89,7 @@ export function Landing({ t, locale }: { t: Dict; locale: Locale }) {
 
   return (
     <>
-      <LocalNav t={nav} locale={locale} updated={UPDATED} updatedLabel={updatedLabel(UPDATED)} />
+      <LocalNav t={nav} locale={locale} updated={UPDATED} updatedLabel={updatedLabel(UPDATED)} repo={REPO_URL} />
       <main id="top">
         {/* ── Hero: where local stands ── */}
         <section className="hero" data-hero aria-labelledby="hero-title">

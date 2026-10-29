@@ -7,7 +7,6 @@
 // IntersectionObserver on the hero decides, not a scroll listener.
 import { useEffect, useRef, useState } from "react";
 import type { Dict, Locale } from "@/content/copy";
-import { REPO_URL } from "@/lib/data";
 import { Mark } from "./Mark";
 
 const SECTIONS = ["log", "engine", "run"] as const;
@@ -19,11 +18,13 @@ export function LocalNav({
   locale,
   updated,
   updatedLabel,
+  repo,
 }: {
   t: Omit<Dict["nav"], "updated">;
   locale: Locale;
   updated: string;
   updatedLabel: string;
+  repo: string;
 }) {
   const bar = useRef<HTMLElement>(null);
   const [overHero, setOverHero] = useState(true);
@@ -84,7 +85,7 @@ export function LocalNav({
           <a className="lnav__lang" href={other.href} hrefLang={other.lang} lang={other.lang}>
             {other.label}
           </a>
-          <a className="lnav__gh" href={REPO_URL} target="_blank" rel="noreferrer">
+          <a className="lnav__gh" href={repo} target="_blank" rel="noreferrer">
             {t.github} <span aria-hidden>↗</span>
           </a>
           <button
@@ -108,7 +109,7 @@ export function LocalNav({
               {l.label}
             </a>
           ))}
-          <a href={REPO_URL} target="_blank" rel="noreferrer" onClick={() => setOpen(false)}>
+          <a href={repo} target="_blank" rel="noreferrer" onClick={() => setOpen(false)}>
             {t.github} ↗
           </a>
           <a href={other.href} hrefLang={other.lang} lang={other.lang}>

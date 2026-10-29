@@ -12,7 +12,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { copy, type Locale } from "@/content/copy";
 import type { ProbeTask, ReplayStep } from "@/lib/data";
-import { pct } from "@/lib/data";
+import { pct } from "@/lib/format";
 
 const STEP_MS = 125;
 const LEAD_MS = 450;

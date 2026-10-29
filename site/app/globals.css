@@ -324,6 +324,8 @@ code,
 .hero__chart {
   grid-column: 1;
   grid-row: 2;
+  display: flex;
+  align-items: center;
   min-height: 0;
   padding: var(--mh-s-6) 0 var(--mh-s-6);
   animation: rise var(--mh-dur-enter) var(--mh-ease) 120ms both;
@@ -334,6 +336,15 @@ code,
   grid-row: 3;
   max-width: var(--mh-measure-statement);
   animation: rise var(--mh-dur-enter) var(--mh-ease) both;
+}
+
+.hero__eyebrow {
+  margin-bottom: var(--mh-s-4);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--mh-faint);
 }
 
 .hero__statement {
@@ -413,7 +424,7 @@ code,
 }
 
 /* Tall and narrow screens: the corners become a column. Statement first, the
-   replay in whatever height is left, then the action clear of Safari's bar. */
+   chart in whatever height is left, then the action clear of Safari's bar. */
 @media (max-aspect-ratio: 5/4), (max-width: 639px) {
   :root {
     --lift: max(4.5rem, calc(env(safe-area-inset-bottom, 0px) + 3.5rem));
@@ -665,7 +676,7 @@ code,
   position: relative;
   z-index: 1;
   background: var(--mh-stage);
-  overflow-x: clip; /* the app shot's light spills past the measure, never past the page */
+  overflow-x: clip; /* nothing inside a band may push the page sideways */
 }
 
 .band__body {
@@ -1073,22 +1084,7 @@ html.js .reveal:not([data-shown]) {
   color: var(--mh-faint);
 }
 
-/* ── Evidence ─────────────────────────────────────────────────────────── */
-
-.highlights {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: var(--mh-s-8) var(--mh-s-7);
-  margin-top: var(--mh-s-9);
-}
-
-.highlight__value {
-  font-size: clamp(40px, 4.2vw, 64px);
-  font-weight: 600;
-  line-height: 1;
-  letter-spacing: -0.04em;
-  white-space: nowrap;
-}
+/* ── Footnote markers ───────────────────────────────────────────────── */
 
 .fnref {
   position: relative;
@@ -1103,65 +1099,6 @@ html.js .reveal:not([data-shown]) {
 
 .fnref:hover {
   color: var(--mh-ink);
-}
-
-.highlight__text {
-  max-width: 34ch;
-  margin-top: var(--mh-s-3);
-  font-size: 16px;
-  line-height: 1.55;
-  color: var(--mh-muted);
-}
-
-/* ── Corrections ──────────────────────────────────────────────────────── */
-
-.points {
-  max-width: 46rem;
-  margin: var(--mh-s-8) auto 0;
-  border-top: 1px solid var(--mh-line);
-}
-
-.points li {
-  padding: 20px 0;
-  border-bottom: 1px solid var(--mh-line);
-  font-size: 17px;
-  line-height: 1.6;
-}
-
-/* ── The app ──────────────────────────────────────────────────────────── */
-
-.shot {
-  position: relative;
-  margin-top: var(--mh-s-8);
-}
-
-.shot__light {
-  position: absolute;
-  inset: -12% -8% -20%;
-  z-index: -1;
-  background: radial-gradient(ellipse 50% 46% at 50% 44%, rgb(255 244 232 / 0.08), transparent 72%);
-}
-
-.shot__img {
-  display: block;
-  width: 100%;
-  height: auto;
-  border-radius: 12px;
-  box-shadow: 0 0 0 1px var(--mh-line-strong);
-}
-
-.shot__pending {
-  display: grid;
-  place-items: center;
-  aspect-ratio: 16 / 10;
-  border-radius: 12px;
-  border: 1px dashed var(--mh-line-strong);
-  color: var(--mh-faint);
-  font-size: 14px;
-}
-
-.steps--app {
-  margin-top: var(--mh-s-8);
 }
 
 /* ── Code ─────────────────────────────────────────────────────────────── */
@@ -1255,97 +1192,403 @@ html.js .reveal:not([data-shown]) {
   color: var(--mh-ink);
 }
 
-/* ── Install ──────────────────────────────────────────────────────────── */
+/* ── Where local stands (the hero's chart) ────────────────────────────── */
 
-.install__list {
+/* Three columns on every row, the break-even label and the axis: the label,
+   the track, the value. The line is drawn on each track at --be and reaches
+   across the gaps between rows, so it reads as one line. */
+.standing {
+  --label: 15rem;
+  --value: 6.5rem;
+  --gap: var(--mh-s-5);
+  --row: var(--mh-s-5);
+  width: 100%;
+  max-width: 64rem;
+}
+
+.standing__title {
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--mh-faint);
+}
+
+.standing__plot {
+  margin-top: var(--mh-s-5);
+}
+
+.standing__be-label,
+.standing__row,
+.standing__axis {
+  display: grid;
+  grid-template-columns: var(--label) minmax(0, 1fr) var(--value);
+  column-gap: var(--gap);
+}
+
+/* Its right edge sits on the line. */
+.standing__be-label span {
+  grid-column: 2;
+  justify-self: start;
+  margin-left: calc(var(--be) * 100%);
+  padding-right: var(--mh-s-2);
+  transform: translateX(-100%);
+  font-size: 12px;
+  color: var(--mh-muted);
+  white-space: nowrap;
+}
+
+.standing__rows {
+  display: grid;
+  gap: var(--row);
+  margin-top: var(--mh-s-3);
+}
+
+.standing__row {
+  align-items: center;
+}
+
+.standing__label {
+  display: flex;
+  flex-direction: column;
+  font-size: 15px;
+  line-height: 1.35;
+}
+
+.standing__fit {
+  font-size: 13px;
+  color: var(--mh-faint);
+}
+
+.standing__track {
+  position: relative;
+  height: 22px;
+  border-radius: 11px;
+  background: var(--mh-surface);
+  box-shadow: inset 0 0 0 1px var(--mh-line);
+}
+
+.standing__track::after {
+  content: "";
+  position: absolute;
+  top: calc(var(--row) / -2);
+  bottom: calc(var(--row) / -2);
+  left: calc(var(--be) * 100%);
+  width: 1.5px;
+  background: var(--mh-muted);
+  transform: translateX(-50%);
+}
+
+.standing__row:first-child .standing__track::after {
+  top: calc(-1 * var(--mh-s-3));
+}
+
+.standing__row:last-child .standing__track::after {
+  bottom: -4px;
+}
+
+/* The measured interval, which is local's share, so it carries the accent. It
+   opens out from the measured rate. */
+.standing__band {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border-radius: 11px;
+  background: var(--mh-accent-band);
+  transform-origin: var(--o) 50%;
+  animation: band-open var(--mh-dur-enter) var(--mh-ease) calc(280ms + var(--i) * 80ms) both;
+}
+
+.standing__dot {
+  position: absolute;
+  top: 50%;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: var(--mh-accent);
+  box-shadow: 0 0 0 3px var(--mh-stage);
+  transform: translate(-50%, -50%);
+  animation: appear 400ms var(--mh-ease) calc(200ms + var(--i) * 80ms) both;
+}
+
+.standing__value {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+}
+
+.standing__pct {
+  font-size: 26px;
+  font-weight: 600;
+  letter-spacing: -0.03em;
+}
+
+.standing__count {
+  margin-top: 3px;
+  font-size: 13px;
+  color: var(--mh-faint);
+}
+
+/* The run still filling in: an empty track, and no rate until it ends. */
+.standing__row--running .standing__track {
+  background: transparent;
+  box-shadow: none;
+  border: 1px dashed var(--mh-line-strong);
+}
+
+.standing__running {
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  border-bottom: 1px solid var(--mh-line-strong);
+  transition: border-color var(--mh-dur-micro) var(--mh-ease);
+}
+
+.standing__running:hover {
+  border-color: var(--mh-ink);
+}
+
+.standing__axis {
+  margin-top: var(--mh-s-2);
+  font-size: 12px;
+  color: var(--mh-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.standing__axis span {
+  grid-column: 2;
+  grid-row: 1;
+}
+
+.standing__axis span:nth-child(2) {
+  justify-self: center;
+}
+
+.standing__axis span:nth-child(3) {
+  justify-self: end;
+}
+
+.standing__caption {
+  max-width: 46rem;
+  margin-top: var(--mh-s-5);
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--mh-faint);
+}
+
+.standing__caption .fnref {
+  top: -0.5em;
+}
+
+@keyframes band-open {
+  from {
+    opacity: 0;
+    transform: scaleX(0.04);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes appear {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* ── The log ──────────────────────────────────────────────────────────── */
+
+.log {
+  max-width: 64rem;
+  margin: var(--mh-s-9) auto 0;
+}
+
+.log__month + .log__month {
   margin-top: var(--mh-s-8);
+}
+
+.log__month-title {
+  padding-bottom: var(--mh-s-3);
+  border-bottom: 1px solid var(--mh-line-strong);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--mh-faint);
+}
+
+.entry {
+  display: grid;
+  grid-template-columns: 11rem minmax(0, 1fr);
+  column-gap: var(--mh-s-6);
+  padding: var(--mh-s-5) 0;
+  border-bottom: 1px solid var(--mh-line);
+  scroll-margin-top: calc(var(--mh-header) + var(--mh-s-5));
+}
+
+.entry__meta {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-top: 3px;
+}
+
+.entry__date {
+  font-family: var(--mh-font-mono);
+  font-size: 13px;
+  color: var(--mh-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.entry__kind {
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--mh-faint);
+}
+
+/* A kind is told by ink weight and shape. What was withdrawn reads one step
+   brighter than a finding, and a run in progress is the brightest, with a ring. */
+.entry:is([data-kind="correction"], [data-kind="void"]) .entry__kind {
+  color: var(--mh-muted);
+}
+
+.entry[data-kind="running"] .entry__kind {
+  color: var(--mh-ink);
+}
+
+.entry[data-kind="running"] .entry__kind::before {
+  content: "";
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-right: 6px;
+  border: 1.5px solid currentColor;
+  border-radius: 50%;
+  vertical-align: 0;
+}
+
+.entry:target .entry__date {
+  color: var(--mh-ink);
+}
+
+.entry__title {
+  font-size: 19px;
+  font-weight: 600;
+  line-height: 1.3;
+  letter-spacing: -0.014em;
+  text-wrap: balance;
+}
+
+.entry__body {
+  max-width: 44rem;
+  margin-top: var(--mh-s-2);
+  font-size: 16px;
+  line-height: 1.6;
+  color: var(--mh-muted);
+  text-wrap: pretty;
+}
+
+.entry__sources {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px var(--mh-s-4);
+  margin-top: var(--mh-s-3);
+}
+
+.entry__sources a {
+  font-family: var(--mh-font-mono);
+  font-size: 12px;
+  color: var(--mh-faint);
+  transition: color var(--mh-dur-micro) var(--mh-ease);
+}
+
+.entry__sources a:hover {
+  color: var(--mh-ink);
+}
+
+/* ── The engine's extras: how it keeps going, and the replayed probe ──── */
+
+.steps--keeps {
+  margin-top: var(--mh-s-9);
+}
+
+.exhibit {
+  height: clamp(340px, 56svh, 480px);
+  margin-top: var(--mh-s-8);
+}
+
+/* ── Run it ───────────────────────────────────────────────────────────── */
+
+.run {
+  max-width: 46rem;
+  margin: var(--mh-s-8) auto 0;
+}
+
+.run__steps {
+  display: grid;
+  gap: var(--mh-s-5);
+  padding-top: var(--mh-s-5);
   border-top: 1px solid var(--mh-line);
 }
 
-.install__row {
+.run__step {
   display: grid;
-  grid-template-columns: 12rem minmax(0, 1fr) auto;
-  align-items: center;
-  gap: var(--mh-s-5);
-  min-height: 72px;
-  padding: var(--mh-s-4) 0;
-  border-bottom: 1px solid var(--mh-line);
+  grid-template-columns: 2.5rem minmax(0, 1fr);
+  column-gap: var(--mh-s-3);
 }
 
-.install__name {
-  display: flex;
-  flex-direction: column;
-  font-size: 17px;
-  font-weight: 600;
-  letter-spacing: -0.01em;
-}
-
-.install__platforms {
-  font-size: 13px;
-  font-weight: 400;
-  letter-spacing: 0;
-  color: var(--mh-faint);
-}
-
-.install__cmd {
-  overflow-x: auto;
-  white-space: nowrap;
-  font-size: 14px;
-  color: var(--mh-ink);
-  scrollbar-width: none;
-}
-
-.install__row:not([data-live]) .install__cmd {
-  color: var(--mh-faint);
-}
-
-.install__pending {
-  font-size: 13px;
-  color: var(--mh-faint);
-  white-space: nowrap;
-}
-
-.install__then {
-  margin-top: var(--mh-s-8);
-}
-
-.install__then-title {
-  font-size: 19px;
-  font-weight: 600;
-  letter-spacing: -0.012em;
-}
-
-.install__steps {
-  display: grid;
-  gap: var(--mh-s-3);
-  margin-top: var(--mh-s-4);
-}
-
-.install__steps li {
-  display: grid;
-  grid-template-columns: 2.5rem minmax(0, 1fr) auto;
-  align-items: center;
-  gap: var(--mh-s-3);
-}
-
-.install__step-n {
+.run__n {
+  padding-top: 2px;
   font-size: 14px;
   color: var(--mh-faint);
   font-variant-numeric: tabular-nums;
 }
 
-.install__step-text {
+.run__text {
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.run__cmd {
+  display: flex;
+  align-items: center;
+  gap: var(--mh-s-3);
+  margin-top: var(--mh-s-2);
+  padding: 6px 6px 6px 14px;
+  border-radius: var(--mh-radius-control);
+  background: var(--mh-surface);
+}
+
+.run__cmd code {
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+  white-space: nowrap;
+  font-size: 14px;
+  scrollbar-width: none;
+}
+
+.run__morning {
+  margin-top: var(--mh-s-6);
   font-size: 16px;
+  line-height: 1.6;
   color: var(--mh-muted);
 }
 
-.install__steps code {
-  padding: 8px 14px;
-  border-radius: 10px;
-  background: var(--mh-surface);
-  font-size: 14px;
-  white-space: nowrap;
+.small.run__pending {
+  margin-top: var(--mh-s-3);
 }
+
 
 /* ── Support, notes, footer ───────────────────────────────────────────── */
 
@@ -1592,10 +1835,6 @@ html.js .reveal:not([data-shown]) {
     grid-template-columns: repeat(3, minmax(0, 1fr));
     row-gap: var(--mh-s-7);
   }
-
-  .highlights {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
 }
 
 @media (max-width: 760px) {
@@ -1604,8 +1843,7 @@ html.js .reveal:not([data-shown]) {
   }
 
   .steps,
-  .pipeline,
-  .highlights {
+  .pipeline {
     grid-template-columns: minmax(0, 1fr);
     gap: var(--mh-s-7);
     margin-top: var(--mh-s-7);
@@ -1620,23 +1858,62 @@ html.js .reveal:not([data-shown]) {
     gap: var(--mh-s-4);
   }
 
-  .install__row {
-    grid-template-columns: minmax(0, 1fr) auto;
-    gap: var(--mh-s-2) var(--mh-s-4);
+  .entry {
+    grid-template-columns: minmax(0, 1fr);
+    row-gap: var(--mh-s-2);
   }
 
-  .install__cmd {
-    grid-column: 1 / -1;
-    grid-row: 2;
+  .entry__meta {
+    flex-direction: row;
+    align-items: baseline;
+    gap: var(--mh-s-3);
+    padding-top: 0;
   }
 
-  .install__steps li {
+  .run__step {
     grid-template-columns: 2rem minmax(0, 1fr);
   }
 
-  .install__steps code {
+  /* The chart's labels go above their tracks, and the break-even line
+     becomes a tick on each track so it never crosses a label. */
+  .standing {
+    --value: 4.25rem;
+    --gap: var(--mh-s-3);
+  }
+
+  .standing__row,
+  .standing__be-label,
+  .standing__axis {
+    grid-template-columns: minmax(0, 1fr) var(--value);
+  }
+
+  .standing__row {
+    row-gap: 6px;
+  }
+
+  .standing__label {
     grid-column: 1 / -1;
-    overflow-x: auto;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 2px var(--mh-s-2);
+    font-size: 14px;
+  }
+
+  .standing__be-label span,
+  .standing__axis span {
+    grid-column: 1;
+  }
+
+  .standing__track::after,
+  .standing__row:first-child .standing__track::after,
+  .standing__row:last-child .standing__track::after {
+    top: -4px;
+    bottom: -4px;
+  }
+
+  .standing__pct {
+    font-size: 20px;
   }
 
   .foot {
@@ -1667,7 +1944,7 @@ html.js .reveal:not([data-shown]) {
   line-break: strict;
 }
 
-:lang(ja) :is(.hero__statement, .h2, .step__title, .vdemo__means) {
+:lang(ja) :is(.hero__statement, .h2, .step__title, .vdemo__means, .entry__title) {
   letter-spacing: 0.01em;
   line-height: 1.3;
   font-feature-settings: "palt";
@@ -1682,18 +1959,21 @@ html.js .reveal:not([data-shown]) {
   font-size: clamp(26px, 3vw, 44px);
 }
 
-:lang(ja) :is(.lede, .hero__sub, .step__body, .highlight__text, .points li) {
+:lang(ja) :is(.lede, .hero__sub, .step__body, .entry__body, .standing__caption) {
   line-height: 1.85;
 }
 
-:lang(ja) .highlight__value,
 :lang(ja) .vdemo__word {
   letter-spacing: -0.01em;
 }
 
 :lang(ja) .pipeline__caption,
 :lang(ja) .vdemo__assumed-title,
-:lang(ja) .notes__title {
+:lang(ja) .notes__title,
+:lang(ja) .hero__eyebrow,
+:lang(ja) .standing__title,
+:lang(ja) .log__month-title,
+:lang(ja) .entry__kind {
   letter-spacing: 0.08em;
 }
 

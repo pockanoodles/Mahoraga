@@ -1,7 +1,8 @@
 "use client";
 
-// The product's own bar (Design 03): mark and name at the left, the page's
-// sections in the true centre, the repository and the language at the right.
+// The page's own bar (Design 03): mark and name at the left, the page's
+// sections in the true centre, the log's last update, the language and the
+// repository at the right.
 // It is clear over the hero and frosts once the page scrolls under it, which an
 // IntersectionObserver on the hero decides, not a scroll listener.
 import { useEffect, useRef, useState } from "react";
@@ -9,9 +10,9 @@ import type { Dict, Locale } from "@/content/copy";
 import { REPO_URL } from "@/lib/data";
 import { Mark } from "./Mark";
 
-const SECTIONS = ["how", "evidence", "app", "install"] as const;
+const SECTIONS = ["log", "engine", "run"] as const;
 
-export function LocalNav({ t, locale, version }: { t: Dict["nav"]; locale: Locale; version: string | null }) {
+export function LocalNav({ t, locale, updated }: { t: Dict["nav"]; locale: Locale; updated: string }) {
   const bar = useRef<HTMLElement>(null);
   const [overHero, setOverHero] = useState(true);
   const [current, setCurrent] = useState<string | null>(null);
@@ -65,7 +66,9 @@ export function LocalNav({ t, locale, version }: { t: Dict["nav"]; locale: Local
           ))}
         </nav>
         <div className="lnav__end">
-          {version && <span className="lnav__meta">v{version}</span>}
+          <time className="lnav__meta" dateTime={updated}>
+            {t.updated(updated)}
+          </time>
           <a className="lnav__lang" href={other.href} hrefLang={other.lang} lang={other.lang}>
             {other.label}
           </a>

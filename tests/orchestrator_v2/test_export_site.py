@@ -19,7 +19,7 @@ from backend.orchestrator import demo
 from backend.orchestrator.agentbench.report import outcome, summarise
 from backend.orchestrator.agentbench.runner import load_attempts
 from backend.orchestrator.agentbench.stats import task_rate
-from backend.orchestrator.audit.evidence import from_benches
+from backend.orchestrator.audit import claims as audit_claims
 from backend.orchestrator.audit.verdict import Assumptions, Billing, decide
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -201,10 +201,20 @@ def test_the_curve_grid_is_log_spaced_plus_the_round_figures(site):
     assert len(grid) == 24 + 8  # 24 log-spaced, none of which lands on a round figure
 
 
-def test_every_curve_row_is_the_engines_verdict_on_the_demo_evidence(site):
-    ev = from_benches([demo.open_bench()], *QWEN_BLIND)
-    a = Assumptions(tasks_per_month=200)
+def _headline() -> tuple[dict, list[dict]]:
+    """The claim the demo follows, and its slice read straight from the artifact."""
+    claim = next(c for c in json.loads(CLAIMS.read_text())["claims"] if c["id"] == export.HEADLINE)
+    rows = [json.loads(line) for line in (ROOT / claim["artifact"]).read_text().splitlines()
+            if line.strip()]
+    return claim, audit_claims.select(rows, claim["select"])
+
+
+def test_every_curve_row_is_the_engines_verdict_on_the_headline_slice(site):
+    claim, rows = _headline()
+    ev = audit_claims.evidence(rows)
+    a = Assumptions(**{k: v for k, v in claim["verdict"].items() if k != "api_spend"})
     demo_verdict = site["verdict_demo"]
+    assert (demo_verdict["claim"], demo_verdict["select"]) == (claim["id"], claim["select"])
     assert demo_verdict["evidence"] == asdict(ev)
     assert demo_verdict["assumptions"] == {**asdict(a), "lines": a.lines()}
     # Written out here, not imported: local cost of an attempt, and of triaging a failed one.
@@ -224,10 +234,21 @@ def test_the_curve_breakeven_falls_as_cloud_tasks_get_dearer(site):
     assert rates == sorted(rates, reverse=True) and 0 < rates[-1] < rates[0] < 1
 
 
-def test_the_demo_evidence_says_the_machine_was_not_recorded(site):
-    evidence = site["verdict_demo"]["evidence"]
-    assert "unrecorded machine" in evidence["hardware"]
-    assert evidence["label"].startswith("aider:qwen3.5:latest / blind")
+def test_the_curve_at_the_claims_own_price_is_the_verdict_the_claim_publishes(site):
+    """The calculator opens on the numbers the log and the report print."""
+    claim, _ = _headline()
+    price = claim["verdict"]["api_spend"] / claim["verdict"]["tasks_per_month"]
+    row = next(r for r in site["verdict_demo"]["curve"] if r["cloud_usd_per_task"] == price)
+    published = claim["metrics"]
+    assert row["call"] == published["call"]["value"]
+    assert round(row["monthly_usd"]["point"]) == published["net"]["value"]
+    assert round(row["breakeven"], 2) == published["breakeven_rate"]["value"]
+
+
+def test_the_export_refuses_a_headline_claims_json_does_not_hold(monkeypatch):
+    monkeypatch.setattr(export, "HEADLINE", "no_such_claim")
+    with pytest.raises(export.ExportError, match="no_such_claim"):
+        export.build_site(commit=COMMIT)
 
 
 def test_a_task_cannot_have_two_attempts_in_one_cell():

@@ -2,8 +2,10 @@
 
 // The verdict, played with. The slider sets what one cloud task costs; the
 // page then shows the engine's own verdict for that price, looked up from the
-// curve the exporter computed (site.json verdict_demo.curve). There is no
-// verdict logic in this file: it only picks the nearest precomputed point.
+// curve the exporter computed (site.json verdict_demo.curve) on the evidence
+// of the claim the page leads with. There is no verdict logic in this file: it
+// only picks the nearest precomputed point. `note` says where the evidence is
+// in the log, which only the server-rendered page knows.
 import { useEffect, useMemo, useRef, useState } from "react";
 import { copy, type Locale } from "@/content/copy";
 import { data, pct, usd, type CurvePoint } from "@/lib/data";
@@ -15,7 +17,7 @@ function priceText(x: number) {
   return x < 1 ? `$${x.toFixed(2)}` : Number.isInteger(x) ? `$${x}` : `$${x.toFixed(2)}`;
 }
 
-export function VerdictDemo({ locale, initial = 0.75 }: { locale: Locale; initial?: number }) {
+export function VerdictDemo({ locale, initial = 0.75, note }: { locale: Locale; initial?: number; note: string }) {
   const t = copy[locale].verdict;
   const curve = data.verdict_demo.curve;
   const ev = data.verdict_demo.evidence.rate;
@@ -142,7 +144,7 @@ export function VerdictDemo({ locale, initial = 0.75 }: { locale: Locale; initia
             <li key={l}>{l}</li>
           ))}
         </ul>
-        <p className="vdemo__note">{t.note(a.tasks_per_month)}</p>
+        <p className="vdemo__note">{note}</p>
       </div>
     </div>
   );

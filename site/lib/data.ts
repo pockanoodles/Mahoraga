@@ -11,16 +11,19 @@ export interface Rate {
   attempts: number;
 }
 
+/** A published number, or a verdict word ("stay"), at the precision claims.json prints it. */
 export interface ClaimMetric {
-  value: number;
-  decimals: number;
+  value: number | string;
+  decimals?: number;
 }
 
 export interface Claim {
   id: string;
   description: string;
   artifact: string;
-  config: { bank: string; local_arm: string; judge: string; cloud_arm: string; date: string };
+  // Each kind of claim records its own run: a HumanEval+ cascade names its
+  // arms and judge, an agentbench slice its machine, agent and dates.
+  config: Record<string, string | number>;
   metrics: Record<string, ClaimMetric>;
 }
 
@@ -74,6 +77,9 @@ export interface SiteData {
     replay: { arm: string; cond: string; order: string; steps: ReplayStep[] };
   };
   verdict_demo: {
+    // The claim whose slice the curve is computed on, and that slice.
+    claim: string;
+    select: { arm: string; cond: string; repos?: string[] };
     evidence: { rate: Rate; minutes_per_attempt: number; tier: string; label: string; hardware: string };
     assumptions: {
       tasks_per_month: number;
@@ -92,22 +98,35 @@ export const data = raw as unknown as SiteData;
 
 export const REPO_URL = `https://github.com/${data.source.repo}`;
 
+/** A file in the repository as it stood at the export's commit, so a receipt
+ *  shows the data the page's numbers came from even after main moves on. */
+export const blob = (path: string) => `${REPO_URL}/blob/${data.source.commit}/${path}`;
+
 export function claim(id: string): Claim {
   const c = data.claims.find((x) => x.id === id);
   if (!c) throw new Error(`site.json has no claim ${id}`);
   return c;
 }
 
-export function arm(name: string, cond: string): ProbeArm {
-  const a = data.probe.arms.find((x) => x.arm === name && x.cond === cond);
-  if (!a) throw new Error(`site.json has no probe arm ${name} / ${cond}`);
-  return a;
-}
-
 /** A claim metric written at the precision the claims file publishes it at. */
 export function metric(c: Claim, key: string): string {
   const m = c.metrics[key];
-  return m.value.toFixed(m.decimals);
+  if (!m) throw new Error(`claim ${c.id} has no metric ${key}`);
+  return typeof m.value === "number" ? m.value.toFixed(m.decimals ?? 0) : m.value;
+}
+
+/** A claim metric as a number, for arithmetic or for formatting as a percentage. */
+export function num(c: Claim, key: string): number {
+  const v = c.metrics[key]?.value;
+  if (typeof v !== "number") throw new Error(`claim ${c.id} has no number ${key}`);
+  return v;
+}
+
+/** A field of the claim's run record, such as its machine or its dates. */
+export function cfg(c: Claim, key: string): string {
+  const v = c.config[key];
+  if (v === undefined) throw new Error(`claim ${c.id} has no config ${key}`);
+  return String(v);
 }
 
 export const pct = (x: number, digits = 0) => `${(x * 100).toFixed(digits)}%`;

@@ -12,8 +12,10 @@ typed or rounded here. Each comes out of the engine's own code:
     probe         the demo bench (the agent-edit probe) through
                   agentbench.report.summarise and .outcome, with every rate (the
                   replay's running rates too) from agentbench.stats.task_rate
-    verdict_demo  audit.evidence.from_benches, audit.verdict.decide and
-                  audit.verdict.breakeven_rate
+    verdict_demo  the slice of the claim HEADLINE names, read by audit.claims
+                  .select and .evidence (what `orch bench verify` reads for that
+                  claim), then audit.verdict.decide and .breakeven_rate at each
+                  cloud price on a grid
 
 The output is deterministic: sorted keys, no timestamps, so running it twice
 gives the same bytes. Nothing in it changes unless the engine or its data does,
@@ -34,23 +36,27 @@ from backend.orchestrator import demo  # noqa: E402
 from backend.orchestrator.agentbench.report import outcome, summarise  # noqa: E402
 from backend.orchestrator.agentbench.runner import Attempt, load_attempts  # noqa: E402
 from backend.orchestrator.agentbench.stats import task_rate  # noqa: E402
-from backend.orchestrator.audit.evidence import from_benches  # noqa: E402
+from backend.orchestrator.audit import claims as audit_claims  # noqa: E402
 from backend.orchestrator.audit.verdict import (  # noqa: E402
     Assumptions, Billing, breakeven_rate, decide,
 )
-from backend.orchestrator.routing.benchmark.verify import verify_claims  # noqa: E402
+from backend.orchestrator.routing.benchmark.verify import load_rows, verify_claims  # noqa: E402
 
 SCHEMA = 1
 REPO = "pockanoodles/Mahoraga"
 OUT = ROOT / "docs" / "site" / "site.json"
 CLAIM_FIELDS = ("id", "description", "artifact", "config", "metrics")
 
-# The arm the landing page follows: the replay and the verdict curve both read it.
+# The arm the replay follows through the probe.
 ARM, COND = "aider:qwen3.5:latest", "blind"
 REPLAY_ORDER = ("The order of experiments/agent_edit/tasks.jsonl, as listed there, with no "
                 "sorting by outcome, size or commit date.")
 
-TASKS_PER_MONTH = 200
+# The claim the verdict demo follows: the newest pooled measurement the page
+# leads with, so the calculator reads the evidence the hero chart draws. When a
+# newer measurement takes the lead, this is the line that moves.
+HEADLINE = "report_2026_10_studio_qwen35_131k_outside"
+
 # Cloud cost per task: log-spaced values, plus the round figures a reader would try.
 GRID_LO, GRID_HI, GRID_POINTS = 0.10, 30.0, 24
 GRID_ROUND = (0.25, 0.5, 0.75, 1, 2, 5, 10, 20)
@@ -114,20 +120,30 @@ def _grid() -> list[float]:
     return sorted({*log_spaced, *map(float, GRID_ROUND)})
 
 
-def _verdict_demo(bench) -> dict:
-    ev = from_benches([bench], ARM, COND)
-    a = Assumptions(tasks_per_month=TASKS_PER_MONTH)
+def _headline(path: Path, root: Path) -> tuple[dict, list[dict]]:
+    """The claim the verdict demo follows, and the rows of its slice."""
+    c = next((c for c in json.loads(path.read_text())["claims"] if c["id"] == HEADLINE), None)
+    if c is None or not c.get("verdict"):
+        raise ExportError(f"claims.json has no {HEADLINE} with verdict assumptions, and the "
+                          "verdict demo follows it")
+    return c, audit_claims.select(load_rows(root / c["artifact"]), c["select"])
+
+
+def _verdict_demo(claim: dict, rows: list[dict]) -> dict:
+    ev = audit_claims.evidence(rows)
+    # The claim's own assumptions, so the curve at the claim's price is its verdict.
+    a = Assumptions(**{k: v for k, v in claim["verdict"].items() if k != "api_spend"})
     curve = []
     for cloud in _grid():
-        v = decide(ev, a, Billing.api(round(cloud * TASKS_PER_MONTH, 2)))
+        v = decide(ev, a, Billing.api(round(cloud * a.tasks_per_month, 2)))
         curve.append({
             "cloud_usd_per_task": cloud, "breakeven": breakeven_rate(ev, a, cloud),
             "call": v.call, "confident": v.confident, "reason": v.reason,
             "monthly_usd": (dict(zip(("lo", "point", "hi"), v.monthly_usd))
                             if v.monthly_usd else None),
         })
-    return {"evidence": asdict(ev), "assumptions": {**asdict(a), "lines": a.lines()},
-            "curve": curve}
+    return {"claim": claim["id"], "select": claim["select"], "evidence": asdict(ev),
+            "assumptions": {**asdict(a), "lines": a.lines()}, "curve": curve}
 
 
 def _git(root: Path, *args: str) -> str:
@@ -145,14 +161,16 @@ def _version(root: Path) -> str:
 
 def build_site(root: Path = ROOT, commit: str | None = None) -> dict:
     bench = demo.open_bench()
+    manifest = root / "experiments" / "claims.json"
+    claims = _claims(manifest, root)  # first, so a drifted headline is refused by name
     return {
         "schema": SCHEMA,
         "source": {"repo": REPO, "commit": commit or _git(root, "rev-parse", "--short=7",
                                                           "HEAD").strip(),
                    "version": _version(root)},
-        "claims": _claims(root / "experiments" / "claims.json", root),
+        "claims": claims,
         "probe": _probe(bench, demo.meta()),
-        "verdict_demo": _verdict_demo(bench),
+        "verdict_demo": _verdict_demo(*_headline(manifest, root)),
     }
 
 

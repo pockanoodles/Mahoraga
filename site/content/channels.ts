@@ -41,8 +41,9 @@ export const CHANNELS: Channel[] = [
   },
 ];
 
-/** What to run after installing, in order. */
-export const FIRST_STEPS = ["ollama pull qwen3.5:latest", "mahoraga demo", "mahoraga audit mine ~/code/your-repo"];
+/** What to run after installing, in order: the model the log measures, then a
+ *  night's run that leaves the verdict in a morning file (`audit tonight`). */
+export const FIRST_STEPS = ["ollama pull qwen3.5:latest", "mahoraga audit tonight ~/code/your-repo"];
 
 /** Set to a GitHub Sponsors (or Ko-fi, Liberapay) URL once one is set up. */
 export const SPONSOR_URL: string | null = null;

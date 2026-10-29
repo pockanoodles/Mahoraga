@@ -1,114 +1,70 @@
-// The landing page, top to bottom. One idea per screen (Design 03): the
-// question, how it's answered, the verdict, the receipts, the app, the engine,
-// privacy, install, and how to help. Every measured number is read from the
-// engine's export through lib/data.ts, and its footnote names the artifact.
+// The landing page, top to bottom: where local stands now, the log of every
+// result, the engine that produces them, the first probe replayed, the verdict
+// it computes, the ways to script it, privacy, and how to run it on your own
+// repository. One idea per screen (Design 03). Every measured number is read
+// from the engine's export through lib/data.ts or content/log.ts, and a
+// footnote or a source link names the artifact it came from.
 import type { Dict, Locale } from "@/content/copy";
 import { GIT, SPONSOR_URL } from "@/content/channels";
-import { hasAsset } from "@/lib/assets";
-import { REPO_URL, arm, claim, data, metric, pct } from "@/lib/data";
+import { PRICE, STANDING, UPDATED, entryFor } from "@/content/log";
+import { REPO_URL, blob, cfg, claim, curveAt, data } from "@/lib/data";
 import { CodeTabs } from "./CodeTabs";
-import { Install } from "./Install";
 import { LocalNav } from "./LocalNav";
+import { Log } from "./Log";
 import { Mark } from "./Mark";
 import { Replay } from "./Replay";
 import { Reveal } from "./Reveal";
+import { Run } from "./Run";
 import { SiteMenu } from "./SiteMenu";
+import { Standing } from "./Standing";
 import { VerdictDemo } from "./VerdictDemo";
 
-const HERO_PRICE = 0.75; // the report's worked example: $150 a month over 200 tasks
+const STAGES = ["mine", "doctor", "run", "report", "verdict"] as const;
 
-const COMMANDS = {
-  mine: "mahoraga audit mine ~/code/app",
-  doctor: "mahoraga audit doctor ~/code/app --arm aider:qwen3.5:latest",
-  run: "mahoraga audit run ~/code/app --arm aider:qwen3.5:latest --until 07:30",
-  report: "mahoraga audit report ~/code/app",
-  verdict: "mahoraga audit verdict ~/code/app --arm aider:qwen3.5:latest \\\n    --tasks-per-month 200 --plan claude-max-5x --usage-of-cap 0.6",
-};
+// What a 16 GB owner runs: the model the log measures, at the window it measured best at.
+const ARM = "aider:qwen3.5:latest@ctx=131072";
+const COMMANDS = [
+  "mahoraga audit tonight ~/code/app",
+  "mahoraga audit mine ~/code/app",
+  `mahoraga audit doctor ~/code/app --arm ${ARM}`,
+  `mahoraga audit run ~/code/app --arm ${ARM} --timeout 5400 --until 07:30`,
+  `mahoraga audit verdict ~/code/app --arm ${ARM} \\\n    --tasks-per-month 200 --plan claude-max-5x --usage-of-cap 0.6`,
+];
+
+const REPORT = "docs/report/2026-10-local-coding-ai.md";
 
 export function Landing({ t, locale }: { t: Dict; locale: Locale }) {
-  const cascade = claim("humaneval_plus_164_reading_judge");
-  const qwen = arm("aider:qwen3.5:latest", "blind");
-  const granite = arm("aider:granite4.1:8b", "blind");
-  const replay = data.probe.replay;
-  const hero = data.verdict_demo.curve.reduce((b, p) =>
-    Math.abs(p.cloud_usd_per_task - HERO_PRICE) < Math.abs(b.cloud_usd_per_task - HERO_PRICE) ? p : b,
-  );
-  const n = data.probe.tasks.length;
-  const half = Math.round(((qwen.rate.hi - qwen.rate.lo) / 2) * 100);
-  const keep = cascade.metrics.routed_pass_at_1.value / cascade.metrics.cloud_pass_at_1.value;
   const ja = locale === "ja";
-  const cfg = cascade.config;
+  const vd = data.verdict_demo;
+  const at = curveAt(PRICE); // the verdict at the worked example's price, as the log quotes it
+  const replay = data.probe.replay;
+  const run = claim(STANDING.note);
+  const dates = cfg(run, "dates");
 
-  const highlights = [
-    {
-      value: metric(cascade, "routed_pass_at_1"),
-      text: ja
-        ? `ローカル優先のカスケードによる HumanEval+ の pass@1。クラウド単体のスコアの ${pct(keep, 1)} です。`
-        : `pass@1 on HumanEval+ with the local-first cascade, ${pct(keep, 1)} of the cloud model's score.`,
-      note: 1,
-    },
-    {
-      value: `$${metric(cascade, "routed_cost_per_1k")}`,
-      text: ja
-        ? `カスケードでの 1,000 タスクあたりの費用。すべてクラウドなら $${metric(cascade, "cloud_cost_per_1k")} です。`
-        : `per thousand tasks with the cascade, against $${metric(cascade, "cloud_cost_per_1k")} all-cloud.`,
-      note: 1,
-    },
-    {
-      value: ja ? `${qwen.n} 件中 ${qwen.resolved} 件` : `${qwen.resolved} of ${qwen.n}`,
-      text: ja
-        ? `aider と qwen3.5（9.7B）が ${data.probe.machine} の Mac で解決した、実際のコミットの数です。`
-        : `real commits resolved by aider and qwen3.5 (9.7B) on a ${data.probe.machine} Mac.`,
-      note: 2,
-    },
-    {
-      value: ja ? `${qwen.median_minutes} 分` : `${qwen.median_minutes} min`,
-      text: ja ? `1 試行あたりの中央値。だから監査は夜のあいだに走らせます。` : `median per attempt, which is why the audit runs overnight.`,
-      note: 2,
-    },
-    {
-      value: ja ? `${granite.n} 件中 ${granite.resolved} 件` : `${granite.resolved} of ${granite.n}`,
-      text: ja
-        ? `granite 4.1（8B）の一発での解決数。プロンプトへの回答では最良でも、編集では最下位でした。`
-        : `for granite 4.1 (8B) in one shot, our best model at prompts and the worst at edits.`,
-      note: 2,
-    },
-    {
-      value: ja ? `±${half} ポイント` : `±${half} points`,
-      text: ja
-        ? `${qwen.rate.tasks} タスクで残る不確かさ。何度繰り返しても、タスクを増やさない限り狭まりません。`
-        : `of uncertainty left by ${qwen.rate.tasks} tasks, however often they rerun.`,
-      note: 3,
-    },
+  const notes = [
+    t.notes.standing({
+      dates: ja ? dates.replace(" to ", "〜") : dates,
+      machine: cfg(run, "machine"),
+      agent: cfg(run, "agent"),
+      artifact: run.artifact,
+    }),
+    t.notes.verdict,
   ];
-
-  const notes = ja
-    ? [
-        `HumanEval+（${cascade.metrics.n.value} タスク）、${cfg.date} に計測。ローカルのアームは ${cfg.local_arm}、ジャッジは ${cfg.judge.split(" \u2014 ")[0]}（プロンプトと出力だけを読み、隠しテストは見ない）、クラウドのアームは ${cfg.cloud_arm}。CI で orch bench verify が ${cascade.artifact} から計算し直しています。`,
-        `エージェント編集プローブ：Mahoraga 自身の履歴から ${n} 件のコミットを、${data.probe.dates} に ${data.probe.machine} の Mac で aider と Ollama を使って実行。各試行はコミットのテストとフルスイートで採点しました。データは experiments/agent_edit にあります。`,
-        `タスク単位で重み付けした解決率と、タスク数で数えた 95% Wilson 区間（agentbench/stats.py）。`,
-        `判定は audit/verdict.py によるものです。前提は判定の節に載せた値で、価格は audit/pricing.json の日付つきの観測値です。`,
-      ]
-    : [
-        `HumanEval+ (${cascade.metrics.n.value} tasks), measured ${cfg.date}. Local arm ${cfg.local_arm}, a judge (${cfg.judge.split(" \u2014 ")[0]}) that reads the prompt and the output but never the hidden tests, cloud arm ${cfg.cloud_arm}. Recomputed in CI by orch bench verify from ${cascade.artifact}.`,
-        `The agent-edit probe: ${n} commits from Mahoraga's own history, run ${data.probe.dates} on a ${data.probe.machine} Mac with aider and Ollama. Each attempt was graded by the commit's tests and the full suite. Data in experiments/agent_edit.`,
-        `Task-weighted resolve rate with a 95% Wilson interval over tasks (agentbench/stats.py).`,
-        `Verdicts from audit/verdict.py, with the assumptions listed in the verdict section and prices from the dated observations in audit/pricing.json.`,
-      ];
 
   const httpReq = `curl -s localhost:8000/api/audit/verdict \\
   -H 'Content-Type: application/json' \\
-  -d '{"arm": "aider:qwen3.5:latest", "cond": "blind",
-       "billing": {"kind": "api", "monthly_usd": ${HERO_PRICE * data.verdict_demo.assumptions.tasks_per_month}},
-       "assumptions": {"tasks_per_month": ${data.verdict_demo.assumptions.tasks_per_month}}}'`;
+  -d '{"arm": "${vd.select.arm}", "cond": "${vd.select.cond}",
+       "billing": {"kind": "api", "monthly_usd": ${PRICE * vd.assumptions.tasks_per_month}},
+       "assumptions": {"tasks_per_month": ${vd.assumptions.tasks_per_month}}}'`;
   const r3 = (x: number) => Number(x.toFixed(3));
+  const ev = vd.evidence.rate;
   const httpOut = JSON.stringify(
     {
-      call: hero.call,
-      confident: hero.confident,
-      breakeven: r3(hero.breakeven),
-      monthly_usd: { lo: Math.round(hero.monthly_usd.lo), point: Math.round(hero.monthly_usd.point), hi: Math.round(hero.monthly_usd.hi) },
-      evidence: { rate: { point: r3(qwen.rate.point), lo: r3(qwen.rate.lo), hi: r3(qwen.rate.hi), tasks: qwen.rate.tasks } },
+      call: at.call,
+      confident: at.confident,
+      breakeven: r3(at.breakeven),
+      monthly_usd: { lo: Math.round(at.monthly_usd.lo), point: Math.round(at.monthly_usd.point), hi: Math.round(at.monthly_usd.hi) },
+      evidence: { rate: { point: r3(ev.point), lo: r3(ev.lo), hi: r3(ev.hi), tasks: ev.tasks } },
     },
     null,
     2,
@@ -124,32 +80,26 @@ export function Landing({ t, locale }: { t: Dict; locale: Locale }) {
 
   return (
     <>
-      <LocalNav t={t.nav} locale={locale} version={/-dev$/.test(data.source.version) ? null : data.source.version} />
+      <LocalNav t={t.nav} locale={locale} updated={UPDATED} />
       <main id="top">
-        {/* ── Hero ── */}
+        {/* ── Hero: where local stands ── */}
         <section className="hero" data-hero aria-labelledby="hero-title">
           <div className="hero__stage" aria-hidden />
           <div className="hero__chart">
-            <Replay
-              steps={replay.steps}
-              tasks={data.probe.tasks}
-              cell={`${replay.arm} / ${replay.cond}`}
-              breakeven={hero.breakeven}
-              breakevenLabel={t.hero.breakeven(`$${HERO_PRICE.toFixed(2)}`)}
-              locale={locale}
-            />
+            <Standing t={t.standing} locale={locale} refs={[t.notes.ref(1), t.notes.ref(2)]} />
           </div>
           <div className="hero__text">
+            <p className="hero__eyebrow">{t.hero.eyebrow}</p>
             <h1 id="hero-title" className="hero__statement">
               {t.hero.statement}
             </h1>
             <p className="hero__sub">{t.hero.sub}</p>
           </div>
           <div className="hero__cta">
-            <a href="#install" className="pill">
+            <a href="#log" className="pill">
               {t.hero.cta}
             </a>
-            <a href="#question" className="hero__more">
+            <a href="#engine" className="hero__more">
               {t.hero.more}
               <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
                 <path d="M12 5v14M6 13l6 6 6-6" />
@@ -158,47 +108,75 @@ export function Landing({ t, locale }: { t: Dict; locale: Locale }) {
           </div>
         </section>
 
-        {/* ── The question ── */}
-        <section id="question" className="band screen" aria-labelledby="question-title">
-          <div className="band__body">
+        {/* ── The log ── */}
+        <section id="log" className="band" aria-labelledby="log-title">
+          <div className="band__body band__body--wide">
             <Reveal>
-              <h2 id="question-title" className="h2 center">
-                {t.question.title}
+              <h2 id="log-title" className="h2 center">
+                {t.log.title}
               </h2>
-              <p className="lede center">{t.question.lead}</p>
+              <p className="lede center">{t.log.lead}</p>
             </Reveal>
-            <ol className="steps">
-              {t.question.steps.map((s, i) => (
-                <Reveal as="li" key={s.title} delay={i * 80}>
-                  <p className="step__n">{String(i + 1).padStart(2, "0")}</p>
-                  <h3 className="step__title">{s.title}</h3>
-                  <p className="step__body">{s.body}</p>
-                </Reveal>
-              ))}
-            </ol>
+            <Log t={t.log} locale={locale} />
+            <p className="small center after-grid">
+              {t.log.ledger}{" "}
+              <a className="textlink" href={blob("brain/state/findings.md")} target="_blank" rel="noreferrer">
+                {t.log.ledgerLink} <span aria-hidden>↗</span>
+              </a>
+            </p>
           </div>
         </section>
 
-        {/* ── How it works ── */}
-        <section id="how" className="band screen" aria-labelledby="how-title">
+        {/* ── The engine ── */}
+        <section id="engine" className="band screen" aria-labelledby="engine-title">
           <div className="band__body band__body--wide">
             <Reveal>
-              <h2 id="how-title" className="h2 center">
-                {t.how.title}
+              <h2 id="engine-title" className="h2 center">
+                {t.engine.title}
               </h2>
-              <p className="lede center">{t.how.lead}</p>
+              <p className="lede center">{t.engine.lead}</p>
             </Reveal>
             <ol className="pipeline">
-              {t.how.stages.map((s, i) => (
+              {t.engine.stages.map((s, i) => (
                 <Reveal as="li" key={s.name} delay={i * 70} className="pipeline__stage">
                   <p className="step__n">{String(i + 1).padStart(2, "0")}</p>
                   <h3 className="step__title">{s.name}</h3>
                   <p className="step__body">{s.body}</p>
-                  <code className="pipeline__cmd">{`mahoraga audit ${Object.keys(COMMANDS)[i]}`}</code>
+                  <code className="pipeline__cmd">{`mahoraga audit ${STAGES[i]}`}</code>
                 </Reveal>
               ))}
             </ol>
-            <p className="pipeline__caption center">{t.how.pipeline}</p>
+            <p className="pipeline__caption center">{t.engine.pipeline}</p>
+            <ul className="steps steps--keeps">
+              {t.engine.keeps.map((k, i) => (
+                <Reveal as="li" key={k.title} delay={i * 80}>
+                  <h3 className="step__title">{k.title}</h3>
+                  <p className="step__body">{k.body}</p>
+                </Reveal>
+              ))}
+            </ul>
+          </div>
+        </section>
+
+        {/* ── The first probe, replayed ── */}
+        <section id="settle" className="band" aria-labelledby="settle-title">
+          <div className="band__body band__body--wide">
+            <Reveal>
+              <h2 id="settle-title" className="h2 center">
+                {t.engine.replayTitle}
+              </h2>
+              <p className="lede center">{t.engine.replayLead}</p>
+            </Reveal>
+            <div className="exhibit">
+              <Replay
+                steps={replay.steps}
+                tasks={data.probe.tasks}
+                cell={`${replay.arm} / ${replay.cond}`}
+                breakeven={at.breakeven}
+                breakevenLabel={t.replay.breakeven(`$${PRICE.toFixed(2)}`)}
+                locale={locale}
+              />
+            </div>
           </div>
         </section>
 
@@ -212,97 +190,16 @@ export function Landing({ t, locale }: { t: Dict; locale: Locale }) {
               <p className="lede center">{t.verdict.lead}</p>
             </Reveal>
             <Reveal delay={80}>
-              <VerdictDemo locale={locale} initial={HERO_PRICE} />
+              <VerdictDemo locale={locale} initial={PRICE} note={t.verdict.note(entryFor(vd.claim).date, ev.tasks, vd.assumptions.tasks_per_month)} />
             </Reveal>
-          </div>
-        </section>
-
-        {/* ── Evidence ── */}
-        <section id="evidence" className="band screen" aria-labelledby="evidence-title">
-          <div className="band__body band__body--wide">
-            <Reveal>
-              <h2 id="evidence-title" className="h2 center">
-                {t.evidence.title}
-              </h2>
-              <p className="lede center">{t.evidence.lead}</p>
-            </Reveal>
-            <ul className="highlights">
-              {highlights.map((h, i) => (
-                <Reveal as="li" key={i} delay={(i % 3) * 80} className="highlight">
-                  <p className="highlight__value">
-                    {h.value}
-                    <a href={`#note-${h.note}`} className="fnref" aria-label={`Note ${h.note}`}>
-                      {h.note}
-                    </a>
-                  </p>
-                  <p className="highlight__text">{h.text}</p>
-                </Reveal>
-              ))}
-            </ul>
-          </div>
-        </section>
-
-        {/* ── Corrections ── */}
-        <section id="corrections" className="band" aria-labelledby="corrections-title">
-          <div className="band__body">
-            <Reveal>
-              <h2 id="corrections-title" className="h2 center">
-                {t.corrections.title}
-              </h2>
-              <p className="lede center">{t.corrections.lead}</p>
-            </Reveal>
-            <ul className="points">
-              {t.corrections.items.map((c, i) => (
-                <Reveal as="li" key={i} delay={i * 60}>
-                  {c}
-                </Reveal>
-              ))}
-            </ul>
-            <p className="small center">{t.corrections.source}</p>
-          </div>
-        </section>
-
-        {/* ── The app ── */}
-        <section id="app" className="band screen" aria-labelledby="app-title">
-          <div className="band__body band__body--wide">
-            <Reveal>
-              <h2 id="app-title" className="h2 center">
-                {t.app.title}
-              </h2>
-              <p className="lede center">{t.app.lead}</p>
-            </Reveal>
-            <Reveal delay={80}>
-              <figure className="shot">
-                <div className="shot__light" aria-hidden />
-                {hasAsset("app/verdict-dark.png") ? (
-                  <picture>
-                    {hasAsset("app/verdict-dark-narrow.png") && <source srcSet="/mahoraga/app/verdict-dark-narrow.png" media="(max-width: 639px)" />}
-                    <img src="/mahoraga/app/verdict-dark.png" alt={t.app.shotAlt} className="shot__img" width={2880} height={1800} loading="lazy" decoding="async" />
-                  </picture>
-                ) : (
-                  <div className="shot__pending">{t.app.pending}</div>
-                )}
-              </figure>
-            </Reveal>
-            <ul className="steps steps--app">
-              {t.app.features.map((f, i) => (
-                <Reveal as="li" key={f.name} delay={i * 80}>
-                  <h3 className="step__title">{f.name}</h3>
-                  <p className="step__body">{f.body}</p>
-                </Reveal>
-              ))}
-            </ul>
-            <p className="small center">
-              {t.app.demo[0]} <code>mahoraga demo</code> {t.app.demo[1]}
-            </p>
           </div>
         </section>
 
         {/* ── Headless ── */}
-        <section id="engine" className="band" aria-labelledby="engine-title">
+        <section id="interfaces" className="band" aria-labelledby="interfaces-title">
           <div className="band__body">
             <Reveal>
-              <h2 id="engine-title" className="h2 center">
+              <h2 id="interfaces-title" className="h2 center">
                 {t.headless.title}
               </h2>
               <p className="lede center">{t.headless.lead}</p>
@@ -310,16 +207,18 @@ export function Landing({ t, locale }: { t: Dict; locale: Locale }) {
             <Reveal delay={80}>
               <CodeTabs
                 label={t.headless.title}
-                copyLabel={t.install.copy}
-                copiedLabel={t.install.copied}
+                copyLabel={t.run.copy}
+                copiedLabel={t.run.copied}
                 tabs={[
-                  { id: "cli", label: "CLI", code: Object.values(COMMANDS).filter((_, i) => i !== 3).map((c) => `$ ${c}`).join("\n"), copy: Object.values(COMMANDS).filter((_, i) => i !== 3).join("\n") },
+                  { id: "cli", label: "CLI", code: COMMANDS.map((c) => `$ ${c}`).join("\n"), copy: COMMANDS.join("\n") },
                   { id: "http", label: "HTTP", code: `$ ${httpReq}`, copy: httpReq, out: httpOut },
                   { id: "mcp", label: "MCP", code: mcp, copy: "claude mcp add mahoraga -- mahoraga mcp" },
                 ]}
               />
             </Reveal>
-            <p className="small center">{t.headless.mcpNote}</p>
+            <p className="small center">
+              {t.headless.mcpNote} {t.headless.viewer}
+            </p>
           </div>
         </section>
 
@@ -347,17 +246,17 @@ export function Landing({ t, locale }: { t: Dict; locale: Locale }) {
           </div>
         </section>
 
-        {/* ── Install ── */}
-        <section id="install" className="band screen" aria-labelledby="install-title">
+        {/* ── Run it ── */}
+        <section id="run" className="band screen" aria-labelledby="run-title">
           <div className="band__body">
             <Reveal>
-              <h2 id="install-title" className="h2 center">
-                {t.install.title}
+              <h2 id="run-title" className="h2 center">
+                {t.run.title}
               </h2>
-              <p className="lede center">{t.install.lead}</p>
+              <p className="lede center">{t.run.lead}</p>
             </Reveal>
             <Reveal delay={80}>
-              <Install t={t.install} locale={locale} />
+              <Run t={t.run} locale={locale} />
             </Reveal>
           </div>
         </section>
@@ -403,12 +302,12 @@ export function Landing({ t, locale }: { t: Dict; locale: Locale }) {
             ))}
           </ol>
           <p className="notes__source">
-            {ja ? "数値の出典" : "Numbers from"} <code>docs/site/site.json</code>
-            {ja ? "（コミット " : " at commit "}
+            {t.notes.source[0]} <code>docs/site/site.json</code>
+            {t.notes.source[1]}
             <a className="textlink" href={`${REPO_URL}/commit/${data.source.commit}`} target="_blank" rel="noreferrer">
               <code>{data.source.commit}</code>
             </a>
-            {ja ? "）。" : "."}
+            {t.notes.source[2]}
           </p>
         </section>
       </main>
@@ -421,19 +320,16 @@ export function Landing({ t, locale }: { t: Dict; locale: Locale }) {
         </div>
         <nav className="foot__cols" aria-label="Footer">
           <div>
-            <h2>{t.footer.product}</h2>
+            <h2>{t.footer.page}</h2>
             <ul>
               <li>
-                <a href="#how">{t.nav.how}</a>
+                <a href="#log">{t.nav.log}</a>
               </li>
               <li>
-                <a href="#evidence">{t.nav.evidence}</a>
+                <a href="#engine">{t.nav.engine}</a>
               </li>
               <li>
-                <a href="#app">{t.nav.app}</a>
-              </li>
-              <li>
-                <a href="#install">{t.nav.install}</a>
+                <a href="#run">{t.nav.run}</a>
               </li>
             </ul>
           </div>
@@ -443,6 +339,11 @@ export function Landing({ t, locale }: { t: Dict; locale: Locale }) {
               <li>
                 <a href={REPO_URL} target="_blank" rel="noreferrer">
                   GitHub
+                </a>
+              </li>
+              <li>
+                <a href={blob(REPORT)} target="_blank" rel="noreferrer">
+                  {t.footer.report}
                 </a>
               </li>
               <li>

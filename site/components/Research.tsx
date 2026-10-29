@@ -63,20 +63,22 @@ export function Research({ t, locale }: { t: Dict; locale: Locale }) {
         </div>
       </section>
 
-      {/* ── One task in full ── */}
-      <section id="task" className="band" aria-labelledby="task-title">
-        <div className="band__body band__body--wide">
-          <Reveal>
-            <h2 id="task-title" className="h2 center">
-              {t.specimen.title}
-            </h2>
-            <p className="lede center">{t.specimen.lead}</p>
-          </Reveal>
-          <Reveal delay={80}>
-            <Specimen t={t.specimen} locale={locale} />
-          </Reveal>
-        </div>
-      </section>
+      {/* ── One task in full, once its run's rate is published ── */}
+      {data.specimen && (
+        <section id="task" className="band" aria-labelledby="task-title">
+          <div className="band__body band__body--wide">
+            <Reveal>
+              <h2 id="task-title" className="h2 center">
+                {t.specimen.title}
+              </h2>
+              <p className="lede center">{t.specimen.lead}</p>
+            </Reveal>
+            <Reveal delay={80}>
+              <Specimen t={t.specimen} locale={locale} s={data.specimen} />
+            </Reveal>
+          </div>
+        </section>
+      )}
 
       {/* ── The setting that mattered ── */}
       <section id="settings" className="band" aria-labelledby="settings-title">

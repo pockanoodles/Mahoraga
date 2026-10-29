@@ -3,7 +3,7 @@
 // attempt was picked by position (scripts/specimen.py), and every field is the
 // bench's own record, read through the export (site.json specimen).
 import type { Dict, Locale } from "@/content/copy";
-import { data } from "@/lib/data";
+import type { Specimen as Attempt } from "@/lib/data";
 
 // A diff's hunks only: the header lines name a file the card already names.
 const HEADER = /^(diff --git |index |--- |\+\+\+ )/;
@@ -27,8 +27,7 @@ function Diff({ label, text, agent = false }: { label: string; text: string; age
   );
 }
 
-export function Specimen({ t, locale }: { t: Dict["specimen"]; locale: Locale }) {
-  const s = data.specimen;
+export function Specimen({ t, locale, s }: { t: Dict["specimen"]; locale: Locale; s: Attempt }) {
   const a = s.attempt;
   const fmt = (n: number) => n.toLocaleString(locale === "ja" ? "ja-JP" : "en-US");
   // The run's own calendar day: the manifest writes its offset as -0400, which

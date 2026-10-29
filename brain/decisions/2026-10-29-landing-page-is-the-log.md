@@ -33,7 +33,10 @@ corrections in its section 6.
    render an Atom feed at `/mahoraga/log.xml`. A report edition is one more log entry, so
    editions need no archive of their own.
 3. **Exhibits are built from the data, each in its own form.** One task in full: a committed
-   specimen (`scripts/specimen.py`), picked by position and not by outcome. The settings
+   specimen (`scripts/specimen.py`), picked by position and not by outcome. It waits for its
+   run's published rate (Kaito's call, the same day): the export carries it only once a
+   claim's ledger holds the same attempt, so one attempt never stands on the page without
+   the rate it belongs to, whatever its outcome. The settings
    grid: all 92 commits under 32k, 131k and the 35B model, with the paired test between
    neighbouring settings, so a reader sees which commits moved and not only how many. The
    calculator runs on the headline claim, with triage time as a second control and the cost
@@ -59,6 +62,7 @@ corrections in its section 6.
 
 - Every new result needs a log entry, and `HEADLINE` in `scripts/export_site.py` moves when a
   newer measurement leads (the laptop's 131k row, once its run finishes).
-- Each edition reruns `scripts/specimen.py` on its first task, then the export.
+- Each edition reruns `scripts/specimen.py` on its first task, then the export. The card
+  appears once that edition's claims are written.
 - The calculator's curves grow with each triage time offered (five today), and the settings
   grid with each setting.

@@ -21,6 +21,7 @@ typed or rounded here. Each comes out of the engine's own code:
                   select, and audit.claims.paired between neighbouring settings
     specimen      experiments/agentbench/specimen-2026-10.json, one attempt kept
                   whole by scripts/specimen.py, checked for agreeing with itself
+                  and carried only once a claim's ledger holds the same attempt
 
 The output is deterministic: sorted keys, no timestamps, so running it twice
 gives the same bytes. Nothing in it changes unless the engine or its data does,
@@ -234,10 +235,14 @@ def _settings(manifest: Path, root: Path) -> dict:
     }
 
 
-def _specimen(path: Path) -> dict:
-    """One attempt kept whole by scripts/specimen.py, refused if it disagrees
-    with itself: the grader counts an attempt resolved only when every
-    fail-to-pass test passes, nothing else breaks and the suite ran."""
+def _specimen(path: Path, manifest: Path, root: Path) -> dict | None:
+    """One attempt kept whole by scripts/specimen.py, carried only beside its
+    run's published rate: once a claim's own select holds the same attempt.
+    Until then the export leaves it out, whatever its outcome, so a single
+    attempt never stands on the page without the rate it belongs to. It is
+    refused if that claim's row disagrees with it, or if it disagrees with
+    itself: the grader counts an attempt resolved only when every fail-to-pass
+    test passes, nothing else breaks and the suite ran."""
     s = json.loads(path.read_text())
     a = s["attempt"]
     graded = (a["f2p_pass"] == a["f2p_total"] == len(s["f2p"]) and a["regressions"] == 0
@@ -249,7 +254,18 @@ def _specimen(path: Path) -> dict:
         raise ExportError(f"the specimen's repository {s['repo']} has no public upstream here")
     if not s["patch"].strip() or not s["gold_diff"].strip():
         raise ExportError("the specimen is missing the agent's diff or the commit's")
-    return s
+    same = (s["repo"], s["sha"], a["rep"], a["run_id"])
+    for c in json.loads(manifest.read_text())["claims"]:
+        if c.get("select", {}).get("arm") != a["arm"] or c["select"].get("cond") != a["cond"]:
+            continue
+        for r in audit_claims.select(load_rows(root / c["artifact"]), c["select"]):
+            if (r["repo"], r["sha"], r.get("rep", 0), r.get("run_id")) == same:
+                if bool(r["resolved"]) != bool(a["resolved"]):
+                    raise ExportError(f"the specimen {s['repo']}/{s['sha']} says "
+                                      f"resolved={a['resolved']}, and {c['id']}'s ledger says "
+                                      f"{r['resolved']}")
+                return s
+    return None
 
 
 def _git(root: Path, *args: str) -> str:
@@ -278,8 +294,12 @@ def build_site(root: Path = ROOT, commit: str | None = None) -> dict:
         "probe": _probe(bench, demo.meta()),
         "verdict_demo": _verdict_demo(*_headline(manifest, root)),
         "settings": _settings(manifest, root),
-        "specimen": _specimen(root / SPECIMEN.relative_to(ROOT)),
-    }
+    } | _optional("specimen", _specimen(root / SPECIMEN.relative_to(ROOT), manifest, root))
+
+
+def _optional(key: str, value: dict | None) -> dict:
+    """A block the export leaves out, rather than writing null, until it can stand."""
+    return {} if value is None else {key: value}
 
 
 def render(site: dict) -> str:

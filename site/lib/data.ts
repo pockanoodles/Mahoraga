@@ -158,7 +158,8 @@ export interface SiteData {
     by_triage: { triage_minutes: number; triage_usd: number; curve: CurvePoint[] }[];
   };
   settings: { order: string; arms: SettingsArm[]; tasks: SettingsTask[]; pairs: SettingsPair[] };
-  specimen: Specimen;
+  /** Left out until a claim's ledger holds the same attempt (export_site.py). */
+  specimen?: Specimen;
 }
 
 export const data = raw as unknown as SiteData;

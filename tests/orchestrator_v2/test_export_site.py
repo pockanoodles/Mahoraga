@@ -96,8 +96,8 @@ def test_the_committed_export_is_what_the_exporter_makes_now():
 
 
 def test_the_private_ops_figures_are_not_exported(site):
-    assert set(site) == {"schema", "source", "claims", "probe", "verdict_demo", "settings",
-                         "specimen"}
+    assert set(site) - {"specimen"} == {"schema", "source", "claims", "probe", "verdict_demo",
+                                        "settings"}
 
 
 # ── Claims: claims.json, and only what its artifacts still back ──────────────
@@ -348,8 +348,44 @@ def test_a_repository_with_no_public_upstream_is_refused(monkeypatch):
 # ── The specimen ─────────────────────────────────────────────────────────────
 
 
-def test_the_specimen_is_its_artifact_verbatim(site):
-    assert site["specimen"] == json.loads(export.SPECIMEN.read_text())
+CLAIMS = ROOT / "experiments" / "claims.json"
+
+
+def test_the_export_carries_the_specimen_only_when_a_claim_publishes_its_attempt(site):
+    if export._specimen(export.SPECIMEN, CLAIMS, ROOT) is None:
+        assert "specimen" not in site
+    else:
+        assert site["specimen"] == json.loads(export.SPECIMEN.read_text())
+
+
+def _publishing(tmp_path, resolved=None):
+    """A claims.json whose one claim's ledger holds the specimen's own attempt."""
+    s = json.loads(export.SPECIMEN.read_text())
+    a = s["attempt"]
+    row = {"repo": s["repo"], "sha": s["sha"], "arm": a["arm"], "cond": a["cond"],
+           "rep": a["rep"], "run_id": a["run_id"],
+           "resolved": a["resolved"] if resolved is None else resolved}
+    (tmp_path / "ledger.jsonl").write_text(json.dumps(row) + "\n")
+    claims = {"claims": [{"id": "x", "artifact": "ledger.jsonl",
+                          "select": {"arm": a["arm"], "cond": a["cond"], "repos": [s["repo"]]}}]}
+    (tmp_path / "claims.json").write_text(json.dumps(claims))
+    return tmp_path / "claims.json"
+
+
+def test_a_specimen_no_claim_publishes_is_left_out(tmp_path):
+    (tmp_path / "claims.json").write_text(json.dumps({"claims": []}))
+    assert export._specimen(export.SPECIMEN, tmp_path / "claims.json", tmp_path) is None
+
+
+def test_a_specimen_a_claim_publishes_is_carried_verbatim(tmp_path):
+    carried = export._specimen(export.SPECIMEN, _publishing(tmp_path), tmp_path)
+    assert carried == json.loads(export.SPECIMEN.read_text())
+
+
+def test_a_specimen_its_claims_ledger_contradicts_is_refused(tmp_path):
+    flipped = not json.loads(export.SPECIMEN.read_text())["attempt"]["resolved"]
+    with pytest.raises(export.ExportError, match="x's ledger says"):
+        export._specimen(export.SPECIMEN, _publishing(tmp_path, resolved=flipped), tmp_path)
 
 
 def test_a_setting_whose_claim_names_no_context_is_refused(tmp_path):
@@ -368,7 +404,7 @@ def test_a_specimen_whose_counts_contradict_its_outcome_is_refused(tmp_path):
     bad = tmp_path / "specimen.json"
     bad.write_text(json.dumps(s))
     with pytest.raises(export.ExportError, match="contradict"):
-        export._specimen(bad)
+        export._specimen(bad, CLAIMS, ROOT)
 
 
 def test_the_export_refuses_a_headline_claims_json_does_not_hold(monkeypatch):

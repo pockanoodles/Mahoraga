@@ -393,6 +393,24 @@ def test_a_slice_of_a_rate_does_not_carry_the_specimen(tmp_path):
     assert export._specimen(export.SPECIMEN, manifest, tmp_path) is None
 
 
+def test_a_specimen_whose_agent_changed_nothing_is_carried(tmp_path):
+    s = json.loads(export.SPECIMEN.read_text())
+    s["patch"] = ""
+    s["attempt"].update(resolved=False, f2p_pass=0)
+    path = tmp_path / "specimen.json"
+    path.write_text(json.dumps(s))
+    assert export._specimen(path, _publishing(tmp_path, resolved=False), tmp_path)["patch"] == ""
+
+
+def test_a_specimen_without_the_commits_diff_is_refused(tmp_path):
+    s = json.loads(export.SPECIMEN.read_text())
+    s["gold_diff"] = ""
+    path = tmp_path / "specimen.json"
+    path.write_text(json.dumps(s))
+    with pytest.raises(export.ExportError, match="commit's own diff"):
+        export._specimen(path, CLAIMS, ROOT)
+
+
 def test_a_specimen_a_claim_publishes_is_carried_verbatim(tmp_path):
     carried = export._specimen(export.SPECIMEN, _publishing(tmp_path), tmp_path)
     assert carried == json.loads(export.SPECIMEN.read_text())

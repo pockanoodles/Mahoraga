@@ -26,6 +26,7 @@ export interface Dict {
     lead: string;
     fix: (files: string) => string;
     agent: string;
+    noEdits: string;
     resolved: string;
     unresolved: string;
     tests: (pass: number, total: number, broke: number, kept: string) => string;
@@ -185,6 +186,7 @@ const en: Dict = {
     lead: "The agent starts from the code as it stood before the fix, and the commit's own tests decide whether its attempt counts.",
     fix: (files) => `The fix the bench took out of ${files}`,
     agent: "What the agent wrote in its place",
+    noEdits: "The agent changed nothing.",
     resolved: "Resolved",
     unresolved: "Not resolved",
     tests: (pass, total, broke, kept) =>
@@ -433,6 +435,7 @@ const ja: Dict = {
     lead: "エージェントは修正前のコードから始め、その試行を成功と数えるかどうかは、コミット自身のテストが決めます。",
     fix: (files) => `ベンチが ${files} から抜き取った修正`,
     agent: "その代わりにエージェントが書いたもの",
+    noEdits: "エージェントは何も変更しませんでした。",
     resolved: "解決",
     unresolved: "未解決",
     tests: (pass, total, broke, kept) =>

@@ -2161,6 +2161,13 @@ html.js .reveal:not([data-shown]) {
   font-size: inherit;
 }
 
+/* The agent's column when it changed nothing: a sentence where a diff would be. */
+.specimen__none {
+  padding: var(--mh-s-4);
+  font-size: 14px;
+  color: var(--mh-muted);
+}
+
 .specimen__code span {
   display: block;
   padding: 0 var(--mh-s-4);

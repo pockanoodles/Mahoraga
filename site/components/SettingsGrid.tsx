@@ -139,7 +139,8 @@ export function SettingsGrid({
             move(-1);
           }
           if (e.key === "Escape") setActive(null);
-          if (e.key === "Enter" && act) window.open(act.url, "_blank", "noreferrer");
+          // Enter on the plot opens the commit shown, and a link inside it opens itself.
+          if (e.key === "Enter" && act && e.target === e.currentTarget) window.open(act.url, "_blank", "noreferrer");
         }}
       >
         {repos.map((r) => (
@@ -231,7 +232,11 @@ export function SettingsGrid({
           {tasks.map((task) => (
             <tr key={`${task.repo}/${task.sha}`}>
               <td>
-                <a href={task.url}>{`${task.repo} ${task.sha}`}</a> {task.committed}
+                {/* A screen reader reaches these by reading. Tab skips them, since the table is never seen. */}
+                <a href={task.url} tabIndex={-1}>
+                  {`${task.repo} ${task.sha}`}
+                </a>{" "}
+                {task.committed}
               </td>
               {arms.map((a) => (
                 <td key={a.key}>{task.resolved[a.key] ? t.solved : t.missed}</td>

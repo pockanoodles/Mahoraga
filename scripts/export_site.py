@@ -253,8 +253,10 @@ def _specimen(path: Path, manifest: Path, root: Path) -> dict | None:
                           "which its own test counts contradict")
     if UPSTREAM.get(s["repo"]) != s["upstream"]:
         raise ExportError(f"the specimen's repository {s['repo']} has no public upstream here")
-    if not s["patch"].strip() or not s["gold_diff"].strip():
-        raise ExportError("the specimen is missing the agent's diff or the commit's")
+    # An empty patch is the agent changing nothing, an outcome position can pick.
+    # A missing one fails in specimen.py, which reads the file.
+    if not s["gold_diff"].strip():
+        raise ExportError("the specimen is missing the commit's own diff")
     same = (s["repo"], s["sha"], a["rep"], a["run_id"])
     for c in json.loads(manifest.read_text())["claims"]:
         sel = c.get("select", {})

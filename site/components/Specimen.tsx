@@ -50,7 +50,14 @@ export function Specimen({ t, locale, s }: { t: Dict["specimen"]; locale: Locale
       </header>
       <div className="specimen__diffs">
         <Diff label={t.fix(s.gold_src.join(", "))} text={s.gold_diff} />
-        <Diff label={t.agent} text={s.patch} agent />
+        {s.patch.trim() ? (
+          <Diff label={t.agent} text={s.patch} agent />
+        ) : (
+          <figure className="specimen__diff specimen__diff--agent">
+            <figcaption className="specimen__diff-label">{t.agent}</figcaption>
+            <p className="specimen__none">{t.noEdits}</p>
+          </figure>
+        )}
       </div>
       <footer className="specimen__result">
         <p className="specimen__outcome" data-resolved={a.resolved || undefined}>

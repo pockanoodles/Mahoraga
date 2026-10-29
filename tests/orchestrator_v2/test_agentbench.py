@@ -1656,6 +1656,8 @@ def tonight_env(tmp_path, monkeypatch):
     monkeypatch.setattr("backend.orchestrator.agentbench.ollama.pulled_models",
                         lambda: {"qwen3.5:latest": "sha256:0123456789abcdef"})
     monkeypatch.setattr(manifest, "machine", lambda: {"memory_gb": 16})
+    monkeypatch.setattr(manifest, "agent_versions",
+                        lambda agents: {"aider": f"aider {tonight.MEASURED['aider']}"})
     workers: list = []
     monkeypatch.setattr(ab_cli, "_ensure_worker", lambda: workers.append(1))
     return {"checks": checks, "workers": workers, "root": tmp_path / "cli-state"}
@@ -1701,6 +1703,41 @@ def test_tonight_queues_nothing_when_something_needs_fixing(repo, tonight_env):
     r = CliRunner().invoke(agentbench_app, ["tonight", str(repo["path"]), "--python", sys.executable])
     assert r.exit_code == 1 and "install aider: uv tool install" in r.output
     assert Queue(tonight_env["root"]).jobs() == [] and tonight_env["workers"] == []
+
+
+def test_the_measured_aider_is_the_one_every_claim_ran():
+    claims = json.loads((Path(__file__).resolve().parents[2] / "experiments" / "claims.json").read_text())
+    ran = {c["config"]["agent"].split(",")[0] for c in claims["claims"] if "agent" in c.get("config", {})}
+    assert ran == {f"aider {tonight.MEASURED['aider']}"}
+
+
+def test_an_agent_the_log_did_not_measure_gets_a_note():
+    measured = tonight.MEASURED["aider"]
+    assert tonight.version_note("aider", f"aider {measured}") is None
+    assert tonight.version_note("aider", "error: aider not on PATH") is None
+    assert tonight.version_note("opencode", "opencode 1.0.0") is None  # no measured version
+    note = tonight.version_note("aider", "aider 0.85.1")
+    assert "aider here is aider 0.85.1" in note and f"measured aider {measured}" in note
+    assert note.endswith(f"aider-chat=={measured}")
+
+
+def test_doctor_says_how_to_install_what_is_missing(repo, tonight_env, monkeypatch):
+    tonight_env["checks"][1] = Check("aider", False, "aider not on PATH")
+    tonight_env["checks"][2] = Check("ollama", False, "not reachable at http://localhost:11434")
+    which = ab_cli.shutil.which
+    monkeypatch.setattr(ab_cli.shutil, "which", lambda name, *a, **k: None if name == "ollama" else which(name, *a, **k))
+    r = CliRunner().invoke(agentbench_app, ["doctor", str(repo["path"]), "--arm", "aider:qwen3.5:latest"])
+    assert r.exit_code == 1
+    assert f"install aider: {tonight.INSTALL['aider']}" in r.output
+    assert "install Ollama from https://ollama.com/download" in r.output
+
+
+def test_doctor_notes_an_aider_the_log_did_not_measure(repo, tonight_env, monkeypatch):
+    monkeypatch.setattr(manifest, "agent_versions", lambda agents: {"aider": "aider 0.85.1"})
+    r = CliRunner().invoke(agentbench_app, ["doctor", str(repo["path"])])  # the arm tonight runs
+    assert "Missing option" not in r.output
+    assert "aider here is aider 0.85.1" in r.output
+    assert f"aider-chat=={tonight.MEASURED['aider']}" in r.output
 
 
 def test_tonight_waits_out_a_machine_on_battery(repo, tonight_env):

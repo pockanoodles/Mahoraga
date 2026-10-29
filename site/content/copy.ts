@@ -19,7 +19,7 @@ export interface Dict {
     breakeven: (rate: string, price: string) => string;
     row: (model: string, rate: string, k: number, n: number, lo: string, hi: string) => string;
     running: string;
-    runningNote: string;
+    runningNote: (since: string) => string;
   };
   specimen: {
     title: string;
@@ -178,7 +178,7 @@ const en: Dict = {
     breakeven: (rate, price) => `Local pays above ${rate} at ${price} a cloud task`,
     row: (model, rate, k, n, lo, hi) => `${model}: ${rate} resolved, ${k} of ${n} tasks, 95% interval ${lo} to ${hi}`,
     running: "Running",
-    runningNote: "On the 16 GB laptop, since October 28",
+    runningNote: (since) => `On the 16 GB laptop, since ${since}`,
   },
   specimen: {
     title: "Each task is a real commit with the fix taken out.",
@@ -426,7 +426,7 @@ const ja: Dict = {
     breakeven: (rate, price) => `クラウドが 1 タスク ${price} なら、${rate} を超えると元が取れる`,
     row: (model, rate, k, n, lo, hi) => `${model}：解決率 ${rate}（${n} 件中 ${k} 件）、95% 区間 ${lo}〜${hi}`,
     running: "実行中",
-    runningNote: "16 GB のノートで、10 月 28 日から",
+    runningNote: (since) => `16 GB のノートで、${since}から`,
   },
   specimen: {
     title: "各タスクは、修正を抜き取った実際のコミットです。",

@@ -377,6 +377,22 @@ def test_a_specimen_no_claim_publishes_is_left_out(tmp_path):
     assert export._specimen(export.SPECIMEN, tmp_path / "claims.json", tmp_path) is None
 
 
+def test_a_specimen_whose_run_the_ledger_does_not_hold_is_left_out(tmp_path):
+    manifest = _publishing(tmp_path)
+    row = json.loads((tmp_path / "ledger.jsonl").read_text())
+    row["run_id"] = "another-run"
+    (tmp_path / "ledger.jsonl").write_text(json.dumps(row) + "\n")
+    assert export._specimen(export.SPECIMEN, manifest, tmp_path) is None
+
+
+def test_a_slice_of_a_rate_does_not_carry_the_specimen(tmp_path):
+    manifest = _publishing(tmp_path)
+    claims = json.loads(manifest.read_text())
+    claims["claims"][0]["select"]["limit_s"] = 1200
+    manifest.write_text(json.dumps(claims))
+    assert export._specimen(export.SPECIMEN, manifest, tmp_path) is None
+
+
 def test_a_specimen_a_claim_publishes_is_carried_verbatim(tmp_path):
     carried = export._specimen(export.SPECIMEN, _publishing(tmp_path), tmp_path)
     assert carried == json.loads(export.SPECIMEN.read_text())

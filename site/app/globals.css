@@ -484,10 +484,6 @@ code,
     font-size: clamp(26px, 7.2vw, 36px);
   }
 
-  .hero__answer {
-    margin-top: var(--mh-s-5);
-  }
-
   .hero__statement {
     font-size: clamp(22px, 6vw, 30px);
   }
@@ -2015,6 +2011,16 @@ html.js .reveal:not([data-shown]) {
 
 :lang(ja) .hero__statement {
   font-size: clamp(20px, min(2.1vw, 3.8svh), 32px);
+}
+
+@media (max-aspect-ratio: 5/4), (max-width: 639px) {
+  :lang(ja) .hero__ask {
+    font-size: clamp(22px, 6.6vw, 32px);
+  }
+
+  :lang(ja) .hero__statement {
+    font-size: clamp(19px, 5.4vw, 26px);
+  }
 }
 
 /* A label breaks between phrases, never inside コンテキスト. */

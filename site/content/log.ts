@@ -388,6 +388,13 @@ export const LOG: Entry[] = [
 /** The newest entry's date, which the page shows as the log's last update. */
 export const UPDATED = LOG[0].date;
 
+/** An entry by its id, for a row or a link that points at one. */
+export function entryById(id: string): Entry {
+  const e = LOG.find((x) => x.id === id);
+  if (!e) throw new Error(`no log entry ${id}`);
+  return e;
+}
+
 /** The entry that carries a claim's numbers, for a note that points back at it. */
 export function entryFor(claimId: string): Entry {
   const e = LOG.find((x) => x.claims.includes(claimId));

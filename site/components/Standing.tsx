@@ -4,8 +4,16 @@
 // verdicts compute. The page only places them: every number is the engine's.
 // The last row is the run still filling in, so the chart says what it lacks.
 import type { Dict, Locale } from "@/content/copy";
-import { PRICE, STANDING } from "@/content/log";
+import { PRICE, STANDING, entryById } from "@/content/log";
 import { claim, num, pct } from "@/lib/data";
+
+// The day a run began, from its log entry: "October 28", or 「10 月 28 日」 with
+// the spaces the Japanese copy puts around numbers.
+function since(date: string, locale: Locale): string {
+  const [, m, d] = date.split("-").map(Number);
+  if (locale === "ja") return `${m} 月 ${d} 日`;
+  return new Date(Date.UTC(2026, m - 1, d)).toLocaleDateString("en-US", { month: "long", day: "numeric", timeZone: "UTC" });
+}
 
 export function Standing({ t, locale, refs }: { t: Dict["standing"]; locale: Locale; refs: string[] }) {
   const rows = STANDING.rows.map((r) => {
@@ -50,7 +58,7 @@ export function Standing({ t, locale, refs }: { t: Dict["standing"]; locale: Loc
           <li className="standing__row standing__row--running" style={{ ["--i" as string]: rows.length }}>
             <p className="standing__label">
               <span className="standing__model">{STANDING.running.model[locale]}</span>
-              <span className="standing__fit">{t.runningNote}</span>
+              <span className="standing__fit">{t.runningNote(since(entryById(STANDING.running.entry).date, locale))}</span>
             </p>
             <div className="standing__track" aria-hidden />
             <p className="standing__value">

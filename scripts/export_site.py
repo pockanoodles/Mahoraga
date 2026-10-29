@@ -83,6 +83,7 @@ UPSTREAM = {"attrs": "https://github.com/python-attrs/attrs",
             "click": "https://github.com/pallets/click",
             "more-itertools": "https://github.com/more-itertools/more-itertools"}
 SPECIMEN = ROOT / "experiments" / "agentbench" / "specimen-2026-10.json"
+PLAIN_RATE = {"arm", "cond", "repos"}  # the select keys of a rate the specimen can sit beside
 
 
 class ExportError(Exception):
@@ -256,7 +257,10 @@ def _specimen(path: Path, manifest: Path, root: Path) -> dict | None:
         raise ExportError("the specimen is missing the agent's diff or the commit's")
     same = (s["repo"], s["sha"], a["rep"], a["run_id"])
     for c in json.loads(manifest.read_text())["claims"]:
-        if c.get("select", {}).get("arm") != a["arm"] or c["select"].get("cond") != a["cond"]:
+        sel = c.get("select", {})
+        # The rate the card sits beside is its arm's plain rate on its repositories,
+        # never a slice of one (a time limit, a date split, another arm's tasks).
+        if (sel.get("arm"), sel.get("cond")) != (a["arm"], a["cond"]) or set(sel) - PLAIN_RATE:
             continue
         for r in audit_claims.select(load_rows(root / c["artifact"]), c["select"]):
             if (r["repo"], r["sha"], r.get("rep", 0), r.get("run_id")) == same:
@@ -265,6 +269,8 @@ def _specimen(path: Path, manifest: Path, root: Path) -> dict | None:
                                       f"resolved={a['resolved']}, and {c['id']}'s ledger says "
                                       f"{r['resolved']}")
                 return s
+    print(f"the specimen {s['repo']}/{s['sha']} waits: no claim's plain rate holds rep "
+          f"{a['rep']} of run {a['run_id']} yet", file=sys.stderr)
     return None
 
 

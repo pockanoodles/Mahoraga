@@ -123,6 +123,7 @@ export interface Dict {
   footer: {
     made: string;
     license: string;
+    affiliation: string;
     page: string;
     project: string;
     person: string;
@@ -363,6 +364,7 @@ const en: Dict = {
   footer: {
     made: "An open-source research project by Kaito Soeno.",
     license: "MIT License",
+    affiliation: "Mahoraga is not affiliated with Anthropic, OpenAI, Alibaba, IBM or Ollama. Product names belong to their owners.",
     page: "Mahoraga",
     project: "Project",
     person: "Kaito Soeno",
@@ -644,6 +646,7 @@ const ja: Dict = {
   footer: {
     made: "Kaito Soeno によるオープンソースの研究プロジェクト。",
     license: "MIT ライセンス",
+    affiliation: "Mahoraga は Anthropic、OpenAI、Alibaba、IBM、Ollama のいずれとも提携していません。製品名は各所有者に帰属します。",
     page: "Mahoraga",
     project: "プロジェクト",
     person: "Kaito Soeno",

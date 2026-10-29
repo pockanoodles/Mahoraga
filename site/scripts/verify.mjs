@@ -19,6 +19,7 @@ const LOCALES = [
     lang: "en",
     root: "/mahoraga/",
     nav: ["Research", "Engine", "Install"],
+    unaffiliated: "Mahoraga is not affiliated with Anthropic, OpenAI, Alibaba, IBM or Ollama.",
     stay: "Stay",
     open: "Not yet decided",
     answer: "For most people, the answer is still to keep paying for cloud.",
@@ -32,6 +33,7 @@ const LOCALES = [
     lang: "ja",
     root: "/mahoraga/ja/",
     nav: ["研究", "エンジン", "インストール"],
+    unaffiliated: "Mahoraga は Anthropic、OpenAI、Alibaba、IBM、Ollama のいずれとも提携していません。",
     stay: "継続",
     open: "未確定",
     answer: "多くの人にとって、答えは今もクラウドに払い続けることです。",
@@ -80,6 +82,7 @@ async function shared(page, loc, name, tag) {
 
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
   check(overflow <= 0, `${tag}: no sideways scroll (${overflow}px)`);
+  check((await page.textContent(".foot"))?.includes(loc.unaffiliated), `${tag}: the footer says whom Mahoraga is not affiliated with`);
 
   // The site's own menu opens, and its links leave for the site (no /mahoraga prefix).
   await page.locator(".site-menu__button").click();

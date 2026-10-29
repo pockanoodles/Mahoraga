@@ -16,6 +16,7 @@ export function Footer({ t, locale, page }: { t: Dict; locale: Locale; page: Pag
         <Mark size={40} />
         <p className="foot__made">{t.footer.made}</p>
         <p className="foot__legal">© 2026 Kaito Soeno · {t.footer.license}</p>
+        <p className="foot__legal">{t.footer.affiliation}</p>
       </div>
       <nav className="foot__cols" aria-label="Footer">
         <div>

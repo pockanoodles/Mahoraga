@@ -2,7 +2,7 @@ from __future__ import annotations
 import logging
 import sqlite3
 from math import sqrt
-from pathlib import Path
+from backend.orchestrator import paths
 
 log = logging.getLogger(__name__)
 
@@ -11,7 +11,7 @@ HARNESS_WEIGHT = 0.3
 
 _BUCKETS = ["code", "test", "refactor", "debug", "research", "plan", "review", "security"]
 _DIFFICULTIES = ["simple", "medium", "complex"]
-_DECISION_LOG_PATH = Path.home() / ".mahoraga-v2" / "routing_decisions.db"
+_DECISION_LOG_PATH = paths.home() / "routing_decisions.db"
 
 
 def _load_decision_log(limit: int = 5000) -> list[dict]:

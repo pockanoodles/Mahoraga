@@ -39,14 +39,15 @@ from pathlib import Path
 from typing import Optional
 
 import numpy as np
+from backend.orchestrator import paths
 
 _log = logging.getLogger(__name__)
 
-QUALITY_PREDICTOR_PATH = Path.home() / ".mahoraga-v2" / "quality_predictor.json"
+QUALITY_PREDICTOR_PATH = paths.home() / "quality_predictor.json"
 QUALITY_PREDICTOR_META_PATH = (
-    Path.home() / ".mahoraga-v2" / "quality_predictor_meta.json"
+    paths.home() / "quality_predictor_meta.json"
 )
-DECISION_DB_PATH = Path.home() / ".mahoraga-v2" / "routing_decisions.db"
+DECISION_DB_PATH = paths.home() / "routing_decisions.db"
 
 DEFAULT_ACCEPT_THRESHOLD = 0.7
 DEFAULT_L2 = 0.5

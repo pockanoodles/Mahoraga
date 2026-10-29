@@ -41,6 +41,7 @@ from backend.orchestrator.routing.episodic_memory import (
     SEMANTIC_MODEL_ID,
     EpisodicMemory,
 )
+from backend.orchestrator import paths
 
 
 app = typer.Typer(
@@ -50,7 +51,7 @@ app = typer.Typer(
 )
 
 
-_DEFAULT_STATE_DIR = Path.home() / ".mahoraga-v2"
+_DEFAULT_STATE_DIR = paths.home()
 _HC_INDEX_FILE = "episodic_memory.bin"
 _SEM_INDEX_FILE = "episodic_memory_v2.bin"
 _META_FILE = "episodic_memory.meta.json"

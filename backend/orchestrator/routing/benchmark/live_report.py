@@ -21,8 +21,9 @@ from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
+from backend.orchestrator import paths
 
-DEFAULT_DB = Path.home() / ".mahoraga-v2" / "routing_decisions.db"
+DEFAULT_DB = paths.home() / "routing_decisions.db"
 LIVE_REPORT_DIR = Path(__file__).parent / "results" / "live_report"
 
 

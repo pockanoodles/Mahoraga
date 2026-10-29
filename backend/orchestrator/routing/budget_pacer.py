@@ -40,6 +40,7 @@ from collections import deque
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Iterable, Optional
+from backend.orchestrator import paths
 
 _log = logging.getLogger(__name__)
 
@@ -50,7 +51,7 @@ DEFAULT_WINDOW = 100
 DEFAULT_HARD_LIMIT = 0.50
 DEFAULT_ETA = 0.01
 
-BUDGET_PACER_STATE_PATH = Path.home() / ".mahoraga-v2" / "budget_pacer.json"
+BUDGET_PACER_STATE_PATH = paths.home() / "budget_pacer.json"
 
 
 def _read_float_env(name: str, default: float, lo: float, hi: float) -> float:

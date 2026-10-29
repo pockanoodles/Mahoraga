@@ -34,3 +34,10 @@ def _local_ollama_url(monkeypatch):
     setting must not leak into tests that expect the local default. Tests of the
     variable itself set it back."""
     monkeypatch.delenv("OLLAMA_BASE_URL", raising=False)
+
+
+@pytest.fixture(autouse=True)
+def _default_state_home(monkeypatch):
+    """paths.home() reads MAHORAGA_HOME, so a developer's own setting must not
+    send a test's state into their real directory. Tests of the variable set it."""
+    monkeypatch.delenv("MAHORAGA_HOME", raising=False)

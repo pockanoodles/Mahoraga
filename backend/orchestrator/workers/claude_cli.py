@@ -33,12 +33,12 @@ import json
 import logging
 import os
 import shutil
-from pathlib import Path
 from typing import AsyncGenerator
 
 from .base import WorkerAdapter, WorkerEvent, WorkerHealth, _build_prompt
 from ..domain.models import Task, TaskAttempt
 from ..tracking.pricing import calculate_cost
+from backend.orchestrator import paths
 
 logger = logging.getLogger(__name__)
 
@@ -49,7 +49,7 @@ _DEFAULT_DISALLOWED_TOOLS = "Bash,Edit,Write,NotebookEdit,WebFetch,WebSearch"
 
 # Dedicated empty cwd so the CLI never loads a user project's CLAUDE.md or
 # .claude/settings.json permission allowlists (created lazily at spawn).
-_DEFAULT_CWD = Path.home() / ".mahoraga-v2" / "claude-cli-cwd"
+_DEFAULT_CWD = paths.home() / "claude-cli-cwd"
 
 # Env vars that can redirect auth or endpoint — never inherited by the CLI.
 _STRIPPED_ENV_VARS = ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL")

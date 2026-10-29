@@ -32,8 +32,9 @@ from pathlib import Path
 from typing import Any, Optional
 
 from .time_window import within_window
+from backend.orchestrator import paths
 
-DEFAULT_LOG = Path.home() / ".mahoraga-v2" / "funnel.jsonl"
+DEFAULT_LOG = paths.home() / "funnel.jsonl"
 
 # Written by backend/mcp/funnel_liveness.py when the MCP server serves its tool
 # list. Duplicated rather than imported to keep that writer free of this

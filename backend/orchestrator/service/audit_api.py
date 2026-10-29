@@ -39,6 +39,7 @@ from ..audit.verdict import Assumptions, Billing, breakeven_rate, decide, render
 from ..version import package_version
 from . import audit_schemas as schemas
 from .ui import flag, headless, ui_dir
+from backend.orchestrator import paths
 
 API_VERSION = 1
 # Seconds. The engine and arms pages must not hang on a stopped or wedged Ollama.
@@ -73,7 +74,7 @@ def engine() -> dict[str, Any]:
         "headless": headless(), "ui": not headless() and ui_dir() is not None,
         "demo": flag("MAHORAGA_DEMO"),
         "bench_root": str(bench_root().absolute()),
-        "data_dir": str(Path.home() / ".mahoraga-v2"),
+        "data_dir": str(paths.home()),
         "python": platform.python_version(), "platform": _platform(),
         "ollama": _ollama(),
     }

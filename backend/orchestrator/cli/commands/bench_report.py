@@ -45,9 +45,10 @@ from ...routing.nonverifiable_bank import (
 from ...workers.ollama import OllamaWorker
 from ...workers.claude_cli import ClaudeCliWorker
 from ...tracking.pricing import PRICING, PRICING_AS_OF, calculate_cost
+from backend.orchestrator import paths
 
-DEFAULT_METRICS_DB = Path.home() / ".mahoraga-v2" / "mahoraga.db"
-DEFAULT_DECISIONS_DB = Path.home() / ".mahoraga-v2" / "routing_decisions.db"
+DEFAULT_METRICS_DB = paths.home() / "mahoraga.db"
+DEFAULT_DECISIONS_DB = paths.home() / "routing_decisions.db"
 DEFAULT_VERIFY_BANK = Path(__file__).resolve().parents[4] / "experiments" / "prompts_verifiable.jsonl"
 DEFAULT_HUMANEVAL_BANK = Path(__file__).resolve().parents[4] / "experiments" / "prompts_humaneval_plus.jsonl"
 # The recorded P1 force-explore cross (Era 20). The qwen topup file carries the
@@ -59,8 +60,8 @@ DEFAULT_P1_CROSS = (
 )
 DEFAULT_NV_BANK = Path(__file__).resolve().parents[4] / "experiments" / "prompts_nonverifiable.jsonl"
 DEFAULT_NV_REFS = Path(__file__).resolve().parents[4] / "experiments" / "prompts_nonverifiable_refs.jsonl"
-DEFAULT_JUDGE_CACHE = Path.home() / ".mahoraga-v2" / "judge_gate_cache.json"
-DEFAULT_JUDGE_BANK_CACHE = Path.home() / ".mahoraga-v2" / "judge_bank_cache.json"
+DEFAULT_JUDGE_CACHE = paths.home() / "judge_gate_cache.json"
+DEFAULT_JUDGE_BANK_CACHE = paths.home() / "judge_bank_cache.json"
 
 VALID_METRICS = ("quality", "reward", "pass_rate", "latency_s", "tokens", "tps")
 

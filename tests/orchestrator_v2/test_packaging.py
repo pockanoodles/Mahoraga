@@ -7,6 +7,7 @@ drifting, and the console scripts must point at something that exists.
 from __future__ import annotations
 
 import importlib
+import json
 import os
 import re
 import subprocess
@@ -69,3 +70,12 @@ def test_the_cli_runs_without_hnswlib(tmp_path):
                          capture_output=True, text=True, timeout=120)
     assert out.returncode == 0, out.stderr
     assert "verdict" in out.stdout
+
+
+def test_the_readme_installs_the_aider_the_claims_measured():
+    """The README pins the agent the published rates ran, so a reader who follows
+    it measures with the same version."""
+    claims = json.loads((ROOT / "experiments" / "claims.json").read_text())["claims"]
+    (version,) = {c["config"]["agent"].split(",")[0].removeprefix("aider ")
+                  for c in claims if "agent" in c.get("config", {})}
+    assert f"aider-chat=={version}" in (ROOT / "README.md").read_text()

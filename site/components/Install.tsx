@@ -6,6 +6,7 @@ import { GIT, SPONSOR_URL } from "@/content/channels";
 import { PRICE } from "@/content/log";
 import { REPO_URL, curveAt, data } from "@/lib/data";
 import { CodeTabs } from "./CodeTabs";
+import { GitHubMark } from "./GitHubMark";
 import { Reveal } from "./Reveal";
 import { Run } from "./Run";
 import { Shell } from "./Shell";
@@ -105,7 +106,8 @@ export function Install({ t, locale }: { t: Dict; locale: Locale }) {
           </Reveal>
           <div className="support">
             <a className="pill" href={REPO_URL} target="_blank" rel="noreferrer">
-              {t.support.star}
+              <GitHubMark />
+              {t.nav.github}
             </a>
             <a className="textlink" href={`${GIT}/blob/main/CONTRIBUTING.md`} target="_blank" rel="noreferrer">
               {t.support.contribute} <span aria-hidden>↗</span>

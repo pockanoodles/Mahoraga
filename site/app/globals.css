@@ -137,6 +137,7 @@ code,
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  gap: var(--mh-s-2);
   min-height: var(--mh-control);
   padding: 14px var(--mh-s-6);
   border-radius: var(--mh-radius-pill);

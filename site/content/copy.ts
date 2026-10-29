@@ -111,7 +111,7 @@ export interface Dict {
     copy: string;
     copied: string;
   };
-  support: { title: string; lead: string; star: string; contribute: string; issues: string; sponsor: string };
+  support: { title: string; lead: string; contribute: string; issues: string; sponsor: string };
   outcomes: Record<string, string>;
   footnotesTitle: string;
   notes: {
@@ -336,7 +336,6 @@ const en: Dict = {
   support: {
     title: "Free and open source.",
     lead: "Mahoraga is MIT-licensed. Run it on your repo, report what breaks, and send fixes.",
-    star: "Star on GitHub",
     contribute: "Contributing guide",
     issues: "Open an issue",
     sponsor: "Sponsor",
@@ -617,7 +616,6 @@ const ja: Dict = {
   support: {
     title: "無料で、オープンソース。",
     lead: "MIT ライセンスです。自分のリポジトリで動かし、壊れたところを報告し、修正を送ってください。",
-    star: "GitHub でスターする",
     contribute: "コントリビューションガイド",
     issues: "Issue を開く",
     sponsor: "スポンサーになる",

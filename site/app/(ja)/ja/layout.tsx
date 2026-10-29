@@ -6,7 +6,9 @@ export { viewport };
 
 export default function JaLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="ja" data-theme="dark" className={`${sans.variable} ${mono.variable}`}>
+    // The script below adds a class to <html> before React hydrates, so React is
+    // told to expect that one attribute to differ from the server's HTML.
+    <html lang="ja" data-theme="dark" className={`${sans.variable} ${mono.variable}`} suppressHydrationWarning>
       <head>
         {/* Lets the stylesheet hide reveal-on-scroll blocks only when the script that reveals them will run. */}
         <script dangerouslySetInnerHTML={{ __html: "document.documentElement.classList.add('js')" }} />

@@ -1144,40 +1144,85 @@ html.js .reveal:not([data-shown]) {
 }
 
 .codetabs__bar {
+  --bar-inset: var(--mh-s-3);
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: var(--mh-s-3);
-  padding: var(--mh-s-3) var(--mh-s-3) 0;
+  padding: var(--bar-inset) var(--bar-inset) 0;
 }
 
+/* The bar's controls sit in the panel's top corners, so they share the
+   corners' centres: the panel's radius less the inset. */
+.codetabs__bar .seg,
+.codetabs__bar .copy {
+  --seg-r: max(var(--mh-radius-floor), calc(var(--mh-radius-panel) - var(--bar-inset)));
+  border-radius: var(--seg-r);
+}
+
+/* A segmented control (components/Segmented.tsx). The thumb and the items are
+   concentric with the track: their radius is the track's less its padding. A
+   context that sets --seg-r on the track (a corner of a panel) carries both. */
 .seg {
+  --seg-r: 9px;
+  --seg-pad: 2px;
+  --seg-inner-r: max(var(--mh-radius-floor), calc(var(--seg-r) - var(--seg-pad)));
+  position: relative;
+  isolation: isolate;
   display: inline-flex;
-  padding: 2px;
-  border-radius: 9px;
+  padding: var(--seg-pad);
+  border-radius: var(--seg-r);
   background: var(--mh-hover);
   box-shadow: inset 0 0 0 1px var(--mh-line);
+}
+
+.seg__thumb {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: -1;
+  width: var(--seg-w, 0);
+  height: var(--seg-h, 0);
+  border-radius: var(--seg-inner-r);
+  background: var(--mh-raised);
+  box-shadow: 0 0 0 1px var(--mh-line-strong);
+  transform: translate(var(--seg-x, 0), var(--seg-y, 0));
+  opacity: 0;
+}
+
+.seg[data-thumb] .seg__thumb {
+  opacity: 1;
+}
+
+.seg[data-thumb="live"] .seg__thumb {
+  transition:
+    transform var(--mh-dur-ui) var(--mh-ease),
+    width var(--mh-dur-ui) var(--mh-ease),
+    height var(--mh-dur-ui) var(--mh-ease);
 }
 
 .seg__item {
   height: 30px;
   padding: 0 var(--mh-s-4);
   border: 0;
-  border-radius: 7px;
+  border-radius: var(--seg-inner-r);
   background: transparent;
   font-size: 14px;
   font-weight: 500;
   color: var(--mh-muted);
   cursor: pointer;
-  transition:
-    background-color var(--mh-dur-micro) var(--mh-ease),
-    color var(--mh-dur-micro) var(--mh-ease);
+  transition: color var(--mh-dur-micro) var(--mh-ease);
 }
 
-.seg__item[aria-selected="true"] {
+.seg__item:hover,
+.seg__item[data-on] {
+  color: var(--mh-ink);
+}
+
+/* Until the thumb is placed, the chosen item wears its look. */
+.seg:not([data-thumb]) .seg__item[data-on] {
   background: var(--mh-raised);
   box-shadow: 0 0 0 1px var(--mh-line-strong);
-  color: var(--mh-ink);
 }
 
 .codetabs__panel {
@@ -1217,12 +1262,17 @@ html.js .reveal:not([data-shown]) {
   cursor: pointer;
   transition:
     background-color var(--mh-dur-micro) var(--mh-ease),
-    color var(--mh-dur-micro) var(--mh-ease);
+    color var(--mh-dur-micro) var(--mh-ease),
+    transform var(--mh-dur-micro) var(--mh-ease);
 }
 
 .copy:hover {
   background: var(--mh-hover);
   color: var(--mh-ink);
+}
+
+.copy:active {
+  transform: scale(0.96);
 }
 
 /* ── Where local stands (the hero's chart) ────────────────────────────── */
@@ -1592,16 +1642,20 @@ html.js .reveal:not([data-shown]) {
   letter-spacing: -0.01em;
 }
 
+/* A capsule around a capsule: the copy button's 32px pill sits 6px inside a
+   44px one, so the two curves share their centres. */
 .run__cmd {
   display: flex;
   align-items: center;
   gap: var(--mh-s-3);
   margin-top: var(--mh-s-2);
-  padding: 6px 6px 6px 14px;
-  border-radius: var(--mh-radius-control);
+  padding: 6px 6px 6px 20px;
+  border-radius: var(--mh-radius-pill);
   background: var(--mh-surface);
 }
 
+/* A command longer than its capsule fades out before the copy button instead
+   of stopping mid-character, which also says it scrolls. */
 .run__cmd code {
   flex: 1;
   min-width: 0;
@@ -1609,6 +1663,8 @@ html.js .reveal:not([data-shown]) {
   white-space: nowrap;
   font-size: 14px;
   scrollbar-width: none;
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 20px), transparent);
+  mask-image: linear-gradient(to right, #000 calc(100% - 20px), transparent);
 }
 
 .run__morning {
@@ -2256,12 +2312,6 @@ html.js .reveal:not([data-shown]) {
   margin: 0 auto;
 }
 
-.seg__item[aria-checked="true"] {
-  background: var(--mh-raised);
-  box-shadow: 0 0 0 1px var(--mh-line-strong);
-  color: var(--mh-ink);
-}
-
 .sgrid__head {
   margin-top: var(--mh-s-6);
   text-align: center;
@@ -2275,10 +2325,11 @@ html.js .reveal:not([data-shown]) {
 }
 
 .sgrid__k {
+  --count-tracking: -0.03em;
   font-size: clamp(44px, 5vw, 64px);
   font-weight: 600;
   line-height: 1;
-  letter-spacing: -0.03em;
+  letter-spacing: var(--count-tracking);
   font-variant-numeric: tabular-nums;
   color: var(--mh-accent-text);
 }
@@ -2288,16 +2339,105 @@ html.js .reveal:not([data-shown]) {
   color: var(--mh-muted);
 }
 
+/* A rolling count (components/Count.tsx): one cell per digit, each 1ch of a
+   tabular figure, with the leaving and arriving digit sharing the cell. */
+.count {
+  display: inline-flex;
+  font-variant-numeric: tabular-nums;
+}
+
+.count__cell {
+  display: inline-grid;
+  justify-items: center;
+  width: calc(1ch + var(--count-tracking, 0em)); /* the figure's own letter-spacing */
+  white-space: pre;
+}
+
+.count__cell > * {
+  grid-area: 1 / 1;
+}
+
+.count[data-roll="up"] .count__now {
+  animation: count-in var(--mh-dur-ui) var(--mh-ease) both;
+}
+
+.count[data-roll="up"] .count__was {
+  animation: count-out var(--mh-dur-ui) var(--mh-ease) both;
+}
+
+.count[data-roll="down"] .count__now {
+  animation: count-in-down var(--mh-dur-ui) var(--mh-ease) both;
+}
+
+.count[data-roll="down"] .count__was {
+  animation: count-out-down var(--mh-dur-ui) var(--mh-ease) both;
+}
+
+@keyframes count-in {
+  from {
+    opacity: 0;
+    transform: translateY(0.3em);
+    filter: blur(4px);
+  }
+}
+
+@keyframes count-out {
+  to {
+    opacity: 0;
+    transform: translateY(-0.3em);
+    filter: blur(4px);
+  }
+}
+
+@keyframes count-in-down {
+  from {
+    opacity: 0;
+    transform: translateY(-0.3em);
+    filter: blur(4px);
+  }
+}
+
+@keyframes count-out-down {
+  to {
+    opacity: 0;
+    transform: translateY(0.3em);
+    filter: blur(4px);
+  }
+}
+
+/* Each setting's note and change line, stacked in one cell: only the chosen
+   setting's are visible, and they fade in when the reader picks it. */
+.sgrid__lines {
+  display: grid;
+  max-width: var(--mh-measure-lede);
+  margin: 0 auto;
+}
+
+.sgrid__line {
+  grid-area: 1 / 1;
+  visibility: hidden;
+}
+
+.sgrid__line[data-on] {
+  visibility: visible;
+  animation: line-in var(--mh-dur-ui) var(--mh-ease) both;
+}
+
+@keyframes line-in {
+  from {
+    opacity: 0;
+  }
+}
+
 .sgrid__note {
   margin-top: var(--mh-s-3);
   font-size: 15px;
   color: var(--mh-muted);
+  text-wrap: pretty;
 }
 
 .sgrid__change {
-  max-width: var(--mh-measure-lede);
-  min-height: 3em;
-  margin: var(--mh-s-3) auto 0;
+  margin-top: var(--mh-s-3);
   font-size: 15px;
   color: var(--mh-ink);
   text-wrap: pretty;
@@ -2330,11 +2470,15 @@ html.js .reveal:not([data-shown]) {
 .sgrid__squares {
   display: flex;
   flex-wrap: wrap;
-  gap: 5px;
+  gap: 6px;
   padding: 0;
   list-style: none;
 }
 
+/* A ring sits 1px off its square, which keeps the square's curve (an outline's
+   radius is the border radius plus the offset) and leaves 1px between the
+   rings of neighbouring squares. Squares light in reading order, and each ring
+   lands just after its square. */
 .sgrid__sq {
   display: block;
   width: 16px;
@@ -2342,11 +2486,11 @@ html.js .reveal:not([data-shown]) {
   border: 1px solid var(--mh-line-strong);
   border-radius: 4px;
   outline: 1.5px solid transparent;
-  outline-offset: 2px;
+  outline-offset: 1px;
   transition:
     background-color var(--mh-dur-ui) var(--mh-ease) calc(var(--i, 0) * 5ms),
     border-color var(--mh-dur-ui) var(--mh-ease) calc(var(--i, 0) * 5ms),
-    outline-color var(--mh-dur-ui) var(--mh-ease),
+    outline-color var(--mh-dur-ui) var(--mh-ease) calc(var(--i, 0) * 5ms + 120ms),
     transform var(--mh-dur-micro) var(--mh-ease);
 }
 
@@ -2356,11 +2500,23 @@ html.js .reveal:not([data-shown]) {
 }
 
 .sgrid__sq[data-change="gained"] {
-  outline-color: var(--mh-ink);
+  outline-color: var(--mh-muted);
 }
 
 .sgrid__sq[data-change="lost"] {
-  outline: 1.5px dashed var(--mh-faint);
+  outline-style: dashed;
+  outline-color: var(--mh-faint);
+}
+
+/* Until the figure scrolls into view its squares are dark, so it arrives with
+   the solved ones lighting up in order. The count already says the number. */
+html.js .reveal:not([data-shown]) .sgrid__sq[data-solved] {
+  border-color: var(--mh-line-strong);
+  background-color: transparent;
+}
+
+html.js .reveal:not([data-shown]) .sgrid__sq[data-change] {
+  outline-color: transparent;
 }
 
 .sgrid__sq[data-active] {
@@ -2456,8 +2612,8 @@ html.js .reveal:not([data-shown]) {
 }
 
 .sgrid__key[data-change="gained"] {
-  outline: 1.5px solid var(--mh-ink);
-  outline-offset: 2px;
+  outline: 1.5px solid var(--mh-muted);
+  outline-offset: 1px;
 }
 
 .sgrid__advice {
@@ -2532,6 +2688,28 @@ html.js .reveal:not([data-shown]) {
     grid-column: 1;
     grid-row: auto;
     justify-self: start;
+  }
+
+  /* A picker that would wrap becomes equal columns with balanced two-line
+     labels, as a native segmented control keeps one row. */
+  .sgrid__seg,
+  .vdemo__seg {
+    display: grid;
+    grid-template-columns: repeat(var(--seg-n), minmax(0, 1fr));
+    width: 100%;
+  }
+
+  .sgrid__seg .seg__item,
+  .vdemo__seg .seg__item {
+    height: auto;
+    min-height: 36px;
+    padding: 6px var(--mh-s-2);
+    line-height: 1.25;
+    text-wrap: balance;
+  }
+
+  .vdemo__control--triage {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 

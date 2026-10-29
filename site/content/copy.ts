@@ -37,7 +37,7 @@ export interface Dict {
   };
   settings: {
     title: string;
-    lead: (a: { k32: number; k131: number; k35: number; n: number }) => string;
+    lead: (a: { k32: number; k131: number; k35: number; n: number; bar: string; price: string }) => string;
     label: (n: number, repos: string[]) => string;
     choose: string;
     options: Record<string, { label: string; note: string }>;
@@ -200,24 +200,22 @@ const en: Dict = {
       "This is the first task of the laptop's own run at 131k, which is still under way. It was picked by its position and not by its outcome, and one attempt says nothing about the rate.",
   },
   settings: {
-    title: "The upgrade that mattered was a setting.",
-    lead: ({ k32, k131, k35, n }) =>
-      `A 131k context window took the laptop's model from ${k32} to ${k131} of ${n} commits. A 35B model that needs 24 GB or more solved ${k35}, ${
-        k35 > k131 ? `which is only ${k35 - k131} more` : k35 === k131 ? "the same number" : `which is ${k131 - k35} fewer`
-      }.`,
+    title: "Most of the gap was the context window.",
+    lead: ({ k32, k131, k35, n, bar, price }) =>
+      `On a 64 GB Mac Studio, a 131k window took the laptop's 9.7B model from ${k32} to ${k131} of ${n} commits, near a 35B model's ${k35}. All three fall well short of the ${bar} that local needs to pay for itself at ${price} a cloud task.`,
     label: (n, repos) => `${n} commits from ${andList(repos)}, one square each`,
     choose: "Setting",
     options: {
-      "32k": { label: "qwen3.5 at 32k", note: "The bench's default window. A long file overflows it, and Ollama cuts the prompt to fit without an error." },
-      "131k": { label: "qwen3.5 at 131k", note: "The same model file, with a window big enough for the files it reads." },
-      "35b": { label: "qwen3.6 35B at 131k", note: "A 35B model, which needs 24 GB of memory or more." },
+      "32k": { label: "qwen3.5 at 32k", note: "This is the bench's default window, and when a long file overflows it, Ollama cuts the prompt to fit without returning an error." },
+      "131k": { label: "qwen3.5 at 131k", note: "This is the same model file, given a window big enough for the files it reads." },
+      "35b": { label: "qwen3.6 35B at 131k", note: "This 35B model needs 24 GB of memory or more, so a 16 GB laptop can't run it." },
     },
     count: (n) => `of ${n} commits solved`,
     baseline: "Choose a larger window or a larger model to see which commits change.",
     change: (gained, lost, from, p) =>
-      `Of the commits only one of the two solved, ${gained || "none"} went to this setting and ${lost || "none"} to ${from}. A paired test gives p ${
+      `Compared with ${from}, ${gained === 0 ? "no commits" : gained === 1 ? "1 commit" : `${gained} commits`} went from unsolved to solved and ${lost || "none"} went the other way. A paired test gives p ${
         p < 0.001 ? "below 0.001" : `= ${p.toFixed(2)}`
-      }, so ${p < 0.05 ? "a split like this would be rare if the two did equally well" : "chance alone could produce a split like this"}.`,
+      }, so ${p < 0.05 ? "a split this uneven would be rare if the two settings did equally well" : "chance alone could produce a split like this"}.`,
     solved: "Solved",
     missed: "Not solved",
     changed: "Changed with this setting",
@@ -226,7 +224,8 @@ const en: Dict = {
     hint: "Point at or tap a square to see its commit and how each setting did on it.",
     open: "Open the commit",
     commit: "Commit",
-    advice: "If you run a local agent, check its context window before you buy more memory.",
+    advice:
+      "If you run a local agent, check its context window before you buy more memory. On a 16 GB laptop the larger window is much slower, and the run under way there will show whether it solves as many.",
   },
   log: {
     title: "Every result is in the log, and so is every correction.",
@@ -448,25 +447,23 @@ const ja: Dict = {
     picked: "ノート本体での 131k の計測（まだ進行中）から、結果ではなく順番で選んだ最初のタスクです。1 回の試行からは、解決率については何もわかりません。",
   },
   settings: {
-    title: "効いたのは、設定ひとつでした。",
-    lead: ({ k32, k131, k35, n }) =>
-      `コンテキストウィンドウを 131k に広げると、ノートのモデルが解いたコミットは ${n} 件中 ${k32} 件から ${k131} 件に増えました。24 GB 以上が必要な 35B のモデルは ${k35} 件で、${
-        k35 > k131 ? `差は ${k35 - k131} 件だけです` : k35 === k131 ? "同じ件数です" : `${k131 - k35} 件少ない結果です`
-      }。`,
+    title: "差の大半は、コンテキストウィンドウでした。",
+    lead: ({ k32, k131, k35, n, bar, price }) =>
+      `64 GB の Mac Studio で、ノートが使う 9.7B のモデルにウィンドウを 131k まで与えると、解いたコミットは ${n} 件中 ${k32} 件から ${k131} 件に増え、35B のモデルの ${k35} 件に迫りました。3 つとも、クラウドが 1 タスク ${price} のときにローカルの元が取れる ${bar} には遠く届きません。`,
     label: (n, repos) => `${repos.join("、")} のコミット ${n} 件（1 マスが 1 コミット）`,
     choose: "設定",
     options: {
-      "32k": { label: "qwen3.5・32k", note: "ベンチの既定のウィンドウです。長いファイルは収まらず、Ollama がエラーなしでプロンプトを切り詰めます。" },
+      "32k": { label: "qwen3.5・32k", note: "ベンチの既定のウィンドウです。長いファイルがはみ出すと、Ollama はエラーを返さずにプロンプトを切り詰めます。" },
       "131k": { label: "qwen3.5・131k", note: "同じモデルファイルに、読むファイルが収まる大きさのウィンドウを与えたものです。" },
-      "35b": { label: "qwen3.6 35B・131k", note: "24 GB 以上が必要な 35B のモデルです。" },
+      "35b": { label: "qwen3.6 35B・131k", note: "24 GB 以上のメモリが必要な 35B のモデルで、16 GB のノートでは動きません。" },
     },
     count: (n) => `件を解決（${n} 件中）`,
     baseline: "より大きなウィンドウやモデルを選ぶと、どのコミットが変わるかがわかります。",
     change: (gained, lost, from, p) =>
-      `どちらか一方だけが解いたコミットのうち、${gained} 件はこの設定、${lost} 件は ${from} が解きました。${
+      `${from} と比べると、${gained} 件が未解決から解決に変わり、${lost} 件が逆に変わりました。${
         p < 0.05
-          ? `対応のある検定で p は ${p < 0.001 ? "0.001 未満" : p.toFixed(2)} です。2 つの実力が同じなら、こうした分かれ方はまれです。`
-          : `対応のある検定で p = ${p.toFixed(2)} です。こうした分かれ方は、偶然だけでも生じます。`
+          ? `対応のある検定で p は ${p < 0.001 ? "0.001 未満" : p.toFixed(2)} です。2 つの実力が同じなら、ここまで偏った分かれ方はまれです。`
+          : `対応のある検定で p = ${p.toFixed(2)} です。この程度の分かれ方は、偶然だけでも生じます。`
       }`,
     solved: "解決",
     missed: "未解決",
@@ -476,7 +473,8 @@ const ja: Dict = {
     hint: "マスにカーソルを合わせるかタップすると、そのコミットと各設定での結果が見られます。",
     open: "コミットを開く",
     commit: "コミット",
-    advice: "ローカルのエージェントを使うなら、メモリを買い足す前に、コンテキストウィンドウを確かめてください。",
+    advice:
+      "ローカルのエージェントを使うなら、メモリを買い足す前に、コンテキストウィンドウを確かめてください。16 GB のノートでは大きなウィンドウはずっと遅く、同じだけ解けるかどうかは、いま進んでいるノート本体での計測でわかります。",
   },
   log: {
     title: "結果はすべて記録に残し、訂正もすべて残しています。",

@@ -3,8 +3,8 @@
 // measured number is read from the engine's export through lib/data.ts or
 // content/log.ts, and a footnote or a source link names the artifact it came from.
 import type { Dict, Locale } from "@/content/copy";
-import { STANDING } from "@/content/log";
-import { blob, cfg, claim, data } from "@/lib/data";
+import { PRICE, STANDING } from "@/content/log";
+import { blob, cfg, claim, data, num, pct } from "@/lib/data";
 import { pagePath } from "@/lib/routes";
 import { Log } from "./Log";
 import { Notes } from "./Notes";
@@ -24,6 +24,13 @@ export function Research({ t, locale }: { t: Dict; locale: Locale }) {
     if (!arm) throw new Error(`site.json has no settings arm ${key}`);
     return arm.resolved;
   };
+  // The settings lead names the Studio as the machine behind every square, so
+  // an arm from anywhere else has to change the copy first.
+  const elsewhere = settings.arms.filter((a) => !a.machine.startsWith("Mac Studio"));
+  if (elsewhere.length) throw new Error(`the settings lead says a Mac Studio ran every arm, not ${elsewhere.map((a) => a.machine).join(", ")}`);
+  // The bar the lead measures them against is the hero's break-even line.
+  const bar = pct(num(claim(STANDING.breakeven), "breakeven_rate"));
+  const price = `$${PRICE.toFixed(2)}`;
 
   const notes = [
     t.notes.standing({
@@ -96,7 +103,7 @@ export function Research({ t, locale }: { t: Dict; locale: Locale }) {
               {t.settings.title}
             </h2>
             <p className="lede center">
-              {t.settings.lead({ k32: solved("32k"), k131: solved("131k"), k35: solved("35b"), n: settings.tasks.length })}
+              {t.settings.lead({ k32: solved("32k"), k131: solved("131k"), k35: solved("35b"), n: settings.tasks.length, bar, price })}
             </p>
           </Reveal>
           <Reveal delay={80}>

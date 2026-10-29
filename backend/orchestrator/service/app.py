@@ -12,7 +12,7 @@ from typing import Annotated
 from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
 
 from ..adaptive.store import AdaptiveStore
 from ..channels.base import ChannelMessage
@@ -26,7 +26,7 @@ from ..tracking.pricing import resolve_cost
 import anthropic
 
 from ..verifier.verifier import Verifier
-from ..config import ENABLED_BACKENDS, MahoragaConfig, get_workdir
+from ..config import ENABLED_BACKENDS, MahoragaConfig, get_workdir, ollama_base_url
 from ..workers.claude import ClaudeWorker
 from ..workers.registry import WorkerRegistry
 from ..adapters.registry import AdapterRegistry
@@ -443,6 +443,15 @@ class TaskRequest(BaseModel):
     # exchange for minutes of local inference — worth it unattended, not worth
     # it while someone waits. See reward_judge.judge_correctness.
     thorough: bool = False
+    # This task's deadline in seconds, else the daemon's MAHORAGA_TASK_TIMEOUT
+    # (120). A bench sends its own so the limit it reports is the one that ran:
+    # on 2026-10-28 `bench run --timeout 180` stayed on the client while the
+    # daemon cut granite4.2 off at 120 s.
+    timeout_s: float | None = Field(default=None, gt=0)
+    # False serves the routed arm's own answer whatever the judge says. A bench
+    # measuring an arm sends False: on 2026-10-28 the cascade served
+    # claude-cli's answers to 25 HumanEval+ prompts under granite4.1's name.
+    escalate: bool = True
 
 
 class BenchRunCreate(BaseModel):
@@ -887,13 +896,11 @@ async def get_settings():
 
     api_key = os.getenv("ANTHROPIC_API_KEY")
     tg_token = os.getenv("TELEGRAM_BOT_TOKEN")
-    brave_key = os.getenv("BRAVE_API_KEY")
 
     return {
         "executor_model": "claude-sonnet-4-6",
         "anthropic_api_key": mask(api_key),
         "telegram_token": mask(tg_token),
-        "brave_api_key": mask(brave_key),
         "configured": bool(api_key),
     }
 
@@ -1447,7 +1454,7 @@ async def _is_ollama_warm() -> bool:
     import httpx as _httpx
     try:
         async with _httpx.AsyncClient(timeout=2.0) as client:
-            resp = await client.get("http://localhost:11434/api/ps")
+            resp = await client.get(f"{ollama_base_url()}/api/ps")
             if resp.status_code == 200:
                 return bool(resp.json().get("models"))
     except Exception:
@@ -1462,7 +1469,9 @@ async def run_api_task(
     registry: RegistryDep,
     verifier: VerifierDep,
 ):
-    """Execute a single task synchronously. Waits for completion (up to 5 min)."""
+    """Execute a single task synchronously, up to its deadline (`timeout_s`,
+    else MAHORAGA_TASK_TIMEOUT). A timeout answers 504 and any other failure
+    500, each with a JSON `detail`."""
     import dataclasses
     import time as _time
     from ..domain.models import Mission, Plan, Run, Task, RunMode, TaskStatus
@@ -1573,13 +1582,13 @@ async def run_api_task(
     # /api/run/.../execute calls share the same concurrency cap as
     # batch tasks. The pool also feeds queue_depth_norm into the next
     # routing decision's context vector. asyncio.wait_for caps any
-    # individual task at MAHORAGA_TASK_TIMEOUT.
+    # individual task at its timeout_s, else MAHORAGA_TASK_TIMEOUT.
     from ..routing.execution_pool import (
         get_default_pool as _get_default_pool,
         resolve_task_timeout as _resolve_task_timeout,
     )
     _pool = _get_default_pool()
-    _timeout = _resolve_task_timeout()
+    _timeout = req.timeout_s or _resolve_task_timeout()
 
     async def _exec_agent(task_id: str, agent: str) -> None:
         async with _pool.acquire(agent):
@@ -1712,7 +1721,7 @@ async def run_api_task(
     _escalation_detail = ""
     _escalation_reason = ""
     _local_output = output
-    if _cascade.should_escalate(_correctness, bucket, exec_failed=_exec_gate_failed):
+    if req.escalate and _cascade.should_escalate(_correctness, bucket, exec_failed=_exec_gate_failed):
         _esc_output, _escalation_cost, _escalation_detail = await _cascade.escalate(req.prompt)
         if _esc_output is not None:
             logging.getLogger(__name__).info(
@@ -1907,9 +1916,28 @@ async def run_api_task(
         _th = _sha256((task.goal if hasattr(task, 'goal') else '').encode()).hexdigest()[:16]
         _implicit_tracker.on_task_complete(task_id=task.id, task_hash=_th)
 
-    # Re-raise now that observe + metrics have been recorded — FastAPI returns 500
+    # Answer now that observe + metrics have been recorded: 504 for a timeout,
+    # which is the task's result, and 500 for anything else. Both go out as
+    # HTTPException rather than a re-raise. A raised exception also reaches
+    # uvicorn, which closes the connection after the 500 has gone out, and a
+    # client that had pooled it lost its next request (2026-10-28: each of 59
+    # timeouts took the following prompt down with it).
     if _run_task_exc is not None:
-        raise _run_task_exc
+        if isinstance(_run_task_exc, asyncio.TimeoutError):
+            raise HTTPException(status_code=504, detail={
+                "status": "timed_out",
+                "task_id": task.id,
+                "agent": selected_agent,
+                "timeout_s": _timeout,
+                "elapsed_s": elapsed,
+            })
+        raise HTTPException(status_code=500, detail={
+            "status": "failed",
+            "task_id": task.id,
+            "agent": selected_agent,
+            "error": f"{type(_run_task_exc).__name__}: {_run_task_exc}",
+            "elapsed_s": elapsed,
+        })
 
     # Build runner-up from scores
     runner_up = None
@@ -1932,6 +1960,7 @@ async def run_api_task(
             "tokens": tokens_generated,
             "tps": tokens_per_second,
             "model_was_warm": model_was_warm,
+            "thinking_chars": ollama_m.get("thinking_chars"),
         },
         "routing": {
             "strategy": router.strategy.name,

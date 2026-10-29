@@ -22,6 +22,7 @@ from .aider_adapter import AiderAdapter
 from .opencode_adapter import OpenCodeAdapter
 from .gemini_adapter import GeminiCLIAdapter
 from .goose_adapter import GooseAdapter
+from ..config import ollama_base_url
 from ..workers.base import WorkerAdapter
 from ..workers.ollama import OllamaWorker
 
@@ -66,8 +67,9 @@ def load_agent_pool(
             env var it honours lets a bench run serve its own roster (e.g.
             bench-only arms enabled) without editing the tracked file.
         workdir: CWD passed to file-writing CLI workers (codex, aider).
-        ollama_url_override: Overrides the base_url in the yaml (e.g. from
-            MahoragaConfig or OLLAMA_BASE_URL env var).
+        ollama_url_override: Beats the OLLAMA_BASE_URL env var and the base_url
+            in the yaml (e.g. the URL from MahoragaConfig, which already
+            lets the env var win). Without one, the env var beats the yaml.
     """
     path = Path(config_path) if config_path else agents_yaml()
     if not path.exists():
@@ -84,11 +86,7 @@ def load_agent_pool(
     # ── Ollama ────────────────────────────────────────────────────────────────
     ollama_cfg = cfg.get("ollama", {})
     if ollama_cfg:
-        base_url = (
-            ollama_url_override
-            or os.getenv("OLLAMA_BASE_URL")
-            or ollama_cfg.get("base_url", "http://localhost:11434")
-        )
+        base_url = ollama_url_override or ollama_base_url(ollama_cfg.get("base_url"))
         roles: list[str] = ollama_cfg.get("roles", ["planner", "fast", "coder", "general"])
 
         for spec in ollama_cfg.get("models", []):
@@ -99,7 +97,10 @@ def load_agent_pool(
             name = f"ollama:{model_id}"
             max_ctx: int | None = spec.get("max_ctx")
             options: dict | None = spec.get("options")
-            extra_payload: dict = spec.get("extra_payload", {})
+            # None when the entry names none, so the worker's default (thinking
+            # off) applies. An empty dict replaced it: granite4.2's entry named
+            # none and it thought through every HumanEval+ prompt (2026-10-28).
+            extra_payload: dict | None = spec.get("extra_payload")
             warm: bool = spec.get("warm", False)
 
             for role in roles:

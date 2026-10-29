@@ -44,6 +44,7 @@ app = typer.Typer(
 from .bench_report import report_app  # noqa: E402
 app.add_typer(report_app, name="report")
 
+from ...config import ollama_base_url  # noqa: E402
 from ...routing.live_route import (  # noqa: E402
     CloudArmUnavailable,
     load_arms,
@@ -111,9 +112,8 @@ async def _capture_run_context() -> dict[str, Any]:
 
     # Ollama version
     try:
-        ollama_base = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434").rstrip("/")
         async with httpx.AsyncClient(timeout=2.0) as client:
-            resp = await client.get(f"{ollama_base}/api/version")
+            resp = await client.get(f"{ollama_base_url()}/api/version")
             if resp.status_code == 200:
                 ctx["ollama_version"] = resp.json().get("version")
             else:
@@ -148,6 +148,12 @@ def _load_prompts(path: Path) -> list[dict[str, Any]]:
     return items
 
 
+# Seconds the client waits past a task's deadline. The judge and the
+# bookkeeping run after it, and the server, not a client-side guess, should be
+# the one to say a task timed out.
+_RESPONSE_GRACE_S = 120.0
+
+
 async def _run_one(
     client: httpx.AsyncClient,
     base_url: str,
@@ -155,24 +161,55 @@ async def _run_one(
     bucket: Optional[str],
     agent: Optional[str],
     bench_run_id: Optional[int] = None,
+    timeout_s: Optional[float] = None,
 ) -> dict[str, Any]:
-    """POST a single task. Returns a flat record for summary aggregation."""
-    body: dict[str, Any] = {"prompt": prompt}
+    """POST a single task. Returns a flat record for summary aggregation.
+
+    Every record carries the full prompt, so a task that got no answer still
+    joins the bank in `bench report verify` and scores as the failure it is
+    instead of dropping out of the denominator.
+
+    The bench measures the routed arm, so it asks the server not to escalate:
+    the cascade would serve another model's answer under this arm's name
+    (2026-10-28, 25 of granite4.1's HumanEval+ answers were claude-cli's).
+    `bench live-route` is the cascade's own bench.
+    """
+    body: dict[str, Any] = {"prompt": prompt, "escalate": False}
     if bucket:
         body["capability_hint"] = bucket
     if agent:
         body["agent_override"] = agent
     if bench_run_id is not None:
         body["bench_run_id"] = bench_run_id
+    if timeout_s is not None:
+        body["timeout_s"] = timeout_s
+    row: dict[str, Any] = {
+        "prompt": prompt[:60],
+        "prompt_full": prompt,
+        "bucket": bucket,
+        "requested_agent": agent,
+        "timeout_s": timeout_s,
+    }
     t0 = time.time()
     try:
         resp = await client.post(f"{base_url}/api/task", json=body)
         elapsed = time.time() - t0
+        if resp.status_code == 504:
+            try:
+                detail = resp.json().get("detail")
+            except ValueError:
+                detail = None
+            limit = detail.get("timeout_s", timeout_s) if isinstance(detail, dict) else timeout_s
+            return {
+                **row,
+                "timeout_s": limit,
+                "timed_out": True,
+                "error": f"timed out at the {limit}s deadline",
+                "elapsed_s": round(elapsed, 2),
+            }
         if resp.status_code != 200:
             return {
-                "prompt": prompt[:60],
-                "bucket": bucket,
-                "requested_agent": agent,
+                **row,
                 "error": f"HTTP {resp.status_code}: {resp.text[:200]}",
                 "elapsed_s": round(elapsed, 2),
             }
@@ -184,16 +221,18 @@ async def _run_one(
         #   routing: { exploration, ucb_score, ... }
         metrics = data.get("metrics", {}) or {}
         routing = data.get("routing", {}) or {}
+        cascade = data.get("cascade", {}) or {}
         return {
-            "prompt": prompt[:60],
-            "prompt_full": prompt,
-            "bucket": bucket,
-            "requested_agent": agent,
+            **row,
             "actual_agent": data.get("agent") or agent,
             "success": data.get("status") == "success",
             "elapsed_s": data.get("elapsed_s") or round(elapsed, 2),
             "tokens": metrics.get("tokens", 0),
             "tps": metrics.get("tps", 0.0),
+            "thinking_chars": metrics.get("thinking_chars"),
+            # Never set by a server that honours escalate=False; kept so an
+            # older one's substitution shows in the data.
+            "escalated_to": cascade.get("escalated_to"),
             "exploration": routing.get("exploration"),
             "ucb_score": routing.get("ucb_score"),
             "output_preview": (data.get("output") or "")[:120],
@@ -201,9 +240,7 @@ async def _run_one(
         }
     except Exception as exc:
         return {
-            "prompt": prompt[:60],
-            "bucket": bucket,
-            "requested_agent": agent,
+            **row,
             "error": f"{type(exc).__name__}: {exc}",
             "elapsed_s": round(time.time() - t0, 2),
         }
@@ -259,24 +296,53 @@ def _print_summary(results: list[dict[str, Any]]) -> None:
         by_agent.setdefault(a, []).append(r)
 
     typer.echo("")
-    header = f"{'Agent':<24} {'N':>4} {'Pass%':>6} {'Err':>5} {'Lat(s)':>8} {'t/s':>7} {'Tokens':>7}"
+    header = (
+        f"{'Agent':<24} {'N':>4} {'Ans%':>6} {'Err':>5} {'T/O':>5} "
+        f"{'Lat(s)':>8} {'t/s':>7} {'Tokens':>7}"
+    )
     typer.echo(header)
     typer.echo("-" * len(header))
+    reasoned: dict[str, tuple[int, int]] = {}
+    borrowed: dict[str, tuple[int, int]] = {}
     for agent, rows in sorted(by_agent.items(), key=lambda kv: -len(kv[1])):
         n = len(rows)
         errors = sum(1 for r in rows if "error" in r)
-        passed = sum(1 for r in rows if r.get("success"))
+        timeouts = sum(1 for r in rows if r.get("timed_out"))
+        answered = sum(1 for r in rows if r.get("success"))
         latencies = [r["elapsed_s"] for r in rows if r.get("elapsed_s") is not None]
         tps_values = [r.get("tps", 0) for r in rows if r.get("tps")]
         tokens = [r.get("tokens", 0) for r in rows if r.get("tokens")]
-        pass_pct = (passed / max(1, n - errors)) * 100 if n - errors > 0 else 0.0
+        # Over every row: an error is an attempt that got no answer. Leaving
+        # errors out of the denominator printed granite4.2's 46 of 164 as 100%.
+        ans_pct = answered / n * 100 if n else 0.0
         avg_l = sum(latencies) / len(latencies) if latencies else 0.0
         avg_tps = sum(tps_values) / len(tps_values) if tps_values else 0.0
         avg_tok = sum(tokens) / len(tokens) if tokens else 0.0
         typer.echo(
-            f"{agent:<24} {n:>4} {pass_pct:>5.0f}% {errors:>5} {avg_l:>8.1f} {avg_tps:>7.1f} {avg_tok:>7.0f}"
+            f"{agent:<24} {n:>4} {ans_pct:>5.0f}% {errors:>5} {timeouts:>5} "
+            f"{avg_l:>8.1f} {avg_tps:>7.1f} {avg_tok:>7.0f}"
         )
+        thought = sum(1 for r in rows if r.get("thinking_chars"))
+        if thought:
+            reasoned[agent] = (thought, n)
+        escalated = sum(1 for r in rows if r.get("escalated_to"))
+        if escalated:
+            borrowed[agent] = (escalated, n)
     typer.echo("")
+    typer.echo("Ans% counts answers over every row, errors included. It is not")
+    typer.echo("pass@1: `orch bench report verify` grades the answers.")
+    for agent, (thought, n) in reasoned.items():
+        typer.echo(
+            f"warn: {agent} reasoned in {thought} of {n} replies. If its thinking "
+            "was meant to be off, the toggle didn't take.",
+            err=True,
+        )
+    for agent, (escalated, n) in borrowed.items():
+        typer.echo(
+            f"warn: {escalated} of {agent}'s {n} answers came from the cascade's "
+            "escalation arm, so its rates above are not its own.",
+            err=True,
+        )
     typer.echo("Reward + quality aren't in the /api/task response; pull from the")
     typer.echo("decisions DB or the Performance page for those aggregates.")
 
@@ -290,7 +356,11 @@ def bench_run(
     ),
     repeats: int = typer.Option(1, "--repeats", "-r", help="Runs per (prompt, agent) pair"),
     base_url: str = typer.Option("http://localhost:8000", "--base-url"),
-    timeout: int = typer.Option(180, "--timeout", help="Per-task timeout in seconds"),
+    timeout: int = typer.Option(
+        180, "--timeout",
+        help="Per-task deadline in seconds. Each task carries it, so it replaces "
+             "the server's MAHORAGA_TASK_TIMEOUT (120) for this run.",
+    ),
     output: Optional[Path] = typer.Option(None, "--output", "-o", help="Write raw results JSONL"),
     limit: Optional[int] = typer.Option(None, "--limit", help="Cap total tasks (smoke testing)"),
     notes: Optional[str] = typer.Option(
@@ -345,7 +415,14 @@ def bench_run(
                 err=True,
             )
 
-        async with httpx.AsyncClient(timeout=timeout) as client:
+        # The server owns the deadline; each task carries it as timeout_s. No
+        # keep-alive: a connection the server dropped after a failure must
+        # never carry the next prompt (2026-10-28: 59 timeouts each took the
+        # following prompt down with them).
+        async with httpx.AsyncClient(
+            timeout=timeout + _RESPONSE_GRACE_S,
+            limits=httpx.Limits(max_keepalive_connections=0),
+        ) as client:
 
             typer.echo(
                 f"mode={mode}  prompts={len(prompt_items)}  agents={len(agent_list)}"
@@ -376,12 +453,19 @@ def bench_run(
                 typer.echo(f"warn: could not create bench_run row: {exc}", err=True)
 
             for i, (p, b, a) in enumerate(schedule, start=1):
-                r = await _run_one(client, base_url, p, b, a, bench_run_id=bench_run_id)
+                r = await _run_one(
+                    client, base_url, p, b, a, bench_run_id=bench_run_id, timeout_s=float(timeout),
+                )
                 results.append(r)
                 elapsed = time.time() - start
                 remaining = (elapsed / i) * (len(schedule) - i) if i > 0 else 0
                 tag = a or "bandit"
-                status = "✓" if r.get("success") else ("x" if "error" in r else "–")
+                status = (
+                    "✓" if r.get("success")
+                    else "t" if r.get("timed_out")
+                    else "x" if "error" in r
+                    else "–"
+                )
                 sys.stdout.write(
                     f"\r  [{i:>3}/{len(schedule)}] {status} {tag:<20} "
                     f"elapsed={elapsed:>5.0f}s eta={remaining:>5.0f}s           "
@@ -410,7 +494,12 @@ def bench_run(
     _print_summary(results)
     errors = sum(1 for r in results if "error" in r)
     if errors:
-        typer.echo(f"\n{errors} error(s) out of {len(results)} — see --output for details.", err=True)
+        timeouts = sum(1 for r in results if r.get("timed_out"))
+        typer.echo(
+            f"\n{errors} error(s) out of {len(results)}, {timeouts} of them at the "
+            f"{timeout}s deadline — see --output for details.",
+            err=True,
+        )
 
 
 def _preflight_ollama(base_url: str, models: list[str]) -> list[str]:

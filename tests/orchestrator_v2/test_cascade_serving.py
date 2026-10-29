@@ -198,7 +198,7 @@ def _run_task_producing(output: str):
     return _fake
 
 
-async def _post_code_task(judge_correctness_value, escalate_result):
+async def _post_code_task(judge_correctness_value, escalate_result, **body_extra):
     """POST one code task with a scripted judge verdict + escalation result."""
     with patch("backend.orchestrator.service.app._run_task",
                side_effect=_run_task_producing(LOCAL_OUTPUT)), \
@@ -211,7 +211,8 @@ async def _post_code_task(judge_correctness_value, escalate_result):
         ) as ac:
             resp = await ac.post(
                 "/api/task",
-                json={"prompt": "write a python function f(n)", "capability_hint": "code"},
+                json={"prompt": "write a python function f(n)", "capability_hint": "code",
+                      **body_extra},
             )
     return resp, esc
 
@@ -276,6 +277,18 @@ async def test_cascade_disabled_leaves_serving_untouched(store, client_setup, ro
     resp, esc = await _post_code_task(0.0, (CLOUD_OUTPUT, 0.02, "unused"))
 
     assert resp.json()["output"] == LOCAL_OUTPUT
+    esc.assert_not_awaited()
+
+
+async def test_a_request_can_refuse_escalation(store, client_setup, router):
+    """A bench measuring an arm sends escalate=False. On 2026-10-28 the cascade
+    served claude-cli's answers to 25 HumanEval+ prompts under granite's name."""
+    resp, esc = await _post_code_task(0.0, (CLOUD_OUTPUT, 0.02, "unused"), escalate=False)
+
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["output"] == LOCAL_OUTPUT
+    assert body["cascade"]["escalated"] is False
     esc.assert_not_awaited()
 
 

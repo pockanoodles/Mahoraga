@@ -76,7 +76,10 @@ def load_results(path: Path) -> list[dict]:
     Uses `prompt_full`/`output_full` (added to bench.py so full text is
     available offline); rows without a full prompt or an agent are skipped.
     A row whose task failed simply has an empty `output_full` and will score
-    as a (correct) verifiable failure downstream.
+    as a (correct) verifiable failure downstream. So does a row that errored
+    (a timeout, a dropped connection) from 2026-10-28 on; in older files those
+    rows carry only the 60-character `prompt`, so they count as unmatched and
+    drop out of pass@1.
     """
     rows: list[dict] = []
     with open(path) as f:

@@ -404,10 +404,9 @@ async def test_single_task_observe_fires_on_exception(store, client_setup, route
     endpoint and skipped observe + metrics entirely, leaking rewards on the happy-path
     endpoint as well as the batch one.
     """
-    # ASGITransport re-raises unhandled exceptions into the test client by
-    # default (raise_app_exceptions=True), so we expect a RuntimeError here.
-    # In production FastAPI surfaces this as HTTP 500. Either way, the
-    # critical contract is that observe + metrics fire before the raise.
+    # The endpoint answers the failure as a 500 instead of re-raising it (a
+    # raised exception also made uvicorn drop the connection). The critical
+    # contract is unchanged: observe + metrics fire before the answer.
     with patch(
         "backend.orchestrator.service.app._run_task",
         side_effect=RuntimeError("simulated failure"),
@@ -415,11 +414,12 @@ async def test_single_task_observe_fires_on_exception(store, client_setup, route
         async with AsyncClient(
             transport=ASGITransport(app=app), base_url="http://test"
         ) as ac:
-            with pytest.raises(RuntimeError, match="simulated failure"):
-                await ac.post(
-                    "/api/task",
-                    json={"prompt": "write a hello world function"},
-                )
+            resp = await ac.post(
+                "/api/task",
+                json={"prompt": "write a hello world function"},
+            )
+    assert resp.status_code == 500
+    assert "simulated failure" in resp.json()["detail"]["error"]
 
     # The decision log MUST still have a row with reward written
     rows = _decision_rows(router)

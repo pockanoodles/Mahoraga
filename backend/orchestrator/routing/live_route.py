@@ -41,6 +41,7 @@ from typing import Any, Optional
 
 import yaml
 
+from ..config import ollama_base_url
 from ..domain.models import Task, TaskAttempt
 from ..workers.claude_cli import ClaudeCliWorker
 from ..workers.ollama import OllamaWorker
@@ -270,7 +271,7 @@ def load_arms(
     cfg: dict[str, Any] = yaml.safe_load(config_path.read_text()) or {}
 
     ollama_cfg = cfg.get("ollama", {})
-    base_url = ollama_cfg.get("base_url", "http://localhost:11434")
+    base_url = ollama_base_url(ollama_cfg.get("base_url"))
     want = local_arm.split(":")[1] if local_arm.startswith("ollama:") else local_arm
     spec = next((m for m in ollama_cfg.get("models", []) if m.get("id") == want), None)
     if spec is None:
@@ -280,7 +281,7 @@ def load_arms(
         worker_id=f"ollama:{want}:{local_role}",
         base_url=base_url,
         options=spec.get("options"),
-        extra_payload=spec.get("extra_payload", {"think": False}),
+        extra_payload=spec.get("extra_payload"),
         max_ctx=spec.get("max_ctx"),
     )
 

@@ -6,7 +6,8 @@
 The landing page was rebuilt on `feat/site-edition` as the audit's running log, with
 exhibits made from its data (ADR `2026-10-29-landing-page-is-the-log.md`). It built and
 passed the browser sweep on the morning of 10-29, after the laptop's run had ended for the
-night.
+night. Kaito then asked for three pages, so the site is now Research, Engine and Install,
+with a hero that can no longer overlap itself (ADR `2026-10-29-three-pages.md`).
 
 Still open, in order:
 1. The clean run reaches 47 of 47. Night 1 filled 10, so at that pace it needs a fifth night

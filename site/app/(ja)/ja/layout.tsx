@@ -1,8 +1,7 @@
-import { metadataFor, viewport } from "../../_lib/meta";
+import { viewport } from "../../_lib/meta";
 import { mono, sans } from "../../_lib/fonts";
 import "../../globals.css";
 
-export const metadata = metadataFor("ja");
 export { viewport };
 
 export default function JaLayout({ children }: Readonly<{ children: React.ReactNode }>) {

@@ -700,6 +700,12 @@ code,
   }
 }
 
+/* A page that opens on a section instead of the hero gives its title room
+   below the bar, which sits over the page. */
+.page-head > .band__body {
+  padding-top: calc(var(--mh-header) + var(--mh-s-8));
+}
+
 .h2 {
   font-size: clamp(30px, 3.5vw, 54px);
   font-weight: 600;

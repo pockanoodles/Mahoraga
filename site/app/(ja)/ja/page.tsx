@@ -1,6 +1,9 @@
-import { Landing } from "@/components/Landing";
+import { Research } from "@/components/Research";
 import { copy } from "@/content/copy";
+import { metadataFor } from "../../_lib/meta";
+
+export const metadata = metadataFor("ja", "research");
 
 export default function Page() {
-  return <Landing t={copy.ja} locale="ja" />;
+  return <Research t={copy.ja} locale="ja" />;
 }

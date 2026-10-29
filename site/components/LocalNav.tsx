@@ -1,56 +1,50 @@
 "use client";
 
-// The page's own bar (Design 03): mark and name at the left, the page's
-// sections in the true centre, the log's last update, the language and the
-// repository at the right.
-// It is clear over the hero and frosts once the page scrolls under it, which an
-// IntersectionObserver on the hero decides, not a scroll listener.
+// The site's own bar (Design 03): mark and name at the left, its three pages in
+// the true centre, the log's last update, the language and the repository at
+// the right.
+// Over the research page's hero it is clear, and it frosts once the page
+// scrolls under it, which an IntersectionObserver on the hero decides, not a
+// scroll listener. The other pages have no hero, so there it starts frosted.
 import { useEffect, useRef, useState } from "react";
-import type { Dict, Locale } from "@/content/copy";
+import type { Dict } from "@/content/copy";
 import { Mark } from "./Mark";
 
-const SECTIONS = ["log", "engine", "run"] as const;
+export type NavLink = { href: string; label: string; current: boolean };
 
 // A function can't cross into a client component, so the date's label comes
-// formatted from the server, next to the date the <time> element carries.
+// formatted from the server, next to the date the <time> element carries, and
+// every href comes resolved for the page and language being served.
 export function LocalNav({
   t,
-  locale,
   updated,
   updatedLabel,
   repo,
+  home,
+  links,
+  other,
+  hero,
 }: {
-  t: Omit<Dict["nav"], "updated">;
-  locale: Locale;
+  t: Pick<Dict["nav"], "github" | "label">;
   updated: string;
   updatedLabel: string;
   repo: string;
+  home: string;
+  links: NavLink[];
+  other: { href: string; label: string; lang: string };
+  hero: boolean;
 }) {
   const bar = useRef<HTMLElement>(null);
-  const [overHero, setOverHero] = useState(true);
-  const [current, setCurrent] = useState<string | null>(null);
+  const [overHero, setOverHero] = useState(hero);
   const [open, setOpen] = useState(false);
 
   useEffect(() => {
-    const hero = document.querySelector("[data-hero]");
-    if (!hero || !bar.current) return;
+    const el = document.querySelector("[data-hero]");
+    if (!el || !bar.current) return;
     const io = new IntersectionObserver(([e]) => setOverHero(e.isIntersecting), {
       rootMargin: `-${bar.current.offsetHeight}px 0px 0px 0px`,
     });
-    io.observe(hero);
-    return () => io.disconnect();
-  }, []);
-
-  // The section whose top has passed the middle of the screen is the current one.
-  useEffect(() => {
-    const els = SECTIONS.map((id) => document.getElementById(id)).filter(Boolean) as HTMLElement[];
-    const io = new IntersectionObserver(
-      (entries) => {
-        for (const e of entries) if (e.isIntersecting) setCurrent(e.target.id);
-      },
-      { rootMargin: "-50% 0px -49% 0px" },
-    );
-    els.forEach((el) => io.observe(el));
+    io.observe(el);
     return () => io.disconnect();
   }, []);
 
@@ -61,19 +55,16 @@ export function LocalNav({
     return () => document.removeEventListener("keydown", onKey);
   }, [open]);
 
-  const other = locale === "en" ? { href: "/mahoraga/ja/", label: "日本語", lang: "ja" } : { href: "/mahoraga/", label: "English", lang: "en" };
-  const links = SECTIONS.map((id) => ({ id, label: t[id] }));
-
   return (
     <header ref={bar} className="lnav" data-clear={(overHero && !open) || undefined} data-open={open || undefined}>
       <div className="lnav__row">
-        <a href="#top" className="lnav__brand" aria-label={`${t.label}, back to the top`}>
+        <a href={hero ? "#top" : home} className="lnav__brand" aria-label={hero ? `${t.label}, back to the top` : undefined}>
           <Mark size={22} />
           <span>Mahoraga</span>
         </a>
         <nav className="lnav__links" aria-label={t.label}>
           {links.map((l) => (
-            <a key={l.id} href={`#${l.id}`} aria-current={current === l.id ? "true" : undefined}>
+            <a key={l.href} href={l.href} aria-current={l.current ? "page" : undefined}>
               {l.label}
             </a>
           ))}
@@ -93,7 +84,7 @@ export function LocalNav({
             className="lnav__toggle"
             aria-expanded={open}
             aria-controls="lnav-panel"
-            aria-label={open ? "Close" : "Sections"}
+            aria-label={open ? "Close" : "Pages"}
             onClick={() => setOpen((o) => !o)}
           >
             <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden>
@@ -105,7 +96,7 @@ export function LocalNav({
       {open && (
         <nav id="lnav-panel" className="lnav__panel" aria-label={t.label}>
           {links.map((l) => (
-            <a key={l.id} href={`#${l.id}`} onClick={() => setOpen(false)}>
+            <a key={l.href} href={l.href} aria-current={l.current ? "page" : undefined} onClick={() => setOpen(false)}>
               {l.label}
             </a>
           ))}

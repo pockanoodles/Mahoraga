@@ -1,4 +1,5 @@
 import type { MetadataRoute } from "next";
+import { PAGES, pagePath } from "@/lib/routes";
 import { SITE } from "./_lib/meta";
 
 // Served at /mahoraga/sitemap.xml. The domain's robots.txt belongs to the
@@ -6,8 +7,11 @@ import { SITE } from "./_lib/meta";
 export const dynamic = "force-static";
 
 export default function sitemap(): MetadataRoute.Sitemap {
-  return [
-    { url: `${SITE}/mahoraga/`, alternates: { languages: { en: `${SITE}/mahoraga/`, ja: `${SITE}/mahoraga/ja/` } } },
-    { url: `${SITE}/mahoraga/ja/`, alternates: { languages: { en: `${SITE}/mahoraga/`, ja: `${SITE}/mahoraga/ja/` } } },
-  ];
+  return PAGES.flatMap((page) => {
+    const languages = { en: `${SITE}${pagePath("en", page)}`, ja: `${SITE}${pagePath("ja", page)}` };
+    return [
+      { url: languages.en, alternates: { languages } },
+      { url: languages.ja, alternates: { languages } },
+    ];
+  });
 }

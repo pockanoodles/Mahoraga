@@ -1,9 +1,19 @@
 # kaitosoeno.com/mahoraga
 
-Mahoraga's landing page. It is a Next.js static export that ships as its own Cloudflare
-Worker on the route `kaitosoeno.com/mahoraga*`, so it releases with Mahoraga rather than
-with the personal site, which stays the origin for every other path. English is at
-`/mahoraga/` and Japanese at `/mahoraga/ja/`.
+Mahoraga's site. It is a Next.js static export that ships as its own Cloudflare Worker on
+the route `kaitosoeno.com/mahoraga*`, so it releases with Mahoraga rather than with the
+personal site, which stays the origin for every other path. It has three pages, each in
+English under `/mahoraga/` and in Japanese under `/mahoraga/ja/`:
+
+- **Research** (`/mahoraga/`, the landing page): where local stands, one task in full, the
+  settings grid and the log (`components/Research.tsx`).
+- **Engine** (`/mahoraga/engine/`): the pipeline, the first probe replayed, the verdict
+  calculator and what stays on the machine (`components/Engine.tsx`).
+- **Install** (`/mahoraga/install/`): installing it, running it, scripting it and helping
+  with it (`components/Install.tsx`).
+
+`components/Shell.tsx` gives every page the same bar, footer and menu, and `lib/routes.ts`
+holds every page's path, which the links, the metadata and the sitemap all read.
 
 ## Where things come from
 
@@ -43,7 +53,9 @@ npm run typecheck
 2. Publish the channels (see `packaging/`), then set `live: true` for each one in
    `content/channels.ts`. Leave a channel at `false` until its command really works.
 3. If GitHub Sponsors (or Ko-fi or Liberapay) is set up, put its URL in `SPONSOR_URL`.
-4. `npm run build`, check `/mahoraga/` and `/mahoraga/ja/` with `npm run preview`.
+4. `npm run build`, then `npm run preview`, and in another shell
+   `BASE=http://localhost:3222 npm run verify`, which loads all six pages on a laptop and a
+   phone and checks the hero's layout at the window sizes that once broke it.
 5. `npx wrangler deploy` from this directory. The route needs the `kaitosoeno.com` zone on
    the same Cloudflare account as the personal site. After the first deploy, run
    `curl -sI https://kaitosoeno.com/mahoraga/` and confirm that this Worker answers it,

@@ -33,7 +33,7 @@ export function GET(): Response {
     '<feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en">',
     `  <id>${PAGE}</id>`,
     `  <title>${esc(t.log.feed)}</title>`,
-    `  <subtitle>${esc(t.meta.description)}</subtitle>`,
+    `  <subtitle>${esc(t.meta.research.description)}</subtitle>`,
     `  <link rel="alternate" type="text/html" href="${PAGE}#log"/>`,
     `  <link rel="self" type="application/atom+xml" href="${PAGE}log.xml"/>`,
     `  <updated>${UPDATED}T00:00:00Z</updated>`,

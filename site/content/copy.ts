@@ -9,8 +9,8 @@ import type { Kind } from "./log";
 export type Locale = "en" | "ja";
 
 export interface Dict {
-  meta: { title: string; description: string };
-  nav: { log: string; engine: string; run: string; github: string; label: string; updated: (date: string) => string };
+  meta: Record<"research" | "engine" | "install", { title: string; description: string }>;
+  nav: { research: string; engine: string; install: string; github: string; label: string; updated: (date: string) => string };
   hero: { eyebrow: string; statement: string; sub: string; cta: string; more: string };
   standing: {
     title: (n: number) => string;
@@ -142,11 +142,23 @@ const MONTHS = ["January", "February", "March", "April", "May", "June", "July", 
 
 const en: Dict = {
   meta: {
-    title: "Mahoraga: local coding AI, measured on real code",
-    description:
-      "Mahoraga is an open engine that measures local coding agents on real commits and logs every result with the data behind it.",
+    research: {
+      title: "Mahoraga: local coding AI, measured on real code",
+      description:
+        "Mahoraga is an open engine that measures local coding agents on real commits and logs every result with the data behind it.",
+    },
+    engine: {
+      title: "Mahoraga: how the engine reaches a verdict",
+      description:
+        "Mahoraga grades a local agent on your repository's own commits and turns the share it resolves into a stay, split, or switch verdict.",
+    },
+    install: {
+      title: "Mahoraga: install it and run it on your own repository",
+      description:
+        "Install Mahoraga from source and queue a night's run on your own repository, on macOS or Linux with Python 3.12+ and Ollama.",
+    },
   },
-  nav: { log: "Log", engine: "Engine", run: "Run it", github: "GitHub", label: "Mahoraga", updated: (d) => `Updated ${d}` },
+  nav: { research: "Research", engine: "Engine", install: "Install", github: "GitHub", label: "Mahoraga", updated: (d) => `Updated ${d}` },
   hero: {
     eyebrow: "Where local stands, October 2026",
     statement: "For most people, the answer is still to keep paying for cloud.",
@@ -375,11 +387,23 @@ const jaWord: Record<CurvePoint["call"], string> = { stay: "継続", split: "分
 
 const ja: Dict = {
   meta: {
-    title: "Mahoraga：ローカルのコーディング AI を、実際のコードで測る",
-    description:
-      "Mahoraga は、ローカルのコーディングエージェントを実際のコミットで測るオープンなエンジンです。結果はすべて、根拠のデータと一緒に記録しています。",
+    research: {
+      title: "Mahoraga：ローカルのコーディング AI を、実際のコードで測る",
+      description:
+        "Mahoraga は、ローカルのコーディングエージェントを実際のコミットで測るオープンなエンジンです。結果はすべて、根拠のデータと一緒に記録しています。",
+    },
+    engine: {
+      title: "Mahoraga：エンジンが判定を出すまで",
+      description:
+        "Mahoraga は、リポジトリ自身のコミットでローカルのエージェントを採点し、解決できた割合を「継続」「分担」「移行」の判定に変えます。",
+    },
+    install: {
+      title: "Mahoraga：インストールして、自分のリポジトリで動かす",
+      description:
+        "Mahoraga をソースからインストールし、自分のリポジトリで一晩の計測を予約します。macOS か Linux で、Python 3.12 以降と Ollama を使います。",
+    },
   },
-  nav: { log: "記録", engine: "エンジン", run: "動かす", github: "GitHub", label: "Mahoraga", updated: (d) => `${d} 更新` },
+  nav: { research: "研究", engine: "エンジン", install: "インストール", github: "GitHub", label: "Mahoraga", updated: (d) => `${d} 更新` },
   hero: {
     eyebrow: "ローカルの現在地（2026 年 10 月）",
     statement: "多くの人にとって、答えは今もクラウドに払い続けることです。",

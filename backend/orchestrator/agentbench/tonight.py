@@ -31,8 +31,14 @@ DEFAULT_LIMIT = 25
 # Where a larger model starts to fit alongside a 131k context.
 LARGE_MEMORY_GB = 48
 
+# The agent version the published log measured. Every agentbench claim in
+# experiments/claims.json names it, and a test keeps the two in step. Another
+# version can resolve a different share, so doctor and tonight say when this
+# machine's differs, and the install line asks for this one.
+MEASURED = {"aider": "0.86.2"}
+
 INSTALL = {
-    "aider": "uv tool install --python 3.12 aider-chat",
+    "aider": f"uv tool install --python 3.12 aider-chat=={MEASURED['aider']}",
     "opencode": "npm install -g opencode-ai",
 }
 
@@ -74,6 +80,18 @@ def queued_ahead(queue: Queue, window: str, job: Job | None = None) -> tuple[int
         per, _ = minutes_per_attempt(bench, {arm_name(a) for a in agents})
         attempts, minutes = attempts + left, minutes + left * per
     return attempts, minutes
+
+
+def version_note(name: str, reported: str) -> str | None:
+    """What to say when this machine's agent isn't the version the log measured.
+    `reported` is what its `--version` printed (manifest.agent_versions). None
+    when it matches, when the log measured no version of it, or when it isn't
+    installed, since its check already says so."""
+    measured = MEASURED.get(name)
+    if measured is None or not reported or reported.startswith("error:") or measured in reported.split():
+        return None
+    return (f"{name} here is {reported.splitlines()[0]}, and the log measured {name} {measured}, "
+            f"so a rate here can differ from the log's for that alone. To match it: {INSTALL[name]}")
 
 
 def cli_missing(which=shutil.which, here: Path | None = None) -> str | None:

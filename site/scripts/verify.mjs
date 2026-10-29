@@ -182,6 +182,30 @@ for (const pg of PAGES) {
     await page.close();
   }
 }
+// The hero at the window sizes that once broke it: the chart below the bar,
+// nothing in it overlapping anything else, and the answer on the first screen.
+const box = (page, sel) => page.locator(sel).first().evaluate((e) => {
+  const b = e.getBoundingClientRect();
+  return { top: b.top, bottom: b.bottom, left: b.left, right: b.right };
+});
+const meets = (a, b) => a.top < b.bottom - 1 && b.top < a.bottom - 1 && a.left < b.right - 1 && b.left < a.right - 1;
+for (const [pg, width, height] of [[PAGES[0], 1000, 558], [PAGES[0], 1280, 800], [PAGES[0], 1440, 780], [PAGES[0], 390, 844], [PAGES[0], 375, 600], [PAGES[1], 1000, 558], [PAGES[1], 375, 600]]) {
+  const tag = `layout ${pg.lang} ${width}×${height}`;
+  const page = await browser.newPage({ viewport: { width, height } });
+  await page.goto(BASE + pg.path, { waitUntil: "networkidle" });
+  await page.waitForTimeout(1200); // the hero's rise animation
+  const [nav, chart, text, cta, h1] = await Promise.all([".lnav", ".standing", ".hero__text", ".hero__cta", ".hero__statement"].map((s) => box(page, s)));
+  check(chart.top >= nav.bottom - 1, `${tag}: the chart starts below the bar`);
+  check(text.top >= nav.bottom - 1 && cta.top >= nav.bottom - 1, `${tag}: the answer and its actions start below the bar`);
+  check(!meets(chart, text) && !meets(chart, cta) && !meets(text, cta), `${tag}: the chart, the answer and its actions don't overlap`);
+  check(h1.bottom <= height, `${tag}: the answer is on the first screen`);
+  const clipped = await page.locator(".hero .standing span, .hero .standing p").evaluateAll((els) =>
+    els.filter((e) => { const b = e.getBoundingClientRect(); return b.width > 0 && (b.left < -1 || b.right > window.innerWidth + 1); }).length,
+  );
+  check(clipped === 0, `${tag}: no label of the chart runs off the screen (${clipped})`);
+  await page.close();
+}
+
 // On a touch screen the first tap on a square shows its commit, a second tap
 // on the same square opens it, and so does a tap on the tip's own link.
 {

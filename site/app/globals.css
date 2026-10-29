@@ -296,15 +296,21 @@ code,
 
 /* ── Hero ─────────────────────────────────────────────────────────────── */
 
+/* The answer and its action at the left and the chart at the right, as the
+   social card lays them out. The hero fills the screen, and grows past it when
+   its content needs the room, so no part of it can sit on another. */
 .hero {
   position: relative;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  grid-template-rows: var(--mh-header) minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+  grid-template-areas:
+    "text chart"
+    "cta chart";
+  align-content: center;
   column-gap: var(--mh-s-9);
-  height: 100svh;
-  min-height: 620px;
-  padding: 0 var(--mh-gutter) var(--mh-s-10);
+  row-gap: var(--mh-s-6);
+  min-height: 100svh;
+  padding: calc(var(--mh-header) + var(--mh-s-6)) var(--mh-gutter) var(--mh-s-9);
   overflow: hidden;
   isolation: isolate;
 }
@@ -316,24 +322,22 @@ code,
   inset: 0;
   z-index: -1;
   background:
-    radial-gradient(ellipse 56% 44% at 46% 36%, rgb(255 244 232 / 0.075), transparent 72%),
+    radial-gradient(ellipse 56% 44% at 62% 40%, rgb(255 244 232 / 0.075), transparent 72%),
     radial-gradient(ellipse 90% 26% at 50% 104%, rgb(255 250 245 / 0.035), transparent 70%),
     var(--mh-stage);
 }
 
+/* The chart reads its own width, not the screen's, to choose its layout. */
 .hero__chart {
-  grid-column: 1;
-  grid-row: 2;
-  display: flex;
-  align-items: center;
-  min-height: 0;
-  padding: var(--mh-s-6) 0 var(--mh-s-6);
+  grid-area: chart;
+  align-self: center;
+  container: standing / inline-size;
   animation: rise var(--mh-dur-enter) var(--mh-ease) 120ms both;
 }
 
 .hero__text {
-  grid-column: 1 / -1;
-  grid-row: 3;
+  grid-area: text;
+  align-self: end;
   max-width: var(--mh-measure-statement);
   animation: rise var(--mh-dur-enter) var(--mh-ease) both;
 }
@@ -348,7 +352,7 @@ code,
 }
 
 .hero__statement {
-  font-size: clamp(34px, 4.4vw, 70px);
+  font-size: clamp(32px, min(3.8vw, 6.6svh), 62px);
   font-weight: 600;
   line-height: 1.02;
   letter-spacing: -0.035em;
@@ -365,14 +369,12 @@ code,
 }
 
 .hero__cta {
-  grid-column: 2;
-  grid-row: 2;
-  align-self: center;
+  grid-area: cta;
+  align-self: start;
   display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: var(--mh-s-3);
-  margin-right: calc(80px - var(--mh-gutter));
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--mh-s-3) var(--mh-s-6);
   animation: rise var(--mh-dur-enter) var(--mh-ease) 240ms both;
 }
 
@@ -423,8 +425,9 @@ code,
   }
 }
 
-/* Tall and narrow screens: the corners become a column. Statement first, the
-   chart in whatever height is left, then the action clear of Safari's bar. */
+/* Tall and narrow screens: one column. Statement first, then the chart in the
+   height that is left (never less than its own), then the action clear of
+   Safari's bar. */
 @media (max-aspect-ratio: 5/4), (max-width: 639px) {
   :root {
     --lift: max(4.5rem, calc(env(safe-area-inset-bottom, 0px) + 3.5rem));
@@ -432,29 +435,22 @@ code,
 
   .hero {
     grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: var(--mh-header) auto minmax(0, 1fr) auto;
-    height: 100svh;
-    min-height: 600px;
-    padding-bottom: var(--lift);
+    grid-template-areas:
+      "text"
+      "chart"
+      "cta";
+    grid-template-rows: auto 1fr auto;
+    align-content: stretch;
+    row-gap: var(--mh-s-5);
+    padding: calc(var(--mh-header) + var(--mh-s-5)) var(--mh-gutter) var(--lift);
   }
 
   .hero__text {
-    grid-row: 2;
-    padding-top: var(--mh-s-5);
-  }
-
-  .hero__chart {
-    grid-row: 3;
-    padding: var(--mh-s-5) 0 var(--mh-s-4);
+    align-self: start;
   }
 
   .hero__cta {
-    grid-column: 1;
-    grid-row: 4;
-    flex-direction: row;
-    align-items: center;
     justify-content: space-between;
-    margin-right: 0;
   }
 
   .hero__statement {
@@ -1874,6 +1870,20 @@ html.js .reveal:not([data-shown]) {
     grid-template-columns: 2rem minmax(0, 1fr);
   }
 
+  .foot {
+    flex-direction: column;
+  }
+
+  .foot__cols {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .notes {
+    padding: var(--mh-s-7) var(--mh-s-6) var(--mh-s-9);
+  }
+}
+
+@container standing (max-width: 40rem) {
   /* The chart's labels go above their tracks, and the break-even line
      becomes a tick on each track so it never crosses a label. */
   .standing {
@@ -1905,6 +1915,17 @@ html.js .reveal:not([data-shown]) {
     grid-column: 1;
   }
 
+  /* A narrow track has less room left of the line than the label needs, so
+     the label wraps inside that room with its right edge still on the line. */
+  .standing__be-label span {
+    justify-self: end;
+    margin-left: 0;
+    margin-right: calc((1 - var(--be)) * 100%);
+    transform: none;
+    text-align: right;
+    white-space: normal;
+  }
+
   .standing__track::after,
   .standing__row:first-child .standing__track::after,
   .standing__row:last-child .standing__track::after {
@@ -1914,18 +1935,6 @@ html.js .reveal:not([data-shown]) {
 
   .standing__pct {
     font-size: 20px;
-  }
-
-  .foot {
-    flex-direction: column;
-  }
-
-  .foot__cols {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .notes {
-    padding: var(--mh-s-7) var(--mh-s-6) var(--mh-s-9);
   }
 }
 

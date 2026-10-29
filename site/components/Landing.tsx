@@ -94,15 +94,15 @@ export function Landing({ t, locale }: { t: Dict; locale: Locale }) {
         {/* ── Hero: where local stands ── */}
         <section className="hero" data-hero aria-labelledby="hero-title">
           <div className="hero__stage" aria-hidden />
-          <div className="hero__chart">
-            <Standing t={t.standing} locale={locale} refs={[t.notes.ref(1), t.notes.ref(2)]} />
-          </div>
           <div className="hero__text">
             <p className="hero__eyebrow">{t.hero.eyebrow}</p>
             <h1 id="hero-title" className="hero__statement">
               {t.hero.statement}
             </h1>
             <p className="hero__sub">{t.hero.sub}</p>
+          </div>
+          <div className="hero__chart">
+            <Standing t={t.standing} locale={locale} refs={[t.notes.ref(1), t.notes.ref(2)]} />
           </div>
           <div className="hero__cta">
             <a href="#log" className="pill">

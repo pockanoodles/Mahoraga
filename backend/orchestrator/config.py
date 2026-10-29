@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+from backend.orchestrator import paths
 
 # Controls which backends are registered at startup.
 # personal branch: ["ollama"]
@@ -33,7 +34,7 @@ _DEFAULTS: dict = {
 
 class MahoragaConfig:
     def __init__(self, path: Path | None = None) -> None:
-        self._path = path or (Path.home() / ".mahoraga-v2" / "config.json")
+        self._path = path or (paths.home() / "config.json")
 
     def _stored(self) -> dict:
         """The defaults with the file laid over them, which is what `set` writes back."""

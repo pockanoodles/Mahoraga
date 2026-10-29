@@ -30,6 +30,7 @@ from typing import Any, Optional, Protocol, Sequence
 import numpy as np
 
 from backend.orchestrator.lru_cache import ThreadSafeLRUCache
+from backend.orchestrator import paths
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +38,7 @@ logger = logging.getLogger(__name__)
 MODEL_ID = "all-MiniLM-L6-v2"
 DIM = 384
 LRU_SIZE = 1_000
-DEFAULT_CACHE_PATH = Path.home() / ".mahoraga-v2" / "embedding_cache.sqlite"
+DEFAULT_CACHE_PATH = paths.home() / "embedding_cache.sqlite"
 _BATCH_SIZE = 64
 
 

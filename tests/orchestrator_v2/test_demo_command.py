@@ -59,6 +59,17 @@ def test_demo_server_runs_in_a_scratch_home_with_the_cascade_off(served, tmp_pat
     assert sorted(p.name for p in home.iterdir()) == [demo.HOME_MARK]
 
 
+def test_a_mahoraga_home_of_your_own_never_reaches_the_demo_server(served, tmp_path, monkeypatch):
+    mine = tmp_path / "my-state"
+    monkeypatch.setenv("MAHORAGA_HOME", str(mine))
+    result = CliRunner().invoke(app, ["demo"])
+    assert result.exit_code == 0, result.output
+    env = served[0]["env"]
+    assert env["MAHORAGA_AGENTBENCH_ROOT"] == str(mine / "demo")
+    assert env["HOME"] == str(mine / "demo-home")
+    assert env["MAHORAGA_HOME"] == str(mine / "demo-home" / ".mahoraga-v2")
+
+
 def test_each_demo_starts_from_an_empty_home(served, tmp_path):
     CliRunner().invoke(app, ["demo"])
     home = tmp_path / ".mahoraga-v2" / "demo-home"

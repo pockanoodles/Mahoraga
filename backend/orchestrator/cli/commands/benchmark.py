@@ -8,6 +8,7 @@ from __future__ import annotations
 import random
 import typer
 from typing import Optional
+from backend.orchestrator import paths
 
 app = typer.Typer(
     name="benchmark",
@@ -599,7 +600,7 @@ def bootstrap(
     from backend.orchestrator.routing.context import TaskContext
 
     _random.seed(seed)
-    db = _Path(db_path).expanduser() if db_path else _Path.home() / ".mahoraga-v2" / "routing_decisions.db"
+    db = _Path(db_path).expanduser() if db_path else paths.home() / "routing_decisions.db"
 
     if reset and db.exists():
         # Clear *only* the decisions table; keep bench_runs intact.

@@ -23,10 +23,11 @@ from pathlib import Path
 
 import httpx
 import psutil
+from backend.orchestrator import paths
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_LOG = Path.home() / ".mahoraga-v2" / "resource.jsonl"
+DEFAULT_LOG = paths.home() / "resource.jsonl"
 
 
 def _thermal_level() -> str:

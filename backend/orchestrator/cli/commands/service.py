@@ -34,13 +34,14 @@ from pathlib import Path
 from xml.sax.saxutils import escape as _xml_escape
 
 import typer
+from backend.orchestrator import paths
 
 app = typer.Typer(help="Manage Mahoraga as a background service (macOS launchd).")
 
 _LABEL = "com.mahoraga.orch"
 _PLIST_PATH = Path.home() / "Library" / "LaunchAgents" / f"{_LABEL}.plist"
 _PROJECT_ROOT = Path(__file__).parents[4]
-_LOG_DIR = Path.home() / ".mahoraga-v2"
+_LOG_DIR = paths.home()
 _LOG_FILE = _LOG_DIR / "server.log"
 _SERVICE_ENV_FILE = _LOG_DIR / "service.env"
 
@@ -161,13 +162,16 @@ def _build_environment() -> dict[str, str]:
     """The daemon's environment: a working PATH plus the user's service.env.
 
     HOME is passed through explicitly because state paths (`~/.mahoraga-v2`)
-    resolve from it, and service.env wins over the defaults so PATH itself can
-    be overridden if a roster needs something exotic.
+    resolve from it, and so is MAHORAGA_HOME when it is set. service.env wins
+    over the defaults so PATH itself can be overridden if a roster needs
+    something exotic.
     """
     env = {
         "PATH": ":".join(_DAEMON_PATH_DIRS),
         "HOME": str(Path.home()),
     }
+    if os.environ.get("MAHORAGA_HOME"):
+        env["MAHORAGA_HOME"] = str(paths.home())  # launchd expands no ~
     env.update(_parse_env_file(_SERVICE_ENV_FILE))
     return env
 

@@ -1,5 +1,17 @@
 # Current State — 2026-10-29
 
+## 2026-10-29 (evening): the site is live, and the direction is a long-term study
+
+The three-page site (#78) went live at kaitosoeno.com/mahoraga on 10-29, and the polish PR
+(`feat/site-polish`) followed the same evening on Kaito's word, with Codex skipped because it
+was down. The settings grid opens on its finding instead of switching itself from 9 to 28,
+its section names the Studio and the 77% bar, the three pickers are one component with a
+sliding thumb, and corners are concentric (`--mh-radius-floor`, BRAND.md). The direction is
+ADR `2026-10-29-long-term-study.md`: Research publishes the study one finding at a time,
+Engine is the judgment as a replication kit (routing stays last), Install is logistics, and
+pooled results wait for five conditions. Kaito updates the personal-website portfolio row
+himself.
+
 ## 2026-10-29: the landing page is the log, and the October report is on main
 
 #48 (the October report, its PENDING blocks still open) merged as 87a6cb9 on Kaito's word.
@@ -14,8 +26,8 @@ Still open, in order:
    (Nov 2) past the script's four-night cap, which is Kaito's call. Then the laptop export, its claims, the
    report's PENDING blocks, a log entry, and `HEADLINE` moving to the laptop's row go in one
    follow-up PR.
-2. Deploy the page (`npx wrangler deploy` from `site/`) once Kaito has looked at it, then flip
-   the Mahoraga row in personal-website `content/projects.ts`.
+2. ~~Deploy the page~~ done 10-29 (#78, then the polish PR). The Mahoraga row in
+   personal-website `content/projects.ts` is Kaito's to flip.
 3. The pip release plan (local, `docs/plans/2026-10-pip-release.md`) renames `backend` only
    after the edition's claims are written, as its own PR.
 

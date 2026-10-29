@@ -107,6 +107,7 @@ export interface Dict {
     steps: [string, string, string];
     morning: string;
     pending: (names: string) => string;
+    later: (names: string, n: number) => string;
     copy: string;
     copied: string;
   };
@@ -328,6 +329,7 @@ const en: Dict = {
     steps: ["Install the engine from source", "Pull the model this log measures", "Queue tonight's run on your repository"],
     morning: "The morning file gives the rate, its interval and the verdict, after asking once how you pay for cloud.",
     pending: (names) => `Installs through ${names} wait for the first release.`,
+    later: (names, n) => `${names} ${n === 1 ? "comes" : "come"} later.`,
     copy: "Copy",
     copied: "Copied",
   },
@@ -608,6 +610,7 @@ const ja: Dict = {
     steps: ["エンジンをソースからインストールする", "この記録で測っているモデルを取得する", "今夜の実行をキューに入れる"],
     morning: "翌朝のファイルには、解決率とその区間、判定が入ります。クラウドの支払い方は、最初に一度だけ尋ねます。",
     pending: (names) => `${names} でのインストールは、最初のリリースで公開します。`,
+    later: (names) => `${names} は後日対応します。`,
     copy: "コピー",
     copied: "コピーしました",
   },

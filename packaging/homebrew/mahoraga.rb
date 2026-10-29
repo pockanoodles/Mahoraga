@@ -11,7 +11,6 @@ class Mahoraga < Formula
   sha256 "0000000000000000000000000000000000000000000000000000000000000000"
   license "MIT"
 
-  depends_on "pybind11" => :build
   depends_on "python-setuptools" => :build
   depends_on "rust" => :build # jiter
 
@@ -80,11 +79,6 @@ class Mahoraga < Formula
   resource "h11" do
     url "https://files.pythonhosted.org/packages/01/ee/02a2c011bdab74c6fb3c75474d40b3052059d95df7e73351460c8588d963/h11-0.16.0.tar.gz"
     sha256 "4e35b956cf45792e4caa5885e69fba00bdbc6ffafbfa020300e549b208ee5ff1"
-  end
-
-  resource "hnswlib" do
-    url "https://files.pythonhosted.org/packages/cf/7a/1a9b1405f2eb59515f06c3074750b03e0e96edf7fee0f6dd6df81d9c21d7/hnswlib-0.8.0.tar.gz"
-    sha256 "cb6d037eedebb34a7134e7dc78966441dfd04c9cf5ee93911be911ced951c44c"
   end
 
   resource "httpcore" do
@@ -247,11 +241,10 @@ class Mahoraga < Formula
     sha256 "6c942071b68f07e178264b9152f1f16dfac5da85880c4ce06366a96d70d4f31e"
   end
 
+  # hnswlib, the router's memory, is an extra the formula leaves out: it would
+  # compile C++ on every install, and the audit never uses it.
   def install
-    venv = virtualenv_install_with_resources(without: "hnswlib")
-    # hnswlib compiles C++ against numpy and pybind11. Build it with Homebrew's
-    # copies instead of letting pip compile numpy again in an isolated build.
-    venv.pip_install resource("hnswlib"), build_isolation: false
+    virtualenv_install_with_resources
   end
 
   test do

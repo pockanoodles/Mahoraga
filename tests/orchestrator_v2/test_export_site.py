@@ -402,6 +402,16 @@ def test_a_specimen_whose_agent_changed_nothing_is_carried(tmp_path):
     assert export._specimen(path, _publishing(tmp_path, resolved=False), tmp_path)["patch"] == ""
 
 
+def test_a_specimen_without_a_patch_or_one_that_changed_nothing_but_resolved_is_refused(tmp_path):
+    for change, match in ((lambda s: s.pop("patch"), "no patch"),
+                          (lambda s: s.update(patch="\n"), "changed nothing and says it resolved")):
+        s = json.loads(export.SPECIMEN.read_text())
+        change(s)
+        (tmp_path / "specimen.json").write_text(json.dumps(s))
+        with pytest.raises(export.ExportError, match=match):
+            export._specimen(tmp_path / "specimen.json", CLAIMS, ROOT)
+
+
 def test_a_specimen_without_the_commits_diff_is_refused(tmp_path):
     s = json.loads(export.SPECIMEN.read_text())
     s["gold_diff"] = ""

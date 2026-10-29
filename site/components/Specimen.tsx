@@ -8,12 +8,13 @@ import type { Specimen as Attempt } from "@/lib/data";
 // A diff's hunks only: the header lines name a file the card already names.
 const HEADER = /^(diff --git |index |--- |\+\+\+ )/;
 
-function Diff({ label, text, agent = false }: { label: string; text: string; agent?: boolean }) {
+// An empty diff is a sentence instead: the agent changed nothing.
+function Diff({ label, text, agent = false, empty }: { label: string; text: string; agent?: boolean; empty?: string }) {
   const lines = text.replace(/\n$/, "").split("\n").filter((l) => !HEADER.test(l));
   return (
     <figure className={agent ? "specimen__diff specimen__diff--agent" : "specimen__diff"}>
       <figcaption className="specimen__diff-label">{label}</figcaption>
-      <pre className="specimen__code">
+      {empty && !text.trim() ? <p className="specimen__none">{empty}</p> : <pre className="specimen__code">
         <code>
           {lines.map((l, i) => (
             <span key={i} className={l.startsWith("@@") ? "hunk" : l.startsWith("+") ? "add" : l.startsWith("-") ? "del" : undefined}>
@@ -22,7 +23,7 @@ function Diff({ label, text, agent = false }: { label: string; text: string; age
             </span>
           ))}
         </code>
-      </pre>
+      </pre>}
     </figure>
   );
 }
@@ -50,14 +51,7 @@ export function Specimen({ t, locale, s }: { t: Dict["specimen"]; locale: Locale
       </header>
       <div className="specimen__diffs">
         <Diff label={t.fix(s.gold_src.join(", "))} text={s.gold_diff} />
-        {s.patch.trim() ? (
-          <Diff label={t.agent} text={s.patch} agent />
-        ) : (
-          <figure className="specimen__diff specimen__diff--agent">
-            <figcaption className="specimen__diff-label">{t.agent}</figcaption>
-            <p className="specimen__none">{t.noEdits}</p>
-          </figure>
-        )}
+        <Diff label={t.agent} text={s.patch} agent empty={t.noEdits} />
       </div>
       <footer className="specimen__result">
         <p className="specimen__outcome" data-resolved={a.resolved || undefined}>

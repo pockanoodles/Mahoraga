@@ -8,13 +8,15 @@
 <h1 align="center">Mahoraga</h1>
 
 <p align="center">
-Is local coding AI worth it for your code? Mahoraga replays your repository's own history
-on a local coding agent, grades every attempt with your own tests, and tells you whether to
-stay on the cloud, split the work, or switch.
+Mahoraga measures local coding agents on real code. It replays a repository's own commits on
+a local agent overnight and grades every attempt with that repository's tests. The rate
+becomes a verdict to stay on the cloud, split the work, or switch. Every result goes into a
+<a href="https://kaitosoeno.com/mahoraga/">public log</a>, and for most people the answer so
+far is to keep paying for cloud.
 </p>
 
 <p align="center">
-  <a href="https://kaitosoeno.com/mahoraga/">kaitosoeno.com/mahoraga</a> ·
+  <a href="https://kaitosoeno.com/mahoraga/">The log</a> ·
   <a href="https://github.com/pockanoodles/Mahoraga#install">Install</a> ·
   <a href="https://github.com/pockanoodles/Mahoraga/blob/main/docs/RESULTS.md">Results</a> ·
   <a href="https://github.com/pockanoodles/Mahoraga/blob/main/DATAFLOW.md">Data flow</a> ·
@@ -24,11 +26,6 @@ stay on the cloud, split the work, or switch.
 [![CI](https://github.com/pockanoodles/Mahoraga/actions/workflows/ci.yml/badge.svg)](https://github.com/pockanoodles/Mahoraga/actions/workflows/ci.yml)
 ![Python 3.12](https://img.shields.io/badge/python-3.12-blue)
 ![License: MIT](https://img.shields.io/badge/license-MIT-green)
-
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/pockanoodles/Mahoraga/main/docs/assets/app/verdict-dark.png">
-  <img src="https://raw.githubusercontent.com/pockanoodles/Mahoraga/main/docs/assets/app/verdict-light.png" alt="The Mahoraga app showing the verdict for the published probe">
-</picture>
 
 ## What it does
 
@@ -131,18 +128,36 @@ The command you run is `mahoraga`.
 
 | Channel | Command | Status |
 | --- | --- | --- |
-| Homebrew | `brew install pockanoodles/tap/mahoraga` | with the first release |
 | uv | `uv tool install mahoraga-audit` | with the first release |
 | pipx | `pipx install mahoraga-audit` | with the first release |
-| pip | `pip install mahoraga-audit` | with the first release |
-| Docker | `docker run --rm -p 127.0.0.1:8000:8000 ghcr.io/pockanoodles/mahoraga` | with the first release |
+| pip, in a virtualenv | `pip install mahoraga-audit` | with the first release |
+| Homebrew | `brew install pockanoodles/tap/mahoraga` | after the first release |
+| Docker | `docker run --rm -p 127.0.0.1:8000:8000 ghcr.io/pockanoodles/mahoraga` | after the first release |
 | From source | `uv tool install git+https://github.com/pockanoodles/Mahoraga` | CLI and API, no prebuilt app |
 
-Mahoraga needs Python 3.12 or newer and [Ollama](https://ollama.com). It runs on macOS
-and Linux, and it was built on a 16 GB Mac. The router's memory is an extra,
-`mahoraga-audit[router]`, and it is the only part that needs a C++ toolchain to install. The Docker image serves the engine and the app while Ollama and
-your agents stay on the host (the Dockerfile's header has the full command, including the
-volume that keeps your results).
+uv and pipx give Mahoraga an environment of its own, which its exact pins (uvicorn, httpx
+and mcp) need. Installed with plain pip into an environment other tools share, those pins
+can clash with theirs, so give it a virtualenv there.
+
+Mahoraga needs Python 3.12 or newer, and it runs on macOS and Linux. It was built on a
+16 GB Mac. The router's memory is an extra, `mahoraga-audit[router]`, and it is the only
+part that needs a C++ toolchain to install. The Docker image serves the engine and the app,
+while Ollama and your agents stay on the host. The Dockerfile's header has the full command,
+including the volume that keeps your results.
+
+### What the audit runs
+
+The audit drives two programs that Mahoraga doesn't install. [Ollama](https://ollama.com/download)
+serves the model, and aider is the agent. Install aider in an environment of its own, at the
+version the published log measured, because its pins would clash with Mahoraga's:
+
+```bash
+uv tool install --python 3.12 aider-chat==0.86.2
+```
+
+Before it queues anything, `mahoraga audit tonight` checks both. The doctor command,
+`mahoraga audit doctor`, runs the same checks on their own and prints the install line for
+anything missing.
 
 ## Quick start
 
@@ -199,6 +214,11 @@ same code, and the app is one more client of the API.
 - **macOS background service:** `mahoraga service --help`. A launchd job inherits no
   shell environment, so daemon settings come from `~/.mahoraga-v2/service.env`
   (`KEY=VALUE` per line), applied by `mahoraga service install`.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/pockanoodles/Mahoraga/main/docs/assets/app/verdict-dark.png">
+  <img src="https://raw.githubusercontent.com/pockanoodles/Mahoraga/main/docs/assets/app/verdict-light.png" alt="The Mahoraga app showing the verdict for the published probe">
+</picture>
 
 ## The routing layer
 

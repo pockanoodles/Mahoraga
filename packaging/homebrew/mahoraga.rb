@@ -1,7 +1,7 @@
 class Mahoraga < Formula
   include Language::Python::Virtualenv
 
-  desc "Is local coding AI worth it for your code? Measure it, then route it"
+  desc "Measure local coding agents on your repository's commits, graded by its tests"
   homepage "https://kaitosoeno.com/mahoraga"
   # The sdist attached to the GitHub release, not the auto-generated "Source
   # code" archive for the tag: only the sdist has the web UI built into it.

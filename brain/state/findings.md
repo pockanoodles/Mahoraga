@@ -1445,3 +1445,61 @@ src/ package and passes `-o pythonpath=src`.
 2026-10-02. Max 20x's price isn't printed on that page, and chatgpt.com
 returned 403, so those plans are refused without `--plan-price`. No price in
 the verdict was taken from memory.
+
+## Era 36 — at 64 GB the model class changes, and it resolves two to three times as much (2026-10-06 → 10-13)
+
+The Studio (M5 Max, 64 GB, Adly's machine) ran overnight from 10-06 to 10-07.
+The script was `.agentbench-night-1006.sh`, and the log is
+`~/.mahoraga-v2/agentbench/night-1006.log` on the Studio. Every attempt was
+aider, blind, n=1, test-verified. qwen3.5 is the laptop's exact GGUF
+(`qwen3.5:laptop-dec52a4`) at the default 32k context. qwen3.6 is
+`35b-a3b-coding` at 131k.
+
+| Same tasks, same machine | qwen3.5 (9.7B, 32k) | qwen3.6 (35B-A3B, 131k) |
+| --- | --- | --- |
+| Mahoraga, 32 tasks | 6/32, 19% [9%–35%] | 13/32, 41% [26%–58%] |
+| attrs, 25 tasks (11 degraded attempts excluded) | 5/25, 20% | 9/25, 36% |
+| click, 31 tasks | 2/31, 6% | 8/31, 26% |
+| more-itertools, 36 tasks | 2/36, 6% | 14/36, 39% |
+| **Outside repos, committed after qwen3.6's release (~04-16)** | **2/56, 4% [1%–12%]** | **17/56, 30% [20%–43%]** |
+| Outside repos, committed before | 7/36, 19% | 14/36, 39% |
+
+**What holds:**
+1. **The gap is real, and contamination doesn't explain it.** On commits made
+   after qwen3.6 shipped, which it can't have seen, it resolves 30% against
+   qwen3.5's 4%, and the intervals don't overlap. On more-itertools, the one
+   repo with enough tasks on both sides of the release date, qwen3.6 is flat:
+   6/15 before and 8/21 after. Both models do worse on later commits overall,
+   which points to harder tasks rather than memorised answers. Click has no
+   commits from before the release.
+2. **The same model on faster hardware gets faster, not better.** On the
+   Studio, qwen3.5 runs at ~79 tok/s against ~14.5 on the laptop, and its
+   median attempt drops from 8.4 minutes to 0.5–1.5. It resolves 19% on
+   Mahoraga, against the laptop's 5/18 (28% [12%–51%]). The intervals overlap,
+   though the task sets only partly coincide, so this isn't a clean
+   same-task control.
+3. **This corrects an earlier reading.** The 10-06 claim was that "hardware
+   bought speed, not solve rate". It compared qwen3.6 on mature Mahoraga commits
+   with the laptop's qwen3.5 on a different set of tasks. Same-task data says
+   memory buys solve rate, through the model and context it makes room for.
+   That direction matches the Era 32 tier map (16→24 GB is the cliff), and this
+   is the first time it has been measured rather than taken from vendor
+   numbers.
+
+**Open confound: model or context.** 62 of qwen3.5's outside attempts ended in
+`no-edit`, many in under a minute. more-itertools' `more.py` is 5,641 lines,
+and at 32k Ollama truncates an overflowing prompt instead of refusing it
+(`agents.py:41`). Part of qwen3.5's deficit may therefore be the window rather
+than the weights. The next run is `aider:qwen3.5:laptop-dec52a4@ctx=131072` on
+more-itertools and click. It would tell us whether a 16 GB machine could close
+some of the gap with a larger window, if qwen3.5's hybrid attention keeps the
+KV cache small enough.
+
+**For the verdict:** 30–40% is still well short of the ≥ 77% that Era 35's API
+break-even needs at $0.75 a cloud task, because a failed attempt's triage
+time stays the same however fast the model runs. Both tiers are STAY on cost.
+The 64 GB tier changes whether a test-gated async queue is worth running at
+all, not whether it saves money.
+
+Course-tutor results from the 10-05 qwen-wide run (10/37) are Course Tutor's
+evaluation data and stay out of the report unless Adly agrees.

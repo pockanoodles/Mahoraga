@@ -107,6 +107,592 @@
           "value": 0.921
         }
       }
+    },
+    {
+      "artifact": "experiments/agentbench/laptop-2026-09.jsonl",
+      "config": {
+        "agent": "aider 0.86.2, diff edit format",
+        "context": 32768,
+        "machine": "16 GB MacBook Pro (attempts predate run manifests)",
+        "source": "experiments/agent_edit/results (the 2026-09-28 probe)"
+      },
+      "description": "§3: aider + qwen3.5 on Mahoraga's own commits, laptop",
+      "id": "report_2026_10_laptop_qwen35_mahoraga",
+      "metrics": {
+        "minutes": {
+          "decimals": 1,
+          "value": 8.3
+        },
+        "rate_hi": {
+          "decimals": 2,
+          "value": 0.51
+        },
+        "rate_lo": {
+          "decimals": 2,
+          "value": 0.12
+        },
+        "resolved": {
+          "decimals": 0,
+          "value": 5
+        },
+        "tasks": {
+          "decimals": 0,
+          "value": 18
+        }
+      }
+    },
+    {
+      "artifact": "experiments/agentbench/laptop-2026-09.jsonl",
+      "config": {
+        "agent": "aider 0.86.2, diff edit format",
+        "context": 32768,
+        "machine": "16 GB MacBook Pro (attempts predate run manifests)",
+        "source": "experiments/agent_edit/results (the 2026-09-28 probe)"
+      },
+      "description": "§3: aider + granite 4.1 on Mahoraga's own commits, laptop",
+      "id": "report_2026_10_laptop_granite_mahoraga",
+      "metrics": {
+        "rate_hi": {
+          "decimals": 2,
+          "value": 0.18
+        },
+        "rate_lo": {
+          "decimals": 2,
+          "value": 0.0
+        },
+        "resolved": {
+          "decimals": 0,
+          "value": 0
+        },
+        "tasks": {
+          "decimals": 0,
+          "value": 18
+        }
+      }
+    },
+    {
+      "artifact": "experiments/agentbench/laptop-2026-09.jsonl",
+      "config": {
+        "agent": "aider 0.86.2, diff edit format",
+        "context": 32768,
+        "machine": "16 GB MacBook Pro (attempts predate run manifests)"
+      },
+      "description": "§3 and §4: aider + qwen3.5 on the ops repository, laptop, and its verdict",
+      "id": "report_2026_10_laptop_qwen35_ops",
+      "metrics": {
+        "breakeven_cloud_usd": {
+          "decimals": 0,
+          "value": 20
+        },
+        "call": {
+          "value": "stay"
+        },
+        "rate": {
+          "decimals": 2,
+          "value": 0.11
+        },
+        "rate_hi": {
+          "decimals": 2,
+          "value": 0.43
+        },
+        "rate_lo": {
+          "decimals": 2,
+          "value": 0.02
+        },
+        "resolved": {
+          "decimals": 0,
+          "value": 1
+        },
+        "tasks": {
+          "decimals": 0,
+          "value": 9
+        }
+      }
+    },
+    {
+      "artifact": "experiments/agentbench/studio-2026-10.jsonl",
+      "config": {
+        "agent": "aider 0.86.2, diff edit format",
+        "context": 32768,
+        "dates": "2026-10-05 to 2026-10-07",
+        "machine": "Mac Studio M5 Max, 64 GB (Mac17,14)",
+        "model_digest": "6bac66862d57"
+      },
+      "description": "§3: aider + qwen3.5 (the laptop's model file) on Mahoraga, Studio",
+      "id": "report_2026_10_studio_qwen35_mahoraga",
+      "metrics": {
+        "minutes": {
+          "decimals": 1,
+          "value": 1.4
+        },
+        "rate_hi": {
+          "decimals": 2,
+          "value": 0.35
+        },
+        "rate_lo": {
+          "decimals": 2,
+          "value": 0.09
+        },
+        "resolved": {
+          "decimals": 0,
+          "value": 6
+        },
+        "tasks": {
+          "decimals": 0,
+          "value": 32
+        }
+      }
+    },
+    {
+      "artifact": "experiments/agentbench/studio-2026-10.jsonl",
+      "config": {
+        "agent": "aider 0.86.2, diff edit format",
+        "context": 131072,
+        "dates": "2026-10-05 to 2026-10-07",
+        "machine": "Mac Studio M5 Max, 64 GB (Mac17,14)",
+        "model_digest": "017eda0b7c34"
+      },
+      "description": "§3: aider + qwen3.6 on Mahoraga, on the 32 tasks qwen3.5 was run on",
+      "id": "report_2026_10_studio_qwen36_mahoraga",
+      "metrics": {
+        "rate_hi": {
+          "decimals": 2,
+          "value": 0.58
+        },
+        "rate_lo": {
+          "decimals": 2,
+          "value": 0.26
+        },
+        "resolved": {
+          "decimals": 0,
+          "value": 13
+        },
+        "tasks": {
+          "decimals": 0,
+          "value": 32
+        }
+      }
+    },
+    {
+      "artifact": "experiments/agentbench/studio-2026-10.jsonl",
+      "config": {
+        "agent": "aider 0.86.2, diff edit format",
+        "context": 32768,
+        "dates": "2026-10-05 to 2026-10-07",
+        "machine": "Mac Studio M5 Max, 64 GB (Mac17,14)",
+        "model_digest": "6bac66862d57"
+      },
+      "description": "§3 and §4: aider + qwen3.5 on three outside repositories, and the pooled verdict",
+      "id": "report_2026_10_studio_qwen35_outside",
+      "metrics": {
+        "breakeven_cloud_usd": {
+          "decimals": 2,
+          "value": 23.06
+        },
+        "breakeven_rate": {
+          "decimals": 2,
+          "value": 0.77
+        },
+        "call": {
+          "value": "stay"
+        },
+        "net": {
+          "decimals": 0,
+          "value": -109
+        },
+        "net_hi": {
+          "decimals": 0,
+          "value": -96
+        },
+        "net_lo": {
+          "decimals": 0,
+          "value": -117
+        },
+        "rate": {
+          "decimals": 2,
+          "value": 0.1
+        },
+        "rate_hi": {
+          "decimals": 2,
+          "value": 0.18
+        },
+        "rate_lo": {
+          "decimals": 2,
+          "value": 0.05
+        },
+        "resolved": {
+          "decimals": 0,
+          "value": 9
+        },
+        "tasks": {
+          "decimals": 0,
+          "value": 92
+        }
+      }
+    },
+    {
+      "artifact": "experiments/agentbench/studio-2026-10.jsonl",
+      "config": {
+        "agent": "aider 0.86.2, diff edit format",
+        "context": 131072,
+        "dates": "2026-10-05 to 2026-10-07",
+        "machine": "Mac Studio M5 Max, 64 GB (Mac17,14)",
+        "model_digest": "017eda0b7c34"
+      },
+      "description": "§3 and §4: aider + qwen3.6 on three outside repositories, and the pooled verdict",
+      "id": "report_2026_10_studio_qwen36_outside",
+      "metrics": {
+        "breakeven_cloud_usd": {
+          "decimals": 2,
+          "value": 4.92
+        },
+        "breakeven_rate": {
+          "decimals": 2,
+          "value": 0.77
+        },
+        "call": {
+          "value": "stay"
+        },
+        "net": {
+          "decimals": 0,
+          "value": -70
+        },
+        "net_hi": {
+          "decimals": 0,
+          "value": -54
+        },
+        "net_lo": {
+          "decimals": 0,
+          "value": -85
+        },
+        "rate": {
+          "decimals": 2,
+          "value": 0.34
+        },
+        "rate_hi": {
+          "decimals": 2,
+          "value": 0.44
+        },
+        "rate_lo": {
+          "decimals": 2,
+          "value": 0.25
+        },
+        "resolved": {
+          "decimals": 0,
+          "value": 31
+        },
+        "tasks": {
+          "decimals": 0,
+          "value": 92
+        }
+      }
+    },
+    {
+      "artifact": "experiments/agentbench/studio-2026-10.jsonl",
+      "config": {
+        "agent": "aider 0.86.2, diff edit format",
+        "context": 131072,
+        "dates": "2026-10-05 to 2026-10-07",
+        "machine": "Mac Studio M5 Max, 64 GB (Mac17,14)"
+      },
+      "description": "§3: qwen3.6 on outside-repository commits made after its release (2026-04-16)",
+      "id": "report_2026_10_qwen36_after_release",
+      "metrics": {
+        "rate": {
+          "decimals": 2,
+          "value": 0.3
+        },
+        "rate_hi": {
+          "decimals": 2,
+          "value": 0.43
+        },
+        "rate_lo": {
+          "decimals": 2,
+          "value": 0.2
+        },
+        "resolved": {
+          "decimals": 0,
+          "value": 17
+        },
+        "tasks": {
+          "decimals": 0,
+          "value": 56
+        }
+      }
+    },
+    {
+      "artifact": "experiments/agentbench/studio-2026-10.jsonl",
+      "config": {
+        "agent": "aider 0.86.2, diff edit format",
+        "context": 32768,
+        "dates": "2026-10-05 to 2026-10-07",
+        "machine": "Mac Studio M5 Max, 64 GB (Mac17,14)"
+      },
+      "description": "§3: qwen3.5 on the same post-release commits",
+      "id": "report_2026_10_qwen35_after_release",
+      "metrics": {
+        "rate": {
+          "decimals": 2,
+          "value": 0.04
+        },
+        "rate_hi": {
+          "decimals": 2,
+          "value": 0.12
+        },
+        "rate_lo": {
+          "decimals": 2,
+          "value": 0.01
+        },
+        "resolved": {
+          "decimals": 0,
+          "value": 2
+        },
+        "tasks": {
+          "decimals": 0,
+          "value": 56
+        }
+      }
+    },
+    {
+      "artifact": "experiments/agentbench/studio-2026-10.jsonl",
+      "config": {
+        "agent": "aider 0.86.2, diff edit format",
+        "context": 131072,
+        "dates": "2026-10-13 to 2026-10-14",
+        "machine": "Mac Studio M5 Max, 64 GB (Mac17,14)",
+        "model_digest": "6bac66862d57"
+      },
+      "description": "§3, §4 and §5: the laptop's qwen3.5 at a 131k context on the three outside repositories, and its pooled verdict",
+      "id": "report_2026_10_studio_qwen35_131k_outside",
+      "metrics": {
+        "breakeven_cloud_usd": {
+          "decimals": 2,
+          "value": 5.72
+        },
+        "breakeven_rate": {
+          "decimals": 2,
+          "value": 0.77
+        },
+        "call": {
+          "value": "stay"
+        },
+        "net": {
+          "decimals": 0,
+          "value": -76
+        },
+        "net_hi": {
+          "decimals": 0,
+          "value": -59
+        },
+        "net_lo": {
+          "decimals": 0,
+          "value": -89
+        },
+        "rate": {
+          "decimals": 2,
+          "value": 0.3
+        },
+        "rate_hi": {
+          "decimals": 2,
+          "value": 0.4
+        },
+        "rate_lo": {
+          "decimals": 2,
+          "value": 0.22
+        },
+        "resolved": {
+          "decimals": 0,
+          "value": 28
+        },
+        "tasks": {
+          "decimals": 0,
+          "value": 92
+        }
+      }
+    },
+    {
+      "artifact": "experiments/agentbench/studio-2026-10.jsonl",
+      "config": {
+        "agent": "aider 0.86.2, diff edit format",
+        "context": 131072,
+        "dates": "2026-10-13 to 2026-10-14",
+        "machine": "Mac Studio M5 Max, 64 GB (Mac17,14)"
+      },
+      "description": "§3: qwen3.5 at a 131k context on the same post-release commits",
+      "id": "report_2026_10_qwen35_131k_after_release",
+      "metrics": {
+        "rate": {
+          "decimals": 2,
+          "value": 0.23
+        },
+        "rate_hi": {
+          "decimals": 2,
+          "value": 0.36
+        },
+        "rate_lo": {
+          "decimals": 2,
+          "value": 0.14
+        },
+        "resolved": {
+          "decimals": 0,
+          "value": 13
+        },
+        "tasks": {
+          "decimals": 0,
+          "value": 56
+        }
+      }
+    },
+    {
+      "artifact": "experiments/agentbench/studio-2026-10.jsonl",
+      "config": {
+        "agent": "aider 0.86.2, diff edit format",
+        "context": 131072,
+        "dates": "2026-10-05 to 2026-10-07",
+        "machine": "Mac Studio M5 Max, 64 GB (Mac17,14)"
+      },
+      "description": "§3: qwen3.6 on more-itertools commits made before its release",
+      "id": "report_2026_10_qwen36_more_itertools_before",
+      "metrics": {
+        "resolved": {
+          "decimals": 0,
+          "value": 6
+        },
+        "tasks": {
+          "decimals": 0,
+          "value": 15
+        }
+      }
+    },
+    {
+      "artifact": "experiments/agentbench/studio-2026-10.jsonl",
+      "config": {
+        "agent": "aider 0.86.2, diff edit format",
+        "context": 131072,
+        "dates": "2026-10-05 to 2026-10-07",
+        "machine": "Mac Studio M5 Max, 64 GB (Mac17,14)"
+      },
+      "description": "§3: qwen3.6 on more-itertools commits made after its release",
+      "id": "report_2026_10_qwen36_more_itertools_after",
+      "metrics": {
+        "resolved": {
+          "decimals": 0,
+          "value": 8
+        },
+        "tasks": {
+          "decimals": 0,
+          "value": 21
+        }
+      }
+    },
+    {
+      "artifact": "experiments/agentbench/laptop-2026-10.jsonl",
+      "config": {
+        "agent": "aider 0.86.2, diff edit format",
+        "context": 131072,
+        "dates": "2026-10-14 to 2026-10-15",
+        "harness": "aider with litellm's 600-second request timeout (before #68)",
+        "limit": "20 minutes",
+        "machine": "MacBook Pro M4, 16 GB (Mac16,1)",
+        "model_digest": "6488c96fa5fa",
+        "model_file": "the same GGUF as the Studio's qwen3.5:laptop-dec52a4 (sha256 dec52a44)"
+      },
+      "description": "§6: the laptop's first 131k night, under the 20-minute limit and aider's 600-second request timeout",
+      "id": "report_2026_10_laptop_131k_20min",
+      "metrics": {
+        "call": {
+          "value": "stay"
+        },
+        "confident": {
+          "value": "no"
+        },
+        "failed": {
+          "decimals": 0,
+          "value": 34
+        },
+        "request_errors": {
+          "decimals": 0,
+          "value": 27
+        },
+        "resolved": {
+          "decimals": 0,
+          "value": 4
+        },
+        "tasks": {
+          "decimals": 0,
+          "value": 38
+        },
+        "timed_out": {
+          "decimals": 0,
+          "value": 26
+        }
+      }
+    },
+    {
+      "artifact": "experiments/agentbench/laptop-2026-10.jsonl",
+      "config": {
+        "agent": "aider 0.86.2, diff edit format",
+        "context": 131072,
+        "dates": "2026-10-14 to 2026-10-28",
+        "harness": "aider with litellm's 600-second request timeout (before #68)",
+        "limit": "90 minutes; 2026-10-14 attempts that ended inside 20 minutes stand at it",
+        "machine": "MacBook Pro M4, 16 GB (Mac16,1)",
+        "model_digest": "6488c96fa5fa",
+        "model_file": "the same GGUF as the Studio's qwen3.5:laptop-dec52a4 (sha256 dec52a44)"
+      },
+      "description": "§6: the laptop against the Studio on one model file before the request-timeout fix",
+      "id": "report_2026_10_laptop_vs_studio_request_clock",
+      "metrics": {
+        "pair_resolved": {
+          "decimals": 0,
+          "value": 8
+        },
+        "pairs": {
+          "decimals": 0,
+          "value": 28
+        },
+        "versus_resolved": {
+          "decimals": 0,
+          "value": 14
+        }
+      }
+    },
+    {
+      "artifact": "experiments/agentbench/studio-2026-10.jsonl",
+      "config": {
+        "agent": "aider 0.86.2, diff edit format",
+        "context": 131072,
+        "dates": "2026-10-06 to 2026-10-14",
+        "machine": "Mac Studio M5 Max, 64 GB (Mac17,14)"
+      },
+      "description": "§5: qwen3.5 and qwen3.6 at 131k on the 92 outside tasks, task by task",
+      "id": "report_2026_10_qwen35_vs_qwen36_131k_outside",
+      "metrics": {
+        "mcnemar_p": {
+          "decimals": 2,
+          "value": 0.66
+        },
+        "only_this": {
+          "decimals": 0,
+          "value": 9
+        },
+        "only_versus": {
+          "decimals": 0,
+          "value": 12
+        },
+        "pair_resolved": {
+          "decimals": 0,
+          "value": 28
+        },
+        "pairs": {
+          "decimals": 0,
+          "value": 92
+        },
+        "versus_resolved": {
+          "decimals": 0,
+          "value": 31
+        }
+      }
     }
   ],
   "probe": {
@@ -861,7 +1447,7 @@
   },
   "schema": 1,
   "source": {
-    "commit": "7755e59",
+    "commit": "b285a83",
     "repo": "pockanoodles/Mahoraga",
     "version": "2.1.0"
   },

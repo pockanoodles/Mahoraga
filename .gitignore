@@ -39,6 +39,9 @@ experiments/*
 !experiments/agent_edit/tasks.jsonl
 experiments/agent_edit/results/*.log
 experiments/agent_edit/results/*.chat.md
+# Audit attempts behind the October report, one line each (`mahoraga audit export`).
+!experiments/agentbench/
+!experiments/agentbench/*.jsonl
 # The demo bench `mahoraga demo` serves, built from that probe by
 # scripts/build_demo_data.py: its tasks file ships with the package.
 !backend/orchestrator/demo/data/**/tasks.jsonl

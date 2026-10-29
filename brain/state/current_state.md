@@ -44,14 +44,16 @@ model run the tests itself through its shell, which aider in `blind` can't. Orni
 opencode compares to another model under opencode (qwen3.5 next), not to aider rows.
 5. ~~New commits mined continuously.~~ PR #56: `queue add --follow --fetch` mines the
    remote's new commits each window, so each new model meets work that postdates it.
-6. ~~Agentbench results in `claims.json` / `bench verify`.~~ PR #56 adds `audit export`
-   and the `agentbench` claim kind (rate, interval, verdict call, net, break-evens, with
-   `tasks_of` for same-task comparisons). #48 now stacks on #56 and carries
+6. ~~Agentbench results in `claims.json` / `bench verify`.~~ PR #56 (merged 2026-10-13)
+   adds `audit export` and the `agentbench` claim kind (rate, interval, verdict call, net,
+   break-evens, with `tasks_of` for same-task comparisons). #48 carries
    `experiments/agentbench/{studio-2026-10,laptop-2026-09}.jsonl` and 11 claims, all
    passing. Recomputing caught one prose slip: the 17/56 vs 2/56 post-release split is
    the outside repos only (with Mahoraga's tasks it is 30/88 vs 8/88, still apart).
    The CI crash on `bench verify` ("Illegal instruction") was a cached `-march=native`
-   hnswlib wheel. The fix is on #55, which has to merge before #56 goes green.
+   hnswlib wheel, fixed in #55 (merged). #48 is green and waits on its PENDING sections.
+   The Studio worker still runs from `~/Projects/mahoraga-validity` with PYTHONPATH; with
+   #56 on main it can move to the main checkout between windows (`audit service install`).
 
 The launch steps follow, parked.
 

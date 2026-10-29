@@ -298,6 +298,8 @@ def test_only_the_lines_that_say_who_wrote_a_change_leave():
     assert without_trailers("Fix it.\n\n\U0001f916 Generated with [Claude Code](https://claude.com)"
                             "\n\nCo-Authored-By: Claude <noreply@anthropic.com>") == "Fix it."
     assert without_trailers("Fix it.\r\n \r\nCo-authored-by: A <a@example.com>\r\n") == "Fix it."
+    protoc = "Regenerate the stubs.\n\nGenerated with protoc 28.2; use --python_out=src."
+    assert without_trailers(protoc) == protoc
     assert without_trailers("Co-authored-by: A <a@example.com>") == ""
     assert without_trailers("") == ""
 

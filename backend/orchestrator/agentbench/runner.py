@@ -80,10 +80,12 @@ class Attempt:
 
 
 # Lines that say who wrote or checked a change rather than what it is: git's
-# attribution trailers, and a tool's own credit ("Generated with [Claude Code]").
+# attribution trailers, and a tool's own credit, which is a link and nothing
+# else ("Generated with [Claude Code](https://claude.com/claude-code)"). A
+# "Generated with protoc 28.2; use --python_out=src" line is a requirement.
 _WHO = re.compile(r"^(?:co-authored-by|signed-off-by|reviewed-by|acked-by|tested-by|"
                   r"reported-by|suggested-by|helped-by|cc):\s", re.IGNORECASE)
-_CREDIT = re.compile(r"^\W*generated with\b", re.IGNORECASE)
+_CREDIT = re.compile(r"^\W*generated with \[[^\]]+\]\([^)\s]+\)\s*$", re.IGNORECASE)
 
 
 def without_trailers(body: str) -> str:

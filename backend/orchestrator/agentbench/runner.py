@@ -79,8 +79,41 @@ class Attempt:
         return not [f for f in self.edited_files if f not in self.touched_tests]
 
 
+# Lines that say who wrote or checked a change rather than what it is: git's
+# attribution trailers, and a tool's own credit ("Generated with [Claude Code]").
+_WHO = re.compile(r"^(?:co-authored-by|signed-off-by|reviewed-by|acked-by|tested-by|"
+                  r"reported-by|suggested-by|helped-by|cc):\s", re.IGNORECASE)
+_CREDIT = re.compile(r"^\W*generated with\b", re.IGNORECASE)
+
+
+def without_trailers(body: str) -> str:
+    """A commit body without the lines at its end that say who wrote the change.
+    Only trailing paragraphs are read, a trailer's folded continuation goes with
+    it, and every other line stays, so a "Fixes: #12" or a closing "Why:" line is
+    still part of the task."""
+    paragraphs = [p for p in re.split(r"\r?\n[ \t]*\r?\n", body.strip()) if p.strip()]
+    while paragraphs:
+        lines = paragraphs[-1].splitlines()
+        kept, dropping = [], False
+        for line in lines:
+            if _WHO.match(line) or _CREDIT.match(line):
+                dropping = True
+            elif not (dropping and line[:1].isspace()):
+                dropping = False
+                kept.append(line)
+        if len(kept) == len(lines):
+            break  # nothing here says who, so nothing before it is a trailer block
+        if kept:
+            paragraphs[-1] = "\n".join(kept)
+            break
+        paragraphs.pop()
+    return "\n\n".join(paragraphs)
+
+
 def prompt_for(task: Task) -> str:
-    parts = ["Make the following change to this repository.", task.subject, task.body,
+    # Every arm reads the same prompt, so its trailers leave for every model at once.
+    parts = ["Make the following change to this repository.", task.subject,
+             without_trailers(task.body),
              f"Tests covering this change already exist in: {', '.join(task.test_files)}. "
              "Do not modify any test files; change the source code so those tests pass "
              "without breaking anything else."]

@@ -38,7 +38,7 @@ from backend.orchestrator.agentbench.stats import plan, task_rate, tasks_needed,
 from backend.orchestrator.agentbench.host import Power, parse_idle, parse_power, parse_sysctl_int
 from backend.orchestrator.agentbench.report import outcome, render, summarise
 from backend.orchestrator.agentbench.runner import (
-    arm_name, load_attempts, load_degraded, prompt_for, run_attempt, run_matrix,
+    arm_name, load_attempts, load_degraded, prompt_for, run_attempt, run_matrix, without_trailers,
 )
 from backend.orchestrator.cli.commands.agentbench import app as agentbench_app, parse_until
 
@@ -281,6 +281,25 @@ def test_feedback_condition_passes_the_target_test_command(mined, config, repo):
 def test_prompt_carries_message_and_test_files_but_no_source_paths(mined, repo):
     p = prompt_for(_task(mined, repo))
     assert "feat: add mul" in p and "tests/test_mul.py" in p and "calc/ops.py" not in p
+
+
+def test_a_prompt_leaves_out_the_commit_trailers(mined, repo):
+    body = ("Use the faster path.\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>\n"
+            "Signed-off-by: A Person\n  <a@example.com>")
+    p = prompt_for(dataclasses.replace(_task(mined, repo), body=body))
+    assert "Use the faster path." in p and "Co-authored-by" not in p and "Signed-off-by" not in p
+
+
+def test_only_the_lines_that_say_who_wrote_a_change_leave():
+    why = "Fix the cache.\n\nWhy: the old key ignored the arm."
+    assert without_trailers(why) == why
+    assert without_trailers("Fix it.\n\nFixes: #12\nCo-authored-by: A <a@example.com>") == \
+        "Fix it.\n\nFixes: #12"
+    assert without_trailers("Fix it.\n\n\U0001f916 Generated with [Claude Code](https://claude.com)"
+                            "\n\nCo-Authored-By: Claude <noreply@anthropic.com>") == "Fix it."
+    assert without_trailers("Fix it.\r\n \r\nCo-authored-by: A <a@example.com>\r\n") == "Fix it."
+    assert without_trailers("Co-authored-by: A <a@example.com>") == ""
+    assert without_trailers("") == ""
 
 
 # ── Resume, artifacts, report ─────────────────────────────────────────────────

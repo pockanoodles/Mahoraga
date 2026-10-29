@@ -91,6 +91,12 @@ section and the next is recomputed by `orch bench verify` from one line per
 attempt in [`experiments/agentbench/`](../../experiments/agentbench/), and CI
 runs that check, so a reader can confirm each number without our machines.
 
+Each agent got the commit's message as its task, trailers included. Nineteen
+of the 92 outside prompts carried a line naming a co-author, and two of those
+named a Claude model. Every arm read the same prompts, so the rows stay
+comparable, and the next edition leaves out the lines that say who wrote a
+commit, for every model.
+
 Three things held across every run. The test gate caught every failed
 attempt, so a test-gated queue never shipped a broken edit. The commonest
 failure was an edit that fixed the target and broke neighbouring code, which

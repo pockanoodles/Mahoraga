@@ -13,7 +13,8 @@ record and patch, and its run's manifest) and the upstream commit's diff, so
 nothing in it is typed.
 
 The attempt is picked by position, never by outcome: the first task in the
-bench's own order (as mined) that the arm has a counted attempt on. The agent's
+bench's own order (as mined) that the arm has a counted attempt on, and that
+task's first rep if it has more than one. The agent's
 log stays behind, since it holds the machine's paths and the prompts.
 """
 from __future__ import annotations
@@ -52,8 +53,10 @@ def _git(repo: Path, *args: str) -> str:
 
 def build(path: Path, arm: str, cond: str) -> dict:
     bench = Bench.from_dir(path)
-    counted = {a.sha: a for a in load_attempts(bench)
-               if a.arm == arm and a.cond == cond and not a.degraded}
+    counted = {}
+    for a in sorted(load_attempts(bench), key=lambda a: a.rep):  # a task's first rep, if it has more
+        if a.arm == arm and a.cond == cond and not a.degraded:
+            counted.setdefault(a.sha, a)
     task = next((t for t in bench.load_tasks() if t.sha in counted), None)
     if task is None:
         raise SpecimenError(f"{arm} / {cond} has no counted attempt in {path}")

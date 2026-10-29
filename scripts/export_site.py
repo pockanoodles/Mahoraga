@@ -198,6 +198,10 @@ def _settings(manifest: Path, root: Path) -> dict:
         c = by_id.get(cid)
         if c is None:
             raise ExportError(f"claims.json has no {cid}, and the settings exhibit reads it")
+        missing = [k for k in ("context", "machine") if k not in c.get("config", {})]
+        if missing:
+            raise ExportError(f"{cid}'s config has no {' or '.join(missing)}, and the settings "
+                              "exhibit names both")
         rows = audit_claims.select(load_rows(root / c["artifact"]), c["select"])
         cells = {(r["repo"], r["sha"]): r for r in rows}
         if len(cells) != len(rows):

@@ -352,6 +352,16 @@ def test_the_specimen_is_its_artifact_verbatim(site):
     assert site["specimen"] == json.loads(export.SPECIMEN.read_text())
 
 
+def test_a_setting_whose_claim_names_no_context_is_refused(tmp_path):
+    claims = json.loads((ROOT / "experiments" / "claims.json").read_text())
+    cid = export.SETTINGS[0][1]
+    next(c for c in claims["claims"] if c["id"] == cid)["config"].pop("context")
+    manifest = tmp_path / "claims.json"
+    manifest.write_text(json.dumps(claims))
+    with pytest.raises(export.ExportError, match=f"{cid}'s config has no context"):
+        export._settings(manifest, ROOT)
+
+
 def test_a_specimen_whose_counts_contradict_its_outcome_is_refused(tmp_path):
     s = json.loads(export.SPECIMEN.read_text())
     s["attempt"]["regressions"] = 1

@@ -44,11 +44,12 @@ def _one_per_task(rows: list[dict]) -> dict[str, bool]:
     return out
 
 
-def _count(rows: list[dict], key: str, hit) -> Optional[float]:
-    """Rows where `hit(value)` holds, or None when no row recorded `key`. An
-    answer that errored writes none of the reply's fields, so it counts as
-    not escalated and not reasoned rather than as unknown."""
-    if not any(key in r for r in rows):
+def _count(run: list[dict], rows: list[dict], key: str, hit) -> Optional[float]:
+    """`rows` where `hit(value)` holds, or None when no row of the whole `run`
+    recorded `key`. A bench writes `error` only on the answers that errored,
+    and an answer that errored writes none of the reply's fields, so a row
+    without the key counts as a miss once the run is known to record it."""
+    if not any(key in r for r in run):
         return None
     return float(sum(1 for r in rows if key in r and hit(r[key])))
 
@@ -65,10 +66,10 @@ def metrics(rows: list[dict], claim: dict[str, Any],
     lo, hi = wilson(k, n)
     out: dict[str, Optional[float]] = {
         "n": float(n), "passed": float(k), "pass_at_1": k / n, "pass_lo": lo, "pass_hi": hi,
-        "errors": _count(picked, "error", bool),
-        "timed_out": _count(picked, "timed_out", bool),
-        "escalated": _count(picked, "escalated_to", bool),
-        "reasoned": _count(picked, "thinking_chars", lambda c: bool(c and c > 0)),
+        "errors": _count(rows, picked, "error", bool),
+        "timed_out": _count(rows, picked, "timed_out", bool),
+        "escalated": _count(rows, picked, "escalated_to", bool),
+        "reasoned": _count(rows, picked, "thinking_chars", lambda c: bool(c and c > 0)),
     }
     if "versus" in claim:
         theirs = _one_per_task(select(rows if versus_rows is None else versus_rows,

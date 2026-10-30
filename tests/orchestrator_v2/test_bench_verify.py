@@ -229,6 +229,15 @@ def test_pass_claim_fails_on_two_answers_to_one_task(tmp_path):
     assert not r.ok and "more than once" in r.error
 
 
+def test_pass_claim_counts_zero_errors_when_the_run_records_errors(tmp_path):
+    # "b" never errored, but "a" did, so the run writes `error` when one happens
+    path = _write(tmp_path, _RUN, {"claims": [{
+        "id": "p", "kind": "pass_at_1", "artifact": "experiments/run.jsonl",
+        "select": {"agent": "b"}, "metrics": {"errors": {"value": 0, "decimals": 0}}}]})
+    [r] = verify_claims(path, root=tmp_path)
+    assert r.ok, render_verification([r])
+
+
 def test_pass_claim_without_a_recorded_field_has_no_number(tmp_path):
     rows = [_graded("a", "t1", True)]  # an older run that never wrote escalated_to
     path = _write(tmp_path, rows, _pass_claim({"escalated": {"value": 0, "decimals": 0}}))

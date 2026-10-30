@@ -62,6 +62,7 @@ def load_bank(path: Path) -> dict[str, dict]:
             if not row.get("prompt") or not row.get("tests"):
                 continue
             bank[row["prompt"]] = {
+                "task_id": row.get("task_id"),
                 "bucket": row.get("bucket", "general"),
                 "tier": row.get("tier"),
                 "entrypoint": row.get("entrypoint"),
@@ -156,7 +157,8 @@ def evaluate(bank: dict[str, dict], results: list[dict]) -> tuple[list[CaseResul
 
 def graded_rows(bank: dict[str, dict], path: Path) -> tuple[list[dict], int]:
     """Each row of a bench results JSONL whose prompt is in the bank, as
-    written, plus what the hidden tests said: `task` (the bank's entrypoint),
+    written, plus what the hidden tests said: `task` (the bank's task_id,
+    since HumanEval reuses function names, or the prompt when it has none),
     `agent`, `passed` and `test_error`. The run's own fields stay, so a claim
     of kind pass_at_1 (benchmark/pass_claims.py) can also count the rows that
     errored, were escalated or reasoned. Returns (rows, unmatched)."""
@@ -168,13 +170,14 @@ def graded_rows(bank: dict[str, dict], path: Path) -> tuple[list[dict], int]:
             if not line or line.startswith("#"):
                 continue
             r = json.loads(line)
-            spec = bank.get(r.get("prompt_full") or r.get("prompt") or "")
+            prompt = r.get("prompt_full") or r.get("prompt") or ""
+            spec = bank.get(prompt)
             agent = r.get("actual_agent") or r.get("requested_agent") or r.get("agent")
             if spec is None or not agent:
                 unmatched += 1
                 continue
             passed, err = run_case(r.get("output_full") or "", spec["tests"])
-            rows.append({**r, "task": spec.get("entrypoint") or r["prompt_full"][:32],
+            rows.append({**r, "task": spec.get("task_id") or prompt,
                          "agent": agent, "passed": passed, "test_error": err})
     return rows, unmatched
 

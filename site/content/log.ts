@@ -50,6 +50,7 @@ const S4 = "4-when-local-pays";
 const S5 = "5-the-hardware-question";
 const S6 = "6-what-we-got-wrong-along-the-way";
 const S1 = "1-the-local-tier-stopped-getting-new-models";
+const S2 = "2-the-longitudinal-point";
 
 // The claims the entries read, by what they measured.
 const c = {
@@ -65,6 +66,8 @@ const c = {
   granite: claim("report_2026_10_laptop_granite_mahoraga"),
   cascade: claim("humaneval_plus_164_reading_judge"),
   rerun: claim("humaneval_plus_164_code_judge"),
+  g41: claim("report_2026_10_humaneval_granite41"),
+  g42: claim("report_2026_10_humaneval_granite42"),
 };
 const n = (x: Claim, key: string) => num(x, key);
 const m = (x: Claim, key: string) => metric(x, key);
@@ -77,6 +80,8 @@ const keep = n(c.cascade, "routed_pass_at_1") / n(c.cascade, "cloud_pass_at_1");
 const costShare = n(c.cascade, "routed_cost_per_1k") / n(c.cascade, "cloud_cost_per_1k");
 const judgeCost = (n(c.rerun, "routed_cost_per_1k") - n(c.cascade, "routed_cost_per_1k")).toFixed(2);
 const price = `$${PRICE.toFixed(2)}`;
+const answers = n(c.g41, "n") + n(c.g42, "n"); // both models' answers in the HumanEval+ rerun
+const fromCloud = n(c.g41, "escalated") + n(c.g42, "escalated");
 const triage = data.verdict_demo.assumptions.triage_minutes; // assumed, and printed with every verdict
 
 export const LOG: Entry[] = [
@@ -91,6 +96,30 @@ export const LOG: Entry[] = [
       ja: "16 GB のノートで、qwen3.5 が外部リポジトリの 47 タスクに挑んでいます。1 試行は 90 分で、エージェントの中にそれより短い時計はありません。",
     },
     receipts: [report(5, S5)],
+  },
+  {
+    id: "2026-10-28-granite-42",
+    date: "2026-10-28",
+    kind: "null",
+    claims: [c.g41.id, c.g42.id],
+    title: { en: "Granite 4.2 writes code no better than 4.1.", ja: "granite 4.2 のコードは 4.1 より良くなっていません。" },
+    body: {
+      en: `On HumanEval+ the laptop's granite 4.1 passed ${n(c.g41, "passed")} of ${n(c.g41, "n")} tasks and granite 4.2 passed ${n(c.g42, "passed")}. A ${n(c.g41, "only_this")} to ${n(c.g41, "only_versus")} split of the tasks they disagree on is what chance alone would produce (McNemar p = ${m(c.g41, "mcnemar_p")}).`,
+      ja: `HumanEval+ で、ノートの granite 4.1 は ${n(c.g41, "n")} タスク中 ${n(c.g41, "passed")} 件、granite 4.2 は ${n(c.g42, "passed")} 件に合格しました。結果が分かれたタスクの ${n(c.g41, "only_this")} 対 ${n(c.g41, "only_versus")} という割れ方は、偶然だけでも起こる範囲です（McNemar p = ${m(c.g41, "mcnemar_p")}）。`,
+    },
+    receipts: [report(2, S2), artifact(c.g41)],
+  },
+  {
+    id: "2026-10-28-humaneval-harness",
+    date: "2026-10-28",
+    kind: "correction",
+    claims: [c.g41.id, c.g42.id],
+    title: { en: "The first granite run measured the harness.", ja: "最初の granite の計測は、ハーネスを測っていました。" },
+    body: {
+      en: `Granite 4.2 seemed to answer only 46 of 164 tasks, because its reasoning outran a two-minute client limit. The cascade had also sent 25 of granite 4.1's tasks to Claude. The rerun records every answer's reasoning, escalation and errors, and ${fromCloud} of its ${answers} answers came from the cloud.`,
+      ja: `granite 4.2 は 164 タスク中 46 件しか答えていないように見えましたが、これは推論が 2 分のクライアント制限を超えたためで、さらにカスケードが granite 4.1 の 25 タスクを Claude に送っていました。再計測では各回答の推論・エスカレーション・エラーを記録しており、${answers} 件の回答のうちクラウドから来たものは ${fromCloud} 件です。`,
+    },
+    receipts: [report(6, S6), pr(70)],
   },
   {
     id: "2026-10-28-two-clocks",

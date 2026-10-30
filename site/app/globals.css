@@ -2716,3 +2716,131 @@ html.js .reveal:not([data-shown]) .sgrid__sq[data-change] {
 :lang(ja) :is(.specimen__tests, .sgrid__change, .sgrid__advice) {
   line-height: 1.7;
 }
+
+/* ── Arriving from kaitosoeno.com/portfolio (components/ViewTransition.tsx) ──
+   The portfolio's row grows into this page's ground, its hairline the edge of
+   the growing field, and the name rises into the wordmark as it turns into
+   this face. The curve and lengths are kaitosoeno.com's, so the move reads as
+   the site's, not this page's. */
+@view-transition {
+  navigation: auto;
+}
+@media (prefers-reduced-motion: reduce) {
+  @view-transition {
+    navigation: none;
+  }
+}
+:root {
+  --vt-ease: cubic-bezier(0.62, 0.04, 0.06, 1);
+  --vt-move: 700ms;
+}
+.vt-surface {
+  position: fixed;
+  inset: 0;
+  z-index: -2;
+  background: var(--mh-stage);
+  pointer-events: none;
+}
+html[data-vt] .vt-surface {
+  view-transition-name: vt-surface;
+}
+html[data-vt] .lnav__brand span {
+  view-transition-name: vt-name;
+  /* Trimmed to the caps, as the portfolio's names are, so the two boxes the
+     name moves between are both the letters and nothing else. */
+  text-box: trim-both cap alphabetic;
+}
+html[data-vt] .site-menu {
+  view-transition-name: vt-menu;
+}
+/* kaitosoeno.com's black behind the move, so the field is seen to open
+   rather than this page's ground showing through from the first frame. */
+html[data-vt="in"]::view-transition {
+  background: #000;
+}
+html[data-vt="in"]::view-transition-group(*) {
+  animation-duration: var(--vt-move);
+  animation-timing-function: var(--vt-ease);
+}
+/* Named layers paint above the page, so the page is moved over the field
+   once the field is nearly full and fades in on top of it, on the same ground.
+   Until then it sits beneath, where the portfolio dissolves around the row. */
+html[data-vt="in"]::view-transition-group(root) {
+  animation: vt-root-over var(--vt-move) linear both;
+}
+html[data-vt="in"]::view-transition-group(vt-name),
+html[data-vt="in"]::view-transition-group(vt-menu) {
+  z-index: 3;
+}
+html[data-vt="in"]::view-transition-old(root) {
+  animation: vt-fade 180ms var(--mh-ease) both reverse;
+}
+html[data-vt="in"]::view-transition-new(root) {
+  animation: vt-fade var(--mh-dur-ui) var(--mh-ease) 480ms both;
+}
+html[data-vt="in"]::view-transition-image-pair(vt-surface) {
+  animation: vt-edge var(--vt-move) var(--vt-ease) both;
+}
+html[data-vt="in"]::view-transition-old(vt-surface),
+html[data-vt="in"]::view-transition-new(vt-surface) {
+  width: 100%;
+  height: 100%;
+}
+html[data-vt="in"]::view-transition-old(vt-surface) {
+  animation: vt-fade 180ms var(--mh-ease) both reverse;
+}
+html[data-vt="in"]::view-transition-new(vt-surface) {
+  animation: vt-fade var(--mh-dur-ui) var(--mh-ease) both;
+}
+/* The name changes face by rolling over inside its own box: the old face
+   leaves up and out, the new one comes up from below, as the flight settles.
+   Each keeps its own proportions on a shared left edge. */
+html[data-vt="in"]::view-transition-image-pair(vt-name) {
+  overflow-y: clip;
+}
+html[data-vt="in"]::view-transition-old(vt-name),
+html[data-vt="in"]::view-transition-new(vt-name) {
+  width: auto;
+  height: 100%;
+  mix-blend-mode: normal;
+}
+html[data-vt="in"]::view-transition-old(vt-name) {
+  animation: vt-roll-out var(--mh-dur-ui) var(--mh-ease-inout) 400ms both;
+}
+html[data-vt="in"]::view-transition-new(vt-name) {
+  animation: vt-roll-in var(--mh-dur-ui) var(--mh-ease-inout) 400ms both;
+}
+@keyframes vt-fade {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes vt-root-over {
+  from,
+  67% {
+    z-index: 0;
+  }
+  68%,
+  to {
+    z-index: 2;
+  }
+}
+@keyframes vt-roll-out {
+  to {
+    transform: translateY(-110%);
+    opacity: 0;
+  }
+}
+@keyframes vt-roll-in {
+  from {
+    transform: translateY(110%);
+  }
+}
+@keyframes vt-edge {
+  from {
+    outline: 1px solid var(--mh-line-strong);
+  }
+  to {
+    outline: 1px solid transparent;
+  }
+}

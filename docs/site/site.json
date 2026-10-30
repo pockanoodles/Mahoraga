@@ -693,6 +693,165 @@
           "value": 31
         }
       }
+    },
+    {
+      "artifact": "experiments/humaneval_granite_2026-10_graded.jsonl",
+      "config": {
+        "bank": "HumanEval+ (164 tasks)",
+        "date": "2026-10-28",
+        "machine": "MacBook Pro M4, 16 GB (Mac16,1)",
+        "method": "force-explore, one answer per task and model, cascade and judge off, think off, 600-second limit per answer",
+        "source": "~/.mahoraga-v2/night/2026-10-28-humaneval-fixed (bench at a5b474f, #70)"
+      },
+      "description": "§2: granite 4.1 on HumanEval+, October, against granite 4.2 task by task",
+      "id": "report_2026_10_humaneval_granite41",
+      "metrics": {
+        "errors": {
+          "decimals": 0,
+          "value": 0
+        },
+        "escalated": {
+          "decimals": 0,
+          "value": 0
+        },
+        "mcnemar_p": {
+          "decimals": 2,
+          "value": 0.87
+        },
+        "n": {
+          "decimals": 0,
+          "value": 164
+        },
+        "only_this": {
+          "decimals": 0,
+          "value": 20
+        },
+        "only_versus": {
+          "decimals": 0,
+          "value": 18
+        },
+        "pair_passed": {
+          "decimals": 0,
+          "value": 132
+        },
+        "pairs": {
+          "decimals": 0,
+          "value": 164
+        },
+        "pass_at_1": {
+          "decimals": 3,
+          "value": 0.805
+        },
+        "pass_hi": {
+          "decimals": 3,
+          "value": 0.858
+        },
+        "pass_lo": {
+          "decimals": 3,
+          "value": 0.738
+        },
+        "passed": {
+          "decimals": 0,
+          "value": 132
+        },
+        "reasoned": {
+          "decimals": 0,
+          "value": 0
+        },
+        "versus_passed": {
+          "decimals": 0,
+          "value": 130
+        }
+      }
+    },
+    {
+      "artifact": "experiments/humaneval_granite_2026-10_graded.jsonl",
+      "config": {
+        "bank": "HumanEval+ (164 tasks)",
+        "date": "2026-10-28",
+        "machine": "MacBook Pro M4, 16 GB (Mac16,1)",
+        "method": "force-explore, one answer per task and model, cascade and judge off, think off, 600-second limit per answer",
+        "source": "~/.mahoraga-v2/night/2026-10-28-humaneval-fixed (bench at a5b474f, #70)"
+      },
+      "description": "§2: granite 4.2 on HumanEval+, October",
+      "id": "report_2026_10_humaneval_granite42",
+      "metrics": {
+        "errors": {
+          "decimals": 0,
+          "value": 2
+        },
+        "escalated": {
+          "decimals": 0,
+          "value": 0
+        },
+        "n": {
+          "decimals": 0,
+          "value": 164
+        },
+        "pass_at_1": {
+          "decimals": 3,
+          "value": 0.793
+        },
+        "pass_hi": {
+          "decimals": 3,
+          "value": 0.848
+        },
+        "pass_lo": {
+          "decimals": 3,
+          "value": 0.724
+        },
+        "passed": {
+          "decimals": 0,
+          "value": 130
+        },
+        "reasoned": {
+          "decimals": 0,
+          "value": 0
+        },
+        "timed_out": {
+          "decimals": 0,
+          "value": 2
+        }
+      }
+    },
+    {
+      "artifact": "experiments/humaneval_granite_2026-10_graded.jsonl",
+      "config": {
+        "bank": "HumanEval+ (164 tasks)",
+        "date": "2026-10-28",
+        "machine": "MacBook Pro M4, 16 GB (Mac16,1)",
+        "method": "force-explore, one answer per task and model, cascade and judge off, think off, 600-second limit per answer",
+        "source": "~/.mahoraga-v2/night/2026-10-28-humaneval-fixed (bench at a5b474f, #70)",
+        "versus": "experiments/p1_cross_granite.jsonl (2026-08), graded again"
+      },
+      "description": "§2: granite 4.1's October answers against its August ones, graded by today's grader",
+      "id": "report_2026_10_humaneval_granite41_vs_august",
+      "metrics": {
+        "mcnemar_p": {
+          "decimals": 2,
+          "value": 0.4
+        },
+        "only_this": {
+          "decimals": 0,
+          "value": 14
+        },
+        "only_versus": {
+          "decimals": 0,
+          "value": 9
+        },
+        "pair_passed": {
+          "decimals": 0,
+          "value": 132
+        },
+        "pairs": {
+          "decimals": 0,
+          "value": 164
+        },
+        "versus_passed": {
+          "decimals": 0,
+          "value": 127
+        }
+      }
     }
   ],
   "probe": {
@@ -2533,7 +2692,7 @@
     ]
   },
   "source": {
-    "commit": "f0c23c6",
+    "commit": "0c32c57",
     "repo": "pockanoodles/Mahoraga",
     "version": "2.1.0"
   },

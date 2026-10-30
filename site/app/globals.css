@@ -2844,3 +2844,144 @@ html[data-vt="in"]::view-transition-new(vt-name) {
     outline: 1px solid transparent;
   }
 }
+
+/* ── Privacy policy ───────────────────────────────────────────────────── */
+
+/* The engine page's two links under its privacy section. */
+.policy-links {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--mh-s-3) var(--mh-s-7);
+}
+
+.policy__updated {
+  margin-top: var(--mh-s-6);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--mh-faint);
+}
+
+.policy {
+  padding-top: 0;
+}
+
+.policy__section {
+  display: grid;
+  grid-template-columns: 4rem minmax(0, 1fr);
+  gap: var(--mh-s-5);
+  padding: var(--mh-s-8) 0;
+  border-top: 1px solid var(--mh-line);
+  scroll-margin-top: calc(var(--mh-header) + var(--mh-s-5));
+}
+
+/* The number sits on the heading's first line, as on the engine page. */
+.policy__section > .step__n {
+  padding-top: 0.35em;
+}
+
+.policy__body {
+  min-width: 0;
+}
+
+.policy__body > .step__title {
+  margin-top: 0;
+}
+
+.policy__p {
+  max-width: 42rem;
+  margin-top: var(--mh-s-3);
+  font-size: 16px;
+  line-height: 1.65;
+  color: var(--mh-muted);
+  text-wrap: pretty;
+}
+
+.ledger + .policy__p--after {
+  margin-top: var(--mh-s-6);
+}
+
+.ledger {
+  margin-top: var(--mh-s-6);
+}
+
+.ledger__row {
+  display: grid;
+  grid-template-columns: 1.1fr 1.4fr 1.2fr;
+  gap: var(--mh-s-5);
+  padding: var(--mh-s-4) 0;
+  border-bottom: 1px solid var(--mh-line);
+}
+
+.ledger__head {
+  padding-top: 0;
+  padding-bottom: var(--mh-s-2);
+  border-bottom-color: var(--mh-line-strong);
+}
+
+.ledger__label {
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--mh-faint);
+}
+
+.ledger__cell {
+  font-size: 15px;
+  line-height: 1.55;
+  color: var(--mh-muted);
+}
+
+.ledger__cell[data-col="where"] {
+  color: var(--mh-ink);
+}
+
+/* Each cell carries its column's name for the phone layout, where the head row
+   is gone. */
+.ledger__cell > .ledger__label {
+  display: none;
+}
+
+.policy__links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 var(--mh-s-6);
+  margin-top: var(--mh-s-4);
+  font-size: 15px;
+}
+
+/* A 44px target around a link whose underline stays on the text. */
+.policy__links li {
+  display: flex;
+  align-items: center;
+  min-height: 44px;
+}
+
+@media (max-width: 760px) {
+  .policy__section {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--mh-s-2);
+    padding: var(--mh-s-7) 0;
+  }
+
+  .policy__section > .step__n {
+    padding-top: 0;
+  }
+
+  .ledger__head {
+    display: none;
+  }
+
+  .ledger__row {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--mh-s-3);
+  }
+
+  .ledger__cell > .ledger__label {
+    display: block;
+    margin-bottom: 2px;
+  }
+}

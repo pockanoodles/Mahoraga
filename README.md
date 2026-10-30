@@ -568,7 +568,7 @@ The default decision log is
 The audit sends nothing off your machine, and the router sends a task to a cloud model
 only when its local answer fails and the cascade is on. [`DATAFLOW.md`](DATAFLOW.md) lists
 every place data can go, and the privacy policy is at
-[kaitosoeno.com/privacy](https://kaitosoeno.com/privacy).
+[kaitosoeno.com/mahoraga/privacy](https://kaitosoeno.com/mahoraga/privacy/).
 
 ## Documentation
 

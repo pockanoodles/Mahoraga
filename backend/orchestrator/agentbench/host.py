@@ -67,6 +67,13 @@ def memory_free_pct() -> int | None:
     return parse_sysctl_int(_run("sysctl", "-n", "kern.memorystatus_level"))
 
 
+def memory_pressure() -> int | None:
+    """The kernel's memory pressure: 1 normal, 2 warning, 4 critical."""
+    if sys.platform != "darwin":
+        return None
+    return parse_sysctl_int(_run("sysctl", "-n", "kern.memorystatus_vm_pressure_level"))
+
+
 def memory_bytes() -> int | None:
     if sys.platform != "darwin":
         return None

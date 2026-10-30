@@ -83,6 +83,32 @@ def _print_checks(checks) -> bool:
     return all(c.ok for c in checks)
 
 
+def _terms(wait_idle_min: Optional[float] = None, memory_floor: Optional[int] = None):
+    """This machine's terms (machine.json), with any term a flag gave overridden."""
+    from dataclasses import replace
+
+    from backend.orchestrator.agentbench import machine
+
+    try:
+        terms = machine.load()
+    except ValueError as e:
+        raise typer.BadParameter(f"this machine's terms: {e}")
+    if wait_idle_min is not None:
+        terms = replace(terms, wait_idle_min=wait_idle_min)
+    if memory_floor is not None:
+        terms = replace(terms, memory_floor=memory_floor)
+    return terms
+
+
+def _guard(ratio: float, terms=None, **kw) -> Guard:
+    """A guard on this machine's terms. Every command that can load a model
+    builds its guard here, so none of them can load one the terms forbid."""
+    try:
+        return Guard(bench_root(), ratio=ratio, **(terms or _terms()).guard_kw(), **kw)
+    except ValueError as e:
+        raise typer.BadParameter(str(e))
+
+
 def _stay_awake() -> None:
     """Hold off idle and system sleep (on AC) for this process's lifetime.
     Closing the lid still sleeps the machine; nothing here can prevent that."""
@@ -153,7 +179,7 @@ def preflight_cmd(
     from backend.orchestrator.agentbench import isolation
 
     agents = _agents(arms)
-    ok = _print_checks(Guard(bench_root(), ratio=ratio).preflight(agents))
+    ok = _print_checks(_guard(ratio).preflight(agents))
     bench = Bench(repo)
     n = len(bench.load_tasks())
     typer.echo(f"  {'ok  ' if n else 'FAIL'}  {'tasks':24} {n or 'none — run `mahoraga audit mine`'}")
@@ -176,7 +202,7 @@ def doctor_cmd(
     agents = _agents(arms)
     bench = Bench(repo)
     typer.echo("machine")
-    machine_ok = _print_checks(Guard(bench_root(), ratio=ratio).preflight(agents))
+    machine_ok = _print_checks(_guard(ratio).preflight(agents))
     typer.echo("bench")
     bench_ok = _print_checks(bench_checks(bench))
     if bench.load_tasks():
@@ -237,7 +263,7 @@ def tonight_cmd(
             raise typer.Exit(1)
 
     typer.echo("2. this machine")
-    checks = Guard(bench_root(), ratio=ratio).preflight(agents)
+    checks = _guard(ratio).preflight(agents)
     checks += isolation.check(bench, bench.load_config())
     _print_checks(checks)
     blocking = [c for c in checks if not c.ok and not c.waits]
@@ -393,7 +419,7 @@ def run_cmd(
     timeout: float = typer.Option(DEFAULT_TIMEOUT, "--timeout", help="Seconds per attempt."),
     repeats: int = typer.Option(1, "--repeats", min=1, help="Attempts per cell; >1 measures stability."),
     until: Optional[str] = typer.Option(None, "--until", help="Start no attempt after HH:MM (next occurrence)."),
-    wait_idle: float = typer.Option(0, "--wait-idle", help="Only start attempts after this many idle minutes."),
+    wait_idle: Optional[float] = typer.Option(None, "--wait-idle", help="Only start attempts after this many idle minutes (default: this machine's terms)."),
     ratio: float = _RATIO,
     guarded: bool = typer.Option(True, "--guard/--no-guard", help="Preflight, pause on bad conditions, drop degraded attempts."),
     wait_quiet: bool = typer.Option(False, "--wait-quiet", help="Pause while someone else's model is loaded in Ollama."),
@@ -406,6 +432,7 @@ def run_cmd(
         raise typer.BadParameter(f"--cond must be blind, feedback or both, not {cond!r}")
     agents = _agents(arms)
     deadline = parse_until(until) if until else None
+    terms = _terms(wait_idle, memory_floor)
     bench = Bench(repo)
     if not bench.load_tasks():
         typer.echo("no tasks — run `mahoraga audit mine` first")
@@ -413,8 +440,7 @@ def run_cmd(
 
     guard = None
     if guarded:
-        guard = Guard(bench_root(), ratio=ratio, wait_idle=wait_idle * 60, wait_quiet=wait_quiet,
-                      memory_floor=memory_floor, log=typer.echo)
+        guard = _guard(ratio, terms, wait_quiet=wait_quiet, log=typer.echo)
         typer.echo("preflight")
         from backend.orchestrator.agentbench import isolation
 
@@ -441,8 +467,8 @@ def run_cmd(
         bench, agents, conds, only=only, timeout=timeout, repeats=repeats, guard=guard,
         deadline=deadline, progress=progress,
         settings={"conds": list(conds), "repeats": repeats, "timeout": timeout,
-                  "until": until, "wait_idle_min": wait_idle, "guarded": guarded,
-                  "wait_quiet": wait_quiet, "memory_floor": memory_floor,
+                  "until": until, **terms.record(), "guarded": guarded,
+                  "wait_quiet": wait_quiet,
                   "min_speed_ratio": ratio, "forced": force},
         started=lambda run_id: typer.echo(f"run {run_id} (manifest: {manifest.path(bench, run_id)})"),
         dropped=lambda arm, why: typer.echo(f"dropped {arm}: {why}"))
@@ -663,8 +689,9 @@ def worker_cmd(
     def stamp(msg: str) -> None:
         typer.echo(f"[{datetime.now():%m-%d %H:%M:%S}] {msg}")
 
+    terms = _terms(memory_floor=memory_floor)
     drain(queue, lambda job, deadline: run_job(queue, job, deadline, progress=_echo_attempt,
-                                               memory_floor=memory_floor, log=stamp),
+                                               terms=terms, log=stamp),
           poll=poll * 60, once=once, log=stamp)
 
 

@@ -9,7 +9,7 @@ from typing import Callable
 
 import httpx
 
-from . import isolation, limit, session, tonight
+from . import isolation, limit, machine, session, tonight
 from .agents import Agent, parse_arm
 from .bank import Bench, SuiteConfig
 from .guard import Guard
@@ -29,10 +29,10 @@ def run_job(queue: Queue, job: Job, deadline: float | None, *,
             progress: Callable[[Attempt], None] = lambda a: None,
             wrap_up: Callable[[Bench, Job], object] = tonight.wrap_up,
             limit_for: Callable[..., float] = limit.for_agent,
-            memory_floor: int | None = None,
+            terms: machine.Terms = machine.Terms(),
             log: Callable[[str], None] = print) -> int:
     """Attempts counted. Every way out of here sets the job's `why`.
-    `memory_floor` belongs to the machine, not the job: the worker's own setting."""
+    `terms` belong to the machine, not the job: the worker's own setting."""
     bench = Bench(Path(job.repo), root=queue.root)
 
     def morning() -> None:
@@ -92,7 +92,7 @@ def run_job(queue: Queue, job: Job, deadline: float | None, *,
         elif msg == "resumed":
             queue.update(job.id, why="running")
 
-    g = guard(bench.dir.parent, wait_quiet=job.wait_quiet, memory_floor=memory_floor,
+    g = guard(bench.dir.parent, wait_quiet=job.wait_quiet, **terms.guard_kw(),
               log=guard_log)
     timeout = job.timeout
     if timeout is None:
@@ -126,7 +126,7 @@ def run_job(queue: Queue, job: Job, deadline: float | None, *,
             settings={"conds": list(conds), "repeats": job.repeats, "timeout": timeout,
                       "queue_job": job.id,
                       "window": job.window, "wait_quiet": job.wait_quiet,
-                      "memory_floor": memory_floor, "guarded": True},
+                      **terms.record(), "guarded": True},
             progress=progress, started=started,
             dropped=lambda arm, why: (dropped.append(f"{arm}: {why}"),
                                       log(f"dropped {arm}: {why}")))

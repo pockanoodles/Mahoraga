@@ -715,6 +715,7 @@ class FakeMachine:
 
 def _guard(tmp_path, machine, **kw) -> Guard:
     kw.setdefault("sleep", lambda s: None)
+    kw.setdefault("pressure", lambda: None)
     return Guard(tmp_path / "guard", power=machine.power, idle=lambda: machine.idle,
                  speed=machine.speed, pulled=lambda: {"m:latest": "sha256:0123456789abcdef"},
                  sample_every=0.01, **kw)
@@ -1315,6 +1316,123 @@ def test_a_low_reading_after_the_attempt_does_not_void_it(tmp_path):
     with g.watch(agent) as watch:
         mem.free = 12
     assert watch.degraded == [] and mem.stops == 0
+
+
+# ── The owner's laptop: load room, idle, yield ───────────────────────────────
+
+
+def _laptop(mem: FakeMemory, **kw) -> dict:
+    """16 GiB, 11 GiB to load, 15 idle minutes, yields to its owner."""
+    return {**mem.kw(floor=None), "mem_total": lambda: 16 << 30, "load_room": 11 << 30,
+            "wait_idle": 900, "yield_to_owner": True, **kw}
+
+
+def test_the_model_does_not_load_without_room(tmp_path):
+    # 2026-10-29: ~9 GB of apps open, qwen3.5@131k loaded on top, kernel panic.
+    mem = FakeMemory(free=40)                     # 6.4 of 16 GiB
+    g, agent = _guard(tmp_path, FakeMachine(), **_laptop(mem)), FakeAgent("m")
+    assert g.problems(agent) == ["memory: 6.4 GB available, under the 11 GB to load m"]
+    mem.free = 70                                 # 11.2 GiB
+    assert g.problems(agent) == []
+    mem.free, mem.loaded = 5, {"m:latest": 10 << 30}
+    assert g.problems(agent) == []                # loaded: the 5% is with it in
+
+
+def test_preflight_does_not_load_the_model_on_a_busy_machine(tmp_path):
+    m, mem = FakeMachine(), FakeMemory(free=40)
+    probes = []
+    m.speed = lambda model, num_ctx: probes.append(model) or 30.0
+    [check] = [c for c in _guard(tmp_path, m, **_laptop(mem)).preflight([FakeAgent("m")])
+               if c.name == "m"]
+    assert not check.ok and check.waits and "6.4 GB available" in check.detail
+    mem.free, m.idle = 80, 30
+    [check] = [c for c in _guard(tmp_path, m, **_laptop(mem)).preflight([FakeAgent("m")])
+               if c.name == "m"]
+    assert check.waits and "in use (idle 30s" in check.detail
+    assert probes == []                           # a probe is a load
+
+
+def test_waiting_for_the_owner_to_leave_unloads_the_model(tmp_path):
+    m, mem = FakeMachine(), FakeMemory(free=80)
+    mem.loaded = {"m:latest": 10 << 30}
+    m.idle = 5
+
+    def sleep(_):  # the owner goes to bed
+        m.idle = 3600
+
+    g = _guard(tmp_path, m, sleep=sleep, **_laptop(mem))
+    assert g.wait_ready(FakeAgent("m"))
+    assert mem.released == ["m:latest"]
+
+
+def test_the_owner_coming_back_stops_the_attempt_and_gives_it_back(tmp_path):
+    m, mem = FakeMachine(), FakeMemory(free=30)
+    mem.loaded = {"m:latest": 10 << 30}
+    probes = []
+    m.speed = lambda model, num_ctx: probes.append(model) or 30.0
+    g, agent = _guard(tmp_path, m, pressure=lambda: 2, **_laptop(mem)), FakeAgent("m")
+    with g.watch(agent) as watch:
+        m.idle = 3                                # a key pressed
+        deadline = time.time() + 5
+        while not mem.stops and time.time() < deadline:
+            time.sleep(0.01)
+    assert mem.stops == 1 and mem.released == ["m:latest"]
+    assert watch.degraded == ["the machine was used 3s ago; stopped the attempt and "
+                              "unloaded the model to give it back"]
+    assert probes == []
+    assert watch.conditions["max_pressure"] == 2
+
+
+def test_an_untouched_machine_keeps_its_attempt(tmp_path):
+    mem = FakeMemory(free=30)
+    g, agent = _guard(tmp_path, FakeMachine(), **_laptop(mem)), FakeAgent("m")
+    with g.watch(agent) as watch:
+        time.sleep(0.05)
+    assert watch.degraded == [] and mem.stops == 0
+
+
+def test_yielding_needs_an_idle_wait(tmp_path):
+    with pytest.raises(ValueError, match="idle wait"):
+        _guard(tmp_path, FakeMachine(), yield_to_owner=True)
+
+
+def test_machine_terms(tmp_path):
+    from backend.orchestrator.agentbench import machine
+    path = tmp_path / "machine.json"
+    assert machine.load(path) == machine.Terms()  # no file, no terms
+    assert machine.Terms().guard_kw() == {"wait_idle": 0, "load_room": None,
+                                          "yield_to_owner": False, "memory_floor": None}
+    path.write_text(json.dumps({"wait_idle_min": 15, "load_room_gb": 11, "yield_to_owner": True}))
+    terms = machine.load(path)
+    assert terms.guard_kw() == {"wait_idle": 900, "load_room": 11 << 30,
+                                "yield_to_owner": True, "memory_floor": None}
+    path.write_text(json.dumps({"load_room": 11}))   # a typo must not mean no terms
+    with pytest.raises(ValueError, match="load_room"):
+        machine.load(path)
+    path.write_text("{")
+    with pytest.raises(ValueError):
+        machine.load(path)
+
+
+def test_the_worker_runs_on_the_machine_s_terms(mined, tmp_path):
+    from backend.orchestrator.agentbench import machine
+    q = Queue(mined.dir.parent)
+    q.add(str(mined.repo), ["fake:m"], "blind", pinned=PIN)
+    seen = {}
+
+    def guard(root, **kw):
+        seen.update(kw)
+        return _guard(tmp_path, FakeMachine(), **kw, free_pct=lambda: 90,
+                      mem_total=lambda: 16 << 30, sizes=lambda: {})
+
+    terms = machine.Terms(wait_idle_min=15, load_room_gb=11, yield_to_owner=True)
+    [job] = q.jobs()
+    run_job(q, job, None, pulled=lambda: {"m:latest": PIN["m"]}, guard=guard,
+            agents_for=lambda arms: [FakeAgent("m", apply_gold)],
+            which=lambda name: "/bin/" + name, isolated=lambda bench, config: [],
+            terms=terms, log=lambda msg: None)
+    assert seen["wait_idle"] == 900 and seen["load_room"] == 11 << 30
+    assert seen["yield_to_owner"] is True
 
 
 # ── Isolation canary ──────────────────────────────────────────────────────────

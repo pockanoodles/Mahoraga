@@ -154,6 +154,31 @@ def evaluate(bank: dict[str, dict], results: list[dict]) -> tuple[list[CaseResul
     return cases, unmatched
 
 
+def graded_rows(bank: dict[str, dict], path: Path) -> tuple[list[dict], int]:
+    """Each row of a bench results JSONL whose prompt is in the bank, as
+    written, plus what the hidden tests said: `task` (the bank's entrypoint),
+    `agent`, `passed` and `test_error`. The run's own fields stay, so a claim
+    of kind pass_at_1 (benchmark/pass_claims.py) can also count the rows that
+    errored, were escalated or reasoned. Returns (rows, unmatched)."""
+    rows: list[dict] = []
+    unmatched = 0
+    with open(path) as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            r = json.loads(line)
+            spec = bank.get(r.get("prompt_full") or r.get("prompt") or "")
+            agent = r.get("actual_agent") or r.get("requested_agent") or r.get("agent")
+            if spec is None or not agent:
+                unmatched += 1
+                continue
+            passed, err = run_case(r.get("output_full") or "", spec["tests"])
+            rows.append({**r, "task": spec.get("entrypoint") or r["prompt_full"][:32],
+                         "agent": agent, "passed": passed, "test_error": err})
+    return rows, unmatched
+
+
 def summarize(cases: list[CaseResult], results: list[dict]) -> dict:
     """Aggregate pass@1 per (bucket, agent) and per agent, plus a mean
     heuristic quality per (bucket, agent) for side-by-side comparison.

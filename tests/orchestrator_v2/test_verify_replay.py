@@ -254,3 +254,34 @@ def test_verify_cmd_json_output(tmp_path: Path):
     assert result.exit_code == 0, result.output
     payload = json.loads(result.output)
     assert payload["overall"]["ollama:a"]["pass_rate"] == 1.0
+
+
+# ── `orch bench report grade` — the artifact a pass_at_1 claim names ────────
+
+def test_grade_cmd_keeps_the_run_fields_and_adds_the_verdict(tmp_path: Path):
+    bank_file = tmp_path / "bank.jsonl"
+    bank_file.write_text(
+        json.dumps({"prompt": "Write f", "bucket": "code", "entrypoint": "f",
+                    "tests": "assert f() == 1"}) + "\n"
+    )
+    results_file = tmp_path / "results.jsonl"
+    results_file.write_text(
+        json.dumps({"prompt_full": "Write f", "output_full": "def f():\n    return 1",
+                    "actual_agent": "ollama:a", "escalated_to": None, "thinking_chars": 0}) + "\n"
+        # an errored row has no output and no actual_agent, only what was asked
+        + json.dumps({"prompt_full": "Write f", "requested_agent": "ollama:b",
+                      "error": "timed out at the 600.0s deadline", "timed_out": True}) + "\n"
+        + json.dumps({"prompt_full": "Not in the bank", "output_full": "x",
+                      "actual_agent": "ollama:a"}) + "\n"
+    )
+    out = tmp_path / "graded.jsonl"
+    result = runner.invoke(app, [
+        "bench", "report", "grade", "-i", str(results_file), "--bank", str(bank_file), "-o", str(out),
+    ])
+    assert result.exit_code == 0, result.output
+    assert "1 unmatched" in result.output
+    rows = [json.loads(line) for line in out.read_text().splitlines()]
+    assert [(r["agent"], r["task"], r["passed"]) for r in rows] == [
+        ("ollama:a", "f", True), ("ollama:b", "f", False)]
+    assert rows[0]["thinking_chars"] == 0 and rows[0]["test_error"] == ""
+    assert rows[1]["timed_out"] is True

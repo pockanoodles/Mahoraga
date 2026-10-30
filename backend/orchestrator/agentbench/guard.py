@@ -417,7 +417,10 @@ class _Watching:
 
     def _panic_check(self, pressure: int | None) -> None:
         line = self.g.panic_wired
-        if line is None or (wired := self.g._wired()) is None:
+        if line is None:
+            return
+        if (wired := self.g._wired()) is None:  # a missed reading breaks the run
+            self._at_panic = 0
             return
         self._wireds.append(wired)
         self._at_panic = self._at_panic + 1 if pressure == CRITICAL and wired > line else 0

@@ -1431,7 +1431,8 @@ def _panic_watch(tmp_path, readings, line=13.5):
 
     mem = FakeMemory(free=30)
     mem.loaded = {"m:latest": 10 << 30}
-    g = _guard(tmp_path, FakeMachine(), pressure=pressure, wired=lambda: int(now["w"] * 2**30),
+    g = _guard(tmp_path, FakeMachine(), pressure=pressure,
+               wired=lambda: None if now["w"] is None else int(now["w"] * 2**30),
                panic_wired=int(line * 2**30), **_laptop(mem))
     g.sample_every = 60                           # samples come only from the loop below
     watching = g.watch(FakeAgent("m"))
@@ -1459,6 +1460,12 @@ def test_critical_pressure_with_wired_over_the_line_stops_the_attempt(tmp_path):
 
 def test_one_reading_at_the_panic_signature_is_not_enough(tmp_path):
     watch, mem = _panic_watch(tmp_path, [(4, 14.2), (4, 11.5), (4, 14.0), (2, 14.0)])
+    assert watch.degraded == [] and mem.stops == 0
+
+
+def test_a_missed_wired_reading_breaks_the_run(tmp_path):
+    # vm_stat timing out between two spikes doesn't make them two in a row
+    watch, mem = _panic_watch(tmp_path, [(4, 14.2), (2, None), (4, 14.2), (2, 12.0)])
     assert watch.degraded == [] and mem.stops == 0
 
 

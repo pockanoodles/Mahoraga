@@ -44,12 +44,18 @@ def _one_per_task(rows: list[dict]) -> dict[str, bool]:
     return out
 
 
-def _count(run: list[dict], rows: list[dict], key: str, hit) -> Optional[float]:
+def _count(run: list[dict], rows: list[dict], key: str, hit,
+           null_unknown: bool = False) -> Optional[float]:
     """`rows` where `hit(value)` holds, or None when no row of the whole `run`
     recorded `key`. A bench writes `error` only on the answers that errored,
     and an answer that errored writes none of the reply's fields, so a row
-    without the key counts as a miss once the run is known to record it."""
+    without the key counts as a miss once the run is known to record it.
+    With `null_unknown`, a recorded null means the agent didn't report the
+    value (an agent without reasoning telemetry writes thinking_chars null),
+    so one such row makes the count unknown rather than a zero."""
     if not any(key in r for r in run):
+        return None
+    if null_unknown and any(key in r and r[key] is None for r in rows):
         return None
     return float(sum(1 for r in rows if key in r and hit(r[key])))
 
@@ -69,7 +75,7 @@ def metrics(rows: list[dict], claim: dict[str, Any],
         "errors": _count(rows, picked, "error", bool),
         "timed_out": _count(rows, picked, "timed_out", bool),
         "escalated": _count(rows, picked, "escalated_to", bool),
-        "reasoned": _count(rows, picked, "thinking_chars", lambda c: bool(c and c > 0)),
+        "reasoned": _count(rows, picked, "thinking_chars", lambda c: c > 0, null_unknown=True),
     }
     if "versus" in claim:
         theirs = _one_per_task(select(rows if versus_rows is None else versus_rows,

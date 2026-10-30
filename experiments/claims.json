@@ -526,6 +526,104 @@
         "only_versus": { "value": 12, "decimals": 0 },
         "mcnemar_p": { "value": 0.66, "decimals": 2 }
       }
+    },
+    {
+      "id": "report_2026_10_humaneval_granite41",
+      "kind": "pass_at_1",
+      "description": "§2: granite 4.1 on HumanEval+, October, against granite 4.2 task by task",
+      "artifact": "experiments/humaneval_granite_2026-10_graded.jsonl",
+      "select": {
+        "agent": "ollama:granite4.1-8b"
+      },
+      "versus": {
+        "select": {
+          "agent": "ollama:granite4.2-8b"
+        }
+      },
+      "config": {
+        "bank": "HumanEval+ (164 tasks)",
+        "machine": "MacBook Pro M4, 16 GB (Mac16,1)",
+        "method": "force-explore, one answer per task and model, cascade and judge off, think off, 600-second limit per answer",
+        "source": "~/.mahoraga-v2/night/2026-10-28-humaneval-fixed (bench at a5b474f, #70)",
+        "date": "2026-10-28"
+      },
+      "published_in": ["docs/report/2026-10-local-coding-ai.md"],
+      "metrics": {
+        "n": { "value": 164, "decimals": 0 },
+        "passed": { "value": 132, "decimals": 0 },
+        "pass_at_1": { "value": 0.805, "decimals": 3 },
+        "pass_lo": { "value": 0.738, "decimals": 3 },
+        "pass_hi": { "value": 0.858, "decimals": 3 },
+        "errors": { "value": 0, "decimals": 0 },
+        "escalated": { "value": 0, "decimals": 0 },
+        "reasoned": { "value": 0, "decimals": 0 },
+        "pairs": { "value": 164, "decimals": 0 },
+        "pair_passed": { "value": 132, "decimals": 0 },
+        "versus_passed": { "value": 130, "decimals": 0 },
+        "only_this": { "value": 20, "decimals": 0 },
+        "only_versus": { "value": 18, "decimals": 0 },
+        "mcnemar_p": { "value": 0.87, "decimals": 2 }
+      }
+    },
+    {
+      "id": "report_2026_10_humaneval_granite42",
+      "kind": "pass_at_1",
+      "description": "§2: granite 4.2 on HumanEval+, October",
+      "artifact": "experiments/humaneval_granite_2026-10_graded.jsonl",
+      "select": {
+        "agent": "ollama:granite4.2-8b"
+      },
+      "config": {
+        "bank": "HumanEval+ (164 tasks)",
+        "machine": "MacBook Pro M4, 16 GB (Mac16,1)",
+        "method": "force-explore, one answer per task and model, cascade and judge off, think off, 600-second limit per answer",
+        "source": "~/.mahoraga-v2/night/2026-10-28-humaneval-fixed (bench at a5b474f, #70)",
+        "date": "2026-10-28"
+      },
+      "published_in": ["docs/report/2026-10-local-coding-ai.md"],
+      "metrics": {
+        "n": { "value": 164, "decimals": 0 },
+        "passed": { "value": 130, "decimals": 0 },
+        "pass_at_1": { "value": 0.793, "decimals": 3 },
+        "pass_lo": { "value": 0.724, "decimals": 3 },
+        "pass_hi": { "value": 0.848, "decimals": 3 },
+        "errors": { "value": 2, "decimals": 0 },
+        "escalated": { "value": 0, "decimals": 0 },
+        "reasoned": { "value": 0, "decimals": 0 },
+        "timed_out": { "value": 2, "decimals": 0 }
+      }
+    },
+    {
+      "id": "report_2026_10_humaneval_granite41_vs_august",
+      "kind": "pass_at_1",
+      "description": "§2: granite 4.1's October answers against its August ones, graded by today's grader",
+      "artifact": "experiments/humaneval_granite_2026-10_graded.jsonl",
+      "select": {
+        "agent": "ollama:granite4.1-8b"
+      },
+      "versus": {
+        "artifact": "experiments/p1_cross_granite_graded.jsonl",
+        "select": {
+          "agent": "ollama:granite4.1-8b"
+        }
+      },
+      "config": {
+        "bank": "HumanEval+ (164 tasks)",
+        "machine": "MacBook Pro M4, 16 GB (Mac16,1)",
+        "method": "force-explore, one answer per task and model, cascade and judge off, think off, 600-second limit per answer",
+        "source": "~/.mahoraga-v2/night/2026-10-28-humaneval-fixed (bench at a5b474f, #70)",
+        "date": "2026-10-28",
+        "versus": "experiments/p1_cross_granite.jsonl (2026-08), graded again"
+      },
+      "published_in": ["docs/report/2026-10-local-coding-ai.md"],
+      "metrics": {
+        "pairs": { "value": 164, "decimals": 0 },
+        "pair_passed": { "value": 132, "decimals": 0 },
+        "versus_passed": { "value": 127, "decimals": 0 },
+        "only_this": { "value": 14, "decimals": 0 },
+        "only_versus": { "value": 9, "decimals": 0 },
+        "mcnemar_p": { "value": 0.4, "decimals": 2 }
+      }
     }
   ]
 }

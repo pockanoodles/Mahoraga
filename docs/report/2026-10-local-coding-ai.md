@@ -1,10 +1,9 @@
 # Is local coding AI worth it on a 16 GB Mac? (October 2026)
 
 **Draft.** Every figure here links to the artifact it came from. Sections
-marked PENDING wait on runs that are under way on the laptop, which are
-HumanEval+ for section 2 on the night of 2026-10-28 and the laptop's own 131k
-run for sections 3 to 5 over the nights to 2026-10-31. No number goes into
-them until the run has finished and `orch bench verify` recomputes it.
+marked PENDING wait on the laptop's own 131k run for sections 3 to 5, which
+runs night by night into early November. No number goes into them until the
+run has finished and `orch bench verify` recomputes it.
 
 ## The question
 
@@ -54,12 +53,26 @@ when a judge rejects the answer reached 0.921 pass@1 on HumanEval+. That is
 using cloud, so the cascade cut cost by 76.5%. The result was identical
 across two independent runs.
 
-> **PENDING (the run scheduled for 2026-10-02 never started):** the same bank
-> and method with granite 4.1 against granite 4.2. IBM published a HumanEval+
-> figure for 4.1 (79.88) and none for 4.2, so this comparison will be the only
-> protocol-matched one that exists. Our harness reproduces IBM's 4.1 figure
-> within its run-to-run band (0.774 to 0.805), which is what makes the 4.2
-> number citable.
+In October we ran the same bank on granite 4.1 and on granite 4.2, which is
+IBM's newer model at the same 8B size. IBM published a HumanEval+ figure for
+4.1 (79.88) and none for 4.2, so this is the only protocol-matched comparison
+of the two that we know of. Granite 4.1 passed 132 of the 164 tasks (0.805,
+with a 95% interval of 0.738 to 0.858), which is within a point of IBM's own
+figure. Granite 4.2 passed 130 (0.793, with an interval of 0.724 to 0.848),
+and two of its answers ran past the ten-minute limit and count as failures.
+The two models disagreed on 38 tasks, 20 that only 4.1 solved and 18 that only
+4.2 solved, and a split that even is what chance alone would produce (exact
+McNemar p = 0.87). The newer model therefore gives a 16 GB user no measurable
+gain on this bank with reasoning off
+([claims](../../experiments/claims.json), `report_2026_10_humaneval_*`).
+
+Every answer in the run came from the model it is credited to, since the
+cascade was off and none of the 328 answers went to the cloud. Neither model
+reasoned before answering. Granite 4.1 has also held steady since August, as
+its August answers graded again by the same grader pass 127 of 164 (0.774),
+and a gap of 14 tasks against 9 between the two months is well within chance
+(p = 0.40). Granite 4.2 can also reason before it answers, which takes about
+four hours over the bank on this laptop and has not been run yet.
 
 ## 3. Local agents on real repositories
 
@@ -198,7 +211,7 @@ first two tries at this measurement were set by clocks rather than by the
 model (section 6), so the run below gives each attempt 90 minutes and puts no
 shorter clock inside it.
 
-> **PENDING (running 2026-10-28 to 2026-10-31):** qwen3.5 at 131k on the
+> **PENDING (running from 2026-10-28 into early November):** qwen3.5 at 131k on the
 > laptop itself, blind, on 47 tasks from more-itertools and attrs, compared
 > task by task with the Studio's run of the same model file.
 
@@ -254,6 +267,20 @@ fewer tasks than the Studio running the same model file (8 against 14 of the
 same 28), which read like a hardware result until the logs showed the cut
 requests. Mahoraga now gives each request the whole attempt's limit, and the
 laptop's numbers in this report come from a rerun with that fix.
+
+The first run of the granite comparison in section 2, on 2026-10-28,
+measured our harness instead of the models, in three ways at once. Granite 4.2
+reasoned at length before every answer, about 1,400 tokens against roughly 150
+that it showed, because its template turns reasoning on unless a request turns
+it off and our request never reached the template. A two-minute limit inside
+our client then cut 59 of those long replies, each cut also broke the request
+after it, and the run's summary still reported every task as a success when
+only 46 of granite 4.2's 164 answers had come back. The same run also left the
+cascade on, which sent 25 of granite 4.1's tasks to Claude and recorded
+Claude's answers under granite's name. We caught all three by grading the
+outputs rather than trusting the summary. The rerun in section 2 records for
+every answer whether it reasoned, whether it was escalated and whether it
+errored, so a claim checks that none of them came from Claude.
 
 Two more errors came from the agents' interfaces rather than from the models.
 Ornith-1.5 was first recorded under aider as 3 resolved and 99 attempts with

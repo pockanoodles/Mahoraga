@@ -13,8 +13,9 @@ like a model failure. None of those attempts measured the agent.
              free plus room for the model to load; with a load room, until
              that much memory is available before the model loads at all
   watch      during and after an attempt: an attempt is *degraded* if AC was
-             lost, if free memory fell under the floor or the owner came back
-             to a machine that yields to them (the attempt is stopped then and
+             lost, if free memory fell under the floor, the owner came back
+             to a machine that yields to them, or the machine reached the
+             state it panicked in (the attempt is stopped then and
              there), or if speed fell below the bar *and* the attempt
              timed out or had requests fail. Degraded attempts are kept for
              audit but not counted, and the cell is retried
@@ -34,6 +35,16 @@ to be killed by hand. With a floor the run gives the memory back on its own:
 it stops the attempt, unloads its model, and waits. It is off by default, since
 a 16 GB laptop sits at the kernel's memory warning through every 131k attempt
 and the only one it would stop is the run itself.
+
+The panic stop exists because pressure alone can't tell a laptop at its limit
+from one about to panic. On the night into 2026-10-30, untouched, two of nine
+131k attempts reached critical pressure and free memory fell to 4%, with wired
+memory flat near 11.3 GB (11.9 at most), and both finished normally; stopping
+on critical would have thrown both away. The panic the night before had wired
+memory at 14.2 GB. So the stop needs both, critical pressure while wired memory
+is over the line, for `PANIC_READINGS` readings in a row, so one spike doesn't
+end an attempt. The night of the panic, WindowServer starved for two minutes
+before the watchdog fired, and two readings 30 s apart land inside that.
 
 Slowness alone doesn't degrade an attempt. A slow machine changes when tokens
 arrive, not which ones the model can produce: aider samples at temperature 0,
@@ -79,6 +90,10 @@ from .ollama import (BASE_URL, DERIVED_PREFIX, generation_speed, loaded_models,
 READINGS_KEPT = 10
 # Input more recent than this means someone is at the machine.
 IN_USE_SECS = 60
+# The kernel's memory pressure level for critical.
+CRITICAL = 4
+# Readings in a row at the panic signature before an attempt is stopped.
+PANIC_READINGS = 2
 
 
 @dataclass
@@ -112,7 +127,7 @@ class Guard:
     def __init__(self, root: Path, *, ratio: float = 0.5, min_watts: int = 60,
                  wait_idle: float = 0, clean_idle: float = 300, wait_quiet: bool = False,
                  memory_floor: int | None = None, load_room: int | None = None,
-                 yield_to_owner: bool = False,
+                 yield_to_owner: bool = False, panic_wired: int | None = None,
                  poll: float = 60, sample_every: float = 30,
                  power: Callable[[], host.Power] = host.power,
                  idle: Callable[[], float | None] = host.idle_secs,
@@ -122,7 +137,8 @@ class Guard:
                  free_pct: Callable[[], int | None] = host.memory_free_pct,
                  mem_total: Callable[[], int | None] = host.memory_bytes,
                  pressure: Callable[[], int | None] = host.memory_pressure,
-                 sizes: Callable[[], dict[str, int]] = loaded_sizes,
+                 wired: Callable[[], int | None] = host.wired_bytes,
+                 sizes:Callable[[], dict[str, int]] = loaded_sizes,
                  release: Callable[[str], None] = unload,
                  stop_agent: Callable[[], None] = kill_live_agents,
                  sleep: Callable[[float], None] = time.sleep,
@@ -138,9 +154,11 @@ class Guard:
             raise ValueError("yielding to the owner needs an idle wait of at least a "
                              "minute, or every attempt would start in use and stop")
         self.yield_to_owner = yield_to_owner
+        # Wired bytes over which critical pressure stops an attempt; None = off.
+        self.panic_wired = panic_wired
         self._loaded = loaded
         self._free_pct, self._mem_total, self._sizes = free_pct, mem_total, sizes
-        self._pressure = pressure
+        self._pressure, self._wired = pressure, wired
         self._release, self._stop_agent = release, stop_agent
         # Bytes each of our models took when last seen loaded, so the gate
         # can leave room for one that isn't loaded yet.
@@ -368,6 +386,8 @@ class _Watching:
         self._samples: list[tuple[host.Power, float | None]] = []
         self._free: list[int] = []
         self._pressures: list[int] = []
+        self._wireds: list[int] = []
+        self._at_panic = 0  # readings in a row at the panic signature
 
     def _give_back(self, why: str) -> None:
         """Stop the attempt and unload its model. Once the agent has stopped,
@@ -386,6 +406,7 @@ class _Watching:
             self._pressures.append(p)
         if self.g.yield_to_owner and idle is not None and idle < IN_USE_SECS:
             self._give_back(f"the machine was used {idle:.0f}s ago")
+        self._panic_check(p)
         floor = self.g.memory_floor
         if floor is None or (free := self.g._free_pct()) is None:
             return
@@ -393,6 +414,20 @@ class _Watching:
         self.g._mine_loaded(self.agent)  # learn the model's size while it's loaded
         if free < floor:
             self._give_back(f"memory fell to {free}% free, under the {floor}% floor")
+
+    def _panic_check(self, pressure: int | None) -> None:
+        line = self.g.panic_wired
+        if line is None:
+            return
+        if (wired := self.g._wired()) is None:  # a missed reading breaks the run
+            self._at_panic = 0
+            return
+        self._wireds.append(wired)
+        self._at_panic = self._at_panic + 1 if pressure == CRITICAL and wired > line else 0
+        if self._at_panic >= PANIC_READINGS:
+            self._give_back(f"memory pressure critical with {wired / 2**30:.1f} GB wired, "
+                            f"over the {line / 2**30:.1f} GB panic line, "
+                            f"{self._at_panic} readings in a row")
 
     def _loop(self) -> None:
         while not self._stop.wait(self.g.sample_every):
@@ -434,3 +469,5 @@ class _Watching:
         # the evidence for stopping on pressure, not only on the owner.
         if self._pressures:
             self.result.conditions["max_pressure"] = max(self._pressures)
+        if self._wireds:
+            self.result.conditions["max_wired_gb"] = round(max(self._wireds) / 2**30, 1)

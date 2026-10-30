@@ -20,6 +20,10 @@ WindowServer starved for two minutes, and the watchdog panicked the kernel.
                   Needs wait_idle_min, or the attempt would start in use
   memory_floor    percent of memory to keep free for the owner while an
                   attempt runs; for a shared machine (see guard)
+  panic_wired_gb  stop an attempt, and give its memory back, when the kernel's
+                  memory pressure stays critical while wired memory is over
+                  this many GB: the state the laptop panicked in, not the
+                  pressure its 131k attempts reach on their own (see guard)
 
 A flag on the command line overrides its term. No file, no terms: a machine
 with memory to spare needs none.
@@ -39,12 +43,14 @@ class Terms:
     load_room_gb: float | None = None
     yield_to_owner: bool = False
     memory_floor: int | None = None
+    panic_wired_gb: float | None = None
 
     def guard_kw(self) -> dict:
         """The terms as Guard's keyword arguments."""
-        return {"wait_idle": self.wait_idle_min * 60,
-                "load_room": None if self.load_room_gb is None else int(self.load_room_gb * 2**30),
-                "yield_to_owner": self.yield_to_owner, "memory_floor": self.memory_floor}
+        gb = lambda v: None if v is None else int(v * 2**30)
+        return {"wait_idle": self.wait_idle_min * 60, "load_room": gb(self.load_room_gb),
+                "yield_to_owner": self.yield_to_owner, "memory_floor": self.memory_floor,
+                "panic_wired": gb(self.panic_wired_gb)}
 
     def record(self) -> dict:
         """For a run's manifest: the terms its attempts ran under."""

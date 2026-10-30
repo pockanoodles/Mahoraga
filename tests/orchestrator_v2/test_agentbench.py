@@ -35,7 +35,8 @@ from backend.orchestrator.agentbench.mine import (
 from backend.orchestrator.agentbench.grade import TEST_VERIFIED, Grade
 from backend.orchestrator.agentbench.guard import Guard
 from backend.orchestrator.agentbench.stats import plan, task_rate, tasks_needed, wilson
-from backend.orchestrator.agentbench.host import Power, parse_idle, parse_power, parse_sysctl_int
+from backend.orchestrator.agentbench.host import (Power, parse_idle, parse_power, parse_sysctl_int,
+                                                  parse_wired)
 from backend.orchestrator.agentbench.report import outcome, render, summarise
 from backend.orchestrator.agentbench.runner import (
     arm_name, load_attempts, load_degraded, prompt_for, run_attempt, run_matrix, without_trailers,
@@ -1411,6 +1412,63 @@ def test_an_untouched_machine_keeps_its_attempt(tmp_path):
     assert watch.degraded == [] and mem.stops == 0
 
 
+def test_parse_wired():
+    out = ("Mach Virtual Memory Statistics: (page size of 16384 bytes)\n"
+           "Pages free:                                    70065.\n"
+           "Pages wired down:                             129704.\n")
+    assert parse_wired(out) == 129704 * 16384
+    assert parse_wired("") is None
+
+
+def _panic_watch(tmp_path, readings, line=13.5):
+    """An untouched laptop's attempt, one sample per (pressure, wired GiB)
+    reading; the closing sample repeats the last."""
+    feed, now = iter(readings), dict(zip("pw", readings[0]))
+
+    def pressure():
+        now["p"], now["w"] = next(feed, (now["p"], now["w"]))
+        return now["p"]
+
+    mem = FakeMemory(free=30)
+    mem.loaded = {"m:latest": 10 << 30}
+    g = _guard(tmp_path, FakeMachine(), pressure=pressure,
+               wired=lambda: None if now["w"] is None else int(now["w"] * 2**30),
+               panic_wired=int(line * 2**30), **_laptop(mem))
+    g.sample_every = 60                           # samples come only from the loop below
+    watching = g.watch(FakeAgent("m"))
+    with watching as watch:                       # the opening sample takes the first
+        for _ in readings[1:]:
+            watching._sample()
+    return watch, mem
+
+
+def test_critical_pressure_alone_does_not_stop_an_attempt(tmp_path):
+    # 2026-10-30: two untouched attempts hit critical at ~11.3 GB wired and finished
+    watch, mem = _panic_watch(tmp_path, [(4, 11.3)] * 6)
+    assert watch.degraded == [] and mem.stops == 0
+    assert watch.conditions["max_pressure"] == 4 and watch.conditions["max_wired_gb"] == 11.3
+
+
+def test_critical_pressure_with_wired_over_the_line_stops_the_attempt(tmp_path):
+    # 2026-10-29's panic: wired reached 14.2 of 16 GB
+    watch, mem = _panic_watch(tmp_path, [(2, 12.0), (4, 14.2), (4, 14.2)])
+    assert mem.stops == 1 and mem.released == ["m:latest"]
+    assert watch.degraded == ["memory pressure critical with 14.2 GB wired, over the 13.5 GB "
+                              "panic line, 2 readings in a row; stopped the attempt and "
+                              "unloaded the model to give it back"]
+
+
+def test_one_reading_at_the_panic_signature_is_not_enough(tmp_path):
+    watch, mem = _panic_watch(tmp_path, [(4, 14.2), (4, 11.5), (4, 14.0), (2, 14.0)])
+    assert watch.degraded == [] and mem.stops == 0
+
+
+def test_a_missed_wired_reading_breaks_the_run(tmp_path):
+    # vm_stat timing out between two spikes doesn't make them two in a row
+    watch, mem = _panic_watch(tmp_path, [(4, 14.2), (2, None), (4, 14.2), (2, 12.0)])
+    assert watch.degraded == [] and mem.stops == 0
+
+
 def test_yielding_needs_an_idle_wait(tmp_path):
     with pytest.raises(ValueError, match="idle wait"):
         _guard(tmp_path, FakeMachine(), yield_to_owner=True)
@@ -1421,11 +1479,14 @@ def test_machine_terms(tmp_path):
     path = tmp_path / "machine.json"
     assert machine.load(path) == machine.Terms()  # no file, no terms
     assert machine.Terms().guard_kw() == {"wait_idle": 0, "load_room": None,
-                                          "yield_to_owner": False, "memory_floor": None}
-    path.write_text(json.dumps({"wait_idle_min": 15, "load_room_gb": 11, "yield_to_owner": True}))
+                                          "yield_to_owner": False, "memory_floor": None,
+                                          "panic_wired": None}
+    path.write_text(json.dumps({"wait_idle_min": 15, "load_room_gb": 11, "yield_to_owner": True,
+                                "panic_wired_gb": 13.5}))
     terms = machine.load(path)
     assert terms.guard_kw() == {"wait_idle": 900, "load_room": 11 << 30,
-                                "yield_to_owner": True, "memory_floor": None}
+                                "yield_to_owner": True, "memory_floor": None,
+                                "panic_wired": int(13.5 * 2**30)}
     path.write_text(json.dumps({"load_room": 11}))   # a typo must not mean no terms
     with pytest.raises(ValueError, match="load_room"):
         machine.load(path)

@@ -4,6 +4,10 @@ Mahoraga works on your source code, so this page says, in plain language, what l
 your machine, where it goes, and how to stop it. If something here stops being true, the
 code is wrong, not this page.
 
+The privacy policy on top of this page, written for visitors, is at
+[kaitosoeno.com/mahoraga/privacy](https://kaitosoeno.com/mahoraga/privacy/). A change here
+belongs there too (`site/content/privacy.ts`).
+
 ## At a glance
 
 | Where | What | Why |

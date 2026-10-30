@@ -8,7 +8,8 @@
 // site's fluid rem (--site-rem in globals.css), except the button row, which
 // is a true 44px: the site's own comment and BAR constant say 44, but its
 // `h-11` is 2.75rem on a fluid root and renders 33-35px below 1920px wide.
-// If the site's menu changes shape, change this copy and Erwin's together.
+// If the site's menu changes shape, change this copy and Sigwald's together
+// (sigwald/site/components/SiteMenu.tsx is the twin).
 //
 // The links are plain anchors on purpose: they leave this app for the site, so
 // they must not get the /mahoraga base path a Next <Link> would add.

@@ -248,18 +248,20 @@ class Guard:
         return f"memory: {free}% free, under {why}" if free < need else None
 
     def _room_problem(self, agent: Agent) -> str | None:
-        """Too little memory available to load our model. Loaded, it is
-        already inside the reading, so there's nothing left to check."""
-        if self.load_room is None or self._mine_loaded(agent):
+        """Too little memory for our model: what's available plus what our own
+        loaded copies hold. Not a pass for any copy that's loaded: the router
+        keeps the same model loaded at a small context, and loading it at 131k
+        replaces that copy, freeing only what it held."""
+        if self.load_room is None:
             return None
         free, total = self._free_pct(), self._mem_total()
         if free is None or not total:
             return None
-        available = free * total // 100
-        if available >= self.load_room:
+        room = free * total // 100 + sum(self._mine_loaded(agent).values())
+        if room >= self.load_room:
             return None
-        return (f"memory: {available / 2**30:.1f} GB available, under the "
-                f"{self.load_room / 2**30:.0f} GB to load {agent.model}")
+        return (f"memory: {room / 2**30:.1f} GB for {agent.model}, under the "
+                f"{self.load_room / 2**30:.0f} GB it needs")
 
     def _idle_problem(self) -> str | None:
         if not self.wait_idle:

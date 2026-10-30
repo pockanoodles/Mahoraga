@@ -223,9 +223,12 @@ def run_attempt(bench: Bench, config: SuiteConfig, task: Task, agent: Agent,
                  *config.pytest_args, *task.test_files] if cond == "feedback" else None)
     watching = guard.watch(agent) if guard else nullcontext(None)
     with watching as watch:
-        hidden, readable = confinement(bench, config)
-        run = agent.attempt(clone, prompt_for(task), test_cmd=test_cmd, timeout=timeout,
-                            hidden=hidden, readable=readable)
+        if watch and watch.degraded:  # the machine was given back before the agent began
+            run = AgentRun(log=f"not started: {watch.degraded[0]}", secs=0, timed_out=False)
+        else:
+            hidden, readable = confinement(bench, config)
+            run = agent.attempt(clone, prompt_for(task), test_cmd=test_cmd, timeout=timeout,
+                                hidden=hidden, readable=readable)
 
     status = git("status", "--porcelain", "--untracked-files=all", cwd=clone)
     edited = sorted({line[3:].strip().strip('"') for line in status.splitlines()

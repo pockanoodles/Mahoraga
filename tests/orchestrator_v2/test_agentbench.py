@@ -1331,11 +1331,20 @@ def test_the_model_does_not_load_without_room(tmp_path):
     # 2026-10-29: ~9 GB of apps open, qwen3.5@131k loaded on top, kernel panic.
     mem = FakeMemory(free=40)                     # 6.4 of 16 GiB
     g, agent = _guard(tmp_path, FakeMachine(), **_laptop(mem)), FakeAgent("m")
-    assert g.problems(agent) == ["memory: 6.4 GB available, under the 11 GB to load m"]
+    assert g.problems(agent) == ["memory: 6.4 GB for m, under the 11 GB it needs"]
     mem.free = 70                                 # 11.2 GiB
     assert g.problems(agent) == []
-    mem.free, mem.loaded = 5, {"m:latest": 10 << 30}
-    assert g.problems(agent) == []                # loaded: the 5% is with it in
+    mem.free, mem.loaded = 5, {"m:latest": 10.5 * 2**30}
+    assert g.problems(agent) == []                # loaded: 0.8 + the 10.5 it holds
+
+
+def test_a_small_copy_of_the_model_is_not_room_to_load_it_large(tmp_path):
+    # The router keeps qwen3.5 loaded at its default context; a 131k load
+    # replaces that copy and frees only what it held.
+    mem = FakeMemory(free=40)
+    mem.loaded = {"m:latest": 2 << 30}
+    g, agent = _guard(tmp_path, FakeMachine(), **_laptop(mem)), FakeAgent("m")
+    assert g.problems(agent) == ["memory: 8.4 GB for m, under the 11 GB it needs"]
 
 
 def test_preflight_does_not_load_the_model_on_a_busy_machine(tmp_path):
@@ -1344,7 +1353,7 @@ def test_preflight_does_not_load_the_model_on_a_busy_machine(tmp_path):
     m.speed = lambda model, num_ctx: probes.append(model) or 30.0
     [check] = [c for c in _guard(tmp_path, m, **_laptop(mem)).preflight([FakeAgent("m")])
                if c.name == "m"]
-    assert not check.ok and check.waits and "6.4 GB available" in check.detail
+    assert not check.ok and check.waits and "6.4 GB for m" in check.detail
     mem.free, m.idle = 80, 30
     [check] = [c for c in _guard(tmp_path, m, **_laptop(mem)).preflight([FakeAgent("m")])
                if c.name == "m"]
@@ -1381,6 +1390,17 @@ def test_the_owner_coming_back_stops_the_attempt_and_gives_it_back(tmp_path):
                               "unloaded the model to give it back"]
     assert probes == []
     assert watch.conditions["max_pressure"] == 2
+
+
+def test_an_attempt_given_back_before_it_starts_never_starts(mined, repo, config, tmp_path):
+    m, mem = FakeMachine(), FakeMemory(free=80)
+    m.idle = 2                                    # back between the gate and the start
+    agent = FakeAgent("m", apply_gold)
+    a = run_attempt(mined, config, _task(mined, repo), agent, "blind",
+                    guard=_guard(tmp_path, m, **_laptop(mem)))
+    assert agent.calls == []
+    assert a.degraded and a.degraded[0].startswith("the machine was used 2s ago")
+    assert not load_attempts(mined)               # not counted; the cell stays open
 
 
 def test_an_untouched_machine_keeps_its_attempt(tmp_path):

@@ -19,6 +19,7 @@ const LOCALES = [
     lang: "en",
     root: "/mahoraga/",
     nav: ["Research", "Engine", "Install"],
+    menuLabel: "MENU",
     unaffiliated: "Mahoraga is not affiliated with Anthropic, OpenAI, Alibaba, IBM or Ollama.",
     stay: "Stay",
     open: "Not yet decided",
@@ -33,6 +34,7 @@ const LOCALES = [
     lang: "ja",
     root: "/mahoraga/ja/",
     nav: ["研究", "エンジン", "インストール"],
+    menuLabel: "メニュー",
     unaffiliated: "Mahoraga は Anthropic、OpenAI、Alibaba、IBM、Ollama のいずれとも提携していません。",
     stay: "継続",
     open: "未確定",
@@ -84,11 +86,16 @@ async function shared(page, loc, name, tag) {
   check(overflow <= 0, `${tag}: no sideways scroll (${overflow}px)`);
   check((await page.textContent(".foot"))?.includes(loc.unaffiliated), `${tag}: the footer says whom Mahoraga is not affiliated with`);
 
-  // The site's own menu opens, and its links leave for the site (no /mahoraga prefix).
-  await page.locator(".site-menu__button").click();
-  const hrefs = await page.locator(".site-menu__link").evaluateAll((as) => as.map((a) => a.getAttribute("href")));
-  check(hrefs.length === 2 && hrefs.every((h) => !h.startsWith("/mahoraga")), `${tag}: site menu links go to the site (${hrefs.join(" ")})`);
-  await page.keyboard.press("Escape");
+  // The site's own menu pill (<site-menu>, from kaitosoeno.com's /site/menu.js)
+  // opens, and its links leave for the site (no /mahoraga prefix). It is only
+  // there when the site serves the script too (`npm run stack` there, or live).
+  if (await page.evaluate(() => !!customElements.get("site-menu"))) {
+    await page.locator("site-menu button").click();
+    const hrefs = await page.locator("site-menu a").evaluateAll((as) => as.map((a) => a.getAttribute("href")));
+    check(hrefs.length === 2 && hrefs.every((h) => !h.startsWith("/mahoraga")), `${tag}: site menu links go to the site (${hrefs.join(" ")})`);
+    check((await page.locator("site-menu button").innerText()).trim() === loc.menuLabel, `${tag}: the pill says only ${loc.menuLabel}`);
+    await page.keyboard.press("Escape");
+  }
 }
 
 async function research(page, loc, vp, tag) {

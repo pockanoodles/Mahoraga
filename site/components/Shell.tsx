@@ -1,12 +1,12 @@
 // What every page shares: the bar with its three pages, the footer and the
-// site's own menu. Each page passes its sections as children.
+// site's own menu pill, <site-menu>, which kaitosoeno.com serves at
+// /site/menu.js (loaded in the layouts). Each page passes its sections as children.
 import type { Dict, Locale } from "@/content/copy";
 import { UPDATED } from "@/content/log";
 import { REPO_URL } from "@/lib/data";
 import { PAGES, pagePath, type Page } from "@/lib/routes";
 import { Footer } from "./Footer";
 import { LocalNav } from "./LocalNav";
-import { SiteMenu } from "./SiteMenu";
 
 export function Shell({ t, locale, page, children }: { t: Dict; locale: Locale; page: Page; children: React.ReactNode }) {
   const { updated, github, label } = t.nav;
@@ -30,7 +30,7 @@ export function Shell({ t, locale, page, children }: { t: Dict; locale: Locale; 
       />
       <main id="top">{children}</main>
       <Footer t={t} locale={locale} page={page} />
-      <SiteMenu t={t.menu} />
+      <site-menu lang={locale} />
     </>
   );
 }

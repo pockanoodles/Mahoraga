@@ -2,14 +2,18 @@
 // apps on one origin, so it is a cross-document view transition: the row
 // clicked on the portfolio grows into this page (vt-surface), its name flies
 // into the wordmark here (vt-name), and the site's menu pill holds still
-// (vt-menu). The names are the contract with personal-website
+// while its colour pours from the site's black into this page's (vt-menu).
+// The names are the contract with personal-website
 // (components/view-transitions.tsx there, and sigwald/site's twin of this).
 // The new document styles the animation, so the way in is in this app's
 // globals.css and the way back is in personal-website's.
 //
-// Only moves to and from the portfolio animate; the language switch and every
-// other load are skipped. `pagereveal` has to be listening before the first
-// frame, so this is a plain inline script in <head>.
+// This script claims only the moves to and from the portfolio. Every other
+// page switch (the language switch, the menu to the site's other pages) is left
+// to the pill's script, /site/menu.js, which runs it as the domain's plain page
+// switch; it is loaded after this one, so this one gets the first say.
+// `pagereveal` has to be listening before the first frame, so this is a plain
+// inline script in <head>.
 const script = `(() => {
   const html = document.documentElement;
   const portfolio = (url) => !!url && /^\\/(ja\\/)?portfolio\\/?$/.test(new URL(url, location.href).pathname);
@@ -24,14 +28,14 @@ const script = `(() => {
 
   addEventListener("pageswap", (e) => {
     if (!e.viewTransition) return;
-    if (!portfolio(e.activation?.entry?.url || clicked)) return e.viewTransition.skipTransition();
+    if (!portfolio(e.activation?.entry?.url || clicked)) return;
     html.dataset.vt = "out";
   });
 
   addEventListener("pagereveal", (e) => {
     delete html.dataset.vt;
     if (!e.viewTransition) return;
-    if (!portfolio(window.navigation?.activation?.from?.url || document.referrer)) return e.viewTransition.skipTransition();
+    if (!portfolio(window.navigation?.activation?.from?.url || document.referrer)) return;
     html.dataset.vt = "in";
     e.viewTransition.finished.finally(() => delete html.dataset.vt);
   });

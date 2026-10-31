@@ -138,7 +138,6 @@ export interface Dict {
     results: string;
     language: string;
   };
-  menu: { menu: string; items: { href: string; label: string }[] };
 }
 
 const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
@@ -378,14 +377,6 @@ const en: Dict = {
     dataflow: "Data flow",
     results: "Results",
     language: "日本語",
-  },
-  menu: {
-    menu: "Menu",
-    // kaitosoeno.com's own menu, in its order (personal-website content/copy.ts NAV).
-    items: [
-      { href: "/", label: "Contact" },
-      { href: "/portfolio", label: "Portfolio" },
-    ],
   },
 };
 
@@ -660,13 +651,6 @@ const ja: Dict = {
     dataflow: "データフロー",
     results: "結果",
     language: "English",
-  },
-  menu: {
-    menu: "メニュー",
-    items: [
-      { href: "/ja", label: "お問い合わせ" },
-      { href: "/ja/portfolio", label: "作品" },
-    ],
   },
 };
 

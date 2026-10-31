@@ -19,10 +19,12 @@ const script = `(() => {
   const portfolio = (url) => !!url && /^\\/(ja\\/)?portfolio\\/?$/.test(new URL(url, location.href).pathname);
 
   // Where a click is about to go, for browsers whose pageswap carries no
-  // activation (no Navigation API).
+  // activation (no Navigation API). Through the composed path, since the
+  // site's menu pill keeps its links in a shadow root, where e.target is the
+  // pill itself by the time the click reaches the window.
   let clicked = null;
   addEventListener("click", (e) => {
-    const a = e.target.closest?.("a[href]");
+    const a = e.composedPath().find((n) => n instanceof HTMLAnchorElement && n.hasAttribute("href"));
     clicked = a ? a.href : null;
   }, true);
 

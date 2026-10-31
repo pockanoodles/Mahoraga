@@ -316,16 +316,13 @@ code,
   isolation: isolate;
 }
 
-/* The stage: a key light falling on the wall above the work, and the faint
-   lift of a floor at the bottom. Light, not shadow, gives the depth. */
+/* The stage: the flat ground the hero sits on, the same colour as the page,
+   with no light laid over it. */
 .hero__stage {
   position: absolute;
   inset: 0;
   z-index: -1;
-  background:
-    radial-gradient(ellipse 56% 44% at 62% 40%, rgb(255 244 232 / 0.075), transparent 72%),
-    radial-gradient(ellipse 90% 26% at 50% 104%, rgb(255 250 245 / 0.035), transparent 70%),
-    var(--mh-stage);
+  background: var(--mh-stage);
 }
 
 /* The chart reads its own width, not the screen's, to choose its layout. */

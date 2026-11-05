@@ -68,6 +68,8 @@ const c = {
   rerun: claim("humaneval_plus_164_code_judge"),
   g41: claim("report_2026_10_humaneval_granite41"),
   g42: claim("report_2026_10_humaneval_granite42"),
+  laptop: claim("report_2026_10_laptop_131k"),
+  twin: claim("report_2026_10_laptop_vs_studio_131k"),
 };
 const n = (x: Claim, key: string) => num(x, key);
 const m = (x: Claim, key: string) => metric(x, key);
@@ -86,14 +88,38 @@ const triage = data.verdict_demo.assumptions.triage_minutes; // assumed, and pri
 
 export const LOG: Entry[] = [
   {
+    id: "2026-11-05-laptop-verdict",
+    date: "2026-11-05",
+    kind: "finding",
+    claims: [c.laptop.id],
+    title: { en: "Measured on the laptop itself, the answer is still to stay on cloud.", ja: "ノート本体で測っても、答えはクラウドを使い続けることです。" },
+    body: {
+      en: `The 16 GB laptop resolved ${n(c.laptop, "resolved")} of ${n(c.laptop, "tasks")} outside tasks at 131k (${pct(n(c.laptop, "rate"))}), short of the ${pct(n(c.laptop, "breakeven_rate"))} that local needs to pay at ${price} a cloud task. Only ${n(c.laptop, "timed_out")} of its failures ran out of time, so the verdict calls the stay decided.`,
+      ja: `16 GB のノートは 131k で外部の ${n(c.laptop, "tasks")} タスク中 ${n(c.laptop, "resolved")} 件（${pct(n(c.laptop, "rate"))}）を解決しましたが、クラウドが 1 タスク ${price} のときにローカルの元が取れる ${pct(n(c.laptop, "breakeven_rate"))} には届きません。失敗のうち時間切れは ${n(c.laptop, "timed_out")} 件だけなので、判定は「継続」を確定としています。`,
+    },
+    receipts: [report(4, S4), artifact(c.laptop)],
+  },
+  {
+    id: "2026-11-05-laptop-vs-studio",
+    date: "2026-11-05",
+    kind: "finding",
+    claims: [c.twin.id],
+    title: { en: "With the clocks fixed, the laptop solves what the Studio solves.", ja: "時計を直すと、ノートは Studio と同じだけ解けました。" },
+    body: {
+      en: `On the ${n(c.twin, "pairs")} tasks both machines ran with one model file at 131k, the laptop solved ${n(c.twin, "pair_resolved")} and the Studio solved ${n(c.twin, "versus_resolved")}. A ${n(c.twin, "only_this")} to ${n(c.twin, "only_versus")} split of the tasks they disagree on is what chance alone would produce (McNemar p = ${m(c.twin, "mcnemar_p")}), so the laptop reaches the same answers, only slower.`,
+      ja: `同じモデルファイルを 131k で両方のマシンが走らせた ${n(c.twin, "pairs")} タスクのうち、ノートは ${n(c.twin, "pair_resolved")} 件、Studio は ${n(c.twin, "versus_resolved")} 件を解決しました。結果が分かれたタスクの ${n(c.twin, "only_this")} 対 ${n(c.twin, "only_versus")} という割れ方は偶然だけでも起こる範囲で（McNemar p = ${m(c.twin, "mcnemar_p")}）、ノートは時間がかかるだけで同じ答えにたどり着きます。`,
+    },
+    receipts: [report(5, S5), artifact(c.twin)],
+  },
+  {
     id: "2026-10-28-laptop-131k",
     date: "2026-10-28",
-    kind: "running",
+    kind: "method",
     claims: [],
-    title: { en: "The laptop's own run at 131k is under way.", ja: "ノート本体での 131k の計測が進行中です。" },
+    title: { en: "The laptop began its own run at 131k.", ja: "ノート本体での 131k の計測を始めました。" },
     body: {
-      en: "The 16 GB laptop is running qwen3.5 on 47 outside tasks, with 90 minutes an attempt and no shorter clock inside the agent.",
-      ja: "16 GB のノートで、qwen3.5 が外部リポジトリの 47 タスクに挑んでいます。1 試行は 90 分で、エージェントの中にそれより短い時計はありません。",
+      en: "The 16 GB laptop ran qwen3.5 on 47 outside tasks, with 90 minutes an attempt and no shorter clock inside the agent.",
+      ja: "16 GB のノートで、qwen3.5 に外部リポジトリの 47 タスクを解かせました。1 試行は 90 分で、エージェントの中にそれより短い時計は置いていません。",
     },
     receipts: [report(5, S5)],
   },
@@ -431,15 +457,35 @@ export function entryFor(claimId: string): Entry {
   return e;
 }
 
-/** The hero chart: the settings the October report compares on the same tasks,
- *  and the run still filling in the row a 16 GB owner needs. */
-export const STANDING = {
+type Label = Record<Locale, string>;
+export interface StandingRow {
+  claim: string;
+  model: Label;
+  fit: Label;
+}
+
+/** The hero chart: the settings the report compares on the same tasks, the
+ *  laptop's own run on its share of them (with the claim that pairs it with
+ *  the Studio on that share), and a run still filling in a row, when one is. */
+export const STANDING: {
+  rows: StandingRow[];
+  own: StandingRow & { versus: string };
+  running: { entry: string; model: Label } | null;
+  breakeven: string;
+  note: string;
+} = {
   rows: [
     { claim: c.q35.id, model: { en: "qwen3.5, 9.7B, 32k context", ja: "qwen3.5（9.7B）、32k コンテキスト" }, fit: { en: "Fits a 16 GB laptop", ja: "16 GB のノートに収まる" } },
     { claim: c.q35wide.id, model: { en: "qwen3.5, 9.7B, 131k context", ja: "qwen3.5（9.7B）、131k コンテキスト" }, fit: { en: "Fits a 16 GB laptop", ja: "16 GB のノートに収まる" } },
     { claim: c.q36.id, model: { en: "qwen3.6, 35B, 131k context", ja: "qwen3.6（35B）、131k コンテキスト" }, fit: { en: "Needs 24 GB or more", ja: "24 GB 以上が必要" } },
   ],
-  running: { entry: "2026-10-28-laptop-131k", model: { en: "qwen3.5, 9.7B, 131k context", ja: "qwen3.5（9.7B）、131k コンテキスト" } },
+  own: {
+    claim: c.laptop.id,
+    versus: c.twin.id,
+    model: { en: "qwen3.5, 9.7B, 131k context", ja: "qwen3.5（9.7B）、131k コンテキスト" },
+    fit: { en: "Run on the 16 GB laptop itself", ja: "16 GB のノート本体で計測" },
+  },
+  running: null,
   breakeven: c.q35wide.id, // the claim whose verdict gives the break-even rate at PRICE
   note: c.pair.id, // the claim whose run record the footnote quotes
 };

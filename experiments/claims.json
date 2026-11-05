@@ -632,8 +632,7 @@
       "artifact": "experiments/agentbench/laptop-2026-10-131k.jsonl",
       "select": {
         "arm": "aider:qwen3.5:latest@ctx=131072",
-        "cond": "blind",
-        "limit_s": 5400
+        "cond": "blind"
       },
       "config": {
         "machine": "MacBook Pro M4, 16 GB (Mac16,1)",
@@ -675,8 +674,7 @@
       "artifact": "experiments/agentbench/laptop-2026-10-131k.jsonl",
       "select": {
         "arm": "aider:qwen3.5:latest@ctx=131072",
-        "cond": "blind",
-        "limit_s": 5400
+        "cond": "blind"
       },
       "versus": {
         "artifact": "experiments/agentbench/studio-2026-10.jsonl",

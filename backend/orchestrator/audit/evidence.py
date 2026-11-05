@@ -76,6 +76,8 @@ def cloud_from_benches(benches: list[Bench], arm: str, cloud_arm: str, cond: str
     """`cloud_arm` on the tasks `arm` ran, in the same condition. Its attempts
     may come from another machine: what a cloud task costs doesn't depend on
     the machine that sent it."""
+    if cloud_arm == arm:
+        raise ValueError(f"{arm} can't price itself: name a cloud arm run on the same tasks")
     local: dict[str, list[bool]] = defaultdict(list)
     cloud: dict[str, list[tuple[bool, float]]] = defaultdict(list)
     for b in benches:

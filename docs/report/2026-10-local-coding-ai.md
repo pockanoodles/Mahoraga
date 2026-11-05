@@ -189,17 +189,17 @@ with either model, so the engine answers that this user is not wasting money.
 
 ### The cloud side, measured
 
-Every verdict above assumes two things about the cloud that the study had not
-measured, namely that a cloud agent solves every task it is given and that
-each task costs $0.75. To check both, Claude Code 2.1.318 running Claude Opus
-5.5 attempted the laptop's 47 tasks on 2026-11-05, with the same prompt, the
-same grader and the same 90-minute limit as the laptop's 131k run. It ran on a
-Dell OptiPlex 7070, which runs the agent and the tests but no model. Each
-attempt started from an empty home directory, and its one way out was a proxy
-that let traffic through to api.anthropic.com alone and logged every
-connection. Over the 47 attempts that log holds 141 connections, and the proxy
-refused none of them ([DATAFLOW.md](../../DATAFLOW.md) says what each one
-carries).
+The verdicts in the table above assume two things about the cloud that the
+study had not measured, namely that a cloud agent solves every task it is
+given and that each task costs $0.75. To check both, Claude Code 2.1.318
+running Claude Opus 5.5 attempted the laptop's 47 tasks on 2026-11-05, with
+the same prompt, the same grader and the same 90-minute limit as the laptop's
+131k run. It ran on a Dell OptiPlex 7070, which runs the agent and the tests
+but no model. Each attempt started from an empty home directory, and its one
+way out was a proxy that let traffic through to api.anthropic.com alone and
+logged every connection. Over the 47 attempts that log holds 141 connections,
+and the proxy refused none of them ([DATAFLOW.md](../../DATAFLOW.md) says what
+each one carries).
 
 | Agent and model | Resolved | Median attempt | Cost per task |
 | --- | --- | --- | --- |

@@ -293,6 +293,8 @@ def test_cloud_evidence_pairs_by_task_on_the_benches_and_needs_a_cost(tmp_path):
         cloud_from_benches([b], "fake:m", "claude:m", "blind")
     with pytest.raises(ValueError, match="no attempts for claude:other"):
         cloud_from_benches([b], "fake:m", "claude:other", "blind")
+    with pytest.raises(ValueError, match="can't price itself"):
+        cloud_from_benches([b], "fake:m", "fake:m", "blind")
 
 
 def test_a_claim_priced_by_its_versus_slice_uses_the_cloud_cost():

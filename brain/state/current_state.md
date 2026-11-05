@@ -1,4 +1,23 @@
-# Current State — 2026-10-29
+# Current State — 2026-11-05
+
+## 2026-11-05: the laptop's clean 131k run is in, and the report has no PENDING left
+
+The clean run finished 2026-11-01 03:54 at 47/47 (journal `2026-11-05-clean-run.md`).
+aider + qwen3.5 at 131k on the laptop resolved **17 of 47 (36%, 24% to 50%)**, against
+the Studio's **18 of the same 47** with the same model file (discordant 4 vs 5, McNemar
+p = 1.00), so the 8 vs 14 gap before #68 was the clocks. Verdict at $0.75 a task:
+**STAY, decided**, net -$67 a month, local pays once a cloud task costs $4.43.
+
+Branch `docs/report-131k` (worktree `.worktrees/clean-run`) carries the export, the two
+claims (23 verify), the report's §3 to §5 and short answer (titled November 2026), the
+hero's measured laptop row, two log entries and `HEADLINE` on the laptop's run. Not
+deployed. Still open:
+1. Kaito: review and merge the PR, then deploy (`cd site && npm run build && npx
+   wrangler deploy`, then `BASE=https://kaitosoeno.com npm run verify`). Whether the
+   report drops "Draft" is his call.
+2. The cloud arm on the OptiPlex (Claude Code, same 47 tasks) is in progress on its own
+   branch. It replaces the verdict's assumption that every cloud task succeeds.
+3. Open PRs #72 to #76 (since 10-29), #82 and #86 still wait for review.
 
 ## 2026-10-29 (evening): the site is live, and the direction is a long-term study
 

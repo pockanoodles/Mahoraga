@@ -225,6 +225,15 @@ def suite_env(python: str) -> Path:
     return real.parent.parent if real.parent.name == "bin" else real.parent
 
 
+def suite_python(python: str) -> str:
+    """The test interpreter as an agent can reach it. A venv's own python stays
+    as named: the whole venv is put back, and resolving it would lose the
+    venv. Any other link (~/bin/python -> /usr/bin/python3) is run by its real
+    path, which survives a sandbox that hides the dir the link sits in."""
+    p = Path(python)
+    return python if (p.parent.parent / "pyvenv.cfg").is_file() else str(p.resolve())
+
+
 def run_attempt(bench: Bench, config: SuiteConfig, task: Task, agent: Agent,
                 cond: str, timeout: float = DEFAULT_TIMEOUT, rep: int = 0,
                 guard: Guard | None = None, grader: Grader | None = None,
@@ -233,7 +242,7 @@ def run_attempt(bench: Bench, config: SuiteConfig, task: Task, agent: Agent,
         raise ValueError(f"condition must be one of {CONDITIONS}")
     clone = bench.clone(task.sha)
     _reset(clone, task.base)
-    test_cmd = ([config.python, "-m", "pytest", "-q", "-x", "-p", "no:cacheprovider",
+    test_cmd = ([suite_python(config.python), "-m", "pytest", "-q", "-x", "-p", "no:cacheprovider",
                  *config.pytest_args, *task.test_files] if cond == "feedback" else None)
     watching = guard.watch(agent) if guard else nullcontext(None)
     with watching as watch:

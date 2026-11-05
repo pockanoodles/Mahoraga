@@ -373,6 +373,10 @@ def test_a_test_interpreter_s_env_is_its_venv_or_its_install(tmp_path):
     bare.symlink_to(Path(sys.executable).resolve())
     env = suite_env(str(bare))
     assert env != tmp_path / "home" and Path(sys.executable).resolve().is_relative_to(env)
+    # What the feedback command runs: the venv's python as named, a bare link by its target.
+    from backend.orchestrator.agentbench.runner import suite_python
+    assert suite_python(str(venv / "bin" / "python")) == str(venv / "bin" / "python")
+    assert suite_python(str(bare)) == str(Path(sys.executable).resolve())
 
 
 def test_claude_cut_off_by_the_limit_timed_out_and_did_not_crash(fake_claude, tmp_path,

@@ -47,6 +47,7 @@ const artifact = (c: Claim): Receipt => {
 
 const S3 = "3-local-agents-on-real-repositories";
 const S4 = "4-when-local-pays";
+const S4CLOUD = "the-cloud-side-measured";
 const S5 = "5-the-hardware-question";
 const S6 = "6-what-we-got-wrong-along-the-way";
 const S1 = "1-the-local-tier-stopped-getting-new-models";
@@ -70,6 +71,9 @@ const c = {
   g42: claim("report_2026_10_humaneval_granite42"),
   laptop: claim("report_2026_10_laptop_131k"),
   twin: claim("report_2026_10_laptop_vs_studio_131k"),
+  cloud: claim("report_2026_11_cloud_opus55"),
+  vsCloud: claim("report_2026_11_laptop_vs_cloud"),
+  cloudAfter: claim("report_2026_11_laptop_vs_cloud_after_june"),
 };
 const n = (x: Claim, key: string) => num(x, key);
 const m = (x: Claim, key: string) => metric(x, key);
@@ -85,8 +89,39 @@ const price = `$${PRICE.toFixed(2)}`;
 const answers = n(c.g41, "n") + n(c.g42, "n"); // both models' answers in the HumanEval+ rerun
 const fromCloud = n(c.g41, "escalated") + n(c.g42, "escalated");
 const triage = data.verdict_demo.assumptions.triage_minutes; // assumed, and printed with every verdict
+// A p-value too small to print at a fixed precision, as the power of ten above it.
+const SUP: Record<string, string> = { "-": "⁻", 0: "⁰", 1: "¹", 2: "²", 3: "³", 4: "⁴", 5: "⁵", 6: "⁶", 7: "⁷", 8: "⁸", 9: "⁹" };
+const below = (p: number) => `< 10${[...String(Math.ceil(Math.log10(p)))].map((d) => SUP[d]).join("")}`;
+const cents = (x: Claim, key: string) => `$${n(x, key).toFixed(2)}`;
 
 export const LOG: Entry[] = [
+  {
+    id: "2026-11-05-cloud-measured",
+    date: "2026-11-05",
+    kind: "finding",
+    claims: [c.cloud.id, c.vsCloud.id, c.cloudAfter.id],
+    title: { en: "Measured on the same tasks, the cloud solved every one.", ja: "同じタスクで測ると、クラウドはすべてを解きました。" },
+    body: {
+      en: `Claude Code running Claude Opus 5.5 resolved ${n(c.cloud, "resolved")} of the laptop's ${n(c.cloud, "tasks")} tasks, so its rate is at least ${pct(n(c.cloud, "rate_lo"))} at 95% confidence. The cloud alone solved ${n(c.vsCloud, "only_versus")} of those tasks and the laptop alone solved ${n(c.vsCloud, "only_this")} (McNemar p ${below(n(c.vsCloud, "mcnemar_p"))}). On the ${n(c.cloudAfter, "pairs")} tasks committed after the model's June 2026 knowledge cutoff it still solved ${n(c.cloudAfter, "versus_resolved")}, against the laptop's ${n(c.cloudAfter, "pair_resolved")}. Claude Code can run the tests itself and aider can't, so this compares the two agents as they ship.`,
+      ja: `Claude Opus 5.5 で動く Claude Code は、ノートの ${n(c.cloud, "tasks")} タスク中 ${n(c.cloud, "resolved")} 件を解決し、95% の信頼度で解決率は少なくとも ${pct(n(c.cloud, "rate_lo"))} です。クラウドだけが解いたタスクは ${n(c.vsCloud, "only_versus")} 件、ノートだけが解いたタスクは ${n(c.vsCloud, "only_this")} 件でした（McNemar p ${below(n(c.vsCloud, "mcnemar_p"))}）。モデルの知識のカットオフである 2026 年 6 月より後にコミットされた ${n(c.cloudAfter, "pairs")} タスクでも、ノートの ${n(c.cloudAfter, "pair_resolved")} 件に対してクラウドは ${n(c.cloudAfter, "versus_resolved")} 件を解きました。Claude Code は自分でテストを実行でき、aider はできないので、これは出荷されたままの 2 つのエージェントの比較です。`,
+    },
+    receipts: [report(4, S4CLOUD), artifact(c.cloud), pr(89)],
+  },
+  {
+    id: "2026-11-05-cloud-price",
+    date: "2026-11-05",
+    kind: "finding",
+    claims: [c.vsCloud.id, c.laptop.id],
+    title: {
+      en: `Priced at what the cloud spent, local needs ${pct(n(c.vsCloud, "breakeven_rate"))} to pay.`,
+      ja: `クラウドが実際に使った額で見ると、ローカルの元が取れるには ${pct(n(c.vsCloud, "breakeven_rate"))} が必要です。`,
+    },
+    body: {
+      en: `At API list prices the cloud spent ${cents(c.vsCloud, "cloud_usd_per_task")} a task, and only ${cents(c.vsCloud, "cloud_usd_saved")} on the tasks the laptop also solved, against ${cents(c.vsCloud, "cloud_usd_rest")} on the rest. Each task local takes off the bill saves only that ${cents(c.vsCloud, "cloud_usd_saved")}. The laptop would then have to resolve ${pct(n(c.vsCloud, "breakeven_rate"))} of queued tasks to pay, compared to ${pct(n(c.laptop, "breakeven_rate"))} at the assumed ${price}.`,
+      ja: `API の定価で、クラウドは 1 タスクあたり ${cents(c.vsCloud, "cloud_usd_per_task")} を使い、ノートも解いたタスクでは ${cents(c.vsCloud, "cloud_usd_saved")}、残りでは ${cents(c.vsCloud, "cloud_usd_rest")} でした。ローカルが引き受けたタスク 1 件で浮くのはこの ${cents(c.vsCloud, "cloud_usd_saved")} だけです。そのため元を取るにはキューに入れたタスクの ${pct(n(c.vsCloud, "breakeven_rate"))} を解く必要があり、想定の ${price} のときの ${pct(n(c.laptop, "breakeven_rate"))} より高くなります。`,
+    },
+    receipts: [report(4, S4CLOUD), artifact(c.cloud), pr(89)],
+  },
   {
     id: "2026-11-05-laptop-verdict",
     date: "2026-11-05",

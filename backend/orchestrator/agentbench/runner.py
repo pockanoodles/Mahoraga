@@ -209,10 +209,20 @@ def confinement(bench: Bench, config: SuiteConfig) -> tuple[list[Path], list[Pat
     Another checkout of the same repo elsewhere on the machine is not hidden;
     an agent would have to go looking for it."""
     hidden = [bench.repo.resolve(), bench.dir.parent.resolve()]
-    venv = Path(config.python).parent.parent.resolve()  # .../venv/bin/python
     # Named even where nothing hides it: an agent that hides more (the cloud
     # arm hides the whole home) still has to run the tests.
-    return hidden, [venv]
+    return hidden, [suite_env(config.python)]
+
+
+def suite_env(python: str) -> Path:
+    """The environment a test interpreter runs in: its venv, the dir holding
+    pyvenv.cfg, else the install it resolves to. Never just two levels up,
+    which for ~/bin/python is the whole home."""
+    p = Path(python)
+    if (p.parent.parent / "pyvenv.cfg").is_file():
+        return p.parent.parent.resolve()
+    real = p.resolve()
+    return real.parent.parent if real.parent.name == "bin" else real.parent
 
 
 def run_attempt(bench: Bench, config: SuiteConfig, task: Task, agent: Agent,

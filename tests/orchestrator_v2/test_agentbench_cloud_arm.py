@@ -343,6 +343,38 @@ def test_a_cloud_attempt_keeps_what_it_runs_when_the_home_is_hidden(tmp_path, mo
     assert venv in readable                             # the test venv, outside any repo
 
 
+def test_nothing_put_back_sits_above_what_is_hidden(tmp_path, monkeypatch):
+    home = tmp_path / "home"
+    (home / ".ssh").mkdir(parents=True)
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setattr(sys, "platform", "darwin")
+    monkeypatch.setattr(shutil, "which", lambda n: "/usr/bin/" + n)
+    # A #!/bin/sh launcher's prefix is /, and a bare ~/bin/python's guess was the home.
+    profile = sandboxed(["sh"], [tmp_path / "work"], hidden=[home],
+                        readable=[Path("/"), home, home / "venv", Path("/usr")])[2]
+    allowed = profile.split("(allow file-read-data", 1)[1]
+    assert '(subpath "/")' not in allowed and f'(subpath "{home.resolve()}")' not in allowed
+    assert f'(subpath "{(home / "venv").resolve()}")' in allowed  # inside: put back
+    assert '(subpath "/usr")' in allowed                          # beside: harmless
+    with pytest.raises(ValueError, match="holds hidden"):
+        sandboxed(["sh"], [home], hidden=[home / "repo"])
+
+
+def test_a_test_interpreter_s_env_is_its_venv_or_its_install(tmp_path):
+    from backend.orchestrator.agentbench.runner import suite_env
+    venv = tmp_path / "proj" / ".venv"
+    (venv / "bin").mkdir(parents=True)
+    (venv / "pyvenv.cfg").write_text("home = /usr/bin\n")
+    (venv / "bin" / "python").symlink_to(sys.executable)
+    assert suite_env(str(venv / "bin" / "python")) == venv.resolve()
+    # Not a venv: a link in ~/bin to some install. Two levels up would be the home.
+    bare = tmp_path / "home" / "bin" / "python"
+    bare.parent.mkdir(parents=True)
+    bare.symlink_to(Path(sys.executable).resolve())
+    env = suite_env(str(bare))
+    assert env != tmp_path / "home" and Path(sys.executable).resolve().is_relative_to(env)
+
+
 def test_claude_cut_off_by_the_limit_timed_out_and_did_not_crash(fake_claude, tmp_path,
                                                                  monkeypatch):
     agent, _ = fake_claude

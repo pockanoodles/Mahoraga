@@ -198,6 +198,26 @@ def bwrap_args(cwd: Path, writable: Sequence[Path], hidden: Sequence[Path] = (),
     return [*args, "--chdir", str(Path(cwd).resolve())]
 
 
+def put_back(hidden: Sequence[Path], readable: Sequence[Path]) -> list[Path]:
+    """The readable paths that only put something back: inside a hidden dir
+    or beside one, never above it. A readable `/` or home would undo all the
+    hiding below it, so it's dropped rather than trusted."""
+    hs = [Path(h).resolve() for h in hidden]
+
+    def above(r: Path) -> bool:
+        return any(h == r or r in h.parents for h in hs)
+
+    return [r for r in (Path(x).resolve() for x in readable) if not above(r)]
+
+
+def _no_writable_above(hidden: Sequence[Path], writable: Sequence[Path]) -> None:
+    hs = [Path(h).resolve() for h in hidden]
+    for w in (Path(x).resolve() for x in writable):
+        if any(h == w or w in h.parents for h in hs):
+            raise ValueError(f"{w} is writable but holds hidden {next(h for h in hs if h == w or w in h.parents)}: "
+                             "an agent can read what it can write, so nothing in it could be hidden")
+
+
 def base_python() -> Path:
     """The interpreter under the harness's venv: what runs the bridge, with
     the standard library alone, so nothing of a hidden checkout is needed."""
@@ -213,6 +233,8 @@ def sandboxed(cmd: list[str], writable: Sequence[Path], hidden: Sequence[Path] =
         nothing else, since the agent has its own network namespace.
       macOS: localhost, at the `loopback` ports if given, else at any."""
     hidden = [*hidden, *home_secrets()]
+    _no_writable_above(hidden, writable)
+    readable = put_back(hidden, readable)
     if sys.platform == "darwin" and shutil.which("sandbox-exec"):
         return ["sandbox-exec", "-p", sandbox_profile(writable, hidden, readable, loopback), *cmd]
     if linux_sandbox():
@@ -222,7 +244,7 @@ def sandboxed(cmd: list[str], writable: Sequence[Path], hidden: Sequence[Path] =
             py = base_python()
             # The bridge lives in the harness, which is hidden when the harness
             # audits its own repo: its file and interpreter are put back alone.
-            readable = [*readable, BRIDGE, py.parent.parent]
+            readable = put_back(hidden, [*readable, BRIDGE, py.parent.parent])
             inner = [str(py), "-I", "-S", str(BRIDGE),
                      *[f"{p}={s}" for p, s in ports.items()], "--", *cmd]
         return [*bwrap_args(writable[0], writable, hidden, readable, list(ports.values())),
@@ -587,7 +609,7 @@ class ClaudeCodeAgent:
         """The whole home hidden, and back on top only what the attempt runs:
         the CLI and whatever interprets it (an npm install is a node script),
         and each readable venv with the interpreter it was made from."""
-        runtimes = [(Path(v) / "bin" / "python").resolve().parent.parent for v in readable
+        runtimes = [install_prefix((Path(v) / "bin" / "python").resolve()) for v in readable
                     if (Path(v) / "bin" / "python").exists()]
         return ([*hidden, Path.home().resolve()],
                 [*readable, binary.parent, *interpreter_dirs(binary), *runtimes])
@@ -650,8 +672,14 @@ def interpreter_dirs(binary: Path) -> list[Path]:
         found = words[0]
     if not found:
         return []
-    interp = Path(found).resolve()
-    return [interp.parent.parent if interp.parent.name == "bin" else interp.parent]
+    return [install_prefix(Path(found).resolve())]
+
+
+def install_prefix(interp: Path) -> Path:
+    """What an interpreter runs from: the dir above its bin/ (~/.nvm/.../v22),
+    or its own dir. A system one (/bin/sh, /usr/bin/python3) gives / or /usr,
+    which `put_back` refuses wherever it would sit above something hidden."""
+    return interp.parent.parent if interp.parent.name == "bin" else interp.parent
 
 
 def parse_claude_events(out: str) -> AgentRun:

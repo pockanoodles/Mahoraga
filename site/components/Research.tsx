@@ -17,6 +17,8 @@ import { Standing } from "./Standing";
 export function Research({ t, locale }: { t: Dict; locale: Locale }) {
   const ja = locale === "ja";
   const run = claim(STANDING.note);
+  const own = claim(STANDING.own.claim);
+  const span = (d: string) => (ja ? d.replace(" to ", "〜") : d);
   const dates = cfg(run, "dates");
   const settings = data.settings;
   const solved = (key: string) => {
@@ -34,10 +36,16 @@ export function Research({ t, locale }: { t: Dict; locale: Locale }) {
 
   const notes = [
     t.notes.standing({
-      dates: ja ? dates.replace(" to ", "〜") : dates,
+      dates: span(dates),
       machine: cfg(run, "machine"),
       agent: cfg(run, "agent"),
       artifact: run.artifact,
+      own: {
+        dates: span(cfg(own, "dates")),
+        machine: cfg(own, "machine"),
+        limit: ja ? cfg(own, "limit").replace(/^(\d+) minutes$/, "$1 分") : cfg(own, "limit"),
+        artifact: own.artifact,
+      },
     }),
     t.notes.verdict,
   ];

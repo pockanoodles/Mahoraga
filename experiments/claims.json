@@ -624,6 +624,85 @@
         "only_versus": { "value": 9, "decimals": 0 },
         "mcnemar_p": { "value": 0.4, "decimals": 2 }
       }
+    },
+    {
+      "id": "report_2026_10_laptop_131k",
+      "kind": "agentbench",
+      "description": "§3, §4 and §5: the laptop's own 131k run at the 90-minute limit, and its pooled verdict",
+      "artifact": "experiments/agentbench/laptop-2026-10-131k.jsonl",
+      "select": {
+        "arm": "aider:qwen3.5:latest@ctx=131072",
+        "cond": "blind"
+      },
+      "config": {
+        "machine": "MacBook Pro M4, 16 GB (Mac16,1)",
+        "agent": "aider 0.86.2, diff edit format",
+        "context": 131072,
+        "model_digest": "6488c96fa5fa",
+        "model_file": "the same GGUF as the Studio's qwen3.5:laptop-dec52a4 (sha256 dec52a44)",
+        "harness": "aider with each request given the attempt's limit (#68)",
+        "dates": "2026-10-28 to 2026-11-01",
+        "limit": "90 minutes"
+      },
+      "published_in": ["docs/report/2026-10-local-coding-ai.md"],
+      "verdict": {
+        "tasks_per_month": 200,
+        "api_spend": 150
+      },
+      "metrics": {
+        "tasks": { "value": 47, "decimals": 0 },
+        "resolved": { "value": 17, "decimals": 0 },
+        "rate": { "value": 0.36, "decimals": 2 },
+        "rate_lo": { "value": 0.24, "decimals": 2 },
+        "rate_hi": { "value": 0.5, "decimals": 2 },
+        "timed_out": { "value": 2, "decimals": 0 },
+        "request_errors": { "value": 0, "decimals": 0 },
+        "minutes": { "value": 28.2, "decimals": 1 },
+        "call": { "value": "stay" },
+        "confident": { "value": "yes" },
+        "net": { "value": -67, "decimals": 0 },
+        "net_lo": { "value": -86, "decimals": 0 },
+        "net_hi": { "value": -43, "decimals": 0 },
+        "breakeven_rate": { "value": 0.77, "decimals": 2 },
+        "breakeven_cloud_usd": { "value": 4.43, "decimals": 2 }
+      }
+    },
+    {
+      "id": "report_2026_10_laptop_vs_studio_131k",
+      "kind": "agentbench",
+      "description": "§5: one model file at one setting on the laptop and on the Studio, task by task",
+      "artifact": "experiments/agentbench/laptop-2026-10-131k.jsonl",
+      "select": {
+        "arm": "aider:qwen3.5:latest@ctx=131072",
+        "cond": "blind"
+      },
+      "versus": {
+        "artifact": "experiments/agentbench/studio-2026-10.jsonl",
+        "select": {
+          "arm": "aider:qwen3.5:laptop-dec52a4@ctx=131072",
+          "cond": "blind",
+          "repos": ["attrs", "more-itertools"]
+        }
+      },
+      "config": {
+        "machine": "MacBook Pro M4, 16 GB (Mac16,1)",
+        "agent": "aider 0.86.2, diff edit format",
+        "context": 131072,
+        "model_digest": "6488c96fa5fa",
+        "model_file": "the same GGUF as the Studio's qwen3.5:laptop-dec52a4 (sha256 dec52a44)",
+        "harness": "aider with each request given the attempt's limit (#68)",
+        "dates": "2026-10-28 to 2026-11-01",
+        "limit": "90 minutes"
+      },
+      "published_in": ["docs/report/2026-10-local-coding-ai.md"],
+      "metrics": {
+        "pairs": { "value": 47, "decimals": 0 },
+        "pair_resolved": { "value": 17, "decimals": 0 },
+        "versus_resolved": { "value": 18, "decimals": 0 },
+        "only_this": { "value": 4, "decimals": 0 },
+        "only_versus": { "value": 5, "decimals": 0 },
+        "mcnemar_p": { "value": 1.0, "decimals": 2 }
+      }
     }
   ]
 }

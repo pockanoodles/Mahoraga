@@ -103,8 +103,11 @@ async function research(page, loc, vp, tag) {
   const bands = await measured.locator(".standing__band").evaluateAll((els) => els.filter((e) => e.getBoundingClientRect().width > 0).length);
   check(rows >= 1 && bands === rows, `${tag}: every measured row draws its interval (${bands}/${rows})`);
   check((await page.locator(".standing__row--running .standing__pct").count()) === 0, `${tag}: the running row shows no rate`);
-  const running = await page.locator(".standing__running").getAttribute("href");
-  check(Boolean(running) && (await page.locator(running).count()) === 1, `${tag}: the running row links to its log entry (${running})`);
+  // A running row is there only while a run is filling one in.
+  if (await page.locator(".standing__row--running").count()) {
+    const running = await page.locator(".standing__running").getAttribute("href");
+    check(Boolean(running) && (await page.locator(running).count()) === 1, `${tag}: the running row links to its log entry (${running})`);
+  }
   const heroPct = (await measured.locator(".standing__pct").allTextContents()).map((s) => s.trim());
   check((await page.getAttribute(".hero__more", "href")) === pathOf(loc, "engine"), `${tag}: the hero's second action goes to the engine page`);
 

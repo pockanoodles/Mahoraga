@@ -2,10 +2,23 @@
 # reads it, so paths here are the served URLs.
 #
 # no-transform stops Cloudflare rewriting a page on its way out, which is how it
-# injects its analytics beacon. kaitosoeno.com/privacy says these pages run no
+# injects its analytics beacon. /mahoraga/privacy/ says these pages run no
 # analytics, so the response enforces that instead of a dashboard toggle.
+#
+# The security headers match the portfolio's (personal-website public/_headers),
+# minus Turnstile, since this page loads nothing from anyone else. script-src
+# needs 'unsafe-inline' because a static export inlines the router payload in
+# <script> tags whose hashes change every build, and so does the view
+# transition's own inline script.
 /mahoraga/*
   Cache-Control: public, max-age=0, must-revalidate, no-transform
+  Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'; upgrade-insecure-requests
+  Strict-Transport-Security: max-age=31536000
+  X-Content-Type-Options: nosniff
+  X-Frame-Options: DENY
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=(), usb=()
+  Cross-Origin-Opener-Policy: same-origin
 
 # Hashed filenames, so a cached copy can never be stale. `!` drops the page
 # rule's Cache-Control rather than joining the two.

@@ -5,6 +5,7 @@ import type { Dict, Locale } from "@/content/copy";
 import { PRICE, entryFor } from "@/content/log";
 import { GIT } from "@/content/channels";
 import { curveAt, data } from "@/lib/data";
+import { pagePath } from "@/lib/routes";
 import { Notes } from "./Notes";
 import { Replay } from "./Replay";
 import { Reveal } from "./Reveal";
@@ -109,7 +110,10 @@ export function Engine({ t, locale }: { t: Dict; locale: Locale }) {
               </Reveal>
             ))}
           </ol>
-          <p className="center after-grid">
+          <p className="center after-grid policy-links">
+            <a className="textlink" href={pagePath(locale, "privacy")}>
+              {t.privacy.policy}
+            </a>
             <a className="textlink" href={`${GIT}/blob/main/DATAFLOW.md`} target="_blank" rel="noreferrer">
               {t.privacy.link} <span aria-hidden>↗</span>
             </a>

@@ -1,5 +1,5 @@
 // The footer every page ends on: the project's pages, its files in the
-// repository, and the person's own site.
+// repository and its privacy policy, and the person's own site.
 import type { Dict, Locale } from "@/content/copy";
 import { GIT } from "@/content/channels";
 import { REPO_URL, blob } from "@/lib/data";
@@ -64,6 +64,11 @@ export function Footer({ t, locale, page }: { t: Dict; locale: Locale; page: Pag
                 {t.footer.security}
               </a>
             </li>
+            <li>
+              <a href={pagePath(locale, "privacy")} aria-current={page === "privacy" ? "page" : undefined}>
+                {t.footer.privacy}
+              </a>
+            </li>
           </ul>
         </div>
         <div>
@@ -74,9 +79,6 @@ export function Footer({ t, locale, page }: { t: Dict; locale: Locale; page: Pag
             </li>
             <li>
               <a href={ja ? "/ja" : "/"}>{t.footer.contact}</a>
-            </li>
-            <li>
-              <a href={ja ? "/ja/privacy" : "/privacy"}>{t.footer.privacy}</a>
             </li>
             <li>
               <a href={pagePath(ja ? "en" : "ja", page)} hrefLang={ja ? "en" : "ja"} lang={ja ? "en" : "ja"}>

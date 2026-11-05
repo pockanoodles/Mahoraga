@@ -1,6 +1,10 @@
+import type { Metadata } from "next";
 import { mono, sans } from "./_lib/fonts";
 import { Mark } from "@/components/Mark";
 import "./globals.css";
+
+// Without its own title the tab showed the bare URL.
+export const metadata: Metadata = { title: "Nothing here · Mahoraga" };
 
 // The Worker serves this for any missing path under /mahoraga. It has its own
 // <html> because the two languages are separate root layouts.

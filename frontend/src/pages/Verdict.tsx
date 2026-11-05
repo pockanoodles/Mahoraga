@@ -125,7 +125,16 @@ export default function VerdictPage() {
     const t = window.setTimeout(() => {
       api
         .verdict(
-          { benches: null, arm: inputs.arm, cond: inputs.cond, cloud_arm: inputs.cloud_arm, billing, assumptions: inputs.assumptions },
+          // The cloud arm prices a per-task bill; its picker shows only under API billing, so a
+          // subscription verdict never carries a choice the reader can no longer see.
+          {
+            benches: null,
+            arm: inputs.arm,
+            cond: inputs.cond,
+            cloud_arm: inputs.billing === "api" ? inputs.cloud_arm : null,
+            billing,
+            assumptions: inputs.assumptions,
+          },
           ctl.signal,
         )
         .then((v) => {

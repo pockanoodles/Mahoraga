@@ -35,6 +35,7 @@ pin that it does.
 """
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 
 from backend.orchestrator.agentbench.grade import TEST_VERIFIED
@@ -210,9 +211,12 @@ def breakeven_rate(ev: Evidence, a: Assumptions, cloud_per_task: float) -> float
     module's formula, so p* = (local + triage) / (cloud + triage).
 
     Above 1 when a cloud task costs less than a local attempt's electricity,
-    which reads as "no resolve rate pays". One formula in one place: the
-    verdict's sensitivity line, the API and the site export all call this."""
-    return (attempt_cost(ev, a) + triage_cost(a)) / (cloud_per_task + triage_cost(a))
+    which reads as "no resolve rate pays". Infinite when a cloud task and a
+    failed attempt both cost nothing (a cloud arm that recorded $0, with no
+    triage time), since then local can only spend. One formula in one place:
+    the verdict's sensitivity line, the API and the site export all call this."""
+    den = cloud_per_task + triage_cost(a)
+    return (attempt_cost(ev, a) + triage_cost(a)) / den if den > 0 else math.inf
 
 
 def breakeven_cloud_cost(ev: Evidence, a: Assumptions) -> float | None:
@@ -255,6 +259,8 @@ def _decide_api_at(ev: Evidence, a: Assumptions, b: Billing, cloud: float, whose
     material = materiality(b)
     p_star = breakeven_rate(ev, a, cloud)
     sens = [f"Pays once local resolves ≥ {p_star:.0%} of queued tasks "
+            f"(measured {ev.rate.fmt()})." if math.isfinite(p_star) else
+            "No resolve rate pays, since a cloud task and a failed attempt both cost nothing "
             f"(measured {ev.rate.fmt()})."]
     c_star = breakeven_cloud_cost(ev, a)
     if c_star is not None:

@@ -18,6 +18,7 @@ in its thread pool instead of on the event loop.
 from __future__ import annotations
 
 import json
+import math
 import platform
 import shutil
 from dataclasses import asdict, dataclass
@@ -395,6 +396,9 @@ def verdict(req: schemas.VerdictRequest) -> dict[str, Any]:
         v = decide(ev, assumptions, billing, cloud)
     except ValueError as e:  # no attempts for this arm and condition, mixed tiers, or evidence v1 won't decide on
         raise HTTPException(status_code=409, detail=str(e)) from None
+    # JSON has no infinity: a break-even no rate reaches (a free cloud task and
+    # free triage) is reported as none.
+    p_star = None if v.cloud_usd is None else breakeven_rate(ev, assumptions, v.cloud_usd)
     return {
         "call": v.call, "confident": v.confident, "reason": v.reason,
         "evidence": asdict(v.evidence),
@@ -402,8 +406,7 @@ def verdict(req: schemas.VerdictRequest) -> dict[str, Any]:
         "billing": asdict(v.billing),
         "monthly_usd": (None if v.monthly_usd is None
                         else dict(zip(("lo", "point", "hi"), v.monthly_usd))),
-        "breakeven": (breakeven_rate(ev, assumptions, v.cloud_usd)
-                      if v.cloud_usd is not None else None),
+        "breakeven": p_star if p_star is not None and math.isfinite(p_star) else None,
         "cloud": None if v.cloud is None else asdict(v.cloud),
         "cloud_usd_per_task": v.cloud_usd,
         "sensitivity": v.sensitivity,

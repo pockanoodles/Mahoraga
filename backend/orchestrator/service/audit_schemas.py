@@ -328,7 +328,8 @@ class Verdict(BaseModel):
     monthly_usd: MonthlyUsd | None = Field(
         description="Net per month at the interval's low end, point and high end; null on a flat plan.")
     breakeven: float | None = Field(
-        description="API billing only: the resolve rate at which local pays. Above 1 means no rate does.")
+        description="API billing only: the resolve rate at which local pays. Above 1 means no rate does, "
+                    "and so does null under API billing (a cloud arm that cost nothing, with no triage time).")
     cloud: VerdictCloud | None = Field(description="The cloud arm that priced the verdict, if one was named.")
     cloud_usd_per_task: float | None = Field(
         description="API billing only: the cloud price per task the verdict used, measured or the bill's average.")

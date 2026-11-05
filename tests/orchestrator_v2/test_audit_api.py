@@ -766,6 +766,10 @@ def test_a_cloud_arm_on_the_same_tasks_prices_the_verdict(api, root):
     assert got["cloud_usd_per_task"] == pytest.approx(0.10)
     assert got["sensitivity"] == v.sensitivity and got["rendered"] == render(v)
     assert got["breakeven"] == breakeven_rate(v.evidence, v.assumptions, 0.10)
+    for i in range(6):  # a cloud arm that recorded nothing, and no triage time
+        _write(root.calc, _attempt(f"c{i + 1}", cloud, "blind", True, secs=40.0, cost_usd=0.0))
+    free = _ask(api, cloud_arm=cloud, assumptions={"tasks_per_month": 200, "triage_minutes": 0})
+    assert free.status_code == 200 and free.json()["breakeven"] is None
     missing = _ask(api, cloud_arm="claude:claude-gone")
     assert missing.status_code == 409 and "no attempts for claude:claude-gone" in missing.json()["detail"]
 

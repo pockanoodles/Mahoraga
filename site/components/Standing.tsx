@@ -1,11 +1,11 @@
 // The hero: where local stands now. Each measured row is a claim's resolve rate
 // with its 95% interval over tasks, and the line is the share local has to
-// resolve to pay at the worked example's cloud price, which the same claims'
-// verdicts compute. The page only places them: every number is the engine's.
+// resolve to pay at what the cloud spent on the tasks the laptop solved, which
+// the paired claim's verdict computes. The page only places them: every number is the engine's.
 // The settings rows share one set of tasks, the laptop's own row is on its
 // share of them, and a run still filling in, when there is one, comes last.
 import type { Dict, Locale } from "@/content/copy";
-import { PRICE, STANDING, entryById, type StandingRow } from "@/content/log";
+import { STANDING, entryById, type StandingRow } from "@/content/log";
 import { claim, num, pct } from "@/lib/data";
 
 // The day a run began, from its log entry: "October 28", or 「10 月 28 日」 with
@@ -42,7 +42,7 @@ export function Standing({ t, locale, refs }: { t: Dict["standing"]; locale: Loc
       </p>
       <div className="standing__plot">
         <p className="standing__be-label" aria-hidden>
-          <span>{t.breakeven(pct(be), `$${PRICE.toFixed(2)}`)}</span>
+          <span>{t.breakeven(pct(be), STANDING.price)}</span>
         </p>
         <ol className="standing__rows">
           {rows.map((r, i) => (

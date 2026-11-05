@@ -181,7 +181,7 @@ const en: Dict = {
     caption: (n, own, versus) =>
       `The first three rows are one setting each on the same ${n} commits from more-itertools, click and attrs, run on a Mac Studio with the laptop's exact model file for qwen3.5. The last row is the laptop's own run on the ${own} of those commits from more-itertools and attrs, and on the same ${own} the Studio resolved ${versus}.`,
     count: (k, n) => `${k} of ${n}`,
-    breakeven: (rate, price) => `Local pays above ${rate} at ${price} a cloud task`,
+    breakeven: (rate, price) => `Local pays above ${rate} at the measured ${price} a cloud task`,
     row: (model, rate, k, n, lo, hi) => `${model}: ${rate} resolved, ${k} of ${n} tasks, 95% interval ${lo} to ${hi}`,
     running: "Running",
     runningNote: (since) => `On the 16 GB laptop, since ${since}`,
@@ -207,7 +207,7 @@ const en: Dict = {
   settings: {
     title: "Most of the gap was the context window.",
     lead: ({ k32, k131, k35, n, bar, price }) =>
-      `On a 64 GB Mac Studio, a 131k window took the laptop's 9.7B model from ${k32} to ${k131} of ${n} commits, near a 35B model's ${k35}. All three fall well short of the ${bar} that local needs to pay for itself at ${price} a cloud task.`,
+      `On a 64 GB Mac Studio, a 131k window took the laptop's 9.7B model from ${k32} to ${k131} of ${n} commits, near a 35B model's ${k35}. All three fall well short of the ${bar} that local needs to pay for itself at the measured ${price} a cloud task.`,
     label: (n, repos) => `${n} commits from ${andList(repos)}, one square each`,
     choose: "Setting",
     options: {
@@ -363,7 +363,7 @@ const en: Dict = {
     standing: (a) =>
       `The first three rows ran from ${a.dates} on a ${a.machine}, and the laptop's row ran from ${a.own.dates} on a ${a.own.machine} with ${a.own.limit} an attempt. Each used ${a.agent}, blind, with one attempt per task. Rates are task-weighted with a 95% Wilson interval over tasks (agentbench/stats.py), and CI recomputes them with orch bench verify from ${a.artifact} and ${a.own.artifact}.`,
     verdict:
-      "The break-even line and the verdicts come from audit/verdict.py. Their assumptions are listed in the verdict section, and their prices are the dated observations in audit/pricing.json.",
+      "The break-even line and the verdicts come from audit/verdict.py. The line is priced at what Claude Code on Claude Opus 5.5 spent, at API list prices, on the tasks the laptop solved (report §4). The verdicts' assumptions are listed in the verdict section, and the plan prices are the dated observations in audit/pricing.json.",
     ref: (n) => `Note ${n}`,
     source: ["Numbers from", " at commit ", "."],
   },
@@ -429,7 +429,7 @@ const ja: Dict = {
     caption: (n, own, versus) =>
       `上の 3 行は、more-itertools、click、attrs の同じ ${n} 件のコミットで、ひとつずつ設定を試した結果です。これらは Mac Studio で走らせたもので、qwen3.5 にはノートと同じモデルファイルを使いました。最後の行はノート自身の計測で、そのうち more-itertools と attrs の ${own} 件が対象です。同じ ${own} 件で、Studio は ${versus} 件を解決しました。`,
     count: (k, n) => `${n} 件中 ${k} 件`,
-    breakeven: (rate, price) => `クラウドが 1 タスク ${price} なら、${rate} を超えると元が取れる`,
+    breakeven: (rate, price) => `クラウドの実測 1 タスク ${price} なら、${rate} を超えると元が取れる`,
     row: (model, rate, k, n, lo, hi) => `${model}：解決率 ${rate}（${n} 件中 ${k} 件）、95% 区間 ${lo}〜${hi}`,
     running: "実行中",
     runningNote: (since) => `16 GB のノートで、${since}から`,
@@ -454,7 +454,7 @@ const ja: Dict = {
   settings: {
     title: "差の大半は、コンテキストウィンドウでした。",
     lead: ({ k32, k131, k35, n, bar, price }) =>
-      `64 GB の Mac Studio で、ノートが使う 9.7B のモデルにウィンドウを 131k まで与えると、解いたコミットは ${n} 件中 ${k32} 件から ${k131} 件に増え、35B のモデルの ${k35} 件に迫りました。3 つとも、クラウドが 1 タスク ${price} のときにローカルの元が取れる ${bar} には遠く届きません。`,
+      `64 GB の Mac Studio で、ノートが使う 9.7B のモデルにウィンドウを 131k まで与えると、解いたコミットは ${n} 件中 ${k32} 件から ${k131} 件に増え、35B のモデルの ${k35} 件に迫りました。3 つとも、クラウドの実測 1 タスク ${price} のときにローカルの元が取れる ${bar} には遠く届きません。`,
     label: (n, repos) => `${repos.join("、")} のコミット ${n} 件（1 マスが 1 コミット）`,
     choose: "設定",
     options: {
@@ -645,7 +645,7 @@ const ja: Dict = {
   notes: {
     standing: (a) =>
       `上の 3 行は ${a.dates} に ${a.machine} で、ノートの行は ${a.own.dates} に ${a.own.machine} で、1 試行 ${a.own.limit} で走らせたものです。どれも ${a.agent} をブラインドで使い、各タスク 1 試行でした。解決率はタスク単位で重み付けし、95% Wilson 区間はタスク数で数えています（agentbench/stats.py）。CI で orch bench verify が ${a.artifact} と ${a.own.artifact} から計算し直しています。`,
-    verdict: "損益分岐点の線と判定は audit/verdict.py によるもので、前提は判定の節に載せた値、価格は audit/pricing.json の日付つきの観測値です。",
+    verdict: "損益分岐点の線と判定は audit/verdict.py によるものです。線の価格は、ノートが解いたタスクで Claude Opus 5.5 の Claude Code が API の定価で使った額です（レポート §4）。判定の前提は判定の節に載せた値、プランの価格は audit/pricing.json の日付つきの観測値です。",
     ref: (n) => `注 ${n}`,
     source: ["数値の出典", "（コミット ", "）。"],
   },

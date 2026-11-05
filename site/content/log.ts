@@ -507,6 +507,7 @@ export const STANDING: {
   own: StandingRow & { versus: string };
   running: { entry: string; model: Label } | null;
   breakeven: string;
+  price: string;
   note: string;
 } = {
   rows: [
@@ -521,7 +522,10 @@ export const STANDING: {
     fit: { en: "Run on the 16 GB laptop itself", ja: "16 GB のノート本体で計測" },
   },
   running: null,
-  breakeven: c.q35wide.id, // the claim whose verdict gives the break-even rate at PRICE
+  // The claim whose verdict gives the break-even line, priced at what the cloud
+  // spent on the tasks the laptop solved, and that price.
+  breakeven: c.vsCloud.id,
+  price: cents(c.vsCloud, "cloud_usd_saved"),
   note: c.pair.id, // the claim whose run record the footnote quotes
 };
 

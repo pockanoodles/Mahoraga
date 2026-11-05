@@ -81,12 +81,15 @@ def parse_payment(answer: str) -> dict:
     return {"plan": words[0], "plan_price": price}
 
 
-def judge(benches: list, arm: str, cond: str, usage: Usage, **assumed):
+def judge(benches: list, arm: str, cond: str, usage: Usage, cloud_arm: str | None = None,
+          **assumed):
     """The verdict for one arm, from its attempts and how you use the cloud.
-    `assumed` overrides the Assumptions defaults (deferrable share, rates)."""
-    from .evidence import from_benches
+    `cloud_arm` prices the cloud side with that arm's attempts on the same
+    tasks. `assumed` overrides the Assumptions defaults (deferrable share, rates)."""
+    from .evidence import cloud_from_benches, from_benches
     from .verdict import Assumptions, decide
 
     ev = from_benches(benches, arm, cond)
+    cloud = cloud_from_benches(benches, arm, cloud_arm, cond) if cloud_arm else None
     return decide(ev, Assumptions(tasks_per_month=usage.tasks_per_month, **assumed),
-                  usage.billing())
+                  usage.billing(), cloud)

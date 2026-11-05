@@ -34,6 +34,12 @@ compares the claim's slice with another task by task: the tasks both ran, how
 many each solved, how many only one solved, and the exact McNemar p on those.
 The other slice comes from the claim's own artifact unless `versus` names one,
 since two machines' rows live in two files.
+
+    "verdict": {"tasks_per_month": 200, "api_spend": 150, "cloud": "versus"}
+
+prices the verdict's cloud side with the `versus` slice, a cloud arm run on the
+same tasks: each task local resolved saves what that arm spent on it, rather
+than the bill's average (verdict.CloudSide).
 """
 from __future__ import annotations
 
@@ -43,7 +49,8 @@ from typing import Any, Optional
 
 from backend.orchestrator.agentbench.stats import mcnemar_exact, task_rate
 
-from .verdict import Assumptions, Billing, Evidence, breakeven_cloud_cost, breakeven_rate, decide
+from .verdict import (Assumptions, Billing, CloudSide, Evidence, breakeven_cloud_cost,
+                      breakeven_rate, cloud_side, decide)
 
 SELECT_KEYS = {"arm", "cond", "repos", "machine", "committed_from", "committed_before",
                "tasks_of", "limit_s"}
@@ -122,10 +129,12 @@ def _same_task(a: tuple[str, str], b: tuple[str, str]) -> bool:
     return a[0] == b[0] and (a[1].startswith(b[1]) or b[1].startswith(a[1]))
 
 
-def paired(this: list[dict], other: list[dict]) -> dict[str, float]:
-    """Two slices task by task, on the tasks both ran."""
+def _matched(this: list[dict], other: list[dict]) -> list[tuple[dict, dict]]:
+    """The two slices' rows on the tasks both ran, one attempt a side."""
     a, b = _one_per_task(this), _one_per_task(other)
-    pairs, taken = [], set()
+    rows_a = {(r["repo"], r["sha"]): r for r in this}
+    rows_b = {(r["repo"], r["sha"]): r for r in other}
+    out, taken = [], set()
     for ka in sorted(a):
         hits = [kb for kb in b if _same_task(ka, kb)]
         if len(hits) > 1:
@@ -134,9 +143,26 @@ def paired(this: list[dict], other: list[dict]) -> dict[str, float]:
             if hits[0] in taken:  # one attempt can't stand in for two tasks
                 raise ValueError(f"{hits[0][0]}/{hits[0][1]} matches more than one task on this side")
             taken.add(hits[0])
-            pairs.append((a[ka], b[hits[0]]))
-    if not pairs:
+            out.append((rows_a[ka], rows_b[hits[0]]))
+    if not out:
         raise ValueError("the two slices share no tasks")
+    return out
+
+
+def priced(this: list[dict], cloud: list[dict]) -> CloudSide:
+    """The cloud slice as the verdict's cloud side, on the tasks both ran."""
+    pairs = []
+    for mine, theirs in _matched(this, cloud):
+        if theirs.get("cost_usd") is None:
+            raise ValueError(f"{theirs['arm']}'s row for {theirs['repo']}/{theirs['sha']} has no "
+                             "cost_usd, so it can't price the verdict")
+        pairs.append((float(mine["resolved"]), float(theirs["resolved"]), theirs["cost_usd"]))
+    return cloud_side(f"{cloud[0]['arm']} / {cloud[0]['cond']}", pairs)
+
+
+def paired(this: list[dict], other: list[dict]) -> dict[str, float]:
+    """Two slices task by task, on the tasks both ran."""
+    pairs = [(x["resolved"], y["resolved"]) for x, y in _matched(this, other)]
     only_a = sum(x and not y for x, y in pairs)
     only_b = sum(y and not x for x, y in pairs)
     return {"pairs": float(len(pairs)), "pair_resolved": float(sum(x for x, _ in pairs)),
@@ -165,21 +191,31 @@ def metrics(rows: list[dict], claim: dict[str, Any],
         # Attempts that lost a model request: on a slow machine, the clock
         # inside the agent rather than the model.
         out["request_errors"] = float(sum(r["request_errors"] > 0 for r in picked))
-    spec = dict(claim.get("verdict") or {})
-    if spec:
-        billing = Billing.api(float(spec.pop("api_spend")))
-        a = Assumptions(**spec)
-        v = decide(ev, a, billing)
-        out["call"] = v.call
-        out["confident"] = "yes" if v.confident else "no"
-        if v.monthly_usd:
-            out["net_lo"], out["net"], out["net_hi"] = v.monthly_usd
-        out["breakeven_rate"] = breakeven_rate(ev, a, billing.monthly_usd / a.tasks_per_month)
-        out["breakeven_cloud_usd"] = breakeven_cloud_cost(ev, a)
+    theirs = None
     if "versus" in claim:
         theirs = select(rows if versus_rows is None else versus_rows,
                         claim["versus"].get("select") or {})
         if theirs:
             evidence(theirs)  # one machine and one grading tier, as for this slice
+    spec = dict(claim.get("verdict") or {})
+    if spec:
+        billing = Billing.api(float(spec.pop("api_spend")))
+        cloud = None
+        if spec.pop("cloud", None) == "versus":
+            if not theirs:
+                raise ValueError("the verdict is priced by the versus slice, which has no rows")
+            cloud = priced(picked, theirs)
+            out.update(cloud_tasks=float(cloud.tasks), cloud_resolved=cloud.resolved,
+                       cloud_usd_per_task=cloud.usd_per_task, cloud_usd_saved=cloud.usd_saved,
+                       cloud_usd_rest=cloud.usd_rest)
+        a = Assumptions(**spec)
+        v = decide(ev, a, billing, cloud)
+        out["call"] = v.call
+        out["confident"] = "yes" if v.confident else "no"
+        if v.monthly_usd:
+            out["net_lo"], out["net"], out["net_hi"] = v.monthly_usd
+        out["breakeven_rate"] = breakeven_rate(ev, a, v.cloud_usd)
+        out["breakeven_cloud_usd"] = breakeven_cloud_cost(ev, a)
+    if theirs is not None:
         out.update(paired(picked, theirs))
     return out

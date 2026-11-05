@@ -585,11 +585,12 @@ class ClaudeCodeAgent:
     def confine(binary: Path, hidden: Sequence[Path], readable: Sequence[Path]
                 ) -> tuple[list[Path], list[Path]]:
         """The whole home hidden, and back on top only what the attempt runs:
-        the CLI, each readable venv and the interpreter it was made from."""
+        the CLI and whatever interprets it (an npm install is a node script),
+        and each readable venv with the interpreter it was made from."""
         runtimes = [(Path(v) / "bin" / "python").resolve().parent.parent for v in readable
                     if (Path(v) / "bin" / "python").exists()]
         return ([*hidden, Path.home().resolve()],
-                [*readable, binary.parent, *runtimes])
+                [*readable, binary.parent, *interpreter_dirs(binary), *runtimes])
 
     def attempt(self, workdir: Path, prompt: str, *,
                 test_cmd: list[str] | None, timeout: float,
@@ -627,6 +628,30 @@ class ClaudeCodeAgent:
         if timed_out:
             run.crashed = ""  # cut off by the limit, which is an outcome, not a crash
         return run
+
+
+def interpreter_dirs(binary: Path) -> list[Path]:
+    """The install a script's shebang runs on, e.g. `#!/usr/bin/env node` with
+    node from ~/.nvm: the prefix above its bin/. Empty for a native binary."""
+    try:
+        with open(binary, "rb") as f:
+            first = f.readline(512)
+    except OSError:
+        return []
+    if not first.startswith(b"#!"):
+        return []
+    words = first[2:].decode(errors="replace").split()
+    if not words:
+        return []
+    if Path(words[0]).name == "env":
+        words = [w for w in words[1:] if not w.startswith("-")]
+        found = shutil.which(words[0]) if words else None
+    else:
+        found = words[0]
+    if not found:
+        return []
+    interp = Path(found).resolve()
+    return [interp.parent.parent if interp.parent.name == "bin" else interp.parent]
 
 
 def parse_claude_events(out: str) -> AgentRun:

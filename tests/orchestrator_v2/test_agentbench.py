@@ -1117,7 +1117,9 @@ def test_confinement_hides_the_repo_and_bench_but_not_the_test_venv(mined, repo,
     hidden, readable = confinement(mined, inside)
     assert hidden == [repo["path"].resolve(), mined.dir.parent.resolve()]
     assert readable == [(repo["path"] / ".venv").resolve()]
-    assert confinement(mined, SuiteConfig(python=sys.executable))[1] == []
+    # Named wherever it lives: an agent that hides more still runs the tests.
+    elsewhere = Path(sys.executable).parent.parent.resolve()
+    assert confinement(mined, SuiteConfig(python=sys.executable))[1] == [elsewhere]
 
 
 # ── The queue ─────────────────────────────────────────────────────────────────

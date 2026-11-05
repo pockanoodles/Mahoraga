@@ -203,14 +203,16 @@ def confinement(bench: Bench, config: SuiteConfig) -> tuple[list[Path], list[Pat
     tree and history hold the answer to every task mined from it, and the
     bench root, whose other clones sit at later commits and whose attempts
     hold other arms' patches. Readable again: the test interpreter's
-    environment when it lives in one of those. The agent's own clone and HOME
-    are writable, which keeps them readable too.
+    environment, wherever it lives. The agent's own clone and HOME are
+    writable, which keeps them readable too.
 
     Another checkout of the same repo elsewhere on the machine is not hidden;
     an agent would have to go looking for it."""
     hidden = [bench.repo.resolve(), bench.dir.parent.resolve()]
     venv = Path(config.python).parent.parent.resolve()  # .../venv/bin/python
-    return hidden, [venv] if any(h == venv or h in venv.parents for h in hidden) else []
+    # Named even where nothing hides it: an agent that hides more (the cloud
+    # arm hides the whole home) still has to run the tests.
+    return hidden, [venv]
 
 
 def run_attempt(bench: Bench, config: SuiteConfig, task: Task, agent: Agent,

@@ -63,6 +63,12 @@ sends your code out.
   task prompt (the commit's message and the names of its test files), and the output of
   the commands it runs go to Anthropic's API. It can't read the original repository or
   the bench's other files, because the sandbox hides them.
+- **It sees less than a local arm.** Your whole home folder is hidden from it, apart from
+  its own copy of the task, its own empty home, and the programs it runs (the `claude`
+  command and the Python that runs the task's tests). It gets only the environment
+  variables it needs (`PATH`, locale, `TERM`, `TZ`, your user name, `SHELL`, `TMPDIR`), so a
+  token exported in your shell doesn't reach it. On macOS it can connect to the proxy's
+  port and no other local port.
 - **Where it goes, and the record of it.** The agent's only way out is a proxy Mahoraga
   runs for the attempt (`agentbench/egress.py`). The proxy opens connections to
   `api.anthropic.com` on port 443 and refuses everything else. Every connection it is

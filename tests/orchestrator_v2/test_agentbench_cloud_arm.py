@@ -325,6 +325,24 @@ def test_each_claude_attempt_starts_from_an_empty_home(fake_claude, tmp_path):
     assert [c["home_files"] for c in seen] == [[], []]
 
 
+def test_a_cloud_attempt_keeps_what_it_runs_when_the_home_is_hidden(tmp_path, monkeypatch):
+    home = tmp_path / "home"
+    node = home / ".nvm" / "versions" / "node" / "v22" / "bin" / "node"
+    cli = home / ".nvm" / "versions" / "node" / "v22" / "lib" / "claude-code" / "cli.js"
+    venv = home / ".virtualenvs" / "proj"
+    for f in (node, cli, venv / "bin" / "python"):
+        f.parent.mkdir(parents=True, exist_ok=True)
+        f.write_text("")
+    cli.write_text("#!/usr/bin/env node\nconsole.log(1)\n")
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setattr(shutil, "which", lambda n: str(node) if n == "node" else None)
+    hidden, readable = ClaudeCodeAgent.confine(cli, [], [venv])
+    assert hidden == [home.resolve()]
+    assert cli.parent in readable                       # the npm package
+    assert node.parent.parent.resolve() in readable     # the node it runs on
+    assert venv in readable                             # the test venv, outside any repo
+
+
 def test_claude_cut_off_by_the_limit_timed_out_and_did_not_crash(fake_claude, tmp_path,
                                                                  monkeypatch):
     agent, _ = fake_claude

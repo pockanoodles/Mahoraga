@@ -1522,9 +1522,12 @@ def test_the_worker_runs_on_the_machine_s_terms(mined, tmp_path):
 @pytest.mark.skipif(sys.platform != "darwin", reason="sandbox-exec is macOS-only")
 def test_the_canary_passes_on_a_sealed_sandboxed_bench(mined, config):
     from backend.orchestrator.agentbench import isolation
-    checks = isolation.check(mined, config)
+    # Told the harness can reach out, so the network probe runs: the sandbox
+    # refuses it before anything leaves, network or none.
+    checks = isolation.check(mined, config, reach_outside=lambda: True)
     assert [c.name for c in checks] == ["isolation: history", "isolation: source",
-                                        "isolation: bench", "isolation: log"]
+                                        "isolation: bench", "isolation: log",
+                                        "isolation: network"]
     assert all(c.ok for c in checks), checks
 
 
@@ -1532,15 +1535,17 @@ def test_the_canary_fails_when_isolation_is_broken(mined, repo, config):
     from backend.orchestrator.agentbench import isolation
     from backend.orchestrator.agentbench.agents import _launch
 
-    def unsandboxed(cmd, cwd, env, timeout, *writable, hidden=(), readable=()):
+    def unsandboxed(cmd, cwd, env, timeout, *writable, hidden=(), readable=(), ports=None):
         return _launch(cmd, cwd, env, timeout)  # hides nothing
 
     [task] = mined.load_tasks()
     task.base = _unsealed(mined, repo, repo["shas"]["mul"])
     mined.save_tasks([task])
-    failed = {c.name for c in isolation.check(mined, config, launch=unsandboxed) if not c.ok}
+    checks = isolation.check(mined, config, launch=unsandboxed, reach_outside=lambda: False)
+    failed = {c.name for c in checks if not c.ok}
     assert failed == {"isolation: history", "isolation: source", "isolation: bench",
                       "isolation: log"}
+    assert next(c for c in checks if c.name == "isolation: network").detail.startswith("not tested")
 
 
 def test_the_worker_refuses_a_bench_that_isnt_isolated(mined, tmp_path):
@@ -1960,3 +1965,60 @@ def test_tonight_asks_in_a_terminal_and_asks_again_on_a_bad_answer(repo, tonight
     skipped = CliRunner().invoke(agentbench_app, ["tonight", str(repo["path"]), "--python",
                                                   sys.executable, "--window", "22:00-07:00"])
     assert "as saved" in skipped.output
+
+
+# ── The cloud arm, where it meets the guard, the CLI and the export ──────────
+
+
+class FakeCloudAgent(FakeAgent):
+    name, local, vendor, hosts = "cloudfake", False, "Somebody", ("api.example.com:443",)
+
+    def attempt(self, *a, **k):
+        run = super().attempt(*a, **k)
+        run.cost_usd = 0.25
+        return run
+
+
+def test_the_guard_never_asks_ollama_about_a_cloud_arm(tmp_path):
+    def ollama(*a, **k):
+        raise AssertionError("asked Ollama")
+
+    m = FakeMachine()
+    g = Guard(tmp_path / "guard", power=m.power, idle=lambda: m.idle, speed=ollama, pulled=ollama,
+              loaded=ollama, sizes=ollama, release=ollama, wait_quiet=True, memory_floor=10,
+              load_room=11 << 30, free_pct=lambda: 50, mem_total=lambda: 16 << 30,
+              pressure=lambda: None, sleep=lambda s: None, sample_every=0.01)
+    agent = FakeCloudAgent("model-1")
+    assert g.problems(agent) == []
+    m.on_ac = False
+    assert g.problems(agent) == ["on battery (80%)"]  # the machine's own checks still hold
+    m.on_ac = True
+    assert [c.name for c in g.preflight([agent])] == ["power", "memory", "cloudfake"]
+    with g.watch(agent) as watch:
+        pass
+    assert watch.slow == "" and not watch.degraded
+
+
+def test_a_cloud_attempt_keeps_its_cost_in_the_export(mined):
+    from backend.orchestrator.agentbench import export
+
+    run_matrix(mined, [FakeCloudAgent("model-1", apply_gold)], ["blind"])
+    [a] = load_attempts(mined)
+    assert a.cost_usd == 0.25
+    [row] = export.rows(mined)
+    assert row["cost_usd"] == 0.25 and row["arm"] == "cloudfake:model-1"
+
+
+def test_cli_run_sends_nothing_to_the_cloud_unless_told(mined, repo, monkeypatch):
+    monkeypatch.setenv("MAHORAGA_AGENTBENCH_ROOT", str(mined.dir.parent))
+    r = CliRunner().invoke(agentbench_app, ["run", str(repo["path"]),
+                                            "--arm", "claude:claude-sonnet-5-5"])
+    assert r.exit_code == 1
+    assert "would send" in r.output and "--allow-cloud" in r.output and "Anthropic" in r.output
+
+
+def test_the_queue_never_holds_a_cloud_arm(mined, repo, monkeypatch):
+    monkeypatch.setenv("MAHORAGA_AGENTBENCH_ROOT", str(mined.dir.parent))
+    r = CliRunner().invoke(agentbench_app, ["queue", "add", str(repo["path"]),
+                                            "--arm", "claude:claude-sonnet-5-5"])
+    assert r.exit_code == 1 and "not from the queue" in r.output

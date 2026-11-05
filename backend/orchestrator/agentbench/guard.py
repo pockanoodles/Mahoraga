@@ -82,7 +82,7 @@ from typing import Callable
 import httpx
 
 from . import host
-from .agents import DEFAULT_NUM_CTX, Agent, kill_live_agents
+from .agents import DEFAULT_NUM_CTX, Agent, is_local, kill_live_agents
 from .ollama import (BASE_URL, DERIVED_PREFIX, generation_speed, loaded_models,
                      loaded_sizes, pulled_models, tagged, unload)
 
@@ -293,6 +293,8 @@ class Guard:
         """Why an attempt shouldn't start now. Speed is probed last and only
         if everything else is fine, since a probe is a real generation."""
         out = [p for p in [self._power_problem(), self._idle_problem()] if p]
+        if not is_local(agent):  # no model here to share, load or slow down
+            return out
         if self.wait_quiet and (busy := self._busy(agent)):
             out.append(busy)
         if memory := self._memory_problem(agent):
@@ -305,6 +307,8 @@ class Guard:
 
     def release(self, agent: Agent) -> None:
         """Unload our model now, so waiting on someone doesn't hold their memory."""
+        if not is_local(agent):
+            return
         for m in self._mine_loaded(agent):
             try:
                 self._release(m)
@@ -350,6 +354,9 @@ class Guard:
         for name in sorted({a.name for a in agents}):
             found = shutil.which(name)
             checks.append(Check(name, bool(found), found or f"{name} not on PATH"))
+        agents = [a for a in agents if is_local(a)]  # a cloud arm has no model here
+        if not agents:
+            return checks
         try:
             self._digests = self._pulled()
         except httpx.HTTPError as e:
@@ -411,7 +418,8 @@ class _Watching:
         if floor is None or (free := self.g._free_pct()) is None:
             return
         self._free.append(free)
-        self.g._mine_loaded(self.agent)  # learn the model's size while it's loaded
+        if is_local(self.agent):
+            self.g._mine_loaded(self.agent)  # learn the model's size while it's loaded
         if free < floor:
             self._give_back(f"memory fell to {free}% free, under the {floor}% floor")
 
@@ -451,7 +459,7 @@ class _Watching:
         if any(p.on_ac is False for p, _ in self._samples):
             degraded.append("lost AC power during the attempt")
         # A probe would reload the model just given back.
-        slow = None if gave_back else self.g._slow(self.agent)
+        slow = None if gave_back or not is_local(self.agent) else self.g._slow(self.agent)
         self.result.slow = slow + " after the attempt" if slow else ""
         idles = [i for _, i in self._samples if i is not None]
         self.result.conditions = {

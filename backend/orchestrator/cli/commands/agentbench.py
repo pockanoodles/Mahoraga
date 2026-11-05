@@ -44,7 +44,7 @@ from backend.orchestrator.agentbench.report import (
     degraded_note, ledgers, outcome, render, summarise,
 )
 from backend.orchestrator.agentbench.runner import (
-    CONDITIONS, DEFAULT_TIMEOUT, load_attempts, load_degraded, run_matrix,
+    CONDITIONS, DEFAULT_TIMEOUT, arm_name, load_attempts, load_degraded, run_matrix,
 )
 
 app = typer.Typer(
@@ -425,8 +425,12 @@ def run_cmd(
     wait_quiet: bool = typer.Option(False, "--wait-quiet", help="Pause while someone else's model is loaded in Ollama."),
     memory_floor: Optional[int] = typer.Option(None, "--memory-floor", min=1, max=90, help="Keep this percent of memory free for the machine's owner: wait for it, and stop an attempt that eats into it. For a shared machine."),
     force: bool = typer.Option(False, "--force", help="Run even if preflight fails."),
+    allow_cloud: bool = typer.Option(False, "--allow-cloud", help="Let a cloud arm (claude:<model>) send this repo's code to its vendor."),
 ) -> None:
     """Attempt every task with every arm. Resumable: finished attempts are skipped."""
+    from backend.orchestrator.agentbench import isolation
+    from backend.orchestrator.agentbench.agents import is_local
+
     conds = CONDITIONS if cond == "both" else (cond,)
     if not set(conds) <= set(CONDITIONS):
         raise typer.BadParameter(f"--cond must be blind, feedback or both, not {cond!r}")
@@ -437,18 +441,28 @@ def run_cmd(
     if not bench.load_tasks():
         typer.echo("no tasks — run `mahoraga audit mine` first")
         raise typer.Exit(1)
+    cloud = [a for a in agents if not is_local(a)]
+    if cloud and not allow_cloud:
+        typer.echo(f"{', '.join(arm_name(a) for a in cloud)} would send {bench.repo} to "
+                   f"{', '.join(sorted({a.vendor for a in cloud}))}: pass --allow-cloud "
+                   "if that's yours to send (DATAFLOW.md, \"The cloud arm\")")
+        raise typer.Exit(1)
+    for a in cloud:
+        typer.echo(f"{arm_name(a)}: what the agent reads of {bench.repo.name} goes to "
+                   f"{a.vendor}, through a proxy that reaches only {', '.join(a.hosts)}")
 
+    preflight_ok = True
     guard = None
+    typer.echo("preflight")
     if guarded:
         guard = _guard(ratio, terms, wait_quiet=wait_quiet, log=typer.echo)
-        typer.echo("preflight")
-        from backend.orchestrator.agentbench import isolation
-
-        machine_ok = _print_checks(guard.preflight(agents))
-        isolated = _print_checks(isolation.check(bench, bench.load_config()))
-        if not (machine_ok and isolated) and not force:
-            typer.echo("preflight failed; fix the above or pass --force")
-            raise typer.Exit(1)
+        preflight_ok = _print_checks(guard.preflight(agents))
+    # Whether the agent can reach the answer is the measurement's validity,
+    # not the machine's health, so it's checked guarded or not.
+    preflight_ok = _print_checks(isolation.check(bench, bench.load_config())) and preflight_ok
+    if not preflight_ok and not force:
+        typer.echo("preflight failed; fix the above or pass --force")
+        raise typer.Exit(1)
     _stay_awake()
 
     def stop(signum, frame):  # take the running agent down with the run
@@ -468,7 +482,7 @@ def run_cmd(
         deadline=deadline, progress=progress,
         settings={"conds": list(conds), "repeats": repeats, "timeout": timeout,
                   "until": until, **terms.record(), "guarded": guarded,
-                  "wait_quiet": wait_quiet,
+                  "wait_quiet": wait_quiet, "allow_cloud": allow_cloud,
                   "min_speed_ratio": ratio, "forced": force},
         started=lambda run_id: typer.echo(f"run {run_id} (manifest: {manifest.path(bench, run_id)})"),
         dropped=lambda arm, why: typer.echo(f"dropped {arm}: {why}"))
@@ -529,6 +543,14 @@ def queue_add_cmd(
     bench = Bench(repo)
     if not bench.load_tasks():
         typer.echo("no tasks — run `mahoraga audit mine` first")
+        raise typer.Exit(1)
+    from backend.orchestrator.agentbench.agents import is_local
+
+    if cloud := [arm_name(a) for a in agents if not is_local(a)]:
+        # A queued job runs unattended, so it never sends code anywhere: the
+        # choice to send it is made at a terminal, each time.
+        typer.echo(f"{', '.join(cloud)} is a cloud arm: run it with `audit run --allow-cloud`, "
+                   "not from the queue")
         raise typer.Exit(1)
     pulled = pulled_models()
     missing = [a.model for a in agents if tagged(a.model) not in pulled]

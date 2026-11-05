@@ -73,6 +73,8 @@ class Attempt:
     # Model requests that failed (cut by a timeout, an Ollama error). None on
     # attempts recorded before this was kept: their log still says.
     request_errors: int | None = None
+    # A cloud arm's cost at its vendor's API prices; None for a local arm.
+    cost_usd: float | None = None
 
     @property
     def no_edit(self) -> bool:
@@ -257,6 +259,7 @@ def run_attempt(bench: Bench, config: SuiteConfig, task: Task, agent: Agent,
         degraded=_degraded(watch, run, edited=bool(set(edited) - set(touched_tests))),
         conditions=watch.conditions if watch else {},
         tier=g.tier, run_id=run_id, request_errors=run.request_errors,
+        cost_usd=run.cost_usd,
     )
     if attempt.degraded:
         attempt.conditions["at"] = time.strftime("%Y-%m-%dT%H:%M:%S")

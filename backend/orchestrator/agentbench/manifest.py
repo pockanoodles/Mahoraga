@@ -14,6 +14,7 @@ from __future__ import annotations
 import hashlib
 import json
 import platform
+import re
 import secrets
 import shutil
 import subprocess
@@ -22,7 +23,7 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from . import host, ollama
-from .agents import Agent
+from .agents import Agent, is_local
 from .bank import Bench, Task
 from .runner import arm_name, prompt_for
 
@@ -56,7 +57,28 @@ def machine() -> dict[str, Any]:
         info["cpu"] = _out("sysctl", "-n", "machdep.cpu.brand_string")
         mem = _out("sysctl", "-n", "hw.memsize")
         info["memory_gb"] = round(int(mem) / 2**30) if mem.isdigit() else mem
+    elif platform.system() == "Linux":
+        info.update(_linux_hardware())
     return info
+
+
+def _read(path: str) -> str:
+    try:
+        return Path(path).read_text(errors="replace")
+    except OSError:
+        return ""
+
+
+def _linux_hardware() -> dict[str, Any]:
+    """The same three facts sysctl gives on a Mac, from DMI, cpuinfo and meminfo."""
+    out: dict[str, Any] = {}
+    if model := _read("/sys/class/dmi/id/product_name").strip():
+        out["model"] = model
+    if m := re.search(r"^model name\s*:\s*(.+)$", _read("/proc/cpuinfo"), re.MULTILINE):
+        out["cpu"] = m.group(1).strip()
+    if m := re.search(r"^MemTotal:\s*(\d+) kB", _read("/proc/meminfo"), re.MULTILINE):
+        out["memory_gb"] = round(int(m.group(1)) * 1024 / 2**30)
+    return out
 
 
 def harness() -> dict[str, Any]:
@@ -83,17 +105,26 @@ def agent_versions(agents: Iterable[Agent]) -> dict[str, str]:
 
 
 def models(agents: Iterable[Agent]) -> dict[str, Any]:
+    """Each local model's digest, and each cloud model's vendor. A cloud
+    model has no digest to pin: its id is the closest thing, which is why a
+    cloud arm must name a pinned id."""
+    agents = list(agents)
+    local = [a for a in agents if is_local(a)]
+    cloud = {a.model: getattr(a, "vendor", "?") for a in agents if not is_local(a)}
+    out: dict[str, Any] = {"cloud": cloud} if cloud else {}
+    if not local:
+        return out
     try:
         pulled = ollama.pulled_models()
     except Exception as e:  # noqa: BLE001 — Ollama down is recorded, not fatal
-        return {"error": str(e)[:200]}
+        return {**out, "error": str(e)[:200]}
     try:
         version = ollama.version()
     except Exception as e:  # noqa: BLE001
         version = f"error: {e}"[:200]
-    return {"ollama": version,
+    return {**out, "ollama": version,
             "digests": {a.model: pulled.get(ollama.tagged(a.model), "not pulled")
-                        for a in agents}}
+                        for a in local}}
 
 
 def tasks_fingerprint(bench: Bench, tasks: list[Task]) -> dict[str, Any]:

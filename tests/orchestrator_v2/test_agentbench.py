@@ -1042,15 +1042,15 @@ def test_opencode_arm():
 
 def test_an_agent_timeout_kills_its_children(tmp_path):
     from backend.orchestrator.agentbench.agents import _launch
-    pidfile = tmp_path / "child.pid"
-    script = f"sleep 60 & echo $! > {pidfile}; wait"
+    # Found by a command line nothing else has: under bubblewrap the child has
+    # its own pid namespace, so a pid it reports means nothing out here.
+    naps = f"{60 + time.time_ns() % 1000 / 1000:.3f}"
+    script = f"sleep {naps} & wait"
     out, timed_out, secs = _launch(["sh", "-c", script], tmp_path, {"PATH": "/bin:/usr/bin"}, 1)
     assert timed_out and secs < 10
-    child = int(pidfile.read_text())
-    time.sleep(0.2)
-    with pytest.raises(ProcessLookupError):
-        import os
-        os.kill(child, 0)
+    time.sleep(0.5)
+    alive = subprocess.run(["pgrep", "-f", f"sleep {naps}"], capture_output=True, text=True)
+    assert alive.stdout.strip() == ""
 
 
 _macos_sandbox = pytest.mark.skipif(
@@ -1535,10 +1535,12 @@ def test_the_canary_passes_on_a_sealed_sandboxed_bench(mined, config):
 
 def test_the_canary_fails_when_isolation_is_broken(mined, repo, config):
     from backend.orchestrator.agentbench import isolation
-    from backend.orchestrator.agentbench.agents import _launch
 
     def unsandboxed(cmd, cwd, env, timeout, *writable, hidden=(), readable=(), ports=None):
-        return _launch(cmd, cwd, env, timeout)  # hides nothing
+        # No sandbox at all: on Linux `_launch` always has one, with /tmp private.
+        out = subprocess.run(cmd, cwd=cwd, env=env, capture_output=True, text=True,
+                             timeout=timeout)
+        return out.stdout + out.stderr, False, 0.0
 
     [task] = mined.load_tasks()
     task.base = _unsealed(mined, repo, repo["shas"]["mul"])

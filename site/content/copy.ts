@@ -9,7 +9,7 @@ import type { Kind } from "./log";
 export type Locale = "en" | "ja";
 
 export interface Dict {
-  meta: Record<"research" | "engine" | "install", { title: string; description: string }>;
+  meta: Record<"research" | "engine" | "install" | "privacy", { title: string; description: string }>;
   nav: { research: string; engine: string; install: string; github: string; label: string; updated: (date: string) => string };
   hero: { questionLabel: string; question: string; eyebrow: string; statement: string; sub: string; cta: string; more: string };
   standing: {
@@ -103,7 +103,7 @@ export interface Dict {
     costs: (power: string, time: string) => string;
   };
   headless: { title: string; lead: string; mcpNote: string; viewer: string };
-  privacy: { title: string; items: { title: string; body: string }[]; link: string };
+  privacy: { title: string; items: { title: string; body: string }[]; link: string; policy: string };
   run: {
     title: string;
     lead: string;
@@ -143,7 +143,6 @@ export interface Dict {
     results: string;
     language: string;
   };
-  menu: { menu: string; items: { href: string; label: string }[] };
 }
 
 const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
@@ -164,6 +163,10 @@ const en: Dict = {
       title: "Mahoraga: install it and run it on your own repository",
       description:
         "Install Mahoraga from source and queue a night's run on your own repository, on macOS or Linux with Python 3.12+ and Ollama.",
+    },
+    privacy: {
+      title: "Mahoraga: privacy policy",
+      description: "What Mahoraga sends off your computer, where it goes, and how to stop it.",
     },
   },
   nav: { research: "Research", engine: "Engine", install: "Install", github: "GitHub", label: "Mahoraga", updated: (d) => `Updated ${d}` },
@@ -331,6 +334,7 @@ const en: Dict = {
       },
     ],
     link: "Read DATAFLOW.md",
+    policy: "Read the privacy policy",
   },
   run: {
     title: "Run it on your own repository.",
@@ -384,14 +388,6 @@ const en: Dict = {
     results: "Results",
     language: "日本語",
   },
-  menu: {
-    menu: "Menu",
-    // kaitosoeno.com's own menu, in its order (personal-website content/copy.ts NAV).
-    items: [
-      { href: "/", label: "Contact" },
-      { href: "/portfolio", label: "Portfolio" },
-    ],
-  },
 };
 
 const jaWord: Record<CurvePoint["call"], string> = { stay: "継続", split: "分担", switch: "移行" };
@@ -412,6 +408,10 @@ const ja: Dict = {
       title: "Mahoraga：インストールして、自分のリポジトリで動かす",
       description:
         "Mahoraga をソースからインストールし、自分のリポジトリで一晩の計測を予約します。macOS か Linux で、Python 3.12 以降と Ollama を使います。",
+    },
+    privacy: {
+      title: "Mahoraga：プライバシーポリシー",
+      description: "Mahoraga がコンピューターの外へ何を送り、どこへ届くのか、そしてそれを止める方法。",
     },
   },
   nav: { research: "研究", engine: "エンジン", install: "インストール", github: "GitHub", label: "Mahoraga", updated: (d) => `${d} 更新` },
@@ -614,6 +614,7 @@ const ja: Dict = {
       },
     ],
     link: "DATAFLOW.md を読む",
+    policy: "プライバシーポリシーを読む",
   },
   run: {
     title: "あなたのリポジトリで動かす。",
@@ -665,13 +666,6 @@ const ja: Dict = {
     dataflow: "データフロー",
     results: "結果",
     language: "English",
-  },
-  menu: {
-    menu: "メニュー",
-    items: [
-      { href: "/ja", label: "お問い合わせ" },
-      { href: "/ja/portfolio", label: "作品" },
-    ],
   },
 };
 

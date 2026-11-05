@@ -11,16 +11,7 @@
   --mh-font-sans: var(--font-geist), -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Hiragino Kaku Gothic ProN",
     "Yu Gothic UI", "Noto Sans JP", Meiryo, sans-serif;
   --mh-font-mono: var(--font-geist-mono), ui-monospace, "SF Mono", Menlo, monospace;
-  /* kaitosoeno.com's fluid rem (10px → 16px across 991 → 1920px), used only by
-     the copied site menu so it lands exactly where the site's own does. */
-  --site-rem: 12px;
   --lift: var(--mh-s-10);
-}
-
-@media (min-width: 992px) {
-  :root {
-    --site-rem: clamp(10px, calc(10px + 6 * ((100vw - 991px) / 929)), 16px);
-  }
 }
 
 *,
@@ -316,16 +307,13 @@ code,
   isolation: isolate;
 }
 
-/* The stage: a key light falling on the wall above the work, and the faint
-   lift of a floor at the bottom. Light, not shadow, gives the depth. */
+/* The stage: the flat ground the hero sits on, the same colour as the page,
+   with no light laid over it. */
 .hero__stage {
   position: absolute;
   inset: 0;
   z-index: -1;
-  background:
-    radial-gradient(ellipse 56% 44% at 62% 40%, rgb(255 244 232 / 0.075), transparent 72%),
-    radial-gradient(ellipse 90% 26% at 50% 104%, rgb(255 250 245 / 0.035), transparent 70%),
-    var(--mh-stage);
+  background: var(--mh-stage);
 }
 
 /* The chart reads its own width, not the screen's, to choose its layout. */
@@ -1799,123 +1787,20 @@ html.js .reveal:not([data-shown]) {
   color: var(--mh-ink);
 }
 
-/* ── kaitosoeno.com's menu (the site's own, ported; see SiteMenu.tsx) ─── */
+/* ── kaitosoeno.com's menu ─────────────────────────────────────────── */
 
-.site-menu {
-  position: fixed;
-  bottom: calc(1.25 * var(--site-rem));
-  left: 50%;
-  z-index: 50;
-  transform: translateX(-50%);
-  font-family: var(--font-geist), sans-serif;
-  line-height: 1.4; /* the site's body leading, so the drawer opens to the same height */
-}
-
-/* One surface, one border: the pill grows up and out into the drawer and the
-   button stays its bottom row. Width and height animate (a scale would stretch
-   the hairline and the type mid-flight). Radius is half the closed height. */
-.site-menu__surface {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  justify-content: flex-end;
-  min-width: calc(7 * var(--site-rem) + 2px);
-  height: 46px;
-  overflow: hidden;
-  border: 1px solid #353535;
-  border-radius: 23px;
-  background: #000;
-  transition:
-    width 300ms cubic-bezier(0.62, 0.04, 0.06, 1),
-    height 300ms cubic-bezier(0.62, 0.04, 0.06, 1),
-    border-color 220ms cubic-bezier(0, 0, 0.2, 1);
-}
-
-.site-menu__surface:has(> .site-menu__button:hover) {
-  border-color: #8f8f8f;
-}
-
-.site-menu__drawer {
-  position: absolute;
-  bottom: 44px;
-  left: 50%;
-  width: calc(13 * var(--site-rem));
-  padding: calc(0.8 * var(--site-rem));
-  transform: translateX(-50%);
-  opacity: 0;
-  visibility: hidden;
-  transition:
-    opacity 180ms cubic-bezier(0.4, 0, 1, 1),
-    visibility 0s linear 180ms;
-}
-
-/* Fades in once the surface has room for it, and out at once on close. */
-.site-menu__drawer[data-open] {
-  opacity: 1;
-  visibility: visible;
-  transition:
-    opacity 220ms cubic-bezier(0, 0, 0.2, 1) 80ms,
-    visibility 0s;
-}
-
-.site-menu__link {
-  display: block;
-  padding: calc(0.4 * var(--site-rem)) calc(0.8 * var(--site-rem));
-  font-size: clamp(14px, calc(0.875 * var(--site-rem)), 16px);
-  text-align: center;
-  color: #8f8f8f;
-  transition: color 180ms cubic-bezier(0, 0, 0.2, 1);
-}
-
-.site-menu__link:hover {
-  color: #fff;
-}
-
-.site-menu__button {
-  display: flex;
-  flex: none;
-  align-items: center;
-  justify-content: center;
-  width: 100%;
-  height: 44px;
-  padding: 0;
-  border: 0;
-  border-radius: 9999px;
-  background: transparent;
-  color: #fff;
-  font-size: clamp(12px, calc(0.75 * var(--site-rem)), calc(0.9 * var(--site-rem)));
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  cursor: pointer;
-}
-
-.site-menu__label {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: calc(0.8 * var(--site-rem));
-  white-space: nowrap;
-  min-width: calc(7 * var(--site-rem));
-  padding: 0 calc(1.25 * var(--site-rem));
-}
-
-.site-menu__glyph {
-  color: #8f8f8f;
-  transition: transform 300ms cubic-bezier(0.62, 0.04, 0.06, 1);
-}
-
-.site-menu__glyph[data-open] {
-  transform: rotate(180deg);
-}
-
-/* The surface clips anything outside it, so focus rings are drawn inside. */
-.site-menu :focus-visible {
-  outline: 2px solid var(--mh-accent);
-  outline-offset: -2px;
-}
-
-.site-menu__button:focus-visible {
-  border-radius: 9999px;
+/* The pill is the site's own <site-menu>, served by kaitosoeno.com at
+   /site/menu.js and loaded in the layouts, so it is the same pill on every
+   page of the domain and only its colours are Mahoraga's. It takes the
+   accent, so moving between the site and this page is seen as the pill
+   changing colour. */
+site-menu {
+  --site-menu-ground: var(--mh-accent);
+  --site-menu-ink: var(--mh-stage);
+  --site-menu-line: var(--mh-accent);
+  --site-menu-line-hover: var(--mh-ink);
+  --site-menu-muted: color-mix(in srgb, var(--mh-stage) 72%, var(--mh-accent));
+  --site-menu-focus: var(--mh-ink);
 }
 
 /* ── Narrow screens ───────────────────────────────────────────────────── */
@@ -2741,17 +2626,16 @@ html.js .reveal:not([data-shown]) .sgrid__sq[data-change] {
   background: var(--mh-stage);
   pointer-events: none;
 }
-html[data-vt] .vt-surface {
+/* Named only for the move to and from the portfolio; every other page switch
+   is the pill script's plain one (/site/menu.js), which names the pill. */
+html:is([data-vt="in"], [data-vt="out"]) .vt-surface {
   view-transition-name: vt-surface;
 }
-html[data-vt] .lnav__brand span {
+html:is([data-vt="in"], [data-vt="out"]) .lnav__brand span {
   view-transition-name: vt-name;
   /* Trimmed to the caps, as the portfolio's names are, so the two boxes the
      name moves between are both the letters and nothing else. */
   text-box: trim-both cap alphabetic;
-}
-html[data-vt] .site-menu {
-  view-transition-name: vt-menu;
 }
 /* kaitosoeno.com's black behind the move, so the field is seen to open
    rather than this page's ground showing through from the first frame. */
@@ -2768,8 +2652,7 @@ html[data-vt="in"]::view-transition-group(*) {
 html[data-vt="in"]::view-transition-group(root) {
   animation: vt-root-over var(--vt-move) linear both;
 }
-html[data-vt="in"]::view-transition-group(vt-name),
-html[data-vt="in"]::view-transition-group(vt-menu) {
+html[data-vt="in"]::view-transition-group(vt-name) {
   z-index: 3;
 }
 html[data-vt="in"]::view-transition-old(root) {
@@ -2842,5 +2725,146 @@ html[data-vt="in"]::view-transition-new(vt-name) {
   }
   to {
     outline: 1px solid transparent;
+  }
+}
+
+/* ── Privacy policy ───────────────────────────────────────────────────── */
+
+/* The engine page's two links under its privacy section. */
+.policy-links {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--mh-s-3) var(--mh-s-7);
+}
+
+.policy__updated {
+  margin-top: var(--mh-s-6);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--mh-faint);
+}
+
+.policy {
+  padding-top: 0;
+}
+
+.policy__section {
+  display: grid;
+  grid-template-columns: 4rem minmax(0, 1fr);
+  gap: var(--mh-s-5);
+  padding: var(--mh-s-8) 0;
+  border-top: 1px solid var(--mh-line);
+  scroll-margin-top: calc(var(--mh-header) + var(--mh-s-5));
+}
+
+/* The number sits on the heading's first line, as on the engine page. */
+.policy__section > .step__n {
+  padding-top: 0.35em;
+}
+
+.policy__body {
+  min-width: 0;
+}
+
+.policy__body > .step__title {
+  margin-top: 0;
+}
+
+.policy__p {
+  max-width: 42rem;
+  margin-top: var(--mh-s-3);
+  font-size: 16px;
+  line-height: 1.65;
+  color: var(--mh-muted);
+  text-wrap: pretty;
+}
+
+.ledger + .policy__p--after {
+  margin-top: var(--mh-s-6);
+}
+
+.ledger {
+  margin-top: var(--mh-s-6);
+}
+
+.ledger__row {
+  display: grid;
+  grid-template-columns: 1.1fr 1.4fr 1.2fr;
+  gap: var(--mh-s-5);
+  padding: var(--mh-s-4) 0;
+  border-bottom: 1px solid var(--mh-line);
+}
+
+.ledger__head {
+  padding-top: 0;
+  padding-bottom: var(--mh-s-2);
+  border-bottom-color: var(--mh-line-strong);
+}
+
+.ledger__label {
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--mh-faint);
+}
+
+.ledger__cell {
+  font-size: 15px;
+  line-height: 1.55;
+  color: var(--mh-muted);
+}
+
+.ledger__cell[data-col="where"] {
+  color: var(--mh-ink);
+}
+
+/* Each cell carries its column's name for the phone layout, where the head row
+   is gone. */
+.ledger__cell > .ledger__label {
+  display: none;
+}
+
+.policy__links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 var(--mh-s-6);
+  margin-top: var(--mh-s-4);
+  font-size: 15px;
+}
+
+/* A 44px target around a link whose underline stays on the text. */
+.policy__links li {
+  display: flex;
+  align-items: center;
+  min-height: 44px;
+}
+
+@media (max-width: 760px) {
+  .policy__section {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--mh-s-2);
+    padding: var(--mh-s-7) 0;
+  }
+
+  .policy__section > .step__n {
+    padding-top: 0;
+  }
+
+  .ledger__head {
+    display: none;
+  }
+
+  .ledger__row {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--mh-s-3);
+  }
+
+  .ledger__cell > .ledger__label {
+    display: block;
+    margin-bottom: 2px;
   }
 }

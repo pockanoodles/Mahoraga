@@ -220,7 +220,7 @@ export default function VerdictPage() {
                 <NumberInput id="spend" value={i.monthly_usd} onChange={(v) => set({ monthly_usd: v })} min={1} max={100000} step={10} prefix="$" />
               </Field>
               {clouds.length > 0 && (
-                <Field label="Price a cloud task by" htmlFor="cloud" hint="a cloud arm prices the tasks local solves at what they cost it">
+                <Field label="Price a cloud task by" htmlFor="cloud">
                   <Select
                     id="cloud"
                     value={i.cloud_arm ?? ""}

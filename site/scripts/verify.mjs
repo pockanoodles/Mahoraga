@@ -1,4 +1,4 @@
-// A Playwright sweep of the built site: its three pages in both languages, on
+// A Playwright sweep of the built site: its pages in both languages, on
 // a laptop and a phone, then the hero's layout at the window sizes that broke
 // it. It loads each page the way a visitor does and drives the parts that
 // move, so a broken interaction fails here rather than on kaitosoeno.com.
@@ -13,7 +13,8 @@ const BASE = process.env.BASE ?? "http://localhost:3222";
 // export can leave out: a run's one-task card waits until its rate can sit beside it.
 const DATA = JSON.parse(readFileSync(new URL("../generated/site.json", import.meta.url), "utf8"));
 const SITE = "https://kaitosoeno.com";
-const PAGES = ["research", "engine", "install"];
+const PAGES = ["research", "engine", "install"]; // the bar's three
+const ALL_PAGES = [...PAGES, "privacy"];
 const LOCALES = [
   {
     lang: "en",
@@ -27,6 +28,7 @@ const LOCALES = [
       research: "Should you keep paying for cloud coding AI, or run a model on your own machine?",
       engine: "One pipeline, from a repository's history to a verdict.",
       install: "Run it on your own repository.",
+      privacy: "Privacy",
     },
   },
   {
@@ -41,6 +43,7 @@ const LOCALES = [
       research: "クラウドのコーディング AI に払い続けるべきか、それとも自分のマシンでモデルを動かすべきか。",
       engine: "リポジトリの履歴から判定まで、ひとつのパイプラインで。",
       install: "あなたのリポジトリで動かす。",
+      privacy: "プライバシーポリシー",
     },
   },
 ];
@@ -76,7 +79,8 @@ async function shared(page, loc, name, tag) {
   );
   check(links.map((l) => l.text).join("|") === loc.nav.join("|"), `${tag}: the bar names the three pages (${links.map((l) => l.text).join(", ")})`);
   check(links.every((l, i) => l.href === pathOf(loc, PAGES[i])), `${tag}: each of the bar's pages links to its page`);
-  check(links.filter((l) => l.current === "page").map((l) => l.href).join() === pathOf(loc, name), `${tag}: the bar marks this page and only this one`);
+  const marked = PAGES.includes(name) ? pathOf(loc, name) : "";
+  check(links.filter((l) => l.current === "page").map((l) => l.href).join() === marked, `${tag}: the bar marks this page and only this one`);
   const other = LOCALES.find((l) => l !== loc);
   check((await page.getAttribute(".lnav__lang", "href")) === pathOf(other, name), `${tag}: the language switch keeps the page`);
 
@@ -244,11 +248,20 @@ async function install(page, tag) {
   check((await page.textContent(".codetabs__panel"))?.includes("mahoraga mcp"), `${tag}: MCP tab shows mahoraga mcp`);
 }
 
+// The privacy policy: the footer reaches it from every page, and its
+// where / what / why rows read as a table on a laptop and stack on a phone.
+async function privacy(page, loc, tag) {
+  check((await page.getAttribute(`.foot a[href="${pathOf(loc, "privacy")}"]`, "aria-current")) === "page", `${tag}: the footer marks the privacy link`);
+  const rows = await page.locator(".ledger__row:not(.ledger__head)").count();
+  check(rows >= 4, `${tag}: the policy lists what can leave the machine (${rows} rows)`);
+  check((await page.locator(".policy__section").count()) === 5, `${tag}: five sections`);
+}
+
 const browser = await chromium.launch();
 let logCount = 0;
 for (const loc of LOCALES) {
   for (const vp of VIEWPORTS) {
-    for (const name of PAGES) {
+    for (const name of ALL_PAGES) {
       const tag = `${loc.lang}/${name}/${vp.name}`;
       const page = await browser.newPage({ viewport: { width: vp.width, height: vp.height } });
       const errors = [];
@@ -262,6 +275,7 @@ for (const loc of LOCALES) {
       if (name === "research") logCount = await research(page, loc, vp, tag);
       if (name === "engine") await engine(page, loc, tag);
       if (name === "install") await install(page, tag);
+      if (name === "privacy") await privacy(page, loc, tag);
       check(errors.length === 0, `${tag}: no console errors${errors.length ? ` (${errors.join(" | ")})` : ""}`);
       await page.close();
     }
@@ -333,7 +347,7 @@ check(feed?.status() === 200 && xml.includes('<feed xmlns="http://www.w3.org/200
 check((xml.match(/<entry>/g) ?? []).length === logCount, `log.xml carries every log entry (${(xml.match(/<entry>/g) ?? []).length}/${logCount})`);
 const map = await (await browser.newPage()).goto(`${BASE}/mahoraga/sitemap.xml`);
 const urls = ((await map?.text()) ?? "").match(/<loc>[^<]+<\/loc>/g) ?? [];
-const expected = LOCALES.flatMap((loc) => PAGES.map((p) => `<loc>${SITE}${pathOf(loc, p)}</loc>`));
+const expected = LOCALES.flatMap((loc) => ALL_PAGES.map((p) => `<loc>${SITE}${pathOf(loc, p)}</loc>`));
 check(expected.every((u) => urls.includes(u)) && urls.length === expected.length, `sitemap lists the ${expected.length} pages (${urls.length})`);
 const og = await (await browser.newPage()).goto(`${BASE}/mahoraga/og.png`);
 check(og?.status() === 200, "og.png is served");

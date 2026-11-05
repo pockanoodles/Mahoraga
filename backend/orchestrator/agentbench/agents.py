@@ -115,12 +115,18 @@ def agent_home(name: str) -> Path:
 # Where credentials live under the user's real home. An agent gets its own
 # HOME, so it only meets these by absolute path, and then it reads nothing.
 _SECRETS = (".ssh", ".gnupg", ".aws", ".azure", ".kube", ".docker", ".config",
-            ".claude", ".codex", ".cursor")
+            ".claude", ".codex", ".cursor",
+            # Files: logins, and shell rc and history files, which hold exported tokens.
+            ".netrc", ".git-credentials", ".npmrc", ".pypirc", ".yarnrc", ".pgpass",
+            ".zshrc", ".zshenv", ".zprofile", ".bashrc", ".bash_profile", ".profile",
+            ".zsh_history", ".bash_history", ".python_history", ".psql_history")
 
 
 def home_secrets() -> list[Path]:
+    """The user's credential dirs and files that exist. A cloud arm hides the
+    whole home instead (`ClaudeCodeAgent`); this is every agent's floor."""
     home = Path.home()
-    return [p.resolve() for name in _SECRETS if (p := home / name).is_dir()]
+    return [p.resolve() for name in _SECRETS if (p := home / name).exists()]
 
 
 def linux_sandbox() -> bool:
@@ -138,10 +144,12 @@ def _subpaths(paths: Sequence[Path]) -> str:
 
 
 def sandbox_profile(writable: Sequence[Path], hidden: Sequence[Path] = (),
-                    readable: Sequence[Path] = ()) -> str:
+                    readable: Sequence[Path] = (), loopback: Sequence[int] | None = None) -> str:
     """Writes only under `writable` and the per-user temp area; network only
-    to localhost (Ollama). Everything else, including the user's repos, is
-    read-only to the agent and its children.
+    to localhost: to the `loopback` ports if given (the cloud arm's proxy),
+    else to any (Ollama, and agents whose own parts talk over localhost).
+    Everything else, including the user's repos, is read-only to the agent
+    and its children.
 
     `hidden` can't be read at all, except what `readable` carves back out:
     the bench hides the source repo, whose working tree holds every later
@@ -153,7 +161,8 @@ def sandbox_profile(writable: Sequence[Path], hidden: Sequence[Path] = (),
                '(deny file-write* (subpath "/"))'
                f'(allow file-write* {_subpaths([*writable, temp])} (subpath "/dev"))'
                "(deny network-outbound)"
-               '(allow network-outbound (remote ip "localhost:*"))')
+               + "".join(f'(allow network-outbound (remote ip "localhost:{p}"))'
+                         for p in (loopback if loopback is not None else ["*"])))
     if hidden:
         profile += f"(deny file-read-data {_subpaths(hidden)})"
     if hidden:
@@ -181,7 +190,7 @@ def bwrap_args(cwd: Path, writable: Sequence[Path], hidden: Sequence[Path] = (),
             "--ro-bind", "/", "/", "--dev", "/dev", "--proc", "/proc",
             "--tmpfs", "/tmp", "--tmpfs", "/var/tmp", "--tmpfs", "/run"]
     for p in real(hidden):
-        args += ["--tmpfs", p]
+        args += ["--tmpfs", p] if Path(p).is_dir() else ["--ro-bind", "/dev/null", p]
     for p in real(readable):
         args += ["--ro-bind", p, p]
     for p in real([*writable, *{Path(s).parent for s in sockets}]):
@@ -189,19 +198,33 @@ def bwrap_args(cwd: Path, writable: Sequence[Path], hidden: Sequence[Path] = (),
     return [*args, "--chdir", str(Path(cwd).resolve())]
 
 
+def base_python() -> Path:
+    """The interpreter under the harness's venv: what runs the bridge, with
+    the standard library alone, so nothing of a hidden checkout is needed."""
+    return Path(sys.executable).resolve()
+
+
 def sandboxed(cmd: list[str], writable: Sequence[Path], hidden: Sequence[Path] = (),
-              readable: Sequence[Path] = (), ports: Mapping[int, Path] | None = None
-              ) -> list[str]:
-    """`cmd` under the OS sandbox. `ports` = loopback port -> the Unix socket
-    outside it leads to (Linux only; on macOS the sandbox allows localhost).
-    The first writable path is the working directory."""
+              readable: Sequence[Path] = (), ports: Mapping[int, Path] | None = None,
+              loopback: Sequence[int] | None = None) -> list[str]:
+    """`cmd` under the OS sandbox. The first writable path is the working
+    directory. Where the agent may connect:
+      Linux: `ports`, loopback port -> the Unix socket outside it leads to;
+        nothing else, since the agent has its own network namespace.
+      macOS: localhost, at the `loopback` ports if given, else at any."""
     hidden = [*hidden, *home_secrets()]
     if sys.platform == "darwin" and shutil.which("sandbox-exec"):
-        return ["sandbox-exec", "-p", sandbox_profile(writable, hidden, readable), *cmd]
+        return ["sandbox-exec", "-p", sandbox_profile(writable, hidden, readable, loopback), *cmd]
     if linux_sandbox():
         ports = dict(ports or {})
-        inner = ([sys.executable, "-I", str(BRIDGE),
-                  *[f"{p}={s}" for p, s in ports.items()], "--", *cmd] if ports else cmd)
+        inner = cmd
+        if ports:
+            py = base_python()
+            # The bridge lives in the harness, which is hidden when the harness
+            # audits its own repo: its file and interpreter are put back alone.
+            readable = [*readable, BRIDGE, py.parent.parent]
+            inner = [str(py), "-I", "-S", str(BRIDGE),
+                     *[f"{p}={s}" for p, s in ports.items()], "--", *cmd]
         return [*bwrap_args(writable[0], writable, hidden, readable, list(ports.values())),
                 "--", *inner]
     return cmd  # elsewhere: HOME isolation and permission config only
@@ -228,7 +251,7 @@ OLLAMA_PORT = 11434
 def _launch(cmd: list[str], cwd: Path, env: dict[str, str], timeout: float,
             writable: Sequence[Path] = (), hidden: Sequence[Path] = (),
             readable: Sequence[Path] = (), ports: Mapping[int, Path] | None = None,
-            ) -> tuple[str, bool, float]:
+            loopback: Sequence[int] | None = None) -> tuple[str, bool, float]:
     """Run an agent sandboxed, in its own process group, with `cwd` as its
     working directory in every sense: some agents resolve it from $PWD rather
     than the real cwd, which is how one ran in the wrong repo. Returns
@@ -240,7 +263,8 @@ def _launch(cmd: list[str], cwd: Path, env: dict[str, str], timeout: float,
     until the 20-minute timeout, and each crash was recorded as a no-edit."""
     t0 = time.monotonic()
     env = {**env, "PWD": str(cwd)}
-    proc = subprocess.Popen(sandboxed(cmd, [cwd, *writable], hidden, readable, ports), cwd=cwd,
+    proc = subprocess.Popen(sandboxed(cmd, [cwd, *writable], hidden, readable, ports, loopback),
+                            cwd=cwd,
                             env=env, text=True,
                             stdin=subprocess.DEVNULL,
                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
@@ -484,12 +508,11 @@ def claude_token_file() -> Path:
                                Path.home() / ".config" / "mahoraga" / "claude-token"))
 
 
-# Inherited variables that would change who pays or where requests go: an
-# ANTHROPIC_API_KEY bills the API instead of the login the token names, and
-# a CLAUDECODE from a parent session makes the CLI think it is nested.
-_CLOUD_ENV_DROP = ("ANTHROPIC_", "CLAUDE", "XDG_", "OTEL_", "AWS_", "GOOGLE_",
-                   "VERTEX_", "BEDROCK_")
-_PROXY_VARS = {"HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY"}
+# All the cloud arm inherits from the harness's environment. Anything else
+# could be a credential (a GITHUB_TOKEN, an ANTHROPIC_API_KEY that would bill
+# the API instead of the token's login) that Bash would print into a reply.
+_CLOUD_ENV_KEEP = ("PATH", "LANG", "LC_ALL", "LC_CTYPE", "TERM", "TZ", "USER", "LOGNAME",
+                   "SHELL", "TMPDIR")
 
 
 class ClaudeCodeAgent:
@@ -509,6 +532,11 @@ class ClaudeCodeAgent:
     The feedback condition names the test command in the prompt, as for
     opencode. Cost is the CLI's own `total_cost_usd`: what the attempt costs
     at API prices, whether the login is a subscription or not.
+
+    What it reads goes to the vendor, so it sees less than a local arm: none
+    of the user's home but its checkout, its own HOME, and the programs it
+    runs (the CLI, and the interpreter behind the test venv), and only the
+    environment variables in `_CLOUD_ENV_KEEP`.
     """
 
     name = "claude"
@@ -539,8 +567,7 @@ class ClaudeCodeAgent:
         return token
 
     def _env(self, home: Path, token: str, proxy_url: str) -> dict[str, str]:
-        inherited = {k: v for k, v in os.environ.items()
-                     if not k.upper().startswith(_CLOUD_ENV_DROP) and k.upper() not in _PROXY_VARS}
+        inherited = {k: os.environ[k] for k in _CLOUD_ENV_KEEP if k in os.environ}
         return {**inherited, "HOME": str(home), "CLAUDE_CODE_OAUTH_TOKEN": token,
                 "HTTPS_PROXY": proxy_url, "HTTP_PROXY": proxy_url,
                 "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1", "DISABLE_AUTOUPDATER": "1",
@@ -554,12 +581,23 @@ class ClaudeCodeAgent:
                 "--allowedTools", "Bash", "--disallowedTools", "WebFetch,WebSearch",
                 "--strict-mcp-config"]
 
+    @staticmethod
+    def confine(binary: Path, hidden: Sequence[Path], readable: Sequence[Path]
+                ) -> tuple[list[Path], list[Path]]:
+        """The whole home hidden, and back on top only what the attempt runs:
+        the CLI, each readable venv and the interpreter it was made from."""
+        runtimes = [(Path(v) / "bin" / "python").resolve().parent.parent for v in readable
+                    if (Path(v) / "bin" / "python").exists()]
+        return ([*hidden, Path.home().resolve()],
+                [*readable, binary.parent, *runtimes])
+
     def attempt(self, workdir: Path, prompt: str, *,
                 test_cmd: list[str] | None, timeout: float,
                 hidden: Sequence[Path] = (), readable: Sequence[Path] = ()) -> AgentRun:
-        binary = shutil.which("claude")
-        if not binary:
+        found = shutil.which("claude")
+        if not found:
             raise FileNotFoundError("claude not on PATH")
+        binary = Path(found).resolve()  # run by its real path: the link sits in the hidden home
         if not has_sandbox():
             raise RuntimeError("the cloud arm runs only inside the OS sandbox, which this machine "
                                "doesn't have: on Linux, install bubblewrap (apt install bubblewrap)")
@@ -569,17 +607,20 @@ class ClaudeCodeAgent:
         home = self.home / "attempt"  # fresh every time
         shutil.rmtree(home, ignore_errors=True)
         home.mkdir(parents=True)
+        hidden, readable = self.confine(binary, hidden, readable)
         with contextlib.ExitStack() as stack:
             if linux_sandbox():
                 d = Path(stack.enter_context(tempfile.TemporaryDirectory(prefix="mh-net-")))
                 proxy = stack.enter_context(egress.Proxy(self.hosts, unix=d / "egress.sock"))
                 ports, url = {PROXY_PORT: d / "egress.sock"}, f"http://127.0.0.1:{PROXY_PORT}"
+                loopback = None
             else:
                 proxy = stack.enter_context(egress.Proxy(self.hosts))
                 ports, url = {}, f"http://{proxy.address}"
-            out, timed_out, secs = _launch(self._cmd(binary, prompt), workdir,
+                loopback = [int(proxy.address.rsplit(":", 1)[1])]  # the proxy and nothing else
+            out, timed_out, secs = _launch(self._cmd(str(binary), prompt), workdir,
                                            self._env(home, token, url), timeout, [home],
-                                           hidden, readable, ports)
+                                           hidden, readable, ports, loopback)
         run = parse_claude_events(out)
         run.log, run.secs, run.timed_out = out + proxy.log_lines(), secs, timed_out
         run.extra.update(proxy.summary())

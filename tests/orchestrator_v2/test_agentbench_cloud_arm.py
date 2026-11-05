@@ -15,7 +15,8 @@ import pytest
 
 from backend.orchestrator.agentbench import agents, egress, manifest
 from backend.orchestrator.agentbench.agents import (
-    BRIDGE, ClaudeCodeAgent, bwrap_args, has_sandbox, parse_arm, parse_claude_events, sandboxed,
+    BRIDGE, ClaudeCodeAgent, base_python, bwrap_args, has_sandbox, parse_arm, parse_claude_events,
+    sandbox_profile, sandboxed,
 )
 from backend.orchestrator.agentbench.runner import arm_name
 
@@ -148,7 +149,9 @@ def test_bwrap_mounts_stack_hidden_under_what_is_put_back(tmp_path):
     clone, venv, socks = bench / "clone", repo / ".venv", tmp_path / "net"
     for d in (clone, venv, home, socks):
         d.mkdir(parents=True)
-    args = bwrap_args(clone, [clone, home], hidden=[repo, bench, tmp_path / "gone"],
+    netrc = tmp_path / ".netrc"
+    netrc.write_text("machine github.com password x")
+    args = bwrap_args(clone, [clone, home], hidden=[repo, bench, tmp_path / "gone", netrc],
                       readable=[venv], sockets=[socks / "egress.sock"])
     assert args[:3] == ["bwrap", "--die-with-parent", "--unshare-all"]  # the network too
     flat = " ".join(args)
@@ -161,6 +164,7 @@ def test_bwrap_mounts_stack_hidden_under_what_is_put_back(tmp_path):
                                      f"--bind {r(socks)}")]
     assert order == sorted(order)
     assert str(tmp_path / "gone") not in flat  # a missing dir can't be mounted over
+    assert f"--ro-bind /dev/null {r(netrc)}" in flat  # a hidden file reads as empty
     assert args[-2:] == ["--chdir", r(clone)]
 
 
@@ -170,8 +174,11 @@ def test_linux_runs_the_agent_under_bwrap_through_the_bridge(tmp_path, monkeypat
     cmd = sandboxed(["claude", "-p", "x"], [tmp_path], ports={3128: tmp_path / "e.sock"})
     i = cmd.index("--", cmd.index("--chdir"))
     assert cmd[0] == "bwrap"
-    assert cmd[i + 1:] == [sys.executable, "-I", str(BRIDGE), f"3128={tmp_path / 'e.sock'}",
-                           "--", "claude", "-p", "x"]
+    # The bridge runs on the base interpreter with the stdlib alone, its file
+    # put back by name: the harness's own checkout may be the hidden repo.
+    assert cmd[i + 1:] == [str(base_python()), "-I", "-S", str(BRIDGE),
+                           f"3128={tmp_path / 'e.sock'}", "--", "claude", "-p", "x"]
+    assert f"--ro-bind {BRIDGE.resolve()} {BRIDGE.resolve()}" in " ".join(cmd)
     # No ports: no bridge, and no way out at all.
     plain = sandboxed(["sh"], [tmp_path])
     assert plain[plain.index("--", plain.index("--chdir")) + 1:] == ["sh"]
@@ -188,12 +195,20 @@ def test_the_users_credentials_are_hidden_from_every_agent(tmp_path, monkeypatch
     monkeypatch.setenv("HOME", str(tmp_path))
     for d in (".ssh", ".config", "notes"):
         (tmp_path / d).mkdir()
+    (tmp_path / ".git-credentials").write_text("https://u:token@github.com\n")
     monkeypatch.setattr(sys, "platform", "darwin")
     monkeypatch.setattr(shutil, "which", lambda n: "/usr/bin/" + n)
     profile = sandboxed(["sh"], [tmp_path / "work"])[2]
-    assert f'(subpath "{(tmp_path / ".ssh").resolve()}")' in profile
-    assert f'(subpath "{(tmp_path / ".config").resolve()}")' in profile
+    for secret in (".ssh", ".config", ".git-credentials"):
+        assert f'(subpath "{(tmp_path / secret).resolve()}")' in profile
     assert "notes" not in profile
+
+
+def test_on_macos_a_cloud_arm_reaches_one_loopback_port():
+    local = sandbox_profile([Path("/w")])
+    assert '(remote ip "localhost:*")' in local  # local arms: Ollama, and themselves
+    cloud = sandbox_profile([Path("/w")], loopback=[51234])
+    assert '(remote ip "localhost:51234")' in cloud and "localhost:*" not in cloud
 
 
 # ── Claude Code's events ──────────────────────────────────────────────────────
@@ -263,10 +278,12 @@ def fake_claude(tmp_path, monkeypatch):
     agent = ClaudeCodeAgent("claude-sonnet-5-5", home=tmp_path / "home", token_file=token)
     seen: list[dict] = []
 
-    def launch(cmd, cwd, env, timeout, writable=(), hidden=(), readable=(), ports=None):
+    def launch(cmd, cwd, env, timeout, writable=(), hidden=(), readable=(), ports=None,
+               loopback=None):
         home = Path(writable[0])
         seen.append({"cmd": cmd, "env": env, "home_files": sorted(p.name for p in home.iterdir()),
-                     "ports": ports, "hidden": hidden})
+                     "ports": ports, "hidden": hidden, "readable": readable,
+                     "loopback": loopback})
         (home / "left-by-an-attempt").write_text("x")
         return seen[-1].get("out", _CLAUDE_EVENTS), False, 4.0
 
@@ -277,6 +294,7 @@ def fake_claude(tmp_path, monkeypatch):
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-api-would-bill-the-api")
     monkeypatch.setenv("CLAUDECODE", "1")
     monkeypatch.setenv("https_proxy", "http://somewhere-else:8080")
+    monkeypatch.setenv("GITHUB_TOKEN", "ghp_not-for-anthropic")
     return agent, seen
 
 
@@ -291,8 +309,12 @@ def test_claude_runs_clean_through_the_proxy(fake_claude, tmp_path):
     assert "--strict-mcp-config" in cmd
     assert env["CLAUDE_CODE_OAUTH_TOKEN"] == "sk-ant-oat01-test"
     assert "ANTHROPIC_API_KEY" not in env and "CLAUDECODE" not in env  # bills the token's login
+    assert "GITHUB_TOKEN" not in env  # only what's on the list comes along
     assert "https_proxy" not in env and env["HTTPS_PROXY"].startswith("http://127.0.0.1:")
     assert env["HOME"] == str(tmp_path / "home" / "attempt")
+    # The whole home hidden; the proxy's port the only one open.
+    assert Path.home().resolve() in call["hidden"]
+    assert call["loopback"] == [int(env["HTTPS_PROXY"].rsplit(":", 1)[1])]
     assert run.cost_usd == 0.4321 and run.extra["egress_tunnels"] == 0
 
 
@@ -348,6 +370,7 @@ def test_inside_the_sandbox_only_the_proxy_leads_out(tmp_path, monkeypatch):
     script = bindir / "claude"
     script.write_text(f"""#!{sys.executable} -I
 import json, os, socket
+probe = json.load(open("probe.json"))  # the environment carries nothing of the test's
 proxy = os.environ["HTTPS_PROXY"].removeprefix("http://")
 host, port = proxy.rsplit(":", 1)
 def via_proxy(target):
@@ -362,22 +385,39 @@ def direct():
         socket.create_connection(("1.1.1.1", 443), 5).close(); return "open"
     except OSError as e:
         return "blocked"
-print(json.dumps({{"type": "probe", "allowed": via_proxy(os.environ["PROBE_ALLOWED"]),
-                   "refused": via_proxy("github.com:443"), "direct": direct()}}))
+def secret():
+    try:
+        return open(probe["secret"]).read() or "empty"
+    except OSError:
+        return "blocked"
+print(json.dumps({{"type": "probe", "allowed": via_proxy(probe["allowed"]),
+                   "refused": via_proxy("github.com:443"), "direct": direct(),
+                   "secret": secret(), "token": os.environ.get("GITHUB_TOKEN", "absent")}}))
 print(json.dumps({{"type": "result", "is_error": False, "num_turns": 1, "total_cost_usd": 0.01,
                    "usage": {{"input_tokens": 1, "output_tokens": 1}}}}))
 """)
     script.chmod(0o755)
     token = tmp_path / "token"
     token.write_text("t")
+    home = tmp_path / "realhome"  # stands in for the user's home
+    home.mkdir()
+    (home / "notes.txt").write_text("PRIVATE")
     with Echo() as echo:
+        monkeypatch.setenv("HOME", str(home))
         monkeypatch.setenv("PATH", f"{bindir}:/usr/bin:/bin")
-        monkeypatch.setenv("PROBE_ALLOWED", f"127.0.0.1:{echo.port}")
+        (work / "probe.json").write_text(json.dumps({"allowed": f"127.0.0.1:{echo.port}",
+                                                     "secret": str(home / "notes.txt")}))
+        monkeypatch.setenv("GITHUB_TOKEN", "ghp_x")
         agent = ClaudeCodeAgent("claude-sonnet-5-5", home=tmp_path / "home", token_file=token)
         agent.hosts = (f"127.0.0.1:{echo.port}",)
-        run = agent.attempt(work, "p", test_cmd=None, timeout=60)
-    probe = next(json.loads(line) for line in run.log.splitlines() if '"probe"' in line)
+        # The stand-in runs on this interpreter: readable, like a bench's test venv.
+        run = agent.attempt(work, "p", test_cmd=None, timeout=60,
+                            readable=[Path(sys.executable).parent.parent])
+    assert run.crashed == "", run.log[-1500:]
+    probe = next(json.loads(line) for line in run.log.splitlines() if line.startswith('{"type": "probe"'))
     assert probe == {"type": "probe", "allowed": "HTTP/1.1 200 Connection Established ping",
-                     "refused": "HTTP/1.1 403 Forbidden", "direct": "blocked"}
+                     "refused": "HTTP/1.1 403 Forbidden", "direct": "blocked",
+                     "secret": probe["secret"], "token": "absent"}
+    assert probe["secret"] in ("blocked", "empty")  # macOS denies it; bubblewrap empties it
     assert run.extra["egress_tunnels"] == 1 and run.extra["egress_refused"] == 1
     assert run.cost_usd == 0.01 and run.crashed == ""

@@ -578,7 +578,9 @@ class ClaudeCodeAgent:
     def _token(self) -> str:
         path = self.token_file or claude_token_file()
         try:
-            token = path.read_text().strip()
+            # No whitespace belongs in a token: a copy from a terminal that
+            # wrapped `claude setup-token`'s output carries a line break mid-token.
+            token = "".join(path.read_text().split())
         except FileNotFoundError:
             raise FileNotFoundError(
                 f"no Claude token at {path}: run `claude setup-token` and save what it prints "

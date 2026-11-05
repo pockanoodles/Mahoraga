@@ -387,6 +387,13 @@ def test_claude_cut_off_by_the_limit_timed_out_and_did_not_crash(fake_claude, tm
     assert run.timed_out and run.crashed == ""
 
 
+def test_a_token_copied_from_a_wrapped_terminal_line_still_works(tmp_path):
+    token = tmp_path / "token"
+    token.write_text("sk-ant-oat01-abcdefgh\nijklmnop\n\n")  # wrapped at the terminal's edge
+    agent = ClaudeCodeAgent("claude-sonnet-5-5", home=tmp_path, token_file=token)
+    assert agent._token() == "sk-ant-oat01-abcdefghijklmnop"
+
+
 def test_claude_without_a_token_says_how_to_make_one(tmp_path, monkeypatch):
     monkeypatch.setattr(agents, "has_sandbox", lambda: True)
     monkeypatch.setattr(shutil, "which", lambda n: "/bin/" + n)

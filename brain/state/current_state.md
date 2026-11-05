@@ -16,8 +16,17 @@ Branch `feat/cloud-verdict` (worktree `.worktrees/cloud-verdict`, stacked on #87
 adds `audit verdict --cloud-arm` and the claims spec `"cloud": "versus"`, which price each
 task local resolves at what the cloud spent on it. At that price the laptop's verdict is
 STAY, decided, at -$77 a month, and local needs 95% to break even, up from 77%. The
-report's short answer and §4 carry it (3 new claims, 26 verify). The site's Research copy
-doesn't mention the cloud run yet.
+report's short answer and §4 carry it (3 new claims, 26 verify). Branch
+`feat/cloud-verdict-surfaces` (stacked on #89) carries it to the local UI's Verdict page
+(`cloud_arm` on the API, a "Price a cloud task by" picker) and to two site log entries in
+en and ja. The hero still uses the $0.75 worked example and its 77% bar, which is
+Kaito's editorial call.
+
+Next, recommended: the agent confound. Claude Code runs the tests through Bash under
+blind and aider can't, so the 30-0 split is agent plus model. Holding the agent fixed
+needs either aider on claude-opus-5-5 through the proxy (an API key, since the seat's
+OAuth token is for Claude Code; about $10-$20 for 47 tasks on the OptiPlex), or Claude
+Code on qwen3.5 through Ollama's Anthropic-compatible endpoint (a laptop night).
 
 ## 2026-11-05: the laptop's clean 131k run is in, and the report has no PENDING left
 

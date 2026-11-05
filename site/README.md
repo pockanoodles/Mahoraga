@@ -13,7 +13,11 @@ English under `/mahoraga/` and in Japanese under `/mahoraga/ja/`:
   with it (`components/Install.tsx`).
 
 `components/Shell.tsx` gives every page the same bar, footer and menu, and `lib/routes.ts`
-holds every page's path, which the links, the metadata and the sitemap all read.
+holds every page's path, which the links, the metadata and the sitemap all read. The menu
+is kaitosoeno.com's own pill, `<site-menu>`, which the layouts load from `/site/menu.js`
+(personal-website serves it); `app/globals.css` only gives it Mahoraga's colours. It shows
+where the site is served too: live, or through `npm run stack` in personal-website, not on
+this site's own preview.
 
 ## Where things come from
 

@@ -14,6 +14,13 @@ export default function JaLayout({ children }: Readonly<{ children: React.ReactN
         {/* Lets the stylesheet hide reveal-on-scroll blocks only when the script that reveals them will run. */}
         <script dangerouslySetInnerHTML={{ __html: "document.documentElement.classList.add('js')" }} />
         <ViewTransitionScript />
+        {/* kaitosoeno.com's menu pill, the one every page of the domain shows
+            (personal-website components/site-menu/element.ts). Blocking and
+            after the transition script, so the pill is in the first frame a
+            page switch morphs into and its listeners run after this app's. It
+            is a root path, outside this app's /mahoraga base path. */}
+        {/* eslint-disable-next-line @next/next/no-sync-scripts */}
+        <script src="/site/menu.js" />
       </head>
       <body>
         <ViewTransitionSurface />

@@ -9,6 +9,12 @@ import { readFileSync } from "node:fs";
 import { chromium } from "playwright";
 
 const BASE = process.env.BASE ?? "http://localhost:3222";
+// The site's menu pill (/site/menu.js) is served by personal-website, so it is
+// only there where the whole domain is: live, or `npm run stack` in that repo.
+// On this site's own preview (and in CI) its 404 is expected, and only there is
+// it let go; wherever the site is served, a missing pill fails.
+const standalone = !(await fetch(BASE + "/site/menu.js").then((r) => r.ok, () => false));
+const pillScript = (url) => standalone && /\/site\/menu\.js$/.test(new URL(url || BASE).pathname);
 // The data the page was built from (prepare-assets copies it), for the parts the
 // export can leave out: a run's one-task card waits until its rate can sit beside it.
 const DATA = JSON.parse(readFileSync(new URL("../generated/site.json", import.meta.url), "utf8"));
@@ -20,6 +26,7 @@ const LOCALES = [
     lang: "en",
     root: "/mahoraga/",
     nav: ["Research", "Engine", "Install"],
+    menuLabel: "MENU",
     unaffiliated: "Mahoraga is not affiliated with Anthropic, OpenAI, Alibaba, IBM or Ollama.",
     stay: "Stay",
     open: "Not yet decided",
@@ -35,6 +42,7 @@ const LOCALES = [
     lang: "ja",
     root: "/mahoraga/ja/",
     nav: ["研究", "エンジン", "インストール"],
+    menuLabel: "メニュー",
     unaffiliated: "Mahoraga は Anthropic、OpenAI、Alibaba、IBM、Ollama のいずれとも提携していません。",
     stay: "継続",
     open: "未確定",
@@ -88,11 +96,17 @@ async function shared(page, loc, name, tag) {
   check(overflow <= 0, `${tag}: no sideways scroll (${overflow}px)`);
   check((await page.textContent(".foot"))?.includes(loc.unaffiliated), `${tag}: the footer says whom Mahoraga is not affiliated with`);
 
-  // The site's own menu opens, and its links leave for the site (no /mahoraga prefix).
-  await page.locator(".site-menu__button").click();
-  const hrefs = await page.locator(".site-menu__link").evaluateAll((as) => as.map((a) => a.getAttribute("href")));
-  check(hrefs.length === 2 && hrefs.every((h) => !h.startsWith("/mahoraga")), `${tag}: site menu links go to the site (${hrefs.join(" ")})`);
-  await page.keyboard.press("Escape");
+  // The site's own menu pill (<site-menu>, from kaitosoeno.com's /site/menu.js)
+  // opens, and its links leave for the site (no /mahoraga prefix), wherever the
+  // site serves the script.
+  if (!standalone) {
+    check(await page.evaluate(() => !!customElements.get("site-menu")), `${tag}: the site's menu pill loads`);
+    await page.locator("site-menu button").click();
+    const hrefs = await page.locator("site-menu a").evaluateAll((as) => as.map((a) => a.getAttribute("href")));
+    check(hrefs.length === 2 && hrefs.every((h) => !h.startsWith("/mahoraga")), `${tag}: site menu links go to the site (${hrefs.join(" ")})`);
+    check((await page.locator("site-menu button").innerText()).trim() === loc.menuLabel, `${tag}: the pill says only ${loc.menuLabel}`);
+    await page.keyboard.press("Escape");
+  }
 }
 
 async function research(page, loc, vp, tag) {
@@ -265,7 +279,7 @@ for (const loc of LOCALES) {
       const tag = `${loc.lang}/${name}/${vp.name}`;
       const page = await browser.newPage({ viewport: { width: vp.width, height: vp.height } });
       const errors = [];
-      page.on("console", (m) => m.type() === "error" && errors.push(m.text()));
+      page.on("console", (m) => m.type() === "error" && !pillScript(m.location()?.url) && errors.push(m.text()));
       page.on("pageerror", (e) => errors.push(String(e)));
       const res = await page.goto(BASE + pathOf(loc, name), { waitUntil: "networkidle" });
       check(res?.status() === 200, `${tag}: page answers 200`);

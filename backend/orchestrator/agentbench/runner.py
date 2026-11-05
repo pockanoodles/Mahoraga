@@ -73,6 +73,8 @@ class Attempt:
     # Model requests that failed (cut by a timeout, an Ollama error). None on
     # attempts recorded before this was kept: their log still says.
     request_errors: int | None = None
+    # A cloud arm's cost at its vendor's API prices; None for a local arm.
+    cost_usd: float | None = None
 
     @property
     def no_edit(self) -> bool:
@@ -201,14 +203,35 @@ def confinement(bench: Bench, config: SuiteConfig) -> tuple[list[Path], list[Pat
     tree and history hold the answer to every task mined from it, and the
     bench root, whose other clones sit at later commits and whose attempts
     hold other arms' patches. Readable again: the test interpreter's
-    environment when it lives in one of those. The agent's own clone and HOME
-    are writable, which keeps them readable too.
+    environment, wherever it lives. The agent's own clone and HOME are
+    writable, which keeps them readable too.
 
     Another checkout of the same repo elsewhere on the machine is not hidden;
     an agent would have to go looking for it."""
     hidden = [bench.repo.resolve(), bench.dir.parent.resolve()]
-    venv = Path(config.python).parent.parent.resolve()  # .../venv/bin/python
-    return hidden, [venv] if any(h == venv or h in venv.parents for h in hidden) else []
+    # Named even where nothing hides it: an agent that hides more (the cloud
+    # arm hides the whole home) still has to run the tests.
+    return hidden, [suite_env(config.python)]
+
+
+def suite_env(python: str) -> Path:
+    """The environment a test interpreter runs in: its venv, the dir holding
+    pyvenv.cfg, else the install it resolves to. Never just two levels up,
+    which for ~/bin/python is the whole home."""
+    p = Path(python)
+    if (p.parent.parent / "pyvenv.cfg").is_file():
+        return p.parent.parent.resolve()
+    real = p.resolve()
+    return real.parent.parent if real.parent.name == "bin" else real.parent
+
+
+def suite_python(python: str) -> str:
+    """The test interpreter as an agent can reach it. A venv's own python stays
+    as named: the whole venv is put back, and resolving it would lose the
+    venv. Any other link (~/bin/python -> /usr/bin/python3) is run by its real
+    path, which survives a sandbox that hides the dir the link sits in."""
+    p = Path(python)
+    return python if (p.parent.parent / "pyvenv.cfg").is_file() else str(p.resolve())
 
 
 def run_attempt(bench: Bench, config: SuiteConfig, task: Task, agent: Agent,
@@ -219,7 +242,7 @@ def run_attempt(bench: Bench, config: SuiteConfig, task: Task, agent: Agent,
         raise ValueError(f"condition must be one of {CONDITIONS}")
     clone = bench.clone(task.sha)
     _reset(clone, task.base)
-    test_cmd = ([config.python, "-m", "pytest", "-q", "-x", "-p", "no:cacheprovider",
+    test_cmd = ([suite_python(config.python), "-m", "pytest", "-q", "-x", "-p", "no:cacheprovider",
                  *config.pytest_args, *task.test_files] if cond == "feedback" else None)
     watching = guard.watch(agent) if guard else nullcontext(None)
     with watching as watch:
@@ -257,6 +280,7 @@ def run_attempt(bench: Bench, config: SuiteConfig, task: Task, agent: Agent,
         degraded=_degraded(watch, run, edited=bool(set(edited) - set(touched_tests))),
         conditions=watch.conditions if watch else {},
         tier=g.tier, run_id=run_id, request_errors=run.request_errors,
+        cost_usd=run.cost_usd,
     )
     if attempt.degraded:
         attempt.conditions["at"] = time.strftime("%Y-%m-%dT%H:%M:%S")

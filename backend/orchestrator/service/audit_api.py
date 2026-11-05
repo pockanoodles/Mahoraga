@@ -338,8 +338,10 @@ def arms() -> dict[str, Any]:
         models = []
     return {
         "arms": rows, "models": models,
+        # The agents the app pairs with a pulled model. The cloud arm has its
+        # vendor's model, not one of these, and runs only from a terminal.
         "agents": [{"name": name, "on_path": shutil.which(name) is not None}
-                   for name in sorted(AGENTS)],
+                   for name, cls in sorted(AGENTS.items()) if cls.local],
     }
 
 

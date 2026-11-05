@@ -3,7 +3,8 @@
 **Draft.** Every figure here links to the artifact it came from, and
 `orch bench verify` recomputes each one from that artifact. The laptop's own
 131k run, which sections 3 to 5 report, ran night by night from 2026-10-28 to
-2026-11-01, so this edition is dated November.
+2026-11-01, and the cloud agent that section 4 measures on the same tasks ran
+on 2026-11-05, so this edition is dated November.
 
 ## The question
 
@@ -36,6 +37,13 @@ hundred to one. At the wider context, local starts to pay once a cloud task
 costs between about $4.40 and $5.70, depending on the model and the tasks,
 which describes a team paying per token for long agentic work rather than a
 subscriber.
+
+The cloud side is now measured as well. Claude Code running Claude Opus 5.5
+resolved all 47 of the laptop's tasks, with a median attempt under 40 seconds,
+and at API list prices each task cost $0.21 on average. That price is about a
+twentieth of the $4.43 at which the laptop's own run starts to pay, so on
+these repositories the cloud solves as many tasks as the report's verdicts
+assume, at under a third of the price they assume.
 
 ## 1. The local tier stopped getting new models
 
@@ -178,6 +186,65 @@ nothing. Local can then only help by moving someone to a cheaper tier or by
 freeing room under a usage cap they keep hitting. Take a Max 5x user at 60% of
 the cap. Dropping to Pro would need local to take all of their queueable work
 with either model, so the engine answers that this user is not wasting money.
+
+### The cloud side, measured
+
+Every verdict above assumes two things about the cloud that the study had not
+measured, namely that a cloud agent solves every task it is given and that
+each task costs $0.75. To check both, Claude Code 2.1.318 running Claude Opus
+5.5 attempted the laptop's 47 tasks on 2026-11-05, with the same prompt, the
+same grader and the same 90-minute limit as the laptop's 131k run. It ran on a
+Dell OptiPlex 7070, which runs the agent and the tests but no model. Each
+attempt started from an empty home directory, and its one way out was a proxy
+that let traffic through to api.anthropic.com alone and logged every
+connection. Over the 47 attempts that log holds 141 connections, and the proxy
+refused none of them ([DATAFLOW.md](../../DATAFLOW.md) says what each one
+carries).
+
+| Agent and model | Resolved | Median attempt | Cost per task |
+| --- | --- | --- | --- |
+| Claude Code, Claude Opus 5.5 (the cloud) | 47 of 47, 100% [92%–100%] | under 40 seconds | $0.21 at list prices |
+| aider, qwen3.5 at 131k (the laptop) | 17 of 47, 36% [24%–50%] | 28 minutes | the electricity |
+
+Task by task, the cloud solved all 17 tasks the laptop solved as well as 30
+that the laptop did not, and the laptop solved none that the cloud missed. If
+the two agents were equally good, a split of 30 to 0 would happen about twice
+in a billion runs (exact McNemar test). Memorisation does not explain the gap,
+since 19 of the tasks were committed after June 2026, which is Opus 5.5's
+stated knowledge cutoff. The cloud solved all 19 of those, and the laptop
+solved 3.
+
+The pair compares two agents as much as two models. Under the blind condition
+neither agent is told how the task is graded, but Claude Code can still find
+the repository's tests and run them through its shell, which aider cannot do.
+Each agent ships that way, so the pair shows what a developer gets from each
+one, and a comparison of the models alone would need both of them under one
+agent.
+
+The measured price moves the verdict more than the measured rate does. The
+assumption that the cloud solves every task held on these 47, since the low
+end of its interval is 92%. The price assumption did not hold, because a task
+cost $0.21 at list prices, and the tasks the laptop solved cost the cloud only
+$0.15 compared to $0.24 for the ones it failed. Local takes the easy tasks,
+and those are the cheap ones, so each task local resolves saves less than the
+average task costs. Priced at that $0.15, running the queue locally costs
+about $77 a month more than it saves (between $58 and $94). Local would then
+need to resolve 95% of queued tasks to break even, compared to 77% at the
+assumed $0.75.
+
+| Model | Resolved | Net per month | Break-even resolve rate | Verdict |
+| --- | --- | --- | --- | --- |
+| qwen3.5 at 131k on the laptop, priced at $0.75 a task | 36% [24%–50%] | −$67 (−$86 to −$43) | 77% | STAY |
+| the same run, priced at what the cloud spent on the tasks the laptop solved | 36% [24%–50%] | −$77 (−$94 to −$58) | 95% | STAY |
+
+These prices are what the CLI computes for each attempt at API list prices,
+while the run itself went through a Claude seat, which has no per-task price.
+A subscriber pays the flat fee instead, as the paragraph above describes. The
+tasks are single commits, so a long agentic session costs more per task than
+these did. Even so, the $4.43 at which local pays is about twenty times what
+these tasks cost. `mahoraga audit verdict --cloud-arm` prices a reader's
+verdict the same way once the cloud arm has run on their tasks
+([claims](../../experiments/claims.json), `report_2026_11_*`).
 
 ## 5. The hardware question
 

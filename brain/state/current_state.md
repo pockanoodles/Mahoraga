@@ -1,5 +1,24 @@
 # Current State — 2026-11-05
 
+## 2026-11-05 (afternoon): the cloud side is measured, and the verdict is priced by it
+
+The OptiPlex ran the cloud arm (#88: Claude Code 2.1.318 on claude-opus-5-5, blind,
+90-minute limit, on Kaito's Northeastern seat) over the laptop's 47 tasks from 12:21 to
+13:14. It resolved **47 of 47 (92% to 100%)** with a median attempt of 38.5 s and
+**$9.79 at list prices, $0.21 a task**. Paired with the laptop: 30 only cloud, 0 only
+local, McNemar p = 2e-9. 19 tasks postdate Opus 5.5's June 2026 knowledge cutoff, and the
+cloud solved all 19 (the laptop 3). Egress: 141 tunnels, all to api.anthropic.com, none
+refused, no degraded attempts. Confound: Claude Code can run the tests through Bash under
+blind and aider can't, so it compares agent+model against agent+model.
+
+The tasks the laptop solves cost the cloud $0.15, against $0.24 for the ones it fails.
+Branch `feat/cloud-verdict` (worktree `.worktrees/cloud-verdict`, stacked on #87 and #88)
+adds `audit verdict --cloud-arm` and the claims spec `"cloud": "versus"`, which price each
+task local resolves at what the cloud spent on it. At that price the laptop's verdict is
+STAY, decided, at -$77 a month, and local needs 95% to break even, up from 77%. The
+report's short answer and §4 carry it (3 new claims, 26 verify). The site's Research copy
+doesn't mention the cloud run yet.
+
 ## 2026-11-05: the laptop's clean 131k run is in, and the report has no PENDING left
 
 The clean run finished 2026-11-01 03:54 at 47/47 (journal `2026-11-05-clean-run.md`).

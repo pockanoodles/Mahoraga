@@ -1,9 +1,9 @@
-# Is local coding AI worth it on a 16 GB Mac? (October 2026)
+# Is local coding AI worth it on a 16 GB Mac? (November 2026)
 
-**Draft.** Every figure here links to the artifact it came from. Sections
-marked PENDING wait on the laptop's own 131k run for sections 3 to 5, which
-runs night by night into early November. No number goes into them until the
-run has finished and `orch bench verify` recomputes it.
+**Draft.** Every figure here links to the artifact it came from, and
+`orch bench verify` recomputes each one from that artifact. The laptop's own
+131k run, which sections 3 to 5 report, ran night by night from 2026-10-28 to
+2026-11-01, so this edition is dated November.
 
 ## The question
 
@@ -22,17 +22,20 @@ second machine (a Mac Studio with 64 GB) shows what more memory changes.
 For most people the answer is to keep paying for cloud. The model that fits
 this laptop resolves about one real commit in ten on three outside
 repositories (10% of 92 tasks) at a 32k context, and about three in ten (30%)
-once the context is raised to 131k. Both rates come from the laptop's exact
-model file run on a faster machine, and the laptop's own 131k run is still
-under way (PENDING, section 5). A 64 GB machine runs a larger model that
-resolves about the same share (34% of the same 92 tasks), so most of what
-first looked like a hardware gap was a settings gap. The repository's own
-tests caught every failure on both machines. Neither rate pays at today's
-cloud prices, because the developer's time to notice a failed attempt
-outweighs the electricity several hundred to one. At the wider context, local
-starts to pay once a cloud task costs about $6 (about $5 with the larger
-model), which describes a team paying per token for long agentic work rather
-than a subscriber.
+once the context is raised to 131k. Both of those rates come from the
+laptop's exact model file run on a faster machine. On the laptop itself at
+131k, the same model resolved 17 of the 47 outside tasks it attempted (36%),
+one fewer than the faster machine resolved on the same 47. The laptop
+therefore reaches about the same answers and only takes longer, with a median
+attempt of 28 minutes. A 64 GB machine runs a larger model that resolves about the same
+share (34% of the 92 tasks), so most of what first looked like a hardware gap
+was a settings gap. The repository's own tests caught every failure on both
+machines. None of these rates pays at today's cloud prices, because the
+developer's time to notice a failed attempt outweighs the electricity several
+hundred to one. At the wider context, local starts to pay once a cloud task
+costs between about $4.40 and $5.70, depending on the model and the tasks,
+which describes a team paying per token for long agentic work rather than a
+subscriber.
 
 ## 1. The local tier stopped getting new models
 
@@ -89,17 +92,19 @@ nothing that passed before has broken.
 | aider + qwen3.5 (9.7B, 32k) | 64 GB Studio | Mahoraga | 32 | 6 | 9% to 35% |
 | aider + qwen3.5 (9.7B, 32k) | 64 GB Studio | more-itertools, click, attrs | 92 | 9 | 5% to 18% |
 | aider + qwen3.5 (9.7B, 131k) | 64 GB Studio | more-itertools, click, attrs | 92 | 28 | 22% to 40% |
+| aider + qwen3.5 (9.7B, 131k) | 16 GB laptop | more-itertools, attrs | 47 | 17 | 24% to 50% |
 | aider + qwen3.6 (35B-A3B, 131k) | 64 GB Studio | Mahoraga | 32 | 13 | 26% to 58% |
 | aider + qwen3.6 (35B-A3B, 131k) | 64 GB Studio | more-itertools, click, attrs | 92 | 31 | 25% to 44% |
 
 Every attempt was blind and run once. The qwen3.5 rows on the Studio use the
 laptop's exact model file (checksum verified) with the laptop's settings, so
 they measure the laptop's model on faster hardware. The laptop's own run at
-131k is the row this table still lacks (PENDING, section 5), since the laptop
-reads a 100,000-token prompt for over ten minutes and each attempt there needs
-a limit of 90 minutes rather than 20. The Studio rows were run overnight on
+131k gave each attempt 90 minutes rather than 20, since the laptop reads a
+100,000-token prompt for over ten minutes, and it covers the 47 tasks from
+more-itertools and attrs (section 5). The Studio rows were run overnight on
 2026-10-06 ([Era 36](../../brain/state/findings.md)), except qwen3.5 at 131k,
-which ran on the night of 2026-10-13 with the same model file. Every count in this
+which ran on the night of 2026-10-13 with the same model file. The laptop's
+run took the nights from 2026-10-28 to 2026-11-01. Every count in this
 section and the next is recomputed by `orch bench verify` from one line per
 attempt in [`experiments/agentbench/`](../../experiments/agentbench/), and CI
 runs that check, so a reader can confirm each number without our machines.
@@ -142,17 +147,24 @@ minus the developer's time to triage a failure. The pooled run below assumes
 patient enough for an overnight queue, and three minutes at $50 an hour to
 triage each failure.
 
-| Model (92 outside tasks) | Resolved | Net per month | Local pays once a cloud task costs | Verdict |
+| Model (92 outside tasks unless noted) | Resolved | Net per month | Local pays once a cloud task costs | Verdict |
 | --- | --- | --- | --- | --- |
 | qwen3.5 at 32k (fits 16 GB, run on the Studio) | 10% [5%–18%] | −$109 (−$117 to −$96) | $23.06 | STAY |
 | qwen3.5 at 131k (fits 16 GB, run on the Studio) | 30% [22%–40%] | −$76 (−$89 to −$59) | $5.72 | STAY |
 | qwen3.6 at 131k (needs 24 GB or more) | 34% [25%–44%] | −$70 (−$85 to −$54) | $4.92 | STAY |
+| qwen3.5 at 131k on the laptop itself (47 of those tasks) | 36% [24%–50%] | −$67 (−$86 to −$43) | $4.43 | STAY |
 
-> **PENDING (section 5):** the same verdict on the laptop's own 131k run, on
-> the 47 outside tasks it attempts.
+The laptop's own run gives the same verdict. On the 47 tasks it attempted,
+running the queue locally costs about $67 a month more than it saves (between
+$43 and $86), and local pays only once a cloud task costs $4.43. Only 2 of its
+30 failures ran out of time, so the engine calls this stay decided, which it
+refused to do for the laptop's 20-minute night (section 6). The laptop's tasks
+leave out click, so its row is not a like-for-like comparison with the three
+above it.
 
 Local would need to resolve at least 77% of queued tasks to break even at
-$0.75 a task, which is about twice what either model manages at 131k. At a
+$0.75 a task, which is about twice what either model manages at 131k on
+either machine. At a
 32k context, running the queue on the laptop costs about $109 a month more in
 triage time than it saves. Raising the context to 131k cuts that loss to about
 $76 and moves the break-even price from $23 a task to about $6. The bigger
@@ -211,9 +223,21 @@ first two tries at this measurement were set by clocks rather than by the
 model (section 6), so the run below gives each attempt 90 minutes and puts no
 shorter clock inside it.
 
-> **PENDING (running from 2026-10-28 into early November):** qwen3.5 at 131k on the
-> laptop itself, blind, on 47 tasks from more-itertools and attrs, compared
-> task by task with the Studio's run of the same model file.
+On the laptop itself, qwen3.5 at 131k resolved 17 of the 47 tasks from
+more-itertools and attrs. The Studio, running the same model file at the same
+131k context, resolved 18 of the same 47. The two machines disagree on 9
+tasks, 4 that only the laptop solved and 5 that only the Studio solved, and a
+split that even is what chance alone would produce (exact McNemar p = 1.00).
+Before the request-timeout fix the same comparison read 8 against 14 (section
+6), and with the clocks removed that gap is gone. The laptop's median attempt
+took 28 minutes, only 2 of its 47 attempts used up the 90 minutes, and none of
+its model requests failed.
+
+The run also needs the machine to itself. On its second night it loaded the
+model while the laptop was in heavy use, memory ran out, and the laptop
+crashed and restarted. The run was restarted with a gate that waits until the
+laptop has been idle for 15 minutes and has 11 GB free before it loads the
+model, and no night after that crashed.
 
 For a 16 GB owner, the first change is the context window, and a memory
 upgrade is worth measuring only after it. The larger model still resolves a

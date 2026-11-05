@@ -61,7 +61,7 @@ REPLAY_ORDER = ("The order of experiments/agent_edit/tasks.jsonl, as listed ther
 # The claim the verdict demo follows: the newest pooled measurement the page
 # leads with, so the calculator reads the evidence the hero chart draws. When a
 # newer measurement takes the lead, this is the line that moves.
-HEADLINE = "report_2026_10_studio_qwen35_131k_outside"
+HEADLINE = "report_2026_10_laptop_131k"
 
 # Cloud cost per task: log-spaced values, plus the round figures a reader would try.
 GRID_LO, GRID_HI, GRID_POINTS = 0.10, 30.0, 24

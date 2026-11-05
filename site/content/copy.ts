@@ -13,8 +13,10 @@ export interface Dict {
   nav: { research: string; engine: string; install: string; github: string; label: string; updated: (date: string) => string };
   hero: { questionLabel: string; question: string; eyebrow: string; statement: string; sub: string; cta: string; more: string };
   standing: {
-    title: (n: number) => string;
-    caption: (n: number) => string;
+    title: string;
+    // n: the commits the settings rows share; own: the laptop run's share of
+    // them; versus: what the Studio resolved on that same share.
+    caption: (n: number, own: number, versus: number) => string;
     count: (k: number, n: number) => string;
     breakeven: (rate: string, price: string) => string;
     row: (model: string, rate: string, k: number, n: number, lo: string, hi: string) => string;
@@ -116,7 +118,10 @@ export interface Dict {
   outcomes: Record<string, string>;
   footnotesTitle: string;
   notes: {
-    standing: (a: { dates: string; machine: string; agent: string; artifact: string }) => string;
+    standing: (a: {
+      dates: string; machine: string; agent: string; artifact: string;
+      own: { dates: string; machine: string; limit: string; artifact: string };
+    }) => string;
     verdict: string;
     ref: (n: number) => string;
     source: [string, string, string];
@@ -168,16 +173,16 @@ const en: Dict = {
   hero: {
     questionLabel: "The question",
     question: "Should you keep paying for cloud coding AI, or run a model on your own machine?",
-    eyebrow: "Where local stands, October 2026",
+    eyebrow: "Where local stands, November 2026",
     statement: "For most people, the answer is still to keep paying for cloud.",
     sub: "Mahoraga measures local coding AI on real code, and this page is its log. Each attempt is graded by the repository's own tests, and every number here is recomputed from committed data.",
     cta: "Read the log",
     more: "See the engine",
   },
   standing: {
-    title: (n) => `Real commits resolved, out of ${n}`,
-    caption: (n) =>
-      `Each measured row is one setting on the same ${n} commits from more-itertools, click and attrs. Those rows ran on a Mac Studio with the laptop's exact model file for qwen3.5, and the laptop's own run is the last row.`,
+    title: "Real commits resolved",
+    caption: (n, own, versus) =>
+      `The first three rows are one setting each on the same ${n} commits from more-itertools, click and attrs, run on a Mac Studio with the laptop's exact model file for qwen3.5. The last row is the laptop's own run on the ${own} of those commits from more-itertools and attrs, and on the same ${own} the Studio resolved ${versus}.`,
     count: (k, n) => `${k} of ${n}`,
     breakeven: (rate, price) => `Local pays above ${rate} at ${price} a cloud task`,
     row: (model, rate, k, n, lo, hi) => `${model}: ${rate} resolved, ${k} of ${n} tasks, 95% interval ${lo} to ${hi}`,
@@ -200,7 +205,7 @@ const en: Dict = {
     tokens: (sent, recv, calls) => `About ${sent} tokens read and ${recv} written, over ${calls} model ${calls === 1 ? "call" : "calls"}`,
     machine: (machine, date) => `${machine}, the night of ${date}`,
     picked:
-      "This is the first task of the laptop's own run at 131k, which is still under way. It was picked by its position and not by its outcome, and one attempt says nothing about the rate.",
+      "This is the first task of the laptop's own run at 131k. It was picked by its position and not by its outcome, and one attempt says nothing about the rate.",
   },
   settings: {
     title: "Most of the gap was the context window.",
@@ -228,7 +233,7 @@ const en: Dict = {
     open: "Open the commit",
     commit: "Commit",
     advice:
-      "If you run a local agent, check its context window before you buy more memory. On a 16 GB laptop the larger window is much slower, and the run under way there will show whether it solves as many.",
+      "If you run a local agent, check its context window before you buy more memory. On a 16 GB laptop the larger window is much slower, but the laptop's own run solved about as many of the same commits as the Studio.",
   },
   log: {
     title: "Every result is in the log, and so is every correction.",
@@ -360,7 +365,7 @@ const en: Dict = {
   footnotesTitle: "Notes",
   notes: {
     standing: (a) =>
-      `The three measured rows ran from ${a.dates} on a ${a.machine}. Each used ${a.agent}, blind, with one attempt per task. Rates are task-weighted with a 95% Wilson interval over tasks (agentbench/stats.py), and CI recomputes them with orch bench verify from ${a.artifact}.`,
+      `The first three rows ran from ${a.dates} on a ${a.machine}, and the laptop's row ran from ${a.own.dates} on a ${a.own.machine} with ${a.own.limit} an attempt. Each used ${a.agent}, blind, with one attempt per task. Rates are task-weighted with a 95% Wilson interval over tasks (agentbench/stats.py), and CI recomputes them with orch bench verify from ${a.artifact} and ${a.own.artifact}.`,
     verdict:
       "The break-even line and the verdicts come from audit/verdict.py. Their assumptions are listed in the verdict section, and their prices are the dated observations in audit/pricing.json.",
     ref: (n) => `Note ${n}`,
@@ -413,16 +418,16 @@ const ja: Dict = {
   hero: {
     questionLabel: "問い",
     question: "クラウドのコーディング AI に払い続けるべきか、それとも自分のマシンでモデルを動かすべきか。",
-    eyebrow: "ローカルの現在地（2026 年 10 月）",
+    eyebrow: "ローカルの現在地（2026 年 11 月）",
     statement: "多くの人にとって、答えは今もクラウドに払い続けることです。",
     sub: "Mahoraga は実際のコードでローカルのコーディング AI を測り、このページはその記録です。各試行はそのリポジトリ自身のテストで採点し、ここにある数字はすべてコミット済みのデータから計算し直しています。",
     cta: "記録を読む",
     more: "エンジンを見る",
   },
   standing: {
-    title: (n) => `解決した実際のコミット（${n} 件中）`,
-    caption: (n) =>
-      `測定済みの各行は、more-itertools、click、attrs の同じ ${n} 件のコミットで、ひとつの設定を試した結果です。これらは Mac Studio で走らせたもので、qwen3.5 にはノートと同じモデルファイルを使いました。ノート自身の計測は最後の行です。`,
+    title: "解決した実際のコミット",
+    caption: (n, own, versus) =>
+      `上の 3 行は、more-itertools、click、attrs の同じ ${n} 件のコミットで、ひとつずつ設定を試した結果です。これらは Mac Studio で走らせたもので、qwen3.5 にはノートと同じモデルファイルを使いました。最後の行はノート自身の計測で、そのうち more-itertools と attrs の ${own} 件が対象です。同じ ${own} 件で、Studio は ${versus} 件を解決しました。`,
     count: (k, n) => `${n} 件中 ${k} 件`,
     breakeven: (rate, price) => `クラウドが 1 タスク ${price} なら、${rate} を超えると元が取れる`,
     row: (model, rate, k, n, lo, hi) => `${model}：解決率 ${rate}（${n} 件中 ${k} 件）、95% 区間 ${lo}〜${hi}`,
@@ -444,7 +449,7 @@ const ja: Dict = {
     minutes: (m) => `試行時間 ${m} 分`,
     tokens: (sent, recv, calls) => `モデル呼び出し ${calls} 回、読んだトークン約 ${sent}、書いたトークン約 ${recv}`,
     machine: (machine, date) => `${machine}、${date}の夜`,
-    picked: "ノート本体での 131k の計測（まだ進行中）から、結果ではなく順番で選んだ最初のタスクです。1 回の試行からは、解決率については何もわかりません。",
+    picked: "ノート本体での 131k の計測から、結果ではなく順番で選んだ最初のタスクです。1 回の試行からは、解決率については何もわかりません。",
   },
   settings: {
     title: "差の大半は、コンテキストウィンドウでした。",
@@ -474,7 +479,7 @@ const ja: Dict = {
     open: "コミットを開く",
     commit: "コミット",
     advice:
-      "ローカルのエージェントを使うなら、メモリを買い足す前に、コンテキストウィンドウを確かめてください。16 GB のノートでは大きなウィンドウはずっと遅く、同じだけ解けるかどうかは、いま進んでいるノート本体での計測でわかります。",
+      "ローカルのエージェントを使うなら、メモリを買い足す前に、コンテキストウィンドウを確かめてください。16 GB のノートでは大きなウィンドウはずっと遅くなりますが、ノート本体での計測は、同じコミットを Studio とほぼ同じ数だけ解きました。",
   },
   log: {
     title: "結果はすべて記録に残し、訂正もすべて残しています。",
@@ -640,7 +645,7 @@ const ja: Dict = {
   footnotesTitle: "注記",
   notes: {
     standing: (a) =>
-      `測定済みの 3 行は、${a.dates} に ${a.machine} で走らせたもので、どれも ${a.agent} をブラインドで使い、各タスク 1 試行でした。解決率はタスク単位で重み付けし、95% Wilson 区間はタスク数で数えています（agentbench/stats.py）。CI で orch bench verify が ${a.artifact} から計算し直しています。`,
+      `上の 3 行は ${a.dates} に ${a.machine} で、ノートの行は ${a.own.dates} に ${a.own.machine} で、1 試行 ${a.own.limit} で走らせたものです。どれも ${a.agent} をブラインドで使い、各タスク 1 試行でした。解決率はタスク単位で重み付けし、95% Wilson 区間はタスク数で数えています（agentbench/stats.py）。CI で orch bench verify が ${a.artifact} と ${a.own.artifact} から計算し直しています。`,
     verdict: "損益分岐点の線と判定は audit/verdict.py によるもので、前提は判定の節に載せた値、価格は audit/pricing.json の日付つきの観測値です。",
     ref: (n) => `注 ${n}`,
     source: ["数値の出典", "（コミット ", "）。"],

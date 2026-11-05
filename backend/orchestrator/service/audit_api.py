@@ -29,12 +29,12 @@ from typing import Any, Iterator
 from fastapi import APIRouter, HTTPException
 
 from ..agentbench import manifest, ollama
-from ..agentbench.agents import AGENTS
+from ..agentbench.agents import AGENTS, is_cloud_arm
 from ..agentbench.bank import Bench, Task, bench_root, find_benches
 from ..agentbench.report import ArmSummary, degraded_note, outcome, precision_plan, summarise
 from ..agentbench.runner import Attempt, load_attempts, load_degraded
 from ..audit import pricing
-from ..audit.evidence import from_benches
+from ..audit.evidence import cloud_from_benches, from_benches
 from ..audit.verdict import Assumptions, Billing, breakeven_rate, decide, render
 from ..version import package_version
 from . import audit_schemas as schemas
@@ -236,6 +236,7 @@ def list_benches() -> dict[str, Any]:
             "tasks": len(d.tasks), "dropped": len(_dropped(bench)),
             "attempts": len(d.attempts), "degraded": len(d.degraded),
             "arms": sorted({a.arm for a in d.attempts}),
+            "cloud_arms": sorted({a.arm for a in d.attempts if is_cloud_arm(a.arm)}),
             "conds": sorted({a.cond for a in d.attempts}),
             "runs": len(d.manifests),
             "last_activity": None if seen is None else _stamp(seen),
@@ -389,10 +390,11 @@ def verdict(req: schemas.VerdictRequest) -> dict[str, Any]:
     benches = _pick(req.benches)
     try:
         ev = from_benches(benches, req.arm, req.cond)
-        v = decide(ev, assumptions, billing)
+        cloud = (cloud_from_benches(benches, req.arm, req.cloud_arm, req.cond)
+                 if req.cloud_arm else None)
+        v = decide(ev, assumptions, billing, cloud)
     except ValueError as e:  # no attempts for this arm and condition, mixed tiers, or evidence v1 won't decide on
         raise HTTPException(status_code=409, detail=str(e)) from None
-    cloud_per_task = billing.monthly_usd / assumptions.tasks_per_month
     return {
         "call": v.call, "confident": v.confident, "reason": v.reason,
         "evidence": asdict(v.evidence),
@@ -400,8 +402,10 @@ def verdict(req: schemas.VerdictRequest) -> dict[str, Any]:
         "billing": asdict(v.billing),
         "monthly_usd": (None if v.monthly_usd is None
                         else dict(zip(("lo", "point", "hi"), v.monthly_usd))),
-        "breakeven": (breakeven_rate(ev, assumptions, cloud_per_task)
-                      if billing.kind == "api" else None),
+        "breakeven": (breakeven_rate(ev, assumptions, v.cloud_usd)
+                      if v.cloud_usd is not None else None),
+        "cloud": None if v.cloud is None else asdict(v.cloud),
+        "cloud_usd_per_task": v.cloud_usd,
         "sensitivity": v.sensitivity,
         "rendered": render(v),
     }

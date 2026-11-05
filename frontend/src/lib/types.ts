@@ -34,6 +34,8 @@ export interface BenchSummary {
   attempts: number;
   degraded: number;
   arms: string[];
+  /** The arms that ran a vendor's model, which can price a verdict's cloud side. */
+  cloud_arms: string[];
   conds: string[];
   runs: number;
   last_activity: string | null;
@@ -188,8 +190,21 @@ export interface VerdictRequest {
   benches: string[] | null;
   arm: string;
   cond: string;
+  /** A cloud arm run on the same tasks: prices each task local resolves at what it cost there. */
+  cloud_arm: string | null;
   billing: Billing;
   assumptions: Assumptions;
+}
+
+/** The cloud arm that priced a verdict, task by task against the local one. */
+export interface VerdictCloud {
+  label: string;
+  tasks: number;
+  resolved: number;
+  only_local: number;
+  usd_per_task: number;
+  usd_saved: number;
+  usd_rest: number;
 }
 
 export interface Evidence {
@@ -214,6 +229,9 @@ export interface Verdict {
   monthly_usd: { lo: number; point: number; hi: number } | null;
   /** API billing only: the resolve rate at which routing to local pays. */
   breakeven: number | null;
+  cloud: VerdictCloud | null;
+  /** API billing only: the cloud price per task the verdict used, measured or the bill's average. */
+  cloud_usd_per_task: number | null;
   sensitivity: string[];
   rendered: string;
 }

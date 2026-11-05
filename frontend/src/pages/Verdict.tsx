@@ -15,6 +15,8 @@ import { Empty, ErrorNote, PageHeader, Section, Stat } from "@/components/ui/lay
 interface Inputs {
   arm: string;
   cond: string;
+  /** A cloud arm whose attempts on the same tasks price the cloud side; null prices it by the bill. */
+  cloud_arm: string | null;
   billing: "api" | "subscription";
   monthly_usd: number;
   plan: string;
@@ -23,6 +25,7 @@ interface Inputs {
 }
 
 const DEFAULTS: Omit<Inputs, "arm" | "cond"> = {
+  cloud_arm: null,
   billing: "api",
   monthly_usd: 150,
   plan: "claude-max-5x",
@@ -55,7 +58,8 @@ function evidenceChoices(benches: BenchSummary[]) {
   const seen = new Map<string, { arm: string; cond: string; benches: number }>();
   for (const b of benches) {
     if (!b.attempts) continue;
-    for (const arm of b.arms)
+    // A cloud arm is the other side of the comparison, not local evidence.
+    for (const arm of b.arms.filter((a) => !b.cloud_arms.includes(a)))
       for (const cond of b.conds) {
         const k = `${arm} / ${cond}`;
         const e = seen.get(k) ?? { arm, cond, benches: 0 };
@@ -67,6 +71,13 @@ function evidenceChoices(benches: BenchSummary[]) {
   return [...seen.values()].sort(
     (a, b) => b.benches - a.benches || a.arm.localeCompare(b.arm) || (a.cond === "feedback" ? -1 : b.cond === "feedback" ? 1 : 0),
   );
+}
+
+/** The cloud arms that ran in this condition on some bench, to price the cloud side with. */
+function cloudChoices(benches: BenchSummary[], cond: string) {
+  const arms = new Set<string>();
+  for (const b of benches) if (b.conds.includes(cond)) for (const a of b.cloud_arms) arms.add(a);
+  return [...arms].sort();
 }
 
 export default function VerdictPage() {
@@ -81,14 +92,16 @@ export default function VerdictPage() {
     const q = new URLSearchParams(window.location.search);
     const asked = choices.find((c) => c.arm === q.get("arm") && c.cond === q.get("cond"));
     const valid = asked ?? choices.find((c) => c.arm === saved.arm && c.cond === saved.cond) ?? choices[0];
+    const clouds = cloudChoices(benches.data?.benches ?? [], valid.cond);
     setInputs({
       ...DEFAULTS,
       ...saved,
       assumptions: { ...DEFAULTS.assumptions, ...(saved.assumptions ?? {}) },
       arm: valid.arm,
       cond: valid.cond,
+      cloud_arm: saved.cloud_arm && clouds.includes(saved.cloud_arm) ? saved.cloud_arm : null,
     });
-  }, [choices, inputs]);
+  }, [choices, inputs, benches.data]);
   useEffect(() => {
     if (!inputs) return;
     try {
@@ -111,7 +124,10 @@ export default function VerdictPage() {
     setPending(true);
     const t = window.setTimeout(() => {
       api
-        .verdict({ benches: null, arm: inputs.arm, cond: inputs.cond, billing, assumptions: inputs.assumptions }, ctl.signal)
+        .verdict(
+          { benches: null, arm: inputs.arm, cond: inputs.cond, cloud_arm: inputs.cloud_arm, billing, assumptions: inputs.assumptions },
+          ctl.signal,
+        )
         .then((v) => {
           setVerdict(v);
           setVError(undefined);
@@ -145,6 +161,7 @@ export default function VerdictPage() {
   const setA = (patch: Partial<Inputs["assumptions"]>) =>
     setInputs((s) => (s ? { ...s, assumptions: { ...s.assumptions, ...patch } } : s));
   const i = inputs!;
+  const clouds = cloudChoices(benches.data?.benches ?? [], i.cond);
 
   return (
     <Page actions={verdict && <CopyButton text={verdict.rendered} label="Copy as text" />}>
@@ -167,7 +184,9 @@ export default function VerdictPage() {
               value={`${i.arm} / ${i.cond}`}
               onChange={(v) => {
                 const c = choices.find((x) => `${x.arm} / ${x.cond}` === v);
-                if (c) set({ arm: c.arm, cond: c.cond });
+                if (!c) return;
+                const keep = i.cloud_arm && cloudChoices(benches.data?.benches ?? [], c.cond).includes(i.cloud_arm);
+                set({ arm: c.arm, cond: c.cond, cloud_arm: keep ? i.cloud_arm : null });
               }}
               options={choices.map((c) => ({
                 value: `${c.arm} / ${c.cond}`,
@@ -187,9 +206,21 @@ export default function VerdictPage() {
             />
           </Field>
           {i.billing === "api" ? (
-            <Field label="Cloud spend per month" htmlFor="spend" hint={`${usd(i.monthly_usd / Math.max(1, i.assumptions.tasks_per_month), 2)} a task`}>
-              <NumberInput id="spend" value={i.monthly_usd} onChange={(v) => set({ monthly_usd: v })} min={1} max={100000} step={10} prefix="$" />
-            </Field>
+            <>
+              <Field label="Cloud spend per month" htmlFor="spend" hint={`${usd(i.monthly_usd / Math.max(1, i.assumptions.tasks_per_month), 2)} a task`}>
+                <NumberInput id="spend" value={i.monthly_usd} onChange={(v) => set({ monthly_usd: v })} min={1} max={100000} step={10} prefix="$" />
+              </Field>
+              {clouds.length > 0 && (
+                <Field label="Price a cloud task by" htmlFor="cloud" hint="a cloud arm prices the tasks local solves at what they cost it">
+                  <Select
+                    id="cloud"
+                    value={i.cloud_arm ?? ""}
+                    onChange={(v) => set({ cloud_arm: v || null })}
+                    options={[{ value: "", label: "Your bill's average" }, ...clouds.map((a) => ({ value: a, label: a }))]}
+                  />
+                </Field>
+              )}
+            </>
           ) : (
             <PlanFields plans={pricing.data?.plans ?? []} inputs={i} set={set} setA={setA} />
           )}
@@ -245,6 +276,13 @@ export default function VerdictPage() {
             {verdict.evidence.label}, graded {verdict.evidence.tier}. {verdict.evidence.hardware}{" "}
             <Link to="/repositories">See the tasks behind it</Link>.
           </p>
+          {verdict.cloud && (
+            <p className="prose">
+              {verdict.cloud.label} resolved {verdict.cloud.resolved} of the {plural(verdict.cloud.tasks, "task")} both
+              arms ran, at {usd(verdict.cloud.usd_per_task, 2)} a task, which was {usd(verdict.cloud.usd_saved, 2)} on the
+              ones local resolved and {usd(verdict.cloud.usd_rest, 2)} on the rest.
+            </p>
+          )}
         </Section>
       )}
     </Page>
@@ -269,9 +307,15 @@ const MEANS: Record<V["call"], string> = {
 
 function VerdictBody({ v, error }: { v: V; error?: EngineError }) {
   const r = v.evidence.rate;
+  const price =
+    v.cloud_usd_per_task == null
+      ? undefined
+      : v.cloud
+        ? `${usd(v.cloud_usd_per_task, 2)} a cloud task (what ${v.cloud.label} spent on the tasks local resolved)`
+        : `${usd(v.cloud_usd_per_task, 2)} a cloud task`;
   const note =
-    v.breakeven != null
-      ? `At ${usd(v.billing.monthly_usd / v.assumptions.tasks_per_month, 2)} a cloud task, local pays once it resolves at least ${pct(Math.min(v.breakeven, 1))} of the tasks you queue for it, after electricity and the time a failed attempt costs you.`
+    v.breakeven != null && price
+      ? `At ${price}, local pays once it resolves at least ${pct(Math.min(v.breakeven, 1))} of the tasks you queue for it, after electricity and the time a failed attempt costs you.`
       : undefined;
   return (
     <>

@@ -59,12 +59,13 @@ from ...routing.benchmark.verify import (  # noqa: E402
     render_verification,
     verify_claims,
 )
+from backend.orchestrator import paths
 
 _PROJECT_ROOT = Path(__file__).resolve().parents[4]
 DEFAULT_VERIFY_BANK = _PROJECT_ROOT / "experiments" / "prompts_verifiable.jsonl"
 DEFAULT_HUMANEVAL_BANK = _PROJECT_ROOT / "experiments" / "prompts_humaneval_plus.jsonl"
 DEFAULT_AGENTS_YAML = _PROJECT_ROOT / "agents.yaml"
-DEFAULT_DECISIONS_DB = Path.home() / ".mahoraga-v2" / "routing_decisions.db"
+DEFAULT_DECISIONS_DB = paths.home() / "routing_decisions.db"
 
 
 DEFAULT_AGENTS = [

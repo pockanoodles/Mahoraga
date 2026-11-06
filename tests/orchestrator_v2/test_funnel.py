@@ -120,6 +120,18 @@ def test_hook_exits_zero_on_any_input(payload, tmp_path, monkeypatch):
     assert proc.returncode == 0, proc.stderr
 
 
+def test_hook_follows_mahoraga_home(tmp_path):
+    """The hook writes the rule in paths.home() out, since it runs without the package."""
+    proc = subprocess.run(
+        [sys.executable, str(_HOOK_PATH)],
+        input=json.dumps(_write_payload()), capture_output=True, text=True,
+        env={"HOME": str(tmp_path), "MAHORAGA_HOME": str(tmp_path / "state"), "PATH": "/usr/bin:/bin"},
+    )
+    assert proc.returncode == 0, proc.stderr
+    assert (tmp_path / "state" / "funnel.jsonl").is_file()
+    assert not (tmp_path / ".mahoraga-v2").exists()
+
+
 def test_hook_appends_a_line_to_the_log(tmp_path):
     proc = subprocess.run(
         [sys.executable, str(_HOOK_PATH)],

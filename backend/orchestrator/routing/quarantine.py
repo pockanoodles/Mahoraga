@@ -38,10 +38,11 @@ from pathlib import Path
 from typing import Optional
 
 from .drift_detector import DriftAlert
+from backend.orchestrator import paths
 
 _log = logging.getLogger(__name__)
 
-QUARANTINE_STATE_PATH = Path.home() / ".mahoraga-v2" / "quarantine.json"
+QUARANTINE_STATE_PATH = paths.home() / "quarantine.json"
 
 DEFAULT_PROBE_INTERVAL = 50
 DEFAULT_AUTO_RELEASE = 3

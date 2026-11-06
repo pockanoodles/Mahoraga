@@ -8,8 +8,9 @@ from .artifacts import ArtifactStore
 from .events import EventStore
 from .chat_log import ChatLogStore
 from .metrics import MetricsStore
+from backend.orchestrator import paths
 
-DEFAULT_DB_PATH = Path.home() / ".mahoraga-v2" / "mahoraga.db"
+DEFAULT_DB_PATH = paths.home() / "mahoraga.db"
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS missions (

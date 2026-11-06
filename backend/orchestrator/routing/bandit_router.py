@@ -19,9 +19,11 @@ from typing import TYPE_CHECKING, Any, Optional
 
 import numpy as np
 
+from backend.orchestrator import paths
+
 _log = logging.getLogger(__name__)
 
-TUNED_HYPERPARAMS_PATH = Path.home() / ".mahoraga-v2" / "tuned_hyperparams.json"
+TUNED_HYPERPARAMS_PATH = paths.home() / "tuned_hyperparams.json"
 
 from .context import TaskContext
 from .reward import RewardCalculator, TaskOutcome
@@ -52,7 +54,7 @@ from ..config import MahoragaConfig
 if TYPE_CHECKING:
     from ..adapters.registry import AdapterRegistry
 
-BANDIT_STATE_PATH = Path.home() / ".mahoraga-v2" / "bandit_state.json"
+BANDIT_STATE_PATH = paths.home() / "bandit_state.json"
 
 # Memory-mode feature flag (locked design decision #8). Resolved per-call so
 # that env / config changes take effect without restart. Values:

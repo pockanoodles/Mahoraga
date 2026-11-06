@@ -8,7 +8,7 @@ idle or memory gate, and started qwen3.5 at 131k while its owner worked with
 working-set limit, not free memory), wired memory reached 14.2 of 16 GB,
 WindowServer starved for two minutes, and the watchdog panicked the kernel.
 
-~/.mahoraga-v2/machine.json, every key optional:
+machine.json in the state directory (paths.home()), every key optional:
 
   wait_idle_min   start no attempt until nobody has touched the machine for
                   this many minutes
@@ -34,7 +34,9 @@ import json
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
-PATH = Path.home() / ".mahoraga-v2" / "machine.json"
+from backend.orchestrator import paths
+
+PATH = paths.home() / "machine.json"
 
 
 @dataclass(frozen=True)

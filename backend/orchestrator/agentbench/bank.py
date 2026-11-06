@@ -7,14 +7,16 @@ import os
 import re
 from dataclasses import MISSING, Field, asdict, dataclass, field
 from pathlib import Path
+from backend.orchestrator import paths
 
-DEFAULT_ROOT = Path.home() / ".mahoraga-v2" / "agentbench"
+DEFAULT_ROOT = paths.home() / "agentbench"
 
 _HASH_SUFFIX = re.compile(r"-[0-9a-f]{8}$")
 
 
 def bench_root() -> Path:
-    """Where benches live: $MAHORAGA_AGENTBENCH_ROOT, else ~/.mahoraga-v2/agentbench."""
+    """Where benches live: $MAHORAGA_AGENTBENCH_ROOT, else agentbench/ in the state
+    directory (paths.home())."""
     return Path(os.environ.get("MAHORAGA_AGENTBENCH_ROOT", DEFAULT_ROOT))
 
 

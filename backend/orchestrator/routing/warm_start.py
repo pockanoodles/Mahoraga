@@ -6,14 +6,14 @@ Based on PILOT (Panda et al., EMNLP 2025): injecting benchmark pseudo-observatio
 as A+=λ·xxᵀ, b+=λ·r·x reduces early regret by Ω(‖θ*−θ_prior‖²).
 """
 from __future__ import annotations
-from pathlib import Path
 import json
 import numpy as np
 
 from .vocab import BUCKETS
+from backend.orchestrator import paths
 
-COMPATIBILITY_MATRIX_PATH = Path.home() / ".mahoraga-v2" / "compatibility_matrix.json"
-TUNED_HYPERPARAMS_PATH    = Path.home() / ".mahoraga-v2" / "tuned_hyperparams.json"
+COMPATIBILITY_MATRIX_PATH = paths.home() / "compatibility_matrix.json"
+TUNED_HYPERPARAMS_PATH    = paths.home() / "tuned_hyperparams.json"
 
 
 # Dims: word_count_norm, code_kw_density, is_question, complexity_tier,

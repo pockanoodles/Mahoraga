@@ -27,8 +27,9 @@ from dataclasses import dataclass, asdict, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
+from backend.orchestrator import paths
 
-DEFAULT_DB_PATH = Path.home() / ".mahoraga-v2" / "routing_decisions.db"
+DEFAULT_DB_PATH = paths.home() / "routing_decisions.db"
 
 # Rolling window sizes for the three reporting horizons.
 ROLLING_100 = 100

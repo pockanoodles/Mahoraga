@@ -32,7 +32,9 @@ import os
 from datetime import datetime, timezone
 from pathlib import Path
 
-LOG_PATH = Path.home() / ".mahoraga-v2" / "funnel.jsonl"
+# backend/orchestrator/paths.py's rule (MAHORAGA_HOME, else ~/.mahoraga-v2),
+# written out for the reason above.
+LOG_PATH = Path(os.environ.get("MAHORAGA_HOME") or Path.home() / ".mahoraga-v2").expanduser().absolute() / "funnel.jsonl"
 
 # Read by funnel_report.compute_funnel. Not an "inline" or "delegated" event,
 # so it never touches the numerator or the denominator — it only says whether

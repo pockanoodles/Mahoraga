@@ -12,9 +12,10 @@ from pathlib import Path
 from typing import Optional
 
 from .reward import TaskOutcome
+from backend.orchestrator import paths
 
 
-_DEFAULT_DB_PATH = Path.home() / ".mahoraga-v2" / "routing_decisions.db"
+_DEFAULT_DB_PATH = paths.home() / "routing_decisions.db"
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS decisions (

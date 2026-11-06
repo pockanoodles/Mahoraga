@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Optional
 
 import numpy as np
+from backend.orchestrator import paths
 
 try:
     from .oracle import AGENTS, Oracle, Task
@@ -30,7 +31,7 @@ except ImportError:
     from oracle import AGENTS, Oracle, Task  # type: ignore[no-redef]
 
 RESULTS_DIR = Path(__file__).parent / "results"
-TUNED_HYPERPARAMS_PATH = Path.home() / ".mahoraga-v2" / "tuned_hyperparams.json"
+TUNED_HYPERPARAMS_PATH = paths.home() / "tuned_hyperparams.json"
 
 # ── Sweep grid ─────────────────────────────────────────────────────────────
 ALPHA_GRID: list[float]    = [0.5, 1.0, 1.5, 2.0]

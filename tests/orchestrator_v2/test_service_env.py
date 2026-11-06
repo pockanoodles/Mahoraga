@@ -87,6 +87,14 @@ def test_home_is_passed_through(monkeypatch, tmp_path):
     assert service._build_environment()["HOME"] == str(Path.home())
 
 
+def test_mahoraga_home_is_passed_through_when_set(monkeypatch, tmp_path):
+    """The daemon has to find the same state the shell that installed it does."""
+    monkeypatch.setattr(service, "_SERVICE_ENV_FILE", tmp_path / "absent.env")
+    assert "MAHORAGA_HOME" not in service._build_environment()
+    monkeypatch.setenv("MAHORAGA_HOME", str(tmp_path / "state"))
+    assert service._build_environment()["MAHORAGA_HOME"] == str(tmp_path / "state")
+
+
 # ── plist rendering ──────────────────────────────────────────────────────────
 
 

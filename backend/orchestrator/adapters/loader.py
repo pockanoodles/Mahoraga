@@ -25,6 +25,7 @@ from .goose_adapter import GooseAdapter
 from ..config import ollama_base_url
 from ..workers.base import WorkerAdapter
 from ..workers.ollama import OllamaWorker
+from backend.orchestrator import paths
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +46,7 @@ def agents_yaml() -> Path:
     env = os.environ.get("MAHORAGA_AGENTS_YAML")
     if env:
         return Path(env)
-    for candidate in (Path.home() / ".mahoraga-v2" / "agents.yaml", _CHECKOUT_CONFIG):
+    for candidate in (paths.home() / "agents.yaml", _CHECKOUT_CONFIG):
         if candidate.exists():
             return candidate
     return _PACKAGED_CONFIG

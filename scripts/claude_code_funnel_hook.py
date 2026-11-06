@@ -44,7 +44,9 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-LOG_PATH = Path.home() / ".mahoraga-v2" / "funnel.jsonl"
+# backend/orchestrator/paths.py's rule, written out: this hook runs under
+# Claude Code's interpreter, which may not have the package installed.
+LOG_PATH = Path(os.environ.get("MAHORAGA_HOME") or Path.home() / ".mahoraga-v2").expanduser().absolute() / "funnel.jsonl"
 
 # What Mahoraga's local arms can actually take on. These bounds are the
 # definition of "candidate", so they are named, not inlined: a delegation rate

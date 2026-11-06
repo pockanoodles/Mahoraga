@@ -1,6 +1,8 @@
 // Where Mahoraga can be installed from. A channel shows its command as live
 // only once it really works: flip `live` in the release that publishes it,
-// never before (the release checklist in site/README.md says when).
+// never before (the release checklist in site/README.md says when). `launch`
+// marks the channels the first release publishes (PyPI, through uv, pipx and
+// pip). The others come after it, each once it has its own smoke test.
 //
 // The PyPI name is not "mahoraga": that name belongs to an unrelated project
 // (hingebase/mahoraga, a reverse proxy for Python mirrors). The command a user
@@ -16,13 +18,14 @@ export interface Channel {
   platforms: { en: string; ja: string };
   cmd: string;
   live: boolean;
+  launch: boolean;
 }
 
 export const CHANNELS: Channel[] = [
-  { id: "brew", name: "Homebrew", platforms: { en: "macOS, Linux", ja: "macOS、Linux" }, cmd: `brew install ${TAP}/mahoraga`, live: false },
-  { id: "uv", name: "uv", platforms: { en: "macOS, Linux", ja: "macOS、Linux" }, cmd: `uv tool install ${PYPI}`, live: false },
-  { id: "pipx", name: "pipx", platforms: { en: "macOS, Linux", ja: "macOS、Linux" }, cmd: `pipx install ${PYPI}`, live: false },
-  { id: "pip", name: "pip", platforms: { en: "Python 3.12 or newer", ja: "Python 3.12 以降" }, cmd: `pip install ${PYPI}`, live: false },
+  { id: "uv", name: "uv", platforms: { en: "macOS, Linux", ja: "macOS、Linux" }, cmd: `uv tool install ${PYPI}`, live: false, launch: true },
+  { id: "pipx", name: "pipx", platforms: { en: "macOS, Linux", ja: "macOS、Linux" }, cmd: `pipx install ${PYPI}`, live: false, launch: true },
+  { id: "pip", name: "pip", platforms: { en: "Python 3.12 or newer", ja: "Python 3.12 以降" }, cmd: `pip install ${PYPI}`, live: false, launch: true },
+  { id: "brew", name: "Homebrew", platforms: { en: "macOS, Linux", ja: "macOS、Linux" }, cmd: `brew install ${TAP}/mahoraga`, live: false, launch: false },
   {
     id: "docker",
     name: "Docker",
@@ -30,6 +33,7 @@ export const CHANNELS: Channel[] = [
     // 127.0.0.1 only: the server has no login, so it must not face the network.
     cmd: `docker run --rm -p 127.0.0.1:8000:8000 ${IMAGE}`,
     live: false,
+    launch: false,
   },
   {
     id: "source",
@@ -38,11 +42,13 @@ export const CHANNELS: Channel[] = [
     platforms: { en: "CLI and API, no app", ja: "CLI と API のみ" },
     cmd: `uv tool install git+${GIT}`,
     live: true,
+    launch: true,
   },
 ];
 
-/** What to run after installing, in order. */
-export const FIRST_STEPS = ["ollama pull qwen3.5:latest", "mahoraga demo", "mahoraga audit mine ~/code/your-repo"];
+/** What to run after installing, in order: the model the log measures, then a
+ *  night's run that leaves the verdict in a morning file (`audit tonight`). */
+export const FIRST_STEPS = ["ollama pull qwen3.5:latest", "mahoraga audit tonight ~/code/your-repo"];
 
 /** Set to a GitHub Sponsors (or Ko-fi, Liberapay) URL once one is set up. */
 export const SPONSOR_URL: string | null = null;

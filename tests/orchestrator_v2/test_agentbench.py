@@ -35,10 +35,11 @@ from backend.orchestrator.agentbench.mine import (
 from backend.orchestrator.agentbench.grade import TEST_VERIFIED, Grade
 from backend.orchestrator.agentbench.guard import Guard
 from backend.orchestrator.agentbench.stats import plan, task_rate, tasks_needed, wilson
-from backend.orchestrator.agentbench.host import Power, parse_idle, parse_power, parse_sysctl_int
+from backend.orchestrator.agentbench.host import (Power, parse_idle, parse_power, parse_sysctl_int,
+                                                  parse_wired)
 from backend.orchestrator.agentbench.report import outcome, render, summarise
 from backend.orchestrator.agentbench.runner import (
-    arm_name, load_attempts, load_degraded, prompt_for, run_attempt, run_matrix,
+    arm_name, load_attempts, load_degraded, prompt_for, run_attempt, run_matrix, without_trailers,
 )
 from backend.orchestrator.cli.commands.agentbench import app as agentbench_app, parse_until
 
@@ -281,6 +282,27 @@ def test_feedback_condition_passes_the_target_test_command(mined, config, repo):
 def test_prompt_carries_message_and_test_files_but_no_source_paths(mined, repo):
     p = prompt_for(_task(mined, repo))
     assert "feat: add mul" in p and "tests/test_mul.py" in p and "calc/ops.py" not in p
+
+
+def test_a_prompt_leaves_out_the_commit_trailers(mined, repo):
+    body = ("Use the faster path.\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>\n"
+            "Signed-off-by: A Person\n  <a@example.com>")
+    p = prompt_for(dataclasses.replace(_task(mined, repo), body=body))
+    assert "Use the faster path." in p and "Co-authored-by" not in p and "Signed-off-by" not in p
+
+
+def test_only_the_lines_that_say_who_wrote_a_change_leave():
+    why = "Fix the cache.\n\nWhy: the old key ignored the arm."
+    assert without_trailers(why) == why
+    assert without_trailers("Fix it.\n\nFixes: #12\nCo-authored-by: A <a@example.com>") == \
+        "Fix it.\n\nFixes: #12"
+    assert without_trailers("Fix it.\n\n\U0001f916 Generated with [Claude Code](https://claude.com)"
+                            "\n\nCo-Authored-By: Claude <noreply@anthropic.com>") == "Fix it."
+    assert without_trailers("Fix it.\r\n \r\nCo-authored-by: A <a@example.com>\r\n") == "Fix it."
+    protoc = "Regenerate the stubs.\n\nGenerated with protoc 28.2; use --python_out=src."
+    assert without_trailers(protoc) == protoc
+    assert without_trailers("Co-authored-by: A <a@example.com>") == ""
+    assert without_trailers("") == ""
 
 
 # ── Resume, artifacts, report ─────────────────────────────────────────────────
@@ -694,6 +716,7 @@ class FakeMachine:
 
 def _guard(tmp_path, machine, **kw) -> Guard:
     kw.setdefault("sleep", lambda s: None)
+    kw.setdefault("pressure", lambda: None)
     return Guard(tmp_path / "guard", power=machine.power, idle=lambda: machine.idle,
                  speed=machine.speed, pulled=lambda: {"m:latest": "sha256:0123456789abcdef"},
                  sample_every=0.01, **kw)
@@ -1019,15 +1042,15 @@ def test_opencode_arm():
 
 def test_an_agent_timeout_kills_its_children(tmp_path):
     from backend.orchestrator.agentbench.agents import _launch
-    pidfile = tmp_path / "child.pid"
-    script = f"sleep 60 & echo $! > {pidfile}; wait"
+    # Found by a command line nothing else has: under bubblewrap the child has
+    # its own pid namespace, so a pid it reports means nothing out here.
+    naps = f"{60 + time.time_ns() % 1000 / 1000:.3f}"
+    script = f"sleep {naps} & wait"
     out, timed_out, secs = _launch(["sh", "-c", script], tmp_path, {"PATH": "/bin:/usr/bin"}, 1)
     assert timed_out and secs < 10
-    child = int(pidfile.read_text())
-    time.sleep(0.2)
-    with pytest.raises(ProcessLookupError):
-        import os
-        os.kill(child, 0)
+    time.sleep(0.5)
+    alive = subprocess.run(["pgrep", "-f", f"sleep {naps}"], capture_output=True, text=True)
+    assert alive.stdout.strip() == ""
 
 
 _macos_sandbox = pytest.mark.skipif(
@@ -1094,7 +1117,9 @@ def test_confinement_hides_the_repo_and_bench_but_not_the_test_venv(mined, repo,
     hidden, readable = confinement(mined, inside)
     assert hidden == [repo["path"].resolve(), mined.dir.parent.resolve()]
     assert readable == [(repo["path"] / ".venv").resolve()]
-    assert confinement(mined, SuiteConfig(python=sys.executable))[1] == []
+    # Named wherever it lives: an agent that hides more still runs the tests.
+    elsewhere = Path(sys.executable).parent.parent.resolve()
+    assert confinement(mined, SuiteConfig(python=sys.executable))[1] == [elsewhere]
 
 
 # ── The queue ─────────────────────────────────────────────────────────────────
@@ -1296,31 +1321,235 @@ def test_a_low_reading_after_the_attempt_does_not_void_it(tmp_path):
     assert watch.degraded == [] and mem.stops == 0
 
 
+# ── The owner's laptop: load room, idle, yield ───────────────────────────────
+
+
+def _laptop(mem: FakeMemory, **kw) -> dict:
+    """16 GiB, 11 GiB to load, 15 idle minutes, yields to its owner."""
+    return {**mem.kw(floor=None), "mem_total": lambda: 16 << 30, "load_room": 11 << 30,
+            "wait_idle": 900, "yield_to_owner": True, **kw}
+
+
+def test_the_model_does_not_load_without_room(tmp_path):
+    # 2026-10-29: ~9 GB of apps open, qwen3.5@131k loaded on top, kernel panic.
+    mem = FakeMemory(free=40)                     # 6.4 of 16 GiB
+    g, agent = _guard(tmp_path, FakeMachine(), **_laptop(mem)), FakeAgent("m")
+    assert g.problems(agent) == ["memory: 6.4 GB for m, under the 11 GB it needs"]
+    mem.free = 70                                 # 11.2 GiB
+    assert g.problems(agent) == []
+    mem.free, mem.loaded = 5, {"m:latest": 10.5 * 2**30}
+    assert g.problems(agent) == []                # loaded: 0.8 + the 10.5 it holds
+
+
+def test_a_small_copy_of_the_model_is_not_room_to_load_it_large(tmp_path):
+    # The router keeps qwen3.5 loaded at its default context; a 131k load
+    # replaces that copy and frees only what it held.
+    mem = FakeMemory(free=40)
+    mem.loaded = {"m:latest": 2 << 30}
+    g, agent = _guard(tmp_path, FakeMachine(), **_laptop(mem)), FakeAgent("m")
+    assert g.problems(agent) == ["memory: 8.4 GB for m, under the 11 GB it needs"]
+
+
+def test_preflight_does_not_load_the_model_on_a_busy_machine(tmp_path):
+    m, mem = FakeMachine(), FakeMemory(free=40)
+    probes = []
+    m.speed = lambda model, num_ctx: probes.append(model) or 30.0
+    [check] = [c for c in _guard(tmp_path, m, **_laptop(mem)).preflight([FakeAgent("m")])
+               if c.name == "m"]
+    assert not check.ok and check.waits and "6.4 GB for m" in check.detail
+    mem.free, m.idle = 80, 30
+    [check] = [c for c in _guard(tmp_path, m, **_laptop(mem)).preflight([FakeAgent("m")])
+               if c.name == "m"]
+    assert check.waits and "in use (idle 30s" in check.detail
+    assert probes == []                           # a probe is a load
+
+
+def test_waiting_for_the_owner_to_leave_unloads_the_model(tmp_path):
+    m, mem = FakeMachine(), FakeMemory(free=80)
+    mem.loaded = {"m:latest": 10 << 30}
+    m.idle = 5
+
+    def sleep(_):  # the owner goes to bed
+        m.idle = 3600
+
+    g = _guard(tmp_path, m, sleep=sleep, **_laptop(mem))
+    assert g.wait_ready(FakeAgent("m"))
+    assert mem.released == ["m:latest"]
+
+
+def test_the_owner_coming_back_stops_the_attempt_and_gives_it_back(tmp_path):
+    m, mem = FakeMachine(), FakeMemory(free=30)
+    mem.loaded = {"m:latest": 10 << 30}
+    probes = []
+    m.speed = lambda model, num_ctx: probes.append(model) or 30.0
+    g, agent = _guard(tmp_path, m, pressure=lambda: 2, **_laptop(mem)), FakeAgent("m")
+    with g.watch(agent) as watch:
+        m.idle = 3                                # a key pressed
+        deadline = time.time() + 5
+        while not mem.stops and time.time() < deadline:
+            time.sleep(0.01)
+    assert mem.stops == 1 and mem.released == ["m:latest"]
+    assert watch.degraded == ["the machine was used 3s ago; stopped the attempt and "
+                              "unloaded the model to give it back"]
+    assert probes == []
+    assert watch.conditions["max_pressure"] == 2
+
+
+def test_an_attempt_given_back_before_it_starts_never_starts(mined, repo, config, tmp_path):
+    m, mem = FakeMachine(), FakeMemory(free=80)
+    m.idle = 2                                    # back between the gate and the start
+    agent = FakeAgent("m", apply_gold)
+    a = run_attempt(mined, config, _task(mined, repo), agent, "blind",
+                    guard=_guard(tmp_path, m, **_laptop(mem)))
+    assert agent.calls == []
+    assert a.degraded and a.degraded[0].startswith("the machine was used 2s ago")
+    assert not load_attempts(mined)               # not counted; the cell stays open
+
+
+def test_an_untouched_machine_keeps_its_attempt(tmp_path):
+    mem = FakeMemory(free=30)
+    g, agent = _guard(tmp_path, FakeMachine(), **_laptop(mem)), FakeAgent("m")
+    with g.watch(agent) as watch:
+        time.sleep(0.05)
+    assert watch.degraded == [] and mem.stops == 0
+
+
+def test_parse_wired():
+    out = ("Mach Virtual Memory Statistics: (page size of 16384 bytes)\n"
+           "Pages free:                                    70065.\n"
+           "Pages wired down:                             129704.\n")
+    assert parse_wired(out) == 129704 * 16384
+    assert parse_wired("") is None
+
+
+def _panic_watch(tmp_path, readings, line=13.5):
+    """An untouched laptop's attempt, one sample per (pressure, wired GiB)
+    reading; the closing sample repeats the last."""
+    feed, now = iter(readings), dict(zip("pw", readings[0]))
+
+    def pressure():
+        now["p"], now["w"] = next(feed, (now["p"], now["w"]))
+        return now["p"]
+
+    mem = FakeMemory(free=30)
+    mem.loaded = {"m:latest": 10 << 30}
+    g = _guard(tmp_path, FakeMachine(), pressure=pressure,
+               wired=lambda: None if now["w"] is None else int(now["w"] * 2**30),
+               panic_wired=int(line * 2**30), **_laptop(mem))
+    g.sample_every = 60                           # samples come only from the loop below
+    watching = g.watch(FakeAgent("m"))
+    with watching as watch:                       # the opening sample takes the first
+        for _ in readings[1:]:
+            watching._sample()
+    return watch, mem
+
+
+def test_critical_pressure_alone_does_not_stop_an_attempt(tmp_path):
+    # 2026-10-30: two untouched attempts hit critical at ~11.3 GB wired and finished
+    watch, mem = _panic_watch(tmp_path, [(4, 11.3)] * 6)
+    assert watch.degraded == [] and mem.stops == 0
+    assert watch.conditions["max_pressure"] == 4 and watch.conditions["max_wired_gb"] == 11.3
+
+
+def test_critical_pressure_with_wired_over_the_line_stops_the_attempt(tmp_path):
+    # 2026-10-29's panic: wired reached 14.2 of 16 GB
+    watch, mem = _panic_watch(tmp_path, [(2, 12.0), (4, 14.2), (4, 14.2)])
+    assert mem.stops == 1 and mem.released == ["m:latest"]
+    assert watch.degraded == ["memory pressure critical with 14.2 GB wired, over the 13.5 GB "
+                              "panic line, 2 readings in a row; stopped the attempt and "
+                              "unloaded the model to give it back"]
+
+
+def test_one_reading_at_the_panic_signature_is_not_enough(tmp_path):
+    watch, mem = _panic_watch(tmp_path, [(4, 14.2), (4, 11.5), (4, 14.0), (2, 14.0)])
+    assert watch.degraded == [] and mem.stops == 0
+
+
+def test_a_missed_wired_reading_breaks_the_run(tmp_path):
+    # vm_stat timing out between two spikes doesn't make them two in a row
+    watch, mem = _panic_watch(tmp_path, [(4, 14.2), (2, None), (4, 14.2), (2, 12.0)])
+    assert watch.degraded == [] and mem.stops == 0
+
+
+def test_yielding_needs_an_idle_wait(tmp_path):
+    with pytest.raises(ValueError, match="idle wait"):
+        _guard(tmp_path, FakeMachine(), yield_to_owner=True)
+
+
+def test_machine_terms(tmp_path):
+    from backend.orchestrator.agentbench import machine
+    path = tmp_path / "machine.json"
+    assert machine.load(path) == machine.Terms()  # no file, no terms
+    assert machine.Terms().guard_kw() == {"wait_idle": 0, "load_room": None,
+                                          "yield_to_owner": False, "memory_floor": None,
+                                          "panic_wired": None}
+    path.write_text(json.dumps({"wait_idle_min": 15, "load_room_gb": 11, "yield_to_owner": True,
+                                "panic_wired_gb": 13.5}))
+    terms = machine.load(path)
+    assert terms.guard_kw() == {"wait_idle": 900, "load_room": 11 << 30,
+                                "yield_to_owner": True, "memory_floor": None,
+                                "panic_wired": int(13.5 * 2**30)}
+    path.write_text(json.dumps({"load_room": 11}))   # a typo must not mean no terms
+    with pytest.raises(ValueError, match="load_room"):
+        machine.load(path)
+    path.write_text("{")
+    with pytest.raises(ValueError):
+        machine.load(path)
+
+
+def test_the_worker_runs_on_the_machine_s_terms(mined, tmp_path):
+    from backend.orchestrator.agentbench import machine
+    q = Queue(mined.dir.parent)
+    q.add(str(mined.repo), ["fake:m"], "blind", pinned=PIN)
+    seen = {}
+
+    def guard(root, **kw):
+        seen.update(kw)
+        return _guard(tmp_path, FakeMachine(), **kw, free_pct=lambda: 90,
+                      mem_total=lambda: 16 << 30, sizes=lambda: {})
+
+    terms = machine.Terms(wait_idle_min=15, load_room_gb=11, yield_to_owner=True)
+    [job] = q.jobs()
+    run_job(q, job, None, pulled=lambda: {"m:latest": PIN["m"]}, guard=guard,
+            agents_for=lambda arms: [FakeAgent("m", apply_gold)],
+            which=lambda name: "/bin/" + name, isolated=lambda bench, config: [],
+            terms=terms, log=lambda msg: None)
+    assert seen["wait_idle"] == 900 and seen["load_room"] == 11 << 30
+    assert seen["yield_to_owner"] is True
+
+
 # ── Isolation canary ──────────────────────────────────────────────────────────
 
 
 @pytest.mark.skipif(sys.platform != "darwin", reason="sandbox-exec is macOS-only")
 def test_the_canary_passes_on_a_sealed_sandboxed_bench(mined, config):
     from backend.orchestrator.agentbench import isolation
-    checks = isolation.check(mined, config)
+    # Told the harness can reach out, so the network probe runs: the sandbox
+    # refuses it before anything leaves, network or none.
+    checks = isolation.check(mined, config, reach_outside=lambda: True)
     assert [c.name for c in checks] == ["isolation: history", "isolation: source",
-                                        "isolation: bench", "isolation: log"]
+                                        "isolation: bench", "isolation: log",
+                                        "isolation: network"]
     assert all(c.ok for c in checks), checks
 
 
 def test_the_canary_fails_when_isolation_is_broken(mined, repo, config):
     from backend.orchestrator.agentbench import isolation
-    from backend.orchestrator.agentbench.agents import _launch
 
-    def unsandboxed(cmd, cwd, env, timeout, *writable, hidden=(), readable=()):
-        return _launch(cmd, cwd, env, timeout)  # hides nothing
+    def unsandboxed(cmd, cwd, env, timeout, *writable, hidden=(), readable=(), ports=None):
+        # No sandbox at all: on Linux `_launch` always has one, with /tmp private.
+        out = subprocess.run(cmd, cwd=cwd, env=env, capture_output=True, text=True,
+                             timeout=timeout)
+        return out.stdout + out.stderr, False, 0.0
 
     [task] = mined.load_tasks()
     task.base = _unsealed(mined, repo, repo["shas"]["mul"])
     mined.save_tasks([task])
-    failed = {c.name for c in isolation.check(mined, config, launch=unsandboxed) if not c.ok}
+    checks = isolation.check(mined, config, launch=unsandboxed, reach_outside=lambda: False)
+    failed = {c.name for c in checks if not c.ok}
     assert failed == {"isolation: history", "isolation: source", "isolation: bench",
                       "isolation: log"}
+    assert next(c for c in checks if c.name == "isolation: network").detail.startswith("not tested")
 
 
 def test_the_worker_refuses_a_bench_that_isnt_isolated(mined, tmp_path):
@@ -1740,3 +1969,60 @@ def test_tonight_asks_in_a_terminal_and_asks_again_on_a_bad_answer(repo, tonight
     skipped = CliRunner().invoke(agentbench_app, ["tonight", str(repo["path"]), "--python",
                                                   sys.executable, "--window", "22:00-07:00"])
     assert "as saved" in skipped.output
+
+
+# ── The cloud arm, where it meets the guard, the CLI and the export ──────────
+
+
+class FakeCloudAgent(FakeAgent):
+    name, local, vendor, hosts = "cloudfake", False, "Somebody", ("api.example.com:443",)
+
+    def attempt(self, *a, **k):
+        run = super().attempt(*a, **k)
+        run.cost_usd = 0.25
+        return run
+
+
+def test_the_guard_never_asks_ollama_about_a_cloud_arm(tmp_path):
+    def ollama(*a, **k):
+        raise AssertionError("asked Ollama")
+
+    m = FakeMachine()
+    g = Guard(tmp_path / "guard", power=m.power, idle=lambda: m.idle, speed=ollama, pulled=ollama,
+              loaded=ollama, sizes=ollama, release=ollama, wait_quiet=True, memory_floor=10,
+              load_room=11 << 30, free_pct=lambda: 50, mem_total=lambda: 16 << 30,
+              pressure=lambda: None, sleep=lambda s: None, sample_every=0.01)
+    agent = FakeCloudAgent("model-1")
+    assert g.problems(agent) == []
+    m.on_ac = False
+    assert g.problems(agent) == ["on battery (80%)"]  # the machine's own checks still hold
+    m.on_ac = True
+    assert [c.name for c in g.preflight([agent])] == ["power", "memory", "cloudfake"]
+    with g.watch(agent) as watch:
+        pass
+    assert watch.slow == "" and not watch.degraded
+
+
+def test_a_cloud_attempt_keeps_its_cost_in_the_export(mined):
+    from backend.orchestrator.agentbench import export
+
+    run_matrix(mined, [FakeCloudAgent("model-1", apply_gold)], ["blind"])
+    [a] = load_attempts(mined)
+    assert a.cost_usd == 0.25
+    [row] = export.rows(mined)
+    assert row["cost_usd"] == 0.25 and row["arm"] == "cloudfake:model-1"
+
+
+def test_cli_run_sends_nothing_to_the_cloud_unless_told(mined, repo, monkeypatch):
+    monkeypatch.setenv("MAHORAGA_AGENTBENCH_ROOT", str(mined.dir.parent))
+    r = CliRunner().invoke(agentbench_app, ["run", str(repo["path"]),
+                                            "--arm", "claude:claude-sonnet-5-5"])
+    assert r.exit_code == 1
+    assert "would send" in r.output and "--allow-cloud" in r.output and "Anthropic" in r.output
+
+
+def test_the_queue_never_holds_a_cloud_arm(mined, repo, monkeypatch):
+    monkeypatch.setenv("MAHORAGA_AGENTBENCH_ROOT", str(mined.dir.parent))
+    r = CliRunner().invoke(agentbench_app, ["queue", "add", str(repo["path"]),
+                                            "--arm", "claude:claude-sonnet-5-5"])
+    assert r.exit_code == 1 and "not from the queue" in r.output

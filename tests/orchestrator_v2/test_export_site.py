@@ -19,7 +19,7 @@ from backend.orchestrator import demo
 from backend.orchestrator.agentbench.report import outcome, summarise
 from backend.orchestrator.agentbench.runner import load_attempts
 from backend.orchestrator.agentbench.stats import task_rate
-from backend.orchestrator.audit.evidence import from_benches
+from backend.orchestrator.audit import claims as audit_claims
 from backend.orchestrator.audit.verdict import Assumptions, Billing, decide
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -96,7 +96,8 @@ def test_the_committed_export_is_what_the_exporter_makes_now():
 
 
 def test_the_private_ops_figures_are_not_exported(site):
-    assert set(site) == {"schema", "source", "claims", "probe", "verdict_demo"}
+    assert set(site) - {"specimen"} == {"schema", "source", "claims", "probe", "verdict_demo",
+                                        "settings"}
 
 
 # ── Claims: claims.json, and only what its artifacts still back ──────────────
@@ -201,10 +202,20 @@ def test_the_curve_grid_is_log_spaced_plus_the_round_figures(site):
     assert len(grid) == 24 + 8  # 24 log-spaced, none of which lands on a round figure
 
 
-def test_every_curve_row_is_the_engines_verdict_on_the_demo_evidence(site):
-    ev = from_benches([demo.open_bench()], *QWEN_BLIND)
-    a = Assumptions(tasks_per_month=200)
+def _headline() -> tuple[dict, list[dict]]:
+    """The claim the demo follows, and its slice read straight from the artifact."""
+    claim = next(c for c in json.loads(CLAIMS.read_text())["claims"] if c["id"] == export.HEADLINE)
+    rows = [json.loads(line) for line in (ROOT / claim["artifact"]).read_text().splitlines()
+            if line.strip()]
+    return claim, audit_claims.select(rows, claim["select"])
+
+
+def test_every_curve_row_is_the_engines_verdict_on_the_headline_slice(site):
+    claim, rows = _headline()
+    ev = audit_claims.evidence(rows)
+    a = Assumptions(**{k: v for k, v in claim["verdict"].items() if k != "api_spend"})
     demo_verdict = site["verdict_demo"]
+    assert (demo_verdict["claim"], demo_verdict["select"]) == (claim["id"], claim["select"])
     assert demo_verdict["evidence"] == asdict(ev)
     assert demo_verdict["assumptions"] == {**asdict(a), "lines": a.lines()}
     # Written out here, not imported: local cost of an attempt, and of triaging a failed one.
@@ -224,10 +235,226 @@ def test_the_curve_breakeven_falls_as_cloud_tasks_get_dearer(site):
     assert rates == sorted(rates, reverse=True) and 0 < rates[-1] < rates[0] < 1
 
 
-def test_the_demo_evidence_says_the_machine_was_not_recorded(site):
-    evidence = site["verdict_demo"]["evidence"]
-    assert "unrecorded machine" in evidence["hardware"]
-    assert evidence["label"].startswith("aider:qwen3.5:latest / blind")
+def test_the_curve_at_the_claims_own_price_is_the_verdict_the_claim_publishes(site):
+    """The calculator opens on the numbers the log and the report print."""
+    claim, _ = _headline()
+    price = claim["verdict"]["api_spend"] / claim["verdict"]["tasks_per_month"]
+    row = next(r for r in site["verdict_demo"]["curve"] if r["cloud_usd_per_task"] == price)
+    published = claim["metrics"]
+    assert row["call"] == published["call"]["value"]
+    assert round(row["monthly_usd"]["point"]) == published["net"]["value"]
+    assert round(row["breakeven"], 2) == published["breakeven_rate"]["value"]
+
+
+def test_every_point_carries_the_bar_a_split_must_clear(site):
+    """5% of the month's cloud bill, never under $5, written out here."""
+    tasks = site["verdict_demo"]["assumptions"]["tasks_per_month"]
+    for row in site["verdict_demo"]["curve"]:
+        assert row["bar"] == pytest.approx(max(5.0, 0.05 * row["cloud_usd_per_task"] * tasks))
+
+
+def test_each_triage_curve_is_the_headline_verdict_with_only_triage_changed(site):
+    claim, rows = _headline()
+    ev = audit_claims.evidence(rows)
+    a = Assumptions(**{k: v for k, v in claim["verdict"].items() if k != "api_spend"})
+    demo_verdict = site["verdict_demo"]
+    offered = [t["triage_minutes"] for t in demo_verdict["by_triage"]]
+    assert sorted({*offered, a.triage_minutes}) == sorted(export.TRIAGE_MINUTES)
+    assert a.triage_minutes not in offered  # the claim's own curve is `curve`, once
+    prices = [row["cloud_usd_per_task"] for row in demo_verdict["curve"]]
+    for t in demo_verdict["by_triage"]:
+        # The calculator keeps the slider's position when triage changes, so
+        # every curve has to sit on the same prices, point for point.
+        assert [row["cloud_usd_per_task"] for row in t["curve"]] == prices
+        at = Assumptions(**{**asdict(a), "triage_minutes": t["triage_minutes"]})
+        assert t["triage_usd"] == pytest.approx(t["triage_minutes"] / 60 * a.hourly_usd)
+        for row in t["curve"]:
+            v = decide(ev, at, Billing.api(row["cloud_usd_per_task"] * a.tasks_per_month))
+            assert (row["call"], row["confident"], row["reason"]) == (v.call, v.confident, v.reason)
+    # More minutes per failure can only raise the rate local needs to pay.
+    by_minutes = {t["triage_minutes"]: t["curve"] for t in demo_verdict["by_triage"]}
+    by_minutes[a.triage_minutes] = demo_verdict["curve"]
+    at_price = [by_minutes[m][10]["breakeven"] for m in sorted(by_minutes)]
+    assert at_price == sorted(at_price)
+
+
+def test_the_costs_are_an_attempts_electricity_and_a_failures_triage(site):
+    claim, rows = _headline()
+    ev = audit_claims.evidence(rows)
+    a = Assumptions(**{k: v for k, v in claim["verdict"].items() if k != "api_spend"})
+    costs = site["verdict_demo"]["costs"]
+    assert costs["attempt_usd"] == pytest.approx(a.watts / 1000 * ev.minutes_per_attempt / 60
+                                                 * a.usd_per_kwh)
+    assert costs["triage_usd"] == pytest.approx(a.triage_minutes / 60 * a.hourly_usd)
+    assert costs["triage_usd"] > 100 * costs["attempt_usd"]  # the report's "several hundred to one"
+
+
+# ── The settings exhibit ─────────────────────────────────────────────────────
+
+
+def _claim(cid: str) -> dict:
+    return next(c for c in json.loads(CLAIMS.read_text())["claims"] if c["id"] == cid)
+
+
+def _slice(cid: str) -> list[dict]:
+    c = _claim(cid)
+    rows = [json.loads(line) for line in (ROOT / c["artifact"]).read_text().splitlines()
+            if line.strip()]
+    return audit_claims.select(rows, c["select"])
+
+
+def test_each_settings_squares_count_to_its_claims_published_figures(site):
+    settings = site["settings"]
+    assert [a["key"] for a in settings["arms"]] == [k for k, _ in export.SETTINGS]
+    for arm, (key, cid) in zip(settings["arms"], export.SETTINGS):
+        published = _claim(cid)["metrics"]
+        lit = sum(t["resolved"][key] for t in settings["tasks"])
+        assert lit == arm["resolved"] == published["resolved"]["value"]
+        assert len(settings["tasks"]) == published["tasks"]["value"]
+        assert arm["rate"]["point"] == pytest.approx(lit / len(settings["tasks"]))
+
+
+def test_a_square_is_one_commit_read_from_every_settings_slice(site):
+    tasks = site["settings"]["tasks"]
+    for key, cid in export.SETTINGS:
+        by_task = {(r["repo"], r["sha"]): r["resolved"] for r in _slice(cid)}
+        assert {(t["repo"], t["sha"]) for t in tasks} == set(by_task)
+        assert all(t["resolved"][key] == by_task[t["repo"], t["sha"]] for t in tasks)
+    # Ordered by repository and commit date, so no outcome decides where a square sits.
+    assert [(t["repo"], t["committed"]) for t in tasks] == sorted(
+        (t["repo"], t["committed"]) for t in tasks)
+    assert all(t["url"] == f"{export.UPSTREAM[t['repo']]}/commit/{t['sha']}" for t in tasks)
+
+
+def test_the_settings_pairs_are_the_paired_test_the_report_publishes(site):
+    pairs = {(p["from"], p["to"]): p for p in site["settings"]["pairs"]}
+    assert list(pairs) == [("32k", "131k"), ("131k", "35b")]
+    published = _claim("report_2026_10_qwen35_vs_qwen36_131k_outside")["metrics"]
+    p = pairs["131k", "35b"]
+    for k in ("pairs", "pair_resolved", "versus_resolved", "only_this", "only_versus"):
+        assert p[k] == published[k]["value"]
+    assert round(p["mcnemar_p"], 2) == published["mcnemar_p"]["value"]
+    net = pairs["32k", "131k"]
+    assert net["versus_resolved"] - net["pair_resolved"] == net["only_versus"] - net["only_this"]
+
+
+def test_a_repository_with_no_public_upstream_is_refused(monkeypatch):
+    monkeypatch.setattr(export, "UPSTREAM", {k: v for k, v in export.UPSTREAM.items()
+                                             if k != "click"})
+    with pytest.raises(export.ExportError, match="no public upstream for click"):
+        export.build_site(commit=COMMIT)
+
+
+# ── The specimen ─────────────────────────────────────────────────────────────
+
+
+CLAIMS = ROOT / "experiments" / "claims.json"
+
+
+def test_the_export_carries_the_specimen_only_when_a_claim_publishes_its_attempt(site):
+    if export._specimen(export.SPECIMEN, CLAIMS, ROOT) is None:
+        assert "specimen" not in site
+    else:
+        assert site["specimen"] == json.loads(export.SPECIMEN.read_text())
+
+
+def _publishing(tmp_path, resolved=None):
+    """A claims.json whose one claim's ledger holds the specimen's own attempt."""
+    s = json.loads(export.SPECIMEN.read_text())
+    a = s["attempt"]
+    row = {"repo": s["repo"], "sha": s["sha"], "arm": a["arm"], "cond": a["cond"],
+           "rep": a["rep"], "run_id": a["run_id"],
+           "resolved": a["resolved"] if resolved is None else resolved}
+    (tmp_path / "ledger.jsonl").write_text(json.dumps(row) + "\n")
+    claims = {"claims": [{"id": "x", "artifact": "ledger.jsonl",
+                          "select": {"arm": a["arm"], "cond": a["cond"], "repos": [s["repo"]]}}]}
+    (tmp_path / "claims.json").write_text(json.dumps(claims))
+    return tmp_path / "claims.json"
+
+
+def test_a_specimen_no_claim_publishes_is_left_out(tmp_path):
+    (tmp_path / "claims.json").write_text(json.dumps({"claims": []}))
+    assert export._specimen(export.SPECIMEN, tmp_path / "claims.json", tmp_path) is None
+
+
+def test_a_specimen_whose_run_the_ledger_does_not_hold_is_left_out(tmp_path):
+    manifest = _publishing(tmp_path)
+    row = json.loads((tmp_path / "ledger.jsonl").read_text())
+    row["run_id"] = "another-run"
+    (tmp_path / "ledger.jsonl").write_text(json.dumps(row) + "\n")
+    assert export._specimen(export.SPECIMEN, manifest, tmp_path) is None
+
+
+def test_a_slice_of_a_rate_does_not_carry_the_specimen(tmp_path):
+    manifest = _publishing(tmp_path)
+    claims = json.loads(manifest.read_text())
+    claims["claims"][0]["select"]["limit_s"] = 1200
+    manifest.write_text(json.dumps(claims))
+    assert export._specimen(export.SPECIMEN, manifest, tmp_path) is None
+
+
+def test_a_specimen_whose_agent_changed_nothing_is_carried(tmp_path):
+    s = json.loads(export.SPECIMEN.read_text())
+    s["patch"] = ""
+    s["attempt"].update(resolved=False, f2p_pass=0)
+    path = tmp_path / "specimen.json"
+    path.write_text(json.dumps(s))
+    assert export._specimen(path, _publishing(tmp_path, resolved=False), tmp_path)["patch"] == ""
+
+
+def test_a_specimen_without_a_patch_or_one_that_changed_nothing_but_resolved_is_refused(tmp_path):
+    for change, match in ((lambda s: s.pop("patch"), "no patch"),
+                          (lambda s: s.update(patch="\n"), "changed nothing and says it resolved")):
+        s = json.loads(export.SPECIMEN.read_text())
+        change(s)
+        (tmp_path / "specimen.json").write_text(json.dumps(s))
+        with pytest.raises(export.ExportError, match=match):
+            export._specimen(tmp_path / "specimen.json", CLAIMS, ROOT)
+
+
+def test_a_specimen_without_the_commits_diff_is_refused(tmp_path):
+    s = json.loads(export.SPECIMEN.read_text())
+    s["gold_diff"] = ""
+    path = tmp_path / "specimen.json"
+    path.write_text(json.dumps(s))
+    with pytest.raises(export.ExportError, match="commit's own diff"):
+        export._specimen(path, CLAIMS, ROOT)
+
+
+def test_a_specimen_a_claim_publishes_is_carried_verbatim(tmp_path):
+    carried = export._specimen(export.SPECIMEN, _publishing(tmp_path), tmp_path)
+    assert carried == json.loads(export.SPECIMEN.read_text())
+
+
+def test_a_specimen_its_claims_ledger_contradicts_is_refused(tmp_path):
+    flipped = not json.loads(export.SPECIMEN.read_text())["attempt"]["resolved"]
+    with pytest.raises(export.ExportError, match="x's ledger says"):
+        export._specimen(export.SPECIMEN, _publishing(tmp_path, resolved=flipped), tmp_path)
+
+
+def test_a_setting_whose_claim_names_no_context_is_refused(tmp_path):
+    claims = json.loads((ROOT / "experiments" / "claims.json").read_text())
+    cid = export.SETTINGS[0][1]
+    next(c for c in claims["claims"] if c["id"] == cid)["config"].pop("context")
+    manifest = tmp_path / "claims.json"
+    manifest.write_text(json.dumps(claims))
+    with pytest.raises(export.ExportError, match=f"{cid}'s config has no context"):
+        export._settings(manifest, ROOT)
+
+
+def test_a_specimen_whose_counts_contradict_its_outcome_is_refused(tmp_path):
+    s = json.loads(export.SPECIMEN.read_text())
+    s["attempt"]["regressions"] = 1
+    bad = tmp_path / "specimen.json"
+    bad.write_text(json.dumps(s))
+    with pytest.raises(export.ExportError, match="contradict"):
+        export._specimen(bad, CLAIMS, ROOT)
+
+
+def test_the_export_refuses_a_headline_claims_json_does_not_hold(monkeypatch):
+    monkeypatch.setattr(export, "HEADLINE", "no_such_claim")
+    with pytest.raises(export.ExportError, match="no_such_claim"):
+        export.build_site(commit=COMMIT)
 
 
 def test_a_task_cannot_have_two_attempts_in_one_cell():

@@ -1,4 +1,94 @@
-# Current State — 2026-10-13
+# Current State — 2026-11-05
+
+## 2026-11-05 (afternoon): the cloud side is measured, and the verdict is priced by it
+
+The OptiPlex ran the cloud arm (#88: Claude Code 2.1.318 on claude-opus-5-5, blind,
+90-minute limit, on Kaito's Northeastern seat) over the laptop's 47 tasks from 12:21 to
+13:14. It resolved **47 of 47 (92% to 100%)** with a median attempt of 38.5 s and
+**$9.79 at list prices, $0.21 a task**. Paired with the laptop: 30 only cloud, 0 only
+local, McNemar p = 2e-9. 19 tasks postdate Opus 5.5's June 2026 knowledge cutoff, and the
+cloud solved all 19 (the laptop 3). Egress: 141 tunnels, all to api.anthropic.com, none
+refused, no degraded attempts. Confound: Claude Code can run the tests through Bash under
+blind and aider can't, so it compares agent+model against agent+model.
+
+The tasks the laptop solves cost the cloud $0.15, against $0.24 for the ones it fails.
+`audit verdict --cloud-arm` and the claims spec `"cloud": "versus"` price each task local
+resolves at what the cloud spent on it. At that price the laptop's verdict is STAY,
+decided, at -$77 a month, and local needs 95% to break even, up from 77%. The report's
+short answer and §4 carry it (3 new claims, 26 verify). The local UI's Verdict page takes
+a cloud arm ("Price a cloud task by", `cloud_arm` on the API), the site's log has two
+entries on it in en and ja, and the hero's break-even line is now 95% at the measured
+$0.15 (Kaito's call). The Engine calculator keeps the $0.75 worked example.
+
+**Merged 2026-11-05:** #87, #88, #89 and #90 are on main at e003dc1, merged by the
+personal-website session on Kaito's word. GitHub read #89's two merge bases as a conflict,
+so main went into `feat/cloud-verdict` as edf741b first. Codex's review of that push found
+two holes in the cloud pricing: a cloud arm on only some of local's tasks still priced the
+verdict, and an unpriced cloud attempt on a task local never ran blocked it. #91
+(`fix/cloud-covers-every-task`) refuses partial coverage in `cloud_from_benches` and
+`claims.priced` (the API answers 409). CI is green and Codex found nothing in it.
+Still open:
+1. Kaito: merge #91, then run the site deploy (`cd site && npm run build && npx wrangler
+   deploy`, then `BASE=https://kaitosoeno.com npm run verify`). The build from e003dc1
+   passes verify. One deploy covers #86, #87, #89 and #90.
+2. The main checkout `~/Projects/mahoraga` is still on `site/flat-ground` at 157fcd5,
+   and launchd runs the daemon from it, so moving it to main is Kaito's call.
+
+Next, recommended: the agent confound. Claude Code runs the tests through Bash under
+blind and aider can't, so the 30-0 split is agent plus model. Holding the agent fixed
+needs either aider on claude-opus-5-5 through the proxy (an API key, since the seat's
+OAuth token is for Claude Code; about $10-$20 for 47 tasks on the OptiPlex), or Claude
+Code on qwen3.5 through Ollama's Anthropic-compatible endpoint (a laptop night).
+
+## 2026-11-05: the laptop's clean 131k run is in, and the report has no PENDING left
+
+The clean run finished 2026-11-01 03:54 at 47/47 (journal `2026-11-05-clean-run.md`).
+aider + qwen3.5 at 131k on the laptop resolved **17 of 47 (36%, 24% to 50%)**, against
+the Studio's **18 of the same 47** with the same model file (discordant 4 vs 5, McNemar
+p = 1.00), so the 8 vs 14 gap before #68 was the clocks. Verdict at $0.75 a task:
+**STAY, decided**, net -$67 a month, local pays once a cloud task costs $4.43.
+
+Branch `docs/report-131k` (worktree `.worktrees/clean-run`) carries the export, the two
+claims (23 verify), the report's §3 to §5 and short answer (titled November 2026), the
+hero's measured laptop row, two log entries and `HEADLINE` on the laptop's run. Not
+deployed. Still open:
+1. Kaito: review and merge the PR, then deploy (`cd site && npm run build && npx
+   wrangler deploy`, then `BASE=https://kaitosoeno.com npm run verify`). Whether the
+   report drops "Draft" is his call.
+2. The cloud arm on the OptiPlex (Claude Code, same 47 tasks) is in progress on its own
+   branch. It replaces the verdict's assumption that every cloud task succeeds.
+3. Open PRs #72 to #76 (since 10-29), #82 and #86 still wait for review.
+
+## 2026-10-29 (evening): the site is live, and the direction is a long-term study
+
+The three-page site (#78) went live at kaitosoeno.com/mahoraga on 10-29, and the polish PR
+(`feat/site-polish`) followed the same evening on Kaito's word, with Codex skipped because it
+was down. The settings grid opens on its finding instead of switching itself from 9 to 28,
+its section names the Studio and the 77% bar, the three pickers are one component with a
+sliding thumb, and corners are concentric (`--mh-radius-floor`, BRAND.md). The direction is
+ADR `2026-10-29-long-term-study.md`: Research publishes the study one finding at a time,
+Engine is the judgment as a replication kit (routing stays last), Install is logistics, and
+pooled results wait for five conditions. Kaito updates the personal-website portfolio row
+himself.
+
+## 2026-10-29: the landing page is the log, and the October report is on main
+
+#48 (the October report, its PENDING blocks still open) merged as 87a6cb9 on Kaito's word.
+The landing page was rebuilt on `feat/site-edition` as the audit's running log, with
+exhibits made from its data (ADR `2026-10-29-landing-page-is-the-log.md`). It built and
+passed the browser sweep on the morning of 10-29, after the laptop's run had ended for the
+night. Kaito then asked for three pages, so the site is now Research, Engine and Install,
+with a hero that can no longer overlap itself (ADR `2026-10-29-three-pages.md`).
+
+Still open, in order:
+1. The clean run reaches 47 of 47. Night 1 filled 10, so at that pace it needs a fifth night
+   (Nov 2) past the script's four-night cap, which is Kaito's call. Then the laptop export, its claims, the
+   report's PENDING blocks, a log entry, and `HEADLINE` moving to the laptop's row go in one
+   follow-up PR.
+2. ~~Deploy the page~~ done 10-29 (#78, then the polish PR). The Mahoraga row in
+   personal-website `content/projects.ts` is Kaito's to flip.
+3. The pip release plan (local, `docs/plans/2026-10-pip-release.md`) renames `backend` only
+   after the edition's claims are written, as its own PR.
 
 ## Read this first — 2026-10-13: measurement comes first, publishing waits
 

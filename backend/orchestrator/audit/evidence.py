@@ -16,7 +16,7 @@ from backend.orchestrator.agentbench.bank import Bench
 from backend.orchestrator.agentbench.runner import load_attempts
 from backend.orchestrator.agentbench.stats import task_rate
 
-from .verdict import Evidence
+from .verdict import CloudSide, Evidence, cloud_side
 
 
 def _hardware(benches: list[Bench], run_ids: set[str]) -> str:
@@ -70,3 +70,40 @@ def from_benches(benches: list[Bench], arm: str, cond: str) -> Evidence:
         failed=failed,
         timed_out=timed_out,
     )
+
+
+def cloud_from_benches(benches: list[Bench], arm: str, cloud_arm: str, cond: str) -> CloudSide:
+    """`cloud_arm` on the tasks `arm` ran, in the same condition. Its attempts
+    may come from another machine: what a cloud task costs doesn't depend on
+    the machine that sent it."""
+    if cloud_arm == arm:
+        raise ValueError(f"{arm} can't price itself: name a cloud arm run on the same tasks")
+    local: dict[str, list[bool]] = defaultdict(list)
+    cloud: dict[str, list[tuple[bool, float]]] = defaultdict(list)
+    for b in benches:
+        live = {t.sha for t in b.load_tasks()}
+        for a in load_attempts(b):
+            if a.cond != cond or a.sha not in live:
+                continue
+            key = f"{b.dir.name}/{a.sha}"
+            if a.arm == arm:
+                local[key].append(a.resolved)
+            elif a.arm == cloud_arm:
+                cloud[key].append((a.resolved, a.cost_usd))
+    if not cloud:
+        raise ValueError(f"no attempts for {cloud_arm} / {cond} in {[b.name for b in benches]}")
+    # The verdict reads local's rate off every task local ran, so the cloud's price has to
+    # come from those same tasks. Its attempts on tasks local never ran don't count, priced
+    # or not.
+    missing = [k for k in sorted(local) if k not in cloud]
+    if missing:
+        raise ValueError(f"{cloud_arm} ran {len(local) - len(missing)} of {arm}'s {len(local)} "
+                         f"tasks (not {missing[0]}), and the verdict needs it on every one")
+    for k in sorted(local):
+        if any(c is None for _, c in cloud[k]):
+            raise ValueError(f"{cloud_arm}'s attempt on {k} records no cost, so it "
+                             "can't price the verdict")
+    return cloud_side(f"{cloud_arm} / {cond}", [
+        (statistics.mean(local[k]), statistics.mean(r for r, _ in cloud[k]),
+         statistics.mean(c for _, c in cloud[k]))
+        for k in sorted(local)])

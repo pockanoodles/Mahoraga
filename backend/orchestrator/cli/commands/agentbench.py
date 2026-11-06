@@ -83,6 +83,23 @@ def _print_checks(checks) -> bool:
     return all(c.ok for c in checks)
 
 
+def _print_fixes(checks, agents) -> None:
+    """Under the checks: the install or start that fixes each failure it can, and
+    a note for an agent that isn't the version the published log measured."""
+    for c in checks:
+        if c.ok or c.waits:
+            continue
+        if c.name in tonight.INSTALL:
+            typer.echo(f"  install {c.name}: {tonight.INSTALL[c.name]}")
+        elif c.name == "ollama":
+            typer.echo("  start Ollama (open the app, or `ollama serve`)" if shutil.which("ollama")
+                       else "  install Ollama from https://ollama.com/download, then open it")
+    found = {c.name for c in checks if c.ok}
+    for name, reported in manifest.agent_versions([a for a in agents if a.name in found]).items():
+        if note := tonight.version_note(name, reported):
+            typer.echo(f"  note  {note}")
+
+
 def _terms(wait_idle_min: Optional[float] = None, memory_floor: Optional[int] = None):
     """This machine's terms (machine.json), with any term a flag gave overridden."""
     from dataclasses import replace
@@ -190,7 +207,8 @@ def preflight_cmd(
 @app.command("doctor")
 def doctor_cmd(
     repo: Path = _REPO,
-    arms: List[str] = _ARMS,
+    arms: Optional[List[str]] = typer.Option(None, "--arm", help="<agent>:<model>[@ctx=N], repeatable "
+                                             "(default: the arm tonight runs, aider:qwen3.5:latest@ctx=131072)."),
     cond: str = typer.Option("feedback", "--cond", help="blind, feedback, or both."),
     repeats: int = typer.Option(1, "--repeats", min=1),
     ratio: float = _RATIO,
@@ -199,10 +217,12 @@ def doctor_cmd(
     from backend.orchestrator.agentbench.doctor import bench_checks, estimate
 
     conds = list(CONDITIONS) if cond == "both" else [cond]
-    agents = _agents(arms)
+    agents = _agents(list(arms or [tonight.DEFAULT_ARM]))
     bench = Bench(repo)
     typer.echo("machine")
-    machine_ok = _print_checks(_guard(ratio).preflight(agents))
+    checks = _guard(ratio).preflight(agents)
+    machine_ok = _print_checks(checks)
+    _print_fixes(checks, agents)
     typer.echo("bench")
     bench_ok = _print_checks(bench_checks(bench))
     if bench.load_tasks():
@@ -266,12 +286,8 @@ def tonight_cmd(
     checks = _guard(ratio).preflight(agents)
     checks += isolation.check(bench, bench.load_config())
     _print_checks(checks)
+    _print_fixes(checks, agents)
     blocking = [c for c in checks if not c.ok and not c.waits]
-    for c in blocking:
-        if c.name in tonight.INSTALL:
-            typer.echo(f"  install {c.name}: {tonight.INSTALL[c.name]}")
-        elif c.name == "ollama":
-            typer.echo("  start Ollama (open the app, or `ollama serve`)")
     if blocking:
         typer.echo("fix the FAIL lines above and run this again; nothing was queued")
         raise typer.Exit(1)

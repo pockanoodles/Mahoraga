@@ -171,7 +171,10 @@ def _curve(ev, a: Assumptions) -> list[dict]:
 def _verdict_demo(claim: dict, rows: list[dict]) -> dict:
     ev = audit_claims.evidence(rows)
     # The claim's own assumptions, so the curve at the claim's price is its verdict.
-    a = Assumptions(**{k: v for k, v in claim["verdict"].items() if k != "api_spend"})
+    # The curve sweeps the cloud price itself, so a claim priced by its cloud arm
+    # ("cloud") gives the demo its assumptions and not its price.
+    a = Assumptions(**{k: v for k, v in claim["verdict"].items()
+                       if k not in ("api_spend", "cloud")})
     # The same curve under each other triage time the calculator offers. Only
     # triage changes, so a difference between two curves is that minute's doing.
     others = sorted(set(TRIAGE_MINUTES) - {a.triage_minutes})

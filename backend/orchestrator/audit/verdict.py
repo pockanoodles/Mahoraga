@@ -17,6 +17,11 @@ Only work that can wait for an overnight queue is eligible (the deferrable
 share), because a local attempt takes minutes and the alternative takes
 seconds.
 
+The cloud cost per task is the bill divided by its tasks, unless a cloud arm
+ran the same tasks (CloudSide). Then it is what that arm spent on the tasks
+local resolved, because those are the ones local takes off the bill, and they
+are the easier, cheaper ones.
+
 A subscription user pays nothing per task, so per-task savings are zero.
 What local can buy them is a lower tier (if the offloaded work brings their
 usage under it) or headroom under the cap they're hitting.
@@ -97,6 +102,35 @@ class Billing:
         return cls("subscription", plan.usd_per_month, plan, lower)
 
 
+@dataclass(frozen=True)
+class CloudSide:
+    """A cloud arm measured on the local arm's tasks, one row per task both ran."""
+
+    label: str
+    tasks: int
+    resolved: float  # tasks the cloud resolved (repeats as fractions)
+    only_local: float  # tasks local resolved and the cloud didn't
+    usd_per_task: float  # the cloud's mean cost over all the paired tasks
+    usd_saved: float  # its mean cost on the tasks local resolved, weighted by how often
+    usd_rest: float  # and on the tasks local didn't
+
+
+def cloud_side(label: str, pairs: list[tuple[float, float, float]]) -> CloudSide:
+    """`pairs` holds, per task, the share of local attempts that resolved, the
+    share of cloud attempts that resolved, and the cloud's mean cost in USD.
+    With no task on one side of local's split, that side's cost is the mean."""
+    if not pairs:
+        raise ValueError(f"{label} ran none of the local arm's tasks")
+    won = sum(lp for lp, _, _ in pairs)
+    lost = len(pairs) - won
+    mean = sum(c for _, _, c in pairs) / len(pairs)
+    return CloudSide(label=label, tasks=len(pairs), resolved=sum(cp for _, cp, _ in pairs),
+                     only_local=sum(lp * (1 - cp) for lp, cp, _ in pairs),
+                     usd_per_task=mean,
+                     usd_saved=sum(lp * c for lp, _, c in pairs) / won if won else mean,
+                     usd_rest=sum((1 - lp) * c for lp, _, c in pairs) / lost if lost else mean)
+
+
 @dataclass
 class Verdict:
     call: str
@@ -107,6 +141,8 @@ class Verdict:
     billing: Billing
     monthly_usd: tuple[float, float, float] | None = None  # net at (lo, point, hi)
     sensitivity: list[str] = field(default_factory=list)
+    cloud: CloudSide | None = None
+    cloud_usd: float | None = None  # the cloud price per task an API verdict used
 
 
 def attempt_cost(ev: Evidence, a: Assumptions) -> float:
@@ -119,7 +155,24 @@ def triage_cost(a: Assumptions) -> float:
     return a.triage_minutes / 60 * a.hourly_usd
 
 
-def decide(ev: Evidence, a: Assumptions, billing: Billing) -> Verdict:
+def decide(ev: Evidence, a: Assumptions, billing: Billing,
+           cloud: CloudSide | None = None) -> Verdict:
+    v = _decide(ev, a, billing, cloud)
+    v.cloud = cloud
+    if billing.kind == "api":
+        v.cloud_usd = cloud_price(a, billing, cloud)
+    if cloud is not None:
+        v.sensitivity.insert(0, f"{cloud.label} resolved {cloud.resolved:g} of the {cloud.tasks} "
+                                f"tasks both ran; local resolved {cloud.only_local:g} it didn't.")
+    return v
+
+
+def cloud_price(a: Assumptions, b: Billing, cloud: CloudSide | None) -> float:
+    """What one task local resolves takes off an API bill."""
+    return cloud.usd_saved if cloud is not None else b.monthly_usd / a.tasks_per_month
+
+
+def _decide(ev: Evidence, a: Assumptions, billing: Billing, cloud: CloudSide | None) -> Verdict:
     if ev.tier != TEST_VERIFIED:
         raise ValueError(f"v1 decides on test-verified evidence only, not {ev.tier!r}")
     if not 0 < a.deferrable_share <= 1 or a.tasks_per_month <= 0:
@@ -136,7 +189,7 @@ def decide(ev: Evidence, a: Assumptions, billing: Billing) -> Verdict:
                        f"Local resolves at least {ev.rate.lo:.0%} of tasks and nearly all of "
                        "your work can wait for it.", ev, a, billing, sensitivity=[hw])
     if billing.kind == "api":
-        v = _decide_api(ev, a, billing)
+        v = _decide_api(ev, a, billing, cloud)
     else:
         v = _decide_subscription(ev, a, billing)
     if time_bound(ev.timed_out, ev.failed):
@@ -180,8 +233,18 @@ def materiality(b: Billing) -> float:
     return max(MIN_SAVING, SAVING_SHARE * b.monthly_usd)
 
 
-def _decide_api(ev: Evidence, a: Assumptions, b: Billing) -> Verdict:
-    cloud = b.monthly_usd / a.tasks_per_month
+def _decide_api(ev: Evidence, a: Assumptions, b: Billing, side: CloudSide | None) -> Verdict:
+    v = _decide_api_at(ev, a, b, cloud_price(a, b, side), "yours" if side is None else "measured")
+    if side is not None:
+        bill = b.monthly_usd / a.tasks_per_month
+        v.sensitivity.insert(1, f"Priced at what {side.label} spent on the tasks local resolved "
+                                f"(${side.usd_saved:.2f} a task, ${side.usd_per_task:.2f} over all "
+                                f"{side.tasks}). At your bill's ${bill:.2f} a task it pays once "
+                                f"local resolves ≥ {breakeven_rate(ev, a, bill):.0%}.")
+    return v
+
+
+def _decide_api_at(ev: Evidence, a: Assumptions, b: Billing, cloud: float, whose: str) -> Verdict:
     local, triage = attempt_cost(ev, a), triage_cost(a)
     queued = a.tasks_per_month * a.deferrable_share
 
@@ -196,7 +259,7 @@ def _decide_api(ev: Evidence, a: Assumptions, b: Billing) -> Verdict:
     c_star = breakeven_cloud_cost(ev, a)
     if c_star is not None:
         sens.append(f"At the measured rate it pays once a cloud task costs ≥ ${c_star:.2f} "
-                    f"(yours: ${cloud:.2f}).")
+                    f"({whose}: ${cloud:.2f}).")
     per = f"${cloud:.2f}/task"
     # A saving under the bar isn't worth changing how you work, so it reads as a
     # stay. Each reason the bar decides says what the bar is, and a loss is said
@@ -286,6 +349,11 @@ def render(v: Verdict) -> str:
         p = v.billing.plan
         out.append(f"billing: {p.name} ${p.usd_per_month:.0f}/mo "
                    f"({'verified ' + p.as_of if p.verified else 'price supplied by you'})")
+    if v.cloud is not None:
+        c = v.cloud
+        out.append(f"cloud: {c.label}, resolved {c.resolved:g} of the {c.tasks} tasks both ran, "
+                   f"${c.usd_per_task:.2f}/task measured (${c.usd_saved:.2f} on the tasks "
+                   f"local resolved, ${c.usd_rest:.2f} on the rest)")
     if v.monthly_usd:
         lo, mid, hi = v.monthly_usd
         out.append(f"net per month: {usd(mid)} (interval {usd(lo)} to {usd(hi)})")

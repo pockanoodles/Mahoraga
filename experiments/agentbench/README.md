@@ -9,6 +9,8 @@ for every claim in `experiments/claims.json` of kind `agentbench`, and CI runs i
 | `studio-2026-10.jsonl` | Mac Studio M5 Max, 64 GB | qwen3.5 and qwen3.6 under aider, blind, on Mahoraga, more-itertools, click and attrs (2026-10-05 to 2026-10-07), and qwen3.5 at a 131k context on the three outside repositories (2026-10-13 to 2026-10-14) |
 | `laptop-2026-09.jsonl` | 16 GB MacBook Pro | qwen3.5 and granite 4.1 under aider on Mahoraga (the probe in `../agent_edit/`), and qwen3.5 on the ops repository |
 | `laptop-2026-10.jsonl` | 16 GB MacBook Pro (M4, Mac16,1) | qwen3.5 at 131k under aider, blind, on more-itertools and attrs, before the request-timeout fix: the 20-minute night of 2026-10-14 and the 90-minute nights of 2026-10-17, 2026-10-19 and 2026-10-28. Kept as the record of what section 6 describes, not as a result |
+| `laptop-2026-10-131k.jsonl` | 16 GB MacBook Pro (M4, Mac16,1) | the clean 131k run: qwen3.5 under aider, blind, 90-minute limit, on the 47 more-itertools and attrs tasks (2026-10-28 to 2026-11-01) |
+| `optiplex-2026-11-cloud.jsonl` | Dell OptiPlex 7070, 16 GB | the cloud arm: Claude Code on claude-opus-5-5, blind, 90-minute limit, on the same 47 tasks (2026-11-05). Each line adds `cost_usd`, the CLI's cost at API list prices |
 
 `specimen-2026-10.json` is not a ledger. It keeps one attempt whole for the landing page:
 the first task of the laptop's clean 131k run (more-itertools `f89d7a3`, picked by its

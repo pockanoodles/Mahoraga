@@ -968,6 +968,138 @@
           "value": 18
         }
       }
+    },
+    {
+      "artifact": "experiments/agentbench/optiplex-2026-11-cloud.jsonl",
+      "config": {
+        "agent": "Claude Code 2.1.318, headless, with its own file tools and Bash, web tools off, an empty HOME each attempt",
+        "cost": "the CLI's total_cost_usd, at API list prices; the run used a Claude seat, which bills no per-task price",
+        "dates": "2026-11-05",
+        "egress": "one allowlisting proxy, api.anthropic.com:443 only: 141 tunnels over 47 attempts, none refused",
+        "harness": "65f846967 (the cloud arm, #88)",
+        "limit": "90 minutes",
+        "machine": "Dell OptiPlex 7070, i7-9700, 16 GB (Debian 13), no model runs on it",
+        "model": "claude-opus-5-5"
+      },
+      "description": "§4: Claude Code on Opus 5.5, on the laptop's 47 tasks, blind",
+      "id": "report_2026_11_cloud_opus55",
+      "metrics": {
+        "minutes": {
+          "decimals": 2,
+          "value": 0.64
+        },
+        "rate_lo": {
+          "decimals": 2,
+          "value": 0.92
+        },
+        "resolved": {
+          "decimals": 0,
+          "value": 47
+        },
+        "tasks": {
+          "decimals": 0,
+          "value": 47
+        },
+        "timed_out": {
+          "decimals": 0,
+          "value": 0
+        }
+      }
+    },
+    {
+      "artifact": "experiments/agentbench/laptop-2026-10-131k.jsonl",
+      "config": {
+        "cloud": "report_2026_11_cloud_opus55",
+        "local": "the laptop's 131k run (report_2026_10_laptop_131k)"
+      },
+      "description": "§4: the laptop's 131k run against the cloud arm on the same 47 tasks, and the verdict priced by the cloud's measured cost",
+      "id": "report_2026_11_laptop_vs_cloud",
+      "metrics": {
+        "breakeven_cloud_usd": {
+          "decimals": 2,
+          "value": 4.43
+        },
+        "breakeven_rate": {
+          "decimals": 2,
+          "value": 0.95
+        },
+        "call": {
+          "value": "stay"
+        },
+        "cloud_usd_per_task": {
+          "decimals": 2,
+          "value": 0.21
+        },
+        "cloud_usd_rest": {
+          "decimals": 2,
+          "value": 0.24
+        },
+        "cloud_usd_saved": {
+          "decimals": 2,
+          "value": 0.15
+        },
+        "confident": {
+          "value": "yes"
+        },
+        "mcnemar_p": {
+          "decimals": 9,
+          "value": 2e-09
+        },
+        "net": {
+          "decimals": 0,
+          "value": -77
+        },
+        "net_hi": {
+          "decimals": 0,
+          "value": -58
+        },
+        "net_lo": {
+          "decimals": 0,
+          "value": -94
+        },
+        "only_this": {
+          "decimals": 0,
+          "value": 0
+        },
+        "only_versus": {
+          "decimals": 0,
+          "value": 30
+        },
+        "pair_resolved": {
+          "decimals": 0,
+          "value": 17
+        },
+        "pairs": {
+          "decimals": 0,
+          "value": 47
+        },
+        "versus_resolved": {
+          "decimals": 0,
+          "value": 47
+        }
+      }
+    },
+    {
+      "artifact": "experiments/agentbench/laptop-2026-10-131k.jsonl",
+      "config": {
+        "split": "commit date on or after 2026-07-01"
+      },
+      "description": "§4: the same pair on the 19 tasks committed after June 2026, Opus 5.5's stated knowledge cutoff",
+      "id": "report_2026_11_laptop_vs_cloud_after_june",
+      "metrics": {
+        "pair_resolved": {
+          "decimals": 0,
+          "value": 3
+        },
+        "pairs": {
+          "decimals": 0,
+          "value": 19
+        },
+        "versus_resolved": {
+          "decimals": 0,
+          "value": 19
+        }
+      }
     }
   ],
   "probe": {
@@ -2808,7 +2940,7 @@
     ]
   },
   "source": {
-    "commit": "f375c5c",
+    "commit": "bdf9c02",
     "repo": "pockanoodles/Mahoraga",
     "version": "2.1.0"
   },

@@ -770,6 +770,7 @@ def verdict_cmd(
     repos: List[Path] = typer.Argument(..., help="Benched repos to pool evidence from."),
     arm: str = typer.Option(..., "--arm", help="The one arm to judge, <agent>:<model>."),
     cond: str = typer.Option("feedback", "--cond", help="blind or feedback (a real queue can run tests)."),
+    cloud_arm: Optional[str] = typer.Option(None, "--cloud-arm", help="A cloud arm run on the same tasks, e.g. claude:claude-opus-5-5: prices each task local resolves at what it cost there, not at your bill's average."),
     tasks_per_month: Optional[int] = typer.Option(None, "--tasks-per-month", help="Coding tasks you give cloud agents a month (default: what `tonight` saved)."),
     api_spend: Optional[float] = typer.Option(None, "--api-spend", help="Monthly API spend, USD (API billing)."),
     plan_id: Optional[str] = typer.Option(None, "--plan", help="Subscription plan id from audit/pricing.json, e.g. claude-max-5x."),
@@ -802,7 +803,8 @@ def verdict_cmd(
         raise typer.BadParameter("give exactly one of --api-spend or --plan")
     u = usage.Usage(tasks_per_month=tasks_per_month or saved.tasks_per_month, **paid)
     try:
-        v = usage.judge([Bench(r) for r in repos], arm, cond, u, deferrable_share=deferrable,
+        v = usage.judge([Bench(r) for r in repos], arm, cond, u, cloud_arm=cloud_arm,
+                        deferrable_share=deferrable,
                         triage_minutes=triage, hourly_usd=hourly, watts=watts,
                         usd_per_kwh=kwh, usage_of_cap=usage_of_cap)
     except (ValueError, KeyError) as e:
@@ -816,6 +818,7 @@ def verdict_cmd(
                          "hi": ev.rate.hi, "tasks": ev.rate.tasks, "tier": ev.tier,
                          "hardware": ev.hardware},
             "assumptions": asdict(a),
+            "cloud": asdict(v.cloud) if v.cloud else None, "cloud_usd_per_task": v.cloud_usd,
         }, indent=2))
         return
     typer.echo(render_verdict(v))

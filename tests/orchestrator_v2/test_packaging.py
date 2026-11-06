@@ -76,6 +76,7 @@ def test_the_readme_installs_the_aider_the_claims_measured():
     """The README pins the agent the published rates ran, so a reader who follows
     it measures with the same version."""
     claims = json.loads((ROOT / "experiments" / "claims.json").read_text())["claims"]
+    # The cloud arm's claims ran Claude Code, which the README doesn't install.
     (version,) = {c["config"]["agent"].split(",")[0].removeprefix("aider ")
-                  for c in claims if "agent" in c.get("config", {})}
+                  for c in claims if c.get("config", {}).get("agent", "").startswith("aider ")}
     assert f"aider-chat=={version}" in (ROOT / "README.md").read_text()

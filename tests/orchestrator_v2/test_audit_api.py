@@ -381,20 +381,22 @@ def test_the_bench_list_says_what_each_bench_holds(api, root):
     by_name = {b["name"]: b for b in body["benches"]}
     assert set(by_name) == {"calc", "widgets", "fresh"}  # not agent-home, not a stray file
     assert all(set(b) == {"id", "name", "repo", "tasks", "dropped", "attempts", "degraded",
-                          "arms", "conds", "runs", "last_activity"} for b in body["benches"])
+                          "arms", "cloud_arms", "conds", "runs", "last_activity"}
+               for b in body["benches"])
     assert by_name["calc"] == {
         "id": _id(root.calc), "name": "calc", "repo": str(root.repos["calc"]),
         "tasks": 6, "dropped": 2, "attempts": 24, "degraded": 1,
-        "arms": [GRANITE, QWEN], "conds": ["blind", "feedback"], "runs": 1,
+        "arms": [GRANITE, QWEN], "cloud_arms": [], "conds": ["blind", "feedback"], "runs": 1,
         "last_activity": _iso_of(T0 + 400)}
     assert by_name["widgets"] == {
         "id": _id(root.widgets), "name": "widgets", "repo": None,  # never run: no manifest says where
         "tasks": 4, "dropped": 0, "attempts": 8, "degraded": 0,
-        "arms": [GRANITE, QWEN], "conds": ["blind"], "runs": 0,
+        "arms": [GRANITE, QWEN], "cloud_arms": [], "conds": ["blind"], "runs": 0,
         "last_activity": _iso_of(T0 + 50)}
     assert by_name["fresh"] == {
         "id": _id(root.fresh), "name": "fresh", "repo": None, "tasks": 1, "dropped": 0,
-        "attempts": 0, "degraded": 0, "arms": [], "conds": [], "runs": 0, "last_activity": None}
+        "attempts": 0, "degraded": 0, "arms": [], "cloud_arms": [], "conds": [], "runs": 0,
+        "last_activity": None}
 
 
 def test_the_bench_list_is_newest_activity_first_and_never_run_last(api):
@@ -736,13 +738,47 @@ def test_the_verdict_is_decide_on_the_evidence_pooled_from_the_benches(api, root
     a = Assumptions(tasks_per_month=200)
     v = decide(ev, a, Billing.api(150))
     assert set(got) == {"call", "confident", "reason", "evidence", "assumptions", "billing",
-                        "monthly_usd", "breakeven", "sensitivity", "rendered"}
+                        "monthly_usd", "breakeven", "cloud", "cloud_usd_per_task", "sensitivity",
+                        "rendered"}
+    assert (got["cloud"], got["cloud_usd_per_task"]) == (None, 0.75)  # the bill's average
     assert (got["call"], got["confident"], got["reason"]) == (v.call, v.confident, v.reason)
     assert got["sensitivity"] == v.sensitivity and got["rendered"] == render(v)
     assert got["evidence"] == asdict(ev)
     assert got["monthly_usd"] == dict(zip(("lo", "point", "hi"), v.monthly_usd))
     assert got["billing"] == {"kind": "api", "monthly_usd": 150.0, "plan": None, "lower": None}
     assert got["assumptions"] == {**asdict(a), "lines": a.lines()}
+
+
+def test_a_cloud_arm_on_the_same_tasks_prices_the_verdict(api, root):
+    from backend.orchestrator.audit.evidence import cloud_from_benches
+
+    cloud = "claude:claude-opus-5-5"
+    costs = [0.10, 0.30, 0.10, 0.30, 0.10, 0.30]  # calc's qwen blind solved c1, c3 and c5
+    for i, usd in enumerate(costs):
+        _write(root.calc, _attempt(f"c{i + 1}", cloud, "blind", True, secs=40.0, cost_usd=usd))
+    row = next(b for b in api.get("/api/audit/benches").json()["benches"] if b["name"] == "calc")
+    assert row["cloud_arms"] == [cloud] and cloud in row["arms"]
+    # Pooled with widgets, which the cloud arm never ran, the rate would cover 10 tasks and
+    # the price 6, so the verdict is refused rather than mixing the two.
+    pooled = _ask(api, cloud_arm=cloud)
+    assert pooled.status_code == 409 and f"ran 6 of {QWEN}'s 10 tasks" in pooled.json()["detail"]
+    only = [_id(root.calc)]
+    got = _ask(api, cloud_arm=cloud, benches=only).json()
+    calc = [root.calc]
+    side = cloud_from_benches(calc, QWEN, cloud, "blind")
+    v = decide(from_benches(calc, QWEN, "blind"), Assumptions(tasks_per_month=200),
+               Billing.api(150), side)
+    assert got["cloud"] == asdict(side) and got["cloud"]["usd_saved"] == pytest.approx(0.10)
+    assert got["cloud_usd_per_task"] == pytest.approx(0.10)
+    assert got["sensitivity"] == v.sensitivity and got["rendered"] == render(v)
+    assert got["breakeven"] == breakeven_rate(v.evidence, v.assumptions, 0.10)
+    for i in range(6):  # a cloud arm that recorded nothing, and no triage time
+        _write(root.calc, _attempt(f"c{i + 1}", cloud, "blind", True, secs=40.0, cost_usd=0.0))
+    free = _ask(api, cloud_arm=cloud, benches=only,
+                assumptions={"tasks_per_month": 200, "triage_minutes": 0})
+    assert free.status_code == 200 and free.json()["breakeven"] is None
+    missing = _ask(api, cloud_arm="claude:claude-gone")
+    assert missing.status_code == 409 and "no attempts for claude:claude-gone" in missing.json()["detail"]
 
 
 def test_the_evidence_is_the_pooled_task_rate(api):

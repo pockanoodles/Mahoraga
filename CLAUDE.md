@@ -1,10 +1,11 @@
 # Mahoraga — CLAUDE.md
 
 ## Project
-A local-vs-cloud audit for coding agents (direction set 2026-10-02, ADR `brain/decisions/2026-10-02-local-audit-product.md`). It measures local agents on your own repo, and on your real cloud-agent history once v2 lands, then gives a stay / split / switch verdict. The orchestration layer (cascade, LinUCB bandit, MCP) is the last stage, acting on that verdict. FastAPI backend, Python 3.12, vanilla HTML/CSS/JS frontend. GitHub: pockanoodles/Mahoraga
+A long-term study of local against cloud coding AI, with an engine readers use to repeat it on their own repo and machine (direction 2026-10-29, ADR `brain/decisions/2026-10-29-long-term-study.md`, refining the 2026-10-02 local audit, ADR `brain/decisions/2026-10-02-local-audit-product.md`). The site's Research page publishes the study's findings, Engine explains the audit, and Install is its logistics. The engine measures local agents on your own repo, and on your real cloud-agent history once v2 lands, then gives a stay / split / switch verdict. The orchestration layer (cascade, LinUCB bandit, MCP) is the last stage, acting on that verdict, and pooled results across users wait for the conditions in the 10-29 ADR. FastAPI backend, Python 3.12, vanilla HTML/CSS/JS frontend. GitHub: pockanoodles/Mahoraga
 
 **Stack:** Python 3.12, FastAPI, aiosqlite, anthropic SDK, httpx  
 **Trunk:** `main` — trunk-based flow: short-lived `feat/`/`fix/`/`chore/` branches → PR → CI (`pytest -m "not slow"`) → merge. Releases are tags (`v2.0`, …), not branches. Semantic-augmented routing spec: `docs/specs/semantic-routing.md`.  
+**Worktrees (2026-10-28):** work on a branch in `.worktrees/<name>` (`git worktree add -b <branch> .worktrees/<name> origin/main`), never in the main checkout. That checkout stays on `main`: launchd runs the daemon (`com.mahoraga.orch`) and the audit worker (`com.mahoraga.audit-worker`) from its working tree, so any branch checked out there becomes their code at the next restart. After a merge, `git pull` there and `launchctl kickstart -k gui/501/<label>` both.  
 **Tests:** `pytest` from project root
 
 ## Repo Layout

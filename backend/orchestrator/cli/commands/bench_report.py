@@ -25,6 +25,7 @@ from ...routing.verify_replay import (
     load_bank as load_verify_bank,
     load_results as load_verify_results,
     evaluate as evaluate_verify,
+    graded_rows,
     summarize as summarize_verify,
 )
 from ...routing.route_sim import (
@@ -882,6 +883,41 @@ def verify_cmd(
         )
     elif rc.get("rho") is not None:
         typer.echo(f"  the most-correct arm ({rc['best_by_exec']}) is also the heuristic's top pick.")
+
+
+@report_app.command("grade")
+def grade_cmd(
+    input_path: Path = typer.Option(
+        ..., "--input", "-i", help="Bench --output JSONL with prompt_full/output_full fields"
+    ),
+    output: Path = typer.Option(..., "--output", "-o", help="Graded JSONL to write"),
+    bank: Path = typer.Option(
+        DEFAULT_VERIFY_BANK, "--bank", help="Gold benchmark bank (prompt + hidden tests) JSONL"
+    ),
+) -> None:
+    """Write each bench row with what the hidden tests said about it.
+
+    The output is the artifact a pass_at_1 claim in experiments/claims.json
+    names: `orch bench verify` recomputes pass@1 from its `passed` flags in
+    milliseconds, without running model code again. Every field the run wrote
+    stays, so the claim can also show that no answer was escalated or errored.
+    """
+    if not bank.exists():
+        typer.echo(f"Gold bank not found: {bank}", err=True)
+        raise typer.Exit(1)
+    if not input_path.exists():
+        typer.echo(f"Results file not found: {input_path}", err=True)
+        raise typer.Exit(1)
+    rows, unmatched = graded_rows(load_verify_bank(bank), input_path)
+    if not rows:
+        typer.echo(f"No results matched the gold bank ({unmatched} unmatched).", err=True)
+        raise typer.Exit(1)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text("".join(json.dumps(r) + "\n" for r in rows))
+    typer.echo(f"graded {len(rows)} rows ({unmatched} unmatched vs {bank.name}) -> {output}")
+    for agent in sorted({r["agent"] for r in rows}):
+        mine = [r for r in rows if r["agent"] == agent]
+        typer.echo(f"  {agent:<28} pass@1 {sum(r['passed'] for r in mine)}/{len(mine)}")
 
 
 @report_app.command("route-sim")

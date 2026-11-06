@@ -1,10 +1,10 @@
-# Is local coding AI worth it on a 16 GB Mac? (October 2026)
+# Is local coding AI worth it on a 16 GB Mac? (November 2026)
 
-**Draft.** Every figure here links to the artifact it came from. Sections
-marked PENDING wait on runs that are under way on the laptop, which are
-HumanEval+ for section 2 on the night of 2026-10-28 and the laptop's own 131k
-run for sections 3 to 5 over the nights to 2026-10-31. No number goes into
-them until the run has finished and `orch bench verify` recomputes it.
+**Draft.** Every figure here links to the artifact it came from, and
+`orch bench verify` recomputes each one from that artifact. The laptop's own
+131k run, which sections 3 to 5 report, ran night by night from 2026-10-28 to
+2026-11-01, and the cloud agent that section 4 measures on the same tasks ran
+on 2026-11-05, so this edition is dated November.
 
 ## The question
 
@@ -23,17 +23,27 @@ second machine (a Mac Studio with 64 GB) shows what more memory changes.
 For most people the answer is to keep paying for cloud. The model that fits
 this laptop resolves about one real commit in ten on three outside
 repositories (10% of 92 tasks) at a 32k context, and about three in ten (30%)
-once the context is raised to 131k. Both rates come from the laptop's exact
-model file run on a faster machine, and the laptop's own 131k run is still
-under way (PENDING, section 5). A 64 GB machine runs a larger model that
-resolves about the same share (34% of the same 92 tasks), so most of what
-first looked like a hardware gap was a settings gap. The repository's own
-tests caught every failure on both machines. Neither rate pays at today's
-cloud prices, because the developer's time to notice a failed attempt
-outweighs the electricity several hundred to one. At the wider context, local
-starts to pay once a cloud task costs about $6 (about $5 with the larger
-model), which describes a team paying per token for long agentic work rather
-than a subscriber.
+once the context is raised to 131k. Both of those rates come from the
+laptop's exact model file run on a faster machine. On the laptop itself at
+131k, the same model resolved 17 of the 47 outside tasks it attempted (36%),
+one fewer than the faster machine resolved on the same 47. The laptop
+therefore reaches about the same answers and only takes longer, with a median
+attempt of 28 minutes. A 64 GB machine runs a larger model that resolves about the same
+share (34% of the 92 tasks), so most of what first looked like a hardware gap
+was a settings gap. The repository's own tests caught every failure on both
+machines. None of these rates pays at today's cloud prices, because the
+developer's time to notice a failed attempt outweighs the electricity several
+hundred to one. At the wider context, local starts to pay once a cloud task
+costs between about $4.40 and $5.70, depending on the model and the tasks,
+which describes a team paying per token for long agentic work rather than a
+subscriber.
+
+The cloud side is now measured as well. Claude Code running Claude Opus 5.5
+resolved all 47 of the laptop's tasks, with a median attempt under 40 seconds,
+and at API list prices each task cost $0.21 on average. That price is about a
+twentieth of the $4.43 at which the laptop's own run starts to pay, so on
+these repositories the cloud solves as many tasks as the report's verdicts
+assume, at under a third of the price they assume.
 
 ## 1. The local tier stopped getting new models
 
@@ -54,12 +64,26 @@ when a judge rejects the answer reached 0.921 pass@1 on HumanEval+. That is
 using cloud, so the cascade cut cost by 76.5%. The result was identical
 across two independent runs.
 
-> **PENDING (the run scheduled for 2026-10-02 never started):** the same bank
-> and method with granite 4.1 against granite 4.2. IBM published a HumanEval+
-> figure for 4.1 (79.88) and none for 4.2, so this comparison will be the only
-> protocol-matched one that exists. Our harness reproduces IBM's 4.1 figure
-> within its run-to-run band (0.774 to 0.805), which is what makes the 4.2
-> number citable.
+In October we ran the same bank on granite 4.1 and on granite 4.2, which is
+IBM's newer model at the same 8B size. IBM published a HumanEval+ figure for
+4.1 (79.88) and none for 4.2, so this is the only protocol-matched comparison
+of the two that we know of. Granite 4.1 passed 132 of the 164 tasks (0.805,
+with a 95% interval of 0.738 to 0.858), which is within a point of IBM's own
+figure. Granite 4.2 passed 130 (0.793, with an interval of 0.724 to 0.848),
+and two of its answers ran past the ten-minute limit and count as failures.
+The two models disagreed on 38 tasks, 20 that only 4.1 solved and 18 that only
+4.2 solved, and a split that even is what chance alone would produce (exact
+McNemar p = 0.87). The newer model therefore gives a 16 GB user no measurable
+gain on this bank with reasoning off
+([claims](../../experiments/claims.json), `report_2026_10_humaneval_*`).
+
+Every answer in the run came from the model it is credited to, since the
+cascade was off and none of the 328 answers went to the cloud. Neither model
+reasoned before answering. Granite 4.1 has also held steady since August, as
+its August answers graded again by the same grader pass 127 of 164 (0.774),
+and a gap of 14 tasks against 9 between the two months is well within chance
+(p = 0.40). Granite 4.2 can also reason before it answers, which takes about
+four hours over the bank on this laptop and has not been run yet.
 
 ## 3. Local agents on real repositories
 
@@ -76,20 +100,28 @@ nothing that passed before has broken.
 | aider + qwen3.5 (9.7B, 32k) | 64 GB Studio | Mahoraga | 32 | 6 | 9% to 35% |
 | aider + qwen3.5 (9.7B, 32k) | 64 GB Studio | more-itertools, click, attrs | 92 | 9 | 5% to 18% |
 | aider + qwen3.5 (9.7B, 131k) | 64 GB Studio | more-itertools, click, attrs | 92 | 28 | 22% to 40% |
+| aider + qwen3.5 (9.7B, 131k) | 16 GB laptop | more-itertools, attrs | 47 | 17 | 24% to 50% |
 | aider + qwen3.6 (35B-A3B, 131k) | 64 GB Studio | Mahoraga | 32 | 13 | 26% to 58% |
 | aider + qwen3.6 (35B-A3B, 131k) | 64 GB Studio | more-itertools, click, attrs | 92 | 31 | 25% to 44% |
 
 Every attempt was blind and run once. The qwen3.5 rows on the Studio use the
 laptop's exact model file (checksum verified) with the laptop's settings, so
 they measure the laptop's model on faster hardware. The laptop's own run at
-131k is the row this table still lacks (PENDING, section 5), since the laptop
-reads a 100,000-token prompt for over ten minutes and each attempt there needs
-a limit of 90 minutes rather than 20. The Studio rows were run overnight on
+131k gave each attempt 90 minutes rather than 20, since the laptop reads a
+100,000-token prompt for over ten minutes, and it covers the 47 tasks from
+more-itertools and attrs (section 5). The Studio rows were run overnight on
 2026-10-06 ([Era 36](../../brain/state/findings.md)), except qwen3.5 at 131k,
-which ran on the night of 2026-10-13 with the same model file. Every count in this
+which ran on the night of 2026-10-13 with the same model file. The laptop's
+run took the nights from 2026-10-28 to 2026-11-01. Every count in this
 section and the next is recomputed by `orch bench verify` from one line per
 attempt in [`experiments/agentbench/`](../../experiments/agentbench/), and CI
 runs that check, so a reader can confirm each number without our machines.
+
+Each agent got the commit's message as its task, trailers included. Nineteen
+of the 92 outside prompts carried a line naming a co-author, and two of those
+named a Claude model. Every arm read the same prompts, so the rows stay
+comparable, and the next edition leaves out the lines that say who wrote a
+commit, for every model.
 
 Three things held across every run. The test gate caught every failed
 attempt, so a test-gated queue never shipped a broken edit. The commonest
@@ -123,17 +155,24 @@ minus the developer's time to triage a failure. The pooled run below assumes
 patient enough for an overnight queue, and three minutes at $50 an hour to
 triage each failure.
 
-| Model (92 outside tasks) | Resolved | Net per month | Local pays once a cloud task costs | Verdict |
+| Model (92 outside tasks unless noted) | Resolved | Net per month | Local pays once a cloud task costs | Verdict |
 | --- | --- | --- | --- | --- |
 | qwen3.5 at 32k (fits 16 GB, run on the Studio) | 10% [5%–18%] | −$109 (−$117 to −$96) | $23.06 | STAY |
 | qwen3.5 at 131k (fits 16 GB, run on the Studio) | 30% [22%–40%] | −$76 (−$89 to −$59) | $5.72 | STAY |
 | qwen3.6 at 131k (needs 24 GB or more) | 34% [25%–44%] | −$70 (−$85 to −$54) | $4.92 | STAY |
+| qwen3.5 at 131k on the laptop itself (47 of those tasks) | 36% [24%–50%] | −$67 (−$86 to −$43) | $4.43 | STAY |
 
-> **PENDING (section 5):** the same verdict on the laptop's own 131k run, on
-> the 47 outside tasks it attempts.
+The laptop's own run gives the same verdict. On the 47 tasks it attempted,
+running the queue locally costs about $67 a month more than it saves (between
+$43 and $86), and local pays only once a cloud task costs $4.43. Only 2 of its
+30 failures ran out of time, so the engine calls this stay decided, which it
+refused to do for the laptop's 20-minute night (section 6). The laptop's tasks
+leave out click, so its row is not a like-for-like comparison with the three
+above it.
 
 Local would need to resolve at least 77% of queued tasks to break even at
-$0.75 a task, which is about twice what either model manages at 131k. At a
+$0.75 a task, which is about twice what either model manages at 131k on
+either machine. At a
 32k context, running the queue on the laptop costs about $109 a month more in
 triage time than it saves. Raising the context to 131k cuts that loss to about
 $76 and moves the break-even price from $23 a task to about $6. The bigger
@@ -147,6 +186,65 @@ nothing. Local can then only help by moving someone to a cheaper tier or by
 freeing room under a usage cap they keep hitting. Take a Max 5x user at 60% of
 the cap. Dropping to Pro would need local to take all of their queueable work
 with either model, so the engine answers that this user is not wasting money.
+
+### The cloud side, measured
+
+The verdicts in the table above assume two things about the cloud that the
+study had not measured, namely that a cloud agent solves every task it is
+given and that each task costs $0.75. To check both, Claude Code 2.1.318
+running Claude Opus 5.5 attempted the laptop's 47 tasks on 2026-11-05, with
+the same prompt, the same grader and the same 90-minute limit as the laptop's
+131k run. It ran on a Dell OptiPlex 7070, which runs the agent and the tests
+but no model. Each attempt started from an empty home directory, and its one
+way out was a proxy that let traffic through to api.anthropic.com alone and
+logged every connection. Over the 47 attempts that log holds 141 connections,
+and the proxy refused none of them ([DATAFLOW.md](../../DATAFLOW.md) says what
+each one carries).
+
+| Agent and model | Resolved | Median attempt | Cost per task |
+| --- | --- | --- | --- |
+| Claude Code, Claude Opus 5.5 (the cloud) | 47 of 47, 100% [92%–100%] | under 40 seconds | $0.21 at list prices |
+| aider, qwen3.5 at 131k (the laptop) | 17 of 47, 36% [24%–50%] | 28 minutes | the electricity |
+
+Task by task, the cloud solved all 17 tasks the laptop solved as well as 30
+that the laptop did not, and the laptop solved none that the cloud missed. If
+the two agents were equally good, a split of 30 to 0 would happen about twice
+in a billion runs (exact McNemar test). Memorisation does not explain the gap,
+since 19 of the tasks were committed after June 2026, which is Opus 5.5's
+stated knowledge cutoff. The cloud solved all 19 of those, and the laptop
+solved 3.
+
+The pair compares two agents as much as two models. Under the blind condition
+neither agent is told how the task is graded, but Claude Code can still find
+the repository's tests and run them through its shell, which aider cannot do.
+Each agent ships that way, so the pair shows what a developer gets from each
+one, and a comparison of the models alone would need both of them under one
+agent.
+
+The measured price moves the verdict more than the measured rate does. The
+assumption that the cloud solves every task held on these 47, since the low
+end of its interval is 92%. The price assumption did not hold, because a task
+cost $0.21 at list prices, and the tasks the laptop solved cost the cloud only
+$0.15 compared to $0.24 for the ones it failed. Local takes the easy tasks,
+and those are the cheap ones, so each task local resolves saves less than the
+average task costs. Priced at that $0.15, running the queue locally costs
+about $77 a month more than it saves (between $58 and $94). Local would then
+need to resolve 95% of queued tasks to break even, compared to 77% at the
+assumed $0.75.
+
+| Model | Resolved | Net per month | Break-even resolve rate | Verdict |
+| --- | --- | --- | --- | --- |
+| qwen3.5 at 131k on the laptop, priced at $0.75 a task | 36% [24%–50%] | −$67 (−$86 to −$43) | 77% | STAY |
+| the same run, priced at what the cloud spent on the tasks the laptop solved | 36% [24%–50%] | −$77 (−$94 to −$58) | 95% | STAY |
+
+These prices are what the CLI computes for each attempt at API list prices,
+while the run itself went through a Claude seat, which has no per-task price.
+A subscriber pays the flat fee instead, as the paragraph above describes. The
+tasks are single commits, so a long agentic session costs more per task than
+these did. Even so, the $4.43 at which local pays is about twenty times what
+these tasks cost. `mahoraga audit verdict --cloud-arm` prices a reader's
+verdict the same way once the cloud arm has run on their tasks
+([claims](../../experiments/claims.json), `report_2026_11_*`).
 
 ## 5. The hardware question
 
@@ -192,9 +290,21 @@ first two tries at this measurement were set by clocks rather than by the
 model (section 6), so the run below gives each attempt 90 minutes and puts no
 shorter clock inside it.
 
-> **PENDING (running 2026-10-28 to 2026-10-31):** qwen3.5 at 131k on the
-> laptop itself, blind, on 47 tasks from more-itertools and attrs, compared
-> task by task with the Studio's run of the same model file.
+On the laptop itself, qwen3.5 at 131k resolved 17 of the 47 tasks from
+more-itertools and attrs. The Studio, running the same model file at the same
+131k context, resolved 18 of the same 47. The two machines disagree on 9
+tasks, 4 that only the laptop solved and 5 that only the Studio solved, and a
+split that even is what chance alone would produce (exact McNemar p = 1.00).
+Before the request-timeout fix the same comparison read 8 against 14 (section
+6), and with the clocks removed that gap is gone. The laptop's median attempt
+took 28 minutes, only 2 of its 47 attempts used up the 90 minutes, and none of
+its model requests failed.
+
+The run also needs the machine to itself. On its second night it loaded the
+model while the laptop was in heavy use, memory ran out, and the laptop
+crashed and restarted. The run was restarted with a gate that waits until the
+laptop has been idle for 15 minutes and has 11 GB free before it loads the
+model, and no night after that crashed.
 
 For a 16 GB owner, the first change is the context window, and a memory
 upgrade is worth measuring only after it. The larger model still resolves a
@@ -248,6 +358,20 @@ fewer tasks than the Studio running the same model file (8 against 14 of the
 same 28), which read like a hardware result until the logs showed the cut
 requests. Mahoraga now gives each request the whole attempt's limit, and the
 laptop's numbers in this report come from a rerun with that fix.
+
+The first run of the granite comparison in section 2, on 2026-10-28,
+measured our harness instead of the models, in three ways at once. Granite 4.2
+reasoned at length before every answer, about 1,400 tokens against roughly 150
+that it showed, because its template turns reasoning on unless a request turns
+it off and our request never reached the template. A two-minute limit inside
+our client then cut 59 of those long replies, each cut also broke the request
+after it, and the run's summary still reported every task as a success when
+only 46 of granite 4.2's 164 answers had come back. The same run also left the
+cascade on, which sent 25 of granite 4.1's tasks to Claude and recorded
+Claude's answers under granite's name. We caught all three by grading the
+outputs rather than trusting the summary. The rerun in section 2 records for
+every answer whether it reasoned, whether it was escalated and whether it
+errored, so a claim checks that none of them came from Claude.
 
 Two more errors came from the agents' interfaces rather than from the models.
 Ornith-1.5 was first recorded under aider as 3 resolved and 99 attempts with

@@ -27,5 +27,6 @@
  "conditions": {},
  "tier": "test-verified",
  "run_id": "",
- "request_errors": null
+ "request_errors": null,
+ "cost_usd": null
 }

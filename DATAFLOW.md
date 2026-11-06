@@ -4,11 +4,16 @@ Mahoraga works on your source code, so this page says, in plain language, what l
 your machine, where it goes, and how to stop it. If something here stops being true, the
 code is wrong, not this page.
 
+The privacy policy on top of this page, written for visitors, is at
+[kaitosoeno.com/mahoraga/privacy](https://kaitosoeno.com/mahoraga/privacy/). A change here
+belongs there too (`site/content/privacy.ts`).
+
 ## At a glance
 
 | Where | What | Why |
 | --- | --- | --- |
 | Nowhere (audit) | Nothing. Mining, runs, grading and the verdict all happen on your machine. | The audit exists to measure local agents on your code without sending it out. |
+| Anthropic (the audit's cloud arm, off unless you pass `--allow-cloud`) | What Claude Code reads of the task's repository, the task prompt, and its tool output | A `claude:<model>` arm measures the cloud agent the local ones would replace, on the same tasks. |
 | Ollama on `localhost:11434` | Task prompts and the repository context the agent reads | The local model answers the task. This stays on your machine unless you point `OLLAMA_BASE_URL` elsewhere. |
 | Anthropic (router escalation, on by default) | The prompt of a task the local answer failed, through the `claude` CLI under your login or through `ANTHROPIC_API_KEY` | A failed local answer is re-run on a cloud model. `MAHORAGA_CASCADE=off` stops it. |
 | Anthropic (planner and verifier) | Mission text and task output | Only when the `claude` backend is enabled, which it is not in the shipped configuration. |
@@ -20,24 +25,70 @@ code is wrong, not this page.
 
 ## The audit (`mahoraga audit …`)
 
-The audit measures local coding agents on your own repository, and by design it sends
-nothing anywhere.
+The audit measures local coding agents on your own repository. With local arms, which
+are the default, it sends nothing anywhere. Only the cloud arm, which you turn on for a
+run, sends anything out (below).
 
 - **Your repository is only read.** Mining copies commits into a separate work area
   (`~/.mahoraga-v2/agentbench/`) and every attempt happens in its own copy, so your
   checkout is never written to.
-- **Agents run sandboxed on macOS.** Each agent runs inside an operating-system sandbox
-  (`sandbox-exec`) that can write only to its own copy and a temporary folder, and that
-  can open network connections only to `localhost`, which is where Ollama serves the
-  model. A request anywhere else is refused by the operating system.
-- **On Linux there is no operating-system sandbox yet.** Agents get their own home
-  directory and Mahoraga starts them with their update checks and analytics turned off
-  (for aider, `--no-check-update --no-analytics`), but nothing stops an agent from opening
-  a connection if it tries.
+- **Agents run in an operating-system sandbox.** On macOS it is `sandbox-exec`, and on
+  Linux it is bubblewrap (`apt install bubblewrap`). The agent can write only to its own
+  copy, its own home folder and a temporary folder. It can open network connections only
+  to the local ports Mahoraga gives it, which are Ollama's for a local arm and the
+  cloud arm's proxy for the cloud arm. A request anywhere else is refused by the
+  operating system. On Linux the agent gets its own private network with no route out,
+  its own `/tmp` and its own `/run`, so it can't reach other programs' sockets either.
+- **Agents can't read your credentials.** The folders under your home that hold keys and
+  logins (`.ssh`, `.config`, `.claude`, `.codex`, `.aws` and the like) are hidden from
+  every agent.
+- **Without a sandbox, only local arms run.** On a Linux machine without bubblewrap, local
+  agents still get their own home folder, and Mahoraga starts them with their update
+  checks and analytics turned off (for aider, `--no-check-update --no-analytics`). But
+  nothing stops them opening a connection, and the run's preflight says so. The cloud arm
+  refuses to start.
 - **The model runs on your machine.** Ollama answers at `http://127.0.0.1:11434` unless
   you point `OLLAMA_BASE_URL` somewhere else.
 - **Results stay local.** Tasks, attempts, run manifests and verdicts are files under
   `~/.mahoraga-v2/`, and nothing uploads them.
+
+### The cloud arm (`claude:<model>`)
+
+The study compares local agents with the cloud agent they would replace, on the same
+tasks, so the audit can run Claude Code as an arm. This is the one part of the audit that
+sends your code out.
+
+- **It only runs when you ask, each time.** `mahoraga audit run --arm
+  claude:claude-sonnet-5-5 --allow-cloud` starts it. Without `--allow-cloud` the run
+  stops before anything is sent, and the queue refuses cloud arms altogether, so nothing
+  unattended ever sends code.
+- **What leaves.** Claude Code reads files in the task's copy of your repository and runs
+  commands there, the same way it would on your own checkout. Everything it reads, the
+  task prompt (the commit's message and the names of its test files), and the output of
+  the commands it runs go to Anthropic's API. It can't read the original repository or
+  the bench's other files, because the sandbox hides them.
+- **It sees less than a local arm.** Your whole home folder is hidden from it, apart from
+  its own copy of the task, its own empty home, and the programs it runs (the `claude`
+  command and the Python that runs the task's tests). It gets only the environment
+  variables it needs (`PATH`, locale, `TERM`, `TZ`, your user name, `SHELL`, `TMPDIR`), so a
+  token exported in your shell doesn't reach it. On macOS it can connect to the proxy's
+  port and no other local port.
+- **Where it goes, and the record of it.** The agent's only way out is a proxy Mahoraga
+  runs for the attempt (`agentbench/egress.py`). The proxy opens connections to
+  `api.anthropic.com` on port 443 and refuses everything else. Every connection it is
+  asked for, allowed or refused, is written at the end of the attempt's log with the
+  number of bytes each way. The traffic is encrypted, so the log says where and how much,
+  not what. Web fetch and web search are turned off, and Claude Code's telemetry, error
+  reporting and update checks are switched off.
+- **Whose account.** It runs on the login whose token you save with `claude setup-token`
+  at `~/.config/mahoraga/claude-token`, or wherever `MAHORAGA_CLAUDE_TOKEN_FILE` points.
+  Each attempt starts with an empty home folder, so none of your own Claude Code settings,
+  instructions, skills, hooks or memory go with it. An `ANTHROPIC_API_KEY` in your
+  environment is not passed on, so the run can't bill your API account by accident.
+- **What it costs.** Each attempt records what Claude Code reports it would cost at API
+  prices, whether your login is a subscription or not.
+- Once the code reaches Anthropic, the terms in "When the cloud arm is Anthropic" below
+  apply.
 
 ## The router (`mahoraga serve`, the MCP bridge)
 
@@ -85,12 +136,14 @@ only when you click them.
 
 Escalation, `orch bench repro` and the `claude` worker send the task's prompt to Anthropic,
 whether through the `claude` command-line tool on a Claude subscription (`claude-cli`) or
-through an API key (`claude`). In the router a prompt can contain your code, because the
-task is whatever you asked it to do. Once it reaches Anthropic, how long it is kept and
+through an API key (`claude`). The audit's cloud arm sends what Claude Code reads of the
+task's repository. In the router a prompt can contain your code, because the task is
+whatever you asked it to do. Once it reaches Anthropic, how long it is kept and
 whether it is used for training are set by Anthropic's terms and your account settings,
 not by Mahoraga, and this project can't promise anything about them. Read
 [Anthropic's privacy policy](https://www.anthropic.com/legal/privacy) before you send
-anything you wouldn't send to Anthropic directly. The audit never uses these arms.
+anything you wouldn't send to Anthropic directly. The audit uses Anthropic only through
+its cloud arm, and only when you pass `--allow-cloud`.
 
 ## What is never collected
 

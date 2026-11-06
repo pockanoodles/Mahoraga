@@ -10,12 +10,23 @@ like a model failure. None of those attempts measured the agent.
              at >= `ratio` x its reference speed, idle if asked, and, on an
              Ollama shared with other people, holding none of their models;
              with a memory floor, also until the machine has that much memory
-             free plus room for the model to load
+             free plus room for the model to load; with a load room, until
+             that much memory is available before the model loads at all
   watch      during and after an attempt: an attempt is *degraded* if AC was
-             lost, if free memory fell under the floor (the attempt is stopped
-             then and there), or if speed fell below the bar *and* the attempt
+             lost, if free memory fell under the floor, the owner came back
+             to a machine that yields to them, or the machine reached the
+             state it panicked in (the attempt is stopped then and
+             there), or if speed fell below the bar *and* the attempt
              timed out or had requests fail. Degraded attempts are kept for
              audit but not counted, and the cell is retried
+
+The load room and yielding exist because the laptop is its owner's machine and
+16 GB is barely enough for qwen3.5 at 131k (machine.py has the crash that
+proved it). Ollama loads a model whether or not the memory is there, so the
+check has to happen before the load: in the gate, and in preflight, whose speed
+probe is a load too. Once loaded, the model holds ~10.5 GB wired and the
+owner's idle apps sit in swap; their coming back pages all of it in at once,
+so a machine that yields gives the memory back the moment it is touched.
 
 The memory floor exists because the Studio is someone else's machine. On
 2026-10-17 qwen3.6 at 131k ran there while its owner worked in apps that
@@ -24,6 +35,16 @@ to be killed by hand. With a floor the run gives the memory back on its own:
 it stops the attempt, unloads its model, and waits. It is off by default, since
 a 16 GB laptop sits at the kernel's memory warning through every 131k attempt
 and the only one it would stop is the run itself.
+
+The panic stop exists because pressure alone can't tell a laptop at its limit
+from one about to panic. On the night into 2026-10-30, untouched, two of nine
+131k attempts reached critical pressure and free memory fell to 4%, with wired
+memory flat near 11.3 GB (11.9 at most), and both finished normally; stopping
+on critical would have thrown both away. The panic the night before had wired
+memory at 14.2 GB. So the stop needs both, critical pressure while wired memory
+is over the line, for `PANIC_READINGS` readings in a row, so one spike doesn't
+end an attempt. The night of the panic, WindowServer starved for two minutes
+before the watchdog fired, and two readings 30 s apart land inside that.
 
 Slowness alone doesn't degrade an attempt. A slow machine changes when tokens
 arrive, not which ones the model can produce: aider samples at temperature 0,
@@ -61,12 +82,18 @@ from typing import Callable
 import httpx
 
 from . import host
-from .agents import DEFAULT_NUM_CTX, Agent, kill_live_agents
+from .agents import DEFAULT_NUM_CTX, Agent, is_local, kill_live_agents
 from .ollama import (BASE_URL, DERIVED_PREFIX, generation_speed, loaded_models,
                      loaded_sizes, pulled_models, tagged, unload)
 
 # Clean readings kept per model; the reference is their median.
 READINGS_KEPT = 10
+# Input more recent than this means someone is at the machine.
+IN_USE_SECS = 60
+# The kernel's memory pressure level for critical.
+CRITICAL = 4
+# Readings in a row at the panic signature before an attempt is stopped.
+PANIC_READINGS = 2
 
 
 @dataclass
@@ -99,7 +126,8 @@ def _is_mine(loaded: str, agent: Agent) -> bool:
 class Guard:
     def __init__(self, root: Path, *, ratio: float = 0.5, min_watts: int = 60,
                  wait_idle: float = 0, clean_idle: float = 300, wait_quiet: bool = False,
-                 memory_floor: int | None = None,
+                 memory_floor: int | None = None, load_room: int | None = None,
+                 yield_to_owner: bool = False, panic_wired: int | None = None,
                  poll: float = 60, sample_every: float = 30,
                  power: Callable[[], host.Power] = host.power,
                  idle: Callable[[], float | None] = host.idle_secs,
@@ -108,7 +136,9 @@ class Guard:
                  loaded: Callable[[], list[str]] = loaded_models,
                  free_pct: Callable[[], int | None] = host.memory_free_pct,
                  mem_total: Callable[[], int | None] = host.memory_bytes,
-                 sizes: Callable[[], dict[str, int]] = loaded_sizes,
+                 pressure: Callable[[], int | None] = host.memory_pressure,
+                 wired: Callable[[], int | None] = host.wired_bytes,
+                 sizes:Callable[[], dict[str, int]] = loaded_sizes,
                  release: Callable[[str], None] = unload,
                  stop_agent: Callable[[], None] = kill_live_agents,
                  sleep: Callable[[float], None] = time.sleep,
@@ -118,8 +148,17 @@ class Guard:
         self.clean_idle, self.wait_quiet = clean_idle, wait_quiet
         # Percent of memory to leave free for the machine's owner; None = off.
         self.memory_floor = memory_floor
+        # Bytes that must be available before our model loads; None = off.
+        self.load_room = load_room
+        if yield_to_owner and wait_idle < IN_USE_SECS:
+            raise ValueError("yielding to the owner needs an idle wait of at least a "
+                             "minute, or every attempt would start in use and stop")
+        self.yield_to_owner = yield_to_owner
+        # Wired bytes over which critical pressure stops an attempt; None = off.
+        self.panic_wired = panic_wired
         self._loaded = loaded
         self._free_pct, self._mem_total, self._sizes = free_pct, mem_total, sizes
+        self._pressure, self._wired = pressure, wired
         self._release, self._stop_agent = release, stop_agent
         # Bytes each of our models took when last seen loaded, so the gate
         # can leave room for one that isn't loaded yet.
@@ -226,24 +265,50 @@ class Guard:
             need, why = need + room, f"the {self.memory_floor}% floor plus {room}% to load {agent.model}"
         return f"memory: {free}% free, under {why}" if free < need else None
 
+    def _room_problem(self, agent: Agent) -> str | None:
+        """Too little memory for our model: what's available plus what our own
+        loaded copies hold. Not a pass for any copy that's loaded: the router
+        keeps the same model loaded at a small context, and loading it at 131k
+        replaces that copy, freeing only what it held."""
+        if self.load_room is None:
+            return None
+        free, total = self._free_pct(), self._mem_total()
+        if free is None or not total:
+            return None
+        room = free * total // 100 + sum(self._mine_loaded(agent).values())
+        if room >= self.load_room:
+            return None
+        return (f"memory: {room / 2**30:.1f} GB for {agent.model}, under the "
+                f"{self.load_room / 2**30:.0f} GB it needs")
+
+    def _idle_problem(self) -> str | None:
+        if not self.wait_idle:
+            return None
+        idle = self._idle()
+        if idle is not None and idle < self.wait_idle:
+            return f"in use (idle {idle:.0f}s, waiting for {self.wait_idle:.0f}s)"
+        return None
+
     def problems(self, agent: Agent) -> list[str]:
         """Why an attempt shouldn't start now. Speed is probed last and only
         if everything else is fine, since a probe is a real generation."""
-        out = [p for p in [self._power_problem()] if p]
-        if self.wait_idle:
-            idle = self._idle()
-            if idle is not None and idle < self.wait_idle:
-                out.append(f"in use (idle {idle:.0f}s, waiting for {self.wait_idle:.0f}s)")
+        out = [p for p in [self._power_problem(), self._idle_problem()] if p]
+        if not is_local(agent):  # no model here to share, load or slow down
+            return out
         if self.wait_quiet and (busy := self._busy(agent)):
             out.append(busy)
         if memory := self._memory_problem(agent):
             out.append(memory)
+        if room := self._room_problem(agent):
+            out.append(room)
         if not out and (slow := self._slow(agent)):
             out.append(slow)
         return out
 
     def release(self, agent: Agent) -> None:
         """Unload our model now, so waiting on someone doesn't hold their memory."""
+        if not is_local(agent):
+            return
         for m in self._mine_loaded(agent):
             try:
                 self._release(m)
@@ -259,7 +324,8 @@ class Guard:
             if [p.split(" ")[0] for p in problems] != shown:  # log changes, not every poll
                 self._log("paused: " + "; ".join(problems))
                 shown = [p.split(" ")[0] for p in problems]
-                if any(p.startswith(("busy:", "memory:")) for p in problems):
+                # Waiting on someone: don't hold memory they're using.
+                if any(p.startswith(("busy:", "memory:", "in use")) for p in problems):
                     self.release(agent)
             self._sleep(self.poll)
         if shown is not None:
@@ -288,6 +354,9 @@ class Guard:
         for name in sorted({a.name for a in agents}):
             found = shutil.which(name)
             checks.append(Check(name, bool(found), found or f"{name} not on PATH"))
+        agents = [a for a in agents if is_local(a)]  # a cloud arm has no model here
+        if not agents:
+            return checks
         try:
             self._digests = self._pulled()
         except httpx.HTTPError as e:
@@ -297,6 +366,11 @@ class Guard:
         for a in agents:
             if tagged(a.model) not in self._digests:
                 checks.append(Check(a.model, False, f"not pulled: ollama pull {a.model}"))
+                continue
+            # The probe loads the model, so it waits for what an attempt waits for.
+            if why := self._idle_problem() or self._room_problem(a):
+                checks.append(Check(a.model, False, f"speed not probed yet: {why}",
+                                    waits=True))
                 continue
             s, ref = self.measure(a)
             if ref is None:
@@ -318,21 +392,50 @@ class _Watching:
         self._stop = threading.Event()
         self._samples: list[tuple[host.Power, float | None]] = []
         self._free: list[int] = []
+        self._pressures: list[int] = []
+        self._wireds: list[int] = []
+        self._at_panic = 0  # readings in a row at the panic signature
+
+    def _give_back(self, why: str) -> None:
+        """Stop the attempt and unload its model. Once the agent has stopped,
+        there is nothing left to stop."""
+        if self.result.degraded or self._stop.is_set():
+            return
+        self.result.degraded.append(f"{why}; stopped the attempt and unloaded the "
+                                    "model to give it back")
+        self.g._stop_agent()
+        self.g.release(self.agent)
 
     def _sample(self) -> None:
-        self._samples.append((self.g._power(), self.g._idle()))
+        idle = self.g._idle()
+        self._samples.append((self.g._power(), idle))
+        if (p := self.g._pressure()) is not None:
+            self._pressures.append(p)
+        if self.g.yield_to_owner and idle is not None and idle < IN_USE_SECS:
+            self._give_back(f"the machine was used {idle:.0f}s ago")
+        self._panic_check(p)
         floor = self.g.memory_floor
         if floor is None or (free := self.g._free_pct()) is None:
             return
         self._free.append(free)
-        self.g._mine_loaded(self.agent)  # learn the model's size while it's loaded
-        # Once the agent has stopped, a low reading has nothing left to stop.
-        if free < floor and not self.result.degraded and not self._stop.is_set():
-            self.result.degraded.append(
-                f"memory fell to {free}% free, under the {floor}% floor; "
-                "stopped the attempt and unloaded the model to give it back")
-            self.g._stop_agent()
-            self.g.release(self.agent)
+        if is_local(self.agent):
+            self.g._mine_loaded(self.agent)  # learn the model's size while it's loaded
+        if free < floor:
+            self._give_back(f"memory fell to {free}% free, under the {floor}% floor")
+
+    def _panic_check(self, pressure: int | None) -> None:
+        line = self.g.panic_wired
+        if line is None:
+            return
+        if (wired := self.g._wired()) is None:  # a missed reading breaks the run
+            self._at_panic = 0
+            return
+        self._wireds.append(wired)
+        self._at_panic = self._at_panic + 1 if pressure == CRITICAL and wired > line else 0
+        if self._at_panic >= PANIC_READINGS:
+            self._give_back(f"memory pressure critical with {wired / 2**30:.1f} GB wired, "
+                            f"over the {line / 2**30:.1f} GB panic line, "
+                            f"{self._at_panic} readings in a row")
 
     def _loop(self) -> None:
         while not self._stop.wait(self.g.sample_every):
@@ -352,11 +455,11 @@ class _Watching:
         if exc[0] is not None:
             return
         degraded = self.result.degraded
-        out_of_memory = bool(degraded)  # only the memory check fills it before here
+        gave_back = bool(degraded)  # only _give_back fills it before here
         if any(p.on_ac is False for p, _ in self._samples):
             degraded.append("lost AC power during the attempt")
-        # A probe reloads the model the memory check just gave back.
-        slow = None if out_of_memory else self.g._slow(self.agent)
+        # A probe would reload the model just given back.
+        slow = None if gave_back or not is_local(self.agent) else self.g._slow(self.agent)
         self.result.slow = slow + " after the attempt" if slow else ""
         idles = [i for _, i in self._samples if i is not None]
         self.result.conditions = {
@@ -365,7 +468,14 @@ class _Watching:
             "slow_after": self.result.slow or None,
             "min_battery": min((p.percent for p, _ in self._samples
                                 if p.percent is not None), default=None),
-            "in_use_share": round(sum(i < 60 for i in idles) / len(idles), 2) if idles else None,
+            "in_use_share": round(sum(i < IN_USE_SECS for i in idles) / len(idles), 2)
+                            if idles else None,
         }
         if self._free:
             self.result.conditions["min_free_pct"] = min(self._free)
+        # Whether an attempt on a machine at its limit reaches critical (4):
+        # the evidence for stopping on pressure, not only on the owner.
+        if self._pressures:
+            self.result.conditions["max_pressure"] = max(self._pressures)
+        if self._wireds:
+            self.result.conditions["max_wired_gb"] = round(max(self._wireds) / 2**30, 1)

@@ -32,9 +32,10 @@ COPY frontend frontend
 COPY scripts/build_ui.sh scripts/build_ui.sh
 RUN mkdir -p backend/orchestrator/service && bash scripts/build_ui.sh
 
-# 2. Python package and its dependencies, built into a virtualenv. hnswlib has no
-#    wheels and compiles here. Its build uses -march=native unless told not to,
-#    which would tie the image to the CPU that built it and crash on others.
+# 2. Python package and its dependencies, built into a virtualenv, with the router
+#    extra the engine's API uses. Its hnswlib has no wheels and compiles here. The
+#    build uses -march=native unless told not to, which would tie the image to the
+#    CPU that built it and crash on others.
 FROM python:3.12-slim AS build
 # Unpinned on purpose: this stage is thrown away, and a pinned version stops
 # existing at the next Debian point release.
@@ -48,7 +49,7 @@ COPY pyproject.toml README.md LICENSE ./
 COPY backend backend
 COPY --from=ui /src/backend/orchestrator/service/ui backend/orchestrator/service/ui
 RUN python -m venv /opt/venv \
-    && /opt/venv/bin/pip install --no-cache-dir .
+    && /opt/venv/bin/pip install --no-cache-dir ".[router]"
 
 # 3. Runtime: no compiler, no source tree, no root.
 FROM python:3.12-slim

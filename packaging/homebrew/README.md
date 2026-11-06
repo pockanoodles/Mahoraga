@@ -19,8 +19,9 @@ The Python dependencies are `resource` blocks, built from source into a
 virtualenv. The compiled ones that Homebrew already ships for its default
 Python (numpy, cryptography, pydantic, rpds-py) come from Homebrew's own
 formulae instead, which is why the formula uses `python@3.14` and not 3.12.
-Two packages still compile on the user's machine: `jiter` (Rust) and `hnswlib`
-(C++, built against Homebrew's numpy and pybind11 with build isolation off).
+One package still compiles on the user's machine: `jiter` (Rust). `hnswlib`, the
+router's memory, is the `router` extra, which the formula leaves out, and the
+router runs without it.
 There are no bottles, so the first install takes a few minutes.
 
 ## Create the tap (once)

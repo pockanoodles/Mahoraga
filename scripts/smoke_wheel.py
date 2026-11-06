@@ -131,8 +131,11 @@ def main() -> int:
         print(f"Installing {wheel.name} into a fresh venv (Python {sys.version.split()[0]})", flush=True)
         subprocess.run([sys.executable, "-m", "venv", str(tmp_path / "venv")], check=True)
         bin_dir = tmp_path / "venv" / "bin"
+        # Wheels only, as on a machine with no compiler: a dependency that would
+        # build from source (hnswlib did, before it became the router extra) fails here.
         subprocess.run(
-            [str(bin_dir / "python"), "-m", "pip", "install", "--disable-pip-version-check", "-q", str(wheel)],
+            [str(bin_dir / "python"), "-m", "pip", "install", "--disable-pip-version-check", "-q",
+             "--only-binary=:all:", str(wheel)],
             check=True,
         )
 

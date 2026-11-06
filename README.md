@@ -138,9 +138,9 @@ The command you run is `mahoraga`.
 | Docker | `docker run --rm -p 127.0.0.1:8000:8000 ghcr.io/pockanoodles/mahoraga` | with the first release |
 | From source | `uv tool install git+https://github.com/pockanoodles/Mahoraga` | CLI and API, no prebuilt app |
 
-Mahoraga needs Python 3.12 or newer, [Ollama](https://ollama.com), and a C++ toolchain,
-since pip, pipx and uv compile `hnswlib` from source. It runs on macOS and Linux, and it
-was built on a 16 GB Mac. The Docker image serves the engine and the app while Ollama and
+Mahoraga needs Python 3.12 or newer and [Ollama](https://ollama.com). It runs on macOS
+and Linux, and it was built on a 16 GB Mac. The router's memory is an extra,
+`mahoraga-audit[router]`, and it is the only part that needs a C++ toolchain to install. The Docker image serves the engine and the app while Ollama and
 your agents stay on the host (the Dockerfile's header has the full command, including the
 volume that keeps your results).
 

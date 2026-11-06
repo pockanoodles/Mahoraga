@@ -8,7 +8,8 @@ optional semantic memory.
 - Python 3.12 or newer
 - [Ollama](https://ollama.com/)
 - Git
-- A C++ build toolchain for `hnswlib`
+- A C++ build toolchain for `hnswlib`, the router's memory, which `requirements.txt`
+  installs (`pip install -e .` on its own needs none)
 - Node.js and npm if you want the React UI
 
 Install the compiler toolchain if needed:
@@ -110,7 +111,8 @@ Open `http://127.0.0.1:5173`. Vite proxies `/api` requests to the backend.
 
 ## Enable semantic episodic memory
 
-Semantic mode is the runtime default, but its encoder is an optional install:
+Semantic mode is the runtime default, but its encoder and the `hnswlib` index
+it searches are optional installs:
 
 ```bash
 python -m pip install -r requirements-semantic.txt
@@ -173,10 +175,10 @@ affected commands and current workaround.
 
 ### Semantic memory falls back to keyword retrieval
 
-Verify that the optional encoder can be imported:
+Verify that the optional encoder and its index can be imported:
 
 ```bash
-python -c "from sentence_transformers import SentenceTransformer; print('ok')"
+python -c "import hnswlib; from sentence_transformers import SentenceTransformer; print('ok')"
 ```
 
 The first encoder use may need to download `all-MiniLM-L6-v2`.

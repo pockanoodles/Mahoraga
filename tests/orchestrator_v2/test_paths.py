@@ -40,13 +40,15 @@ def test_a_path_resolved_at_import_follows_the_variable(tmp_path, given):
     code = ("from backend.orchestrator.store.base import DEFAULT_DB_PATH; "
             "from backend.orchestrator.agentbench.bank import bench_root; "
             "from backend.mcp.funnel_liveness import LOG_PATH; "
-            "print(DEFAULT_DB_PATH); print(bench_root()); print(LOG_PATH)")
+            "from backend.orchestrator.agentbench.machine import PATH; "
+            "print(DEFAULT_DB_PATH); print(bench_root()); print(LOG_PATH); print(PATH)")
     env = {**os.environ, "MAHORAGA_HOME": given.format(tmp=tmp), "PYTHONPATH": str(ROOT)}
     env.pop("MAHORAGA_AGENTBENCH_ROOT", None)
     out = subprocess.run([sys.executable, "-c", code], cwd=tmp, env=env, capture_output=True, text=True, timeout=120)
     assert out.returncode == 0, out.stderr
     state = tmp / "state"
-    assert out.stdout.split() == [str(state / "mahoraga.db"), str(state / "agentbench"), str(state / "funnel.jsonl")]
+    assert out.stdout.split() == [str(state / "mahoraga.db"), str(state / "agentbench"),
+                                  str(state / "funnel.jsonl"), str(state / "machine.json")]
 
 
 # funnel_liveness stays stdlib-only on the MCP tool-discovery path, so it writes

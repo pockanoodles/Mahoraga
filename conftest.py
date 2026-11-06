@@ -1,4 +1,11 @@
+import os
+
 import pytest
+
+# Modules resolve their state paths when they load, and collection loads them
+# before any fixture runs, so a developer's own MAHORAGA_HOME has to go before
+# that, or those paths stay on their real directory for the whole session.
+os.environ.pop("MAHORAGA_HOME", None)
 
 
 @pytest.fixture(autouse=True)

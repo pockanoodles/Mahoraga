@@ -12,15 +12,27 @@ refused, no degraded attempts. Confound: Claude Code can run the tests through B
 blind and aider can't, so it compares agent+model against agent+model.
 
 The tasks the laptop solves cost the cloud $0.15, against $0.24 for the ones it fails.
-Branch `feat/cloud-verdict` (worktree `.worktrees/cloud-verdict`, stacked on #87 and #88)
-adds `audit verdict --cloud-arm` and the claims spec `"cloud": "versus"`, which price each
-task local resolves at what the cloud spent on it. At that price the laptop's verdict is
-STAY, decided, at -$77 a month, and local needs 95% to break even, up from 77%. The
-report's short answer and §4 carry it (3 new claims, 26 verify). Branch
-`feat/cloud-verdict-surfaces` (stacked on #89) carries it to the local UI's Verdict page
-(`cloud_arm` on the API, a "Price a cloud task by" picker) and to two site log entries in
-en and ja. The hero still uses the $0.75 worked example and its 77% bar, which is
-Kaito's editorial call.
+`audit verdict --cloud-arm` and the claims spec `"cloud": "versus"` price each task local
+resolves at what the cloud spent on it. At that price the laptop's verdict is STAY,
+decided, at -$77 a month, and local needs 95% to break even, up from 77%. The report's
+short answer and §4 carry it (3 new claims, 26 verify). The local UI's Verdict page takes
+a cloud arm ("Price a cloud task by", `cloud_arm` on the API), the site's log has two
+entries on it in en and ja, and the hero's break-even line is now 95% at the measured
+$0.15 (Kaito's call). The Engine calculator keeps the $0.75 worked example.
+
+**Merged 2026-11-05:** #87, #88, #89 and #90 are on main at e003dc1, merged by the
+personal-website session on Kaito's word. GitHub read #89's two merge bases as a conflict,
+so main went into `feat/cloud-verdict` as edf741b first. Codex's review of that push found
+two holes in the cloud pricing: a cloud arm on only some of local's tasks still priced the
+verdict, and an unpriced cloud attempt on a task local never ran blocked it. #91
+(`fix/cloud-covers-every-task`) refuses partial coverage in `cloud_from_benches` and
+`claims.priced` (the API answers 409). CI is green and Codex found nothing in it.
+Still open:
+1. Kaito: merge #91, then run the site deploy (`cd site && npm run build && npx wrangler
+   deploy`, then `BASE=https://kaitosoeno.com npm run verify`). The build from e003dc1
+   passes verify. One deploy covers #86, #87, #89 and #90.
+2. The main checkout `~/Projects/mahoraga` is still on `site/flat-ground` at 157fcd5,
+   and launchd runs the daemon from it, so moving it to main is Kaito's call.
 
 Next, recommended: the agent confound. Claude Code runs the tests through Bash under
 blind and aider can't, so the 30-0 split is agent plus model. Holding the agent fixed

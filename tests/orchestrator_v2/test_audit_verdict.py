@@ -167,6 +167,17 @@ def test_nothing_pays_when_a_cloud_task_costs_less_than_the_electricity():
     assert breakeven_rate(ev(10, minutes=10), watts_hog, 0.10) > 1
 
 
+def test_no_rate_pays_when_a_cloud_task_and_triage_are_both_free():
+    import math
+
+    from backend.orchestrator.audit.verdict import cloud_side
+
+    free = Assumptions(tasks_per_month=200, triage_minutes=0)
+    assert breakeven_rate(ev(10), free, 0.0) == math.inf
+    v = decide(ev(10), free, Billing.api(150), cloud_side("c", [(1.0, 1.0, 0.0)] * 5))
+    assert v.call == STAY and any(s.startswith("No resolve rate pays") for s in v.sensitivity)
+
+
 def test_switch_needs_both_a_high_floor_and_nearly_all_work_deferrable():
     strong = ev(40)
     assert decide(strong, A, Billing.api(150)).call != SWITCH  # only 25% deferrable

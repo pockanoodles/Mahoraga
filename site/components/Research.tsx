@@ -3,7 +3,7 @@
 // measured number is read from the engine's export through lib/data.ts or
 // content/log.ts, and a footnote or a source link names the artifact it came from.
 import type { Dict, Locale } from "@/content/copy";
-import { PRICE, STANDING } from "@/content/log";
+import { STANDING } from "@/content/log";
 import { blob, cfg, claim, data, num, pct } from "@/lib/data";
 import { pagePath } from "@/lib/routes";
 import { Log } from "./Log";
@@ -32,7 +32,7 @@ export function Research({ t, locale }: { t: Dict; locale: Locale }) {
   if (elsewhere.length) throw new Error(`the settings lead says a Mac Studio ran every arm, not ${elsewhere.map((a) => a.machine).join(", ")}`);
   // The bar the lead measures them against is the hero's break-even line.
   const bar = pct(num(claim(STANDING.breakeven), "breakeven_rate"));
-  const price = `$${PRICE.toFixed(2)}`;
+  const price = STANDING.price;
 
   const notes = [
     t.notes.standing({

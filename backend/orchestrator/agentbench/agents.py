@@ -107,6 +107,12 @@ def is_local(agent) -> bool:
     return getattr(agent, "local", True)
 
 
+def is_cloud_arm(arm: str) -> bool:
+    """Whether a recorded arm (`<agent>:<model>...`) ran a vendor's model."""
+    cls = AGENTS.get(arm.partition(":")[0])
+    return cls is not None and not is_local(cls)
+
+
 def agent_home(name: str) -> Path:
     """An agent's own HOME: none of the user's config or credentials."""
     return bench_root() / "agent-home" / name

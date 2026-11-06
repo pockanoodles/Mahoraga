@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "mahoraga-audit"
 dynamic = ["version"]
-description = "Is local coding AI worth it for your code? Measure it, then route it."
+description = "Measures local coding agents on your repository's own commits, graded by its tests, and says whether to stay on cloud, split, or switch."
 readme = "README.md"
 requires-python = ">=3.12"
 license = "MIT"

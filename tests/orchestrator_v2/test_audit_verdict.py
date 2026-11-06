@@ -296,8 +296,12 @@ def test_cloud_evidence_pairs_by_task_on_the_benches_and_needs_a_cost(tmp_path):
     b = _bench(tmp_path, "one", {"s1": [True], "s2": [False], "s3": [True]}, cond="blind")
     _attempts(b, {"s1": [True], "s2": [True]}, "claude:m", "blind", cost=0.2)
     _attempts(b, {"s3": [True]}, "claude:m", "feedback", cost=9.0)  # other condition: not paired
+    # Local's rate covers s3 too, so a price from s1 and s2 alone would mix two populations.
+    with pytest.raises(ValueError, match="ran 2 of fake:m's 3 tasks"):
+        cloud_from_benches([b], "fake:m", "claude:m", "blind")
+    _attempts(b, {"s3": [True]}, "claude:m", "blind", cost=0.5)
     side = cloud_from_benches([b], "fake:m", "claude:m", "blind")
-    assert (side.tasks, side.resolved, side.usd_saved) == (2, 2, pytest.approx(0.2))
+    assert (side.tasks, side.resolved, side.usd_saved) == (3, 3, pytest.approx(0.35))
     assert side.label == "claude:m / blind"
     _attempts(b, {"s3": [True]}, "claude:m", "blind")  # recorded no cost
     with pytest.raises(ValueError, match="records no cost"):
@@ -306,6 +310,17 @@ def test_cloud_evidence_pairs_by_task_on_the_benches_and_needs_a_cost(tmp_path):
         cloud_from_benches([b], "fake:m", "claude:other", "blind")
     with pytest.raises(ValueError, match="can't price itself"):
         cloud_from_benches([b], "fake:m", "fake:m", "blind")
+
+
+def test_a_cloud_attempt_on_a_task_local_never_ran_needs_no_cost(tmp_path):
+    from backend.orchestrator.audit.evidence import cloud_from_benches
+
+    # s3 is one of the bench's tasks, but only the cloud arm tried it, and recorded no cost.
+    b = _bench(tmp_path, "one", {"s1": [True], "s2": [False], "s3": []}, cond="blind")
+    _attempts(b, {"s1": [True], "s2": [True]}, "claude:m", "blind", cost=0.2)
+    _attempts(b, {"s3": [True]}, "claude:m", "blind")
+    side = cloud_from_benches([b], "fake:m", "claude:m", "blind")
+    assert (side.tasks, side.resolved) == (2, 2)
 
 
 def test_a_claim_priced_by_its_versus_slice_uses_the_cloud_cost():
@@ -322,6 +337,8 @@ def test_a_claim_priced_by_its_versus_slice_uses_the_cloud_cost():
     assert got["cloud_usd_saved"] == pytest.approx(0.1)
     assert got["cloud_usd_per_task"] == pytest.approx(0.24)
     side = priced(laptop, cloud)
+    with pytest.raises(ValueError, match="ran 9 of the 10 tasks"):
+        priced(laptop, cloud[:9])
     v = decide(evidence_of(laptop), A, Billing.api(150), side)
     assert (got["net_lo"], got["net"], got["net_hi"]) == v.monthly_usd
     assert got["breakeven_rate"] == breakeven_rate(evidence_of(laptop), A, 0.1)

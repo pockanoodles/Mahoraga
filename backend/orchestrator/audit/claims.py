@@ -150,9 +150,15 @@ def _matched(this: list[dict], other: list[dict]) -> list[tuple[dict, dict]]:
 
 
 def priced(this: list[dict], cloud: list[dict]) -> CloudSide:
-    """The cloud slice as the verdict's cloud side, on the tasks both ran."""
+    """The cloud slice as the verdict's cloud side, on every task this slice ran:
+    the verdict reads the local rate off all of them, so the price can't come
+    from fewer."""
+    matched = _matched(this, cloud)
+    if len(matched) < len(this):
+        raise ValueError(f"{cloud[0]['arm']} ran {len(matched)} of the {len(this)} tasks this "
+                         "slice ran, and the verdict needs it on every one")
     pairs = []
-    for mine, theirs in _matched(this, cloud):
+    for mine, theirs in matched:
         if theirs.get("cost_usd") is None:
             raise ValueError(f"{theirs['arm']}'s row for {theirs['repo']}/{theirs['sha']} has no "
                              "cost_usd, so it can't price the verdict")

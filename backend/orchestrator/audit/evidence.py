@@ -89,13 +89,21 @@ def cloud_from_benches(benches: list[Bench], arm: str, cloud_arm: str, cond: str
             if a.arm == arm:
                 local[key].append(a.resolved)
             elif a.arm == cloud_arm:
-                if a.cost_usd is None:
-                    raise ValueError(f"{cloud_arm}'s attempt on {key} records no cost, so it "
-                                     "can't price the verdict")
                 cloud[key].append((a.resolved, a.cost_usd))
     if not cloud:
         raise ValueError(f"no attempts for {cloud_arm} / {cond} in {[b.name for b in benches]}")
+    # The verdict reads local's rate off every task local ran, so the cloud's price has to
+    # come from those same tasks. Its attempts on tasks local never ran don't count, priced
+    # or not.
+    missing = [k for k in sorted(local) if k not in cloud]
+    if missing:
+        raise ValueError(f"{cloud_arm} ran {len(local) - len(missing)} of {arm}'s {len(local)} "
+                         f"tasks (not {missing[0]}), and the verdict needs it on every one")
+    for k in sorted(local):
+        if any(c is None for _, c in cloud[k]):
+            raise ValueError(f"{cloud_arm}'s attempt on {k} records no cost, so it "
+                             "can't price the verdict")
     return cloud_side(f"{cloud_arm} / {cond}", [
         (statistics.mean(local[k]), statistics.mean(r for r, _ in cloud[k]),
          statistics.mean(c for _, c in cloud[k]))
-        for k in sorted(local) if k in cloud])
+        for k in sorted(local)])

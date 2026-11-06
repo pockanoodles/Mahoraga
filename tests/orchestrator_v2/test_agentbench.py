@@ -1937,7 +1937,8 @@ def test_tonight_queues_nothing_when_something_needs_fixing(repo, tonight_env):
 def test_the_measured_aider_is_the_one_every_claim_ran():
     claims = json.loads((Path(__file__).resolve().parents[2] / "experiments" / "claims.json").read_text())
     ran = {c["config"]["agent"].split(",")[0] for c in claims["claims"] if "agent" in c.get("config", {})}
-    assert ran == {f"aider {tonight.MEASURED['aider']}"}
+    # The cloud arm's claims ran Claude Code, which has no measured install to offer.
+    assert {a for a in ran if a.startswith("aider ")} == {f"aider {tonight.MEASURED['aider']}"}
 
 
 def test_an_agent_the_log_did_not_measure_gets_a_note():

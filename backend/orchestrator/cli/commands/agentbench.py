@@ -44,7 +44,7 @@ from backend.orchestrator.agentbench.report import (
     degraded_note, ledgers, outcome, render, summarise,
 )
 from backend.orchestrator.agentbench.runner import (
-    CONDITIONS, DEFAULT_TIMEOUT, load_attempts, load_degraded, run_matrix,
+    CONDITIONS, DEFAULT_TIMEOUT, arm_name, load_attempts, load_degraded, run_matrix,
 )
 
 app = typer.Typer(
@@ -81,6 +81,32 @@ def _print_checks(checks) -> bool:
     for c in checks:
         typer.echo(f"  {'ok  ' if c.ok else 'FAIL'}  {c.name:24} {c.detail}")
     return all(c.ok for c in checks)
+
+
+def _terms(wait_idle_min: Optional[float] = None, memory_floor: Optional[int] = None):
+    """This machine's terms (machine.json), with any term a flag gave overridden."""
+    from dataclasses import replace
+
+    from backend.orchestrator.agentbench import machine
+
+    try:
+        terms = machine.load()
+    except ValueError as e:
+        raise typer.BadParameter(f"this machine's terms: {e}")
+    if wait_idle_min is not None:
+        terms = replace(terms, wait_idle_min=wait_idle_min)
+    if memory_floor is not None:
+        terms = replace(terms, memory_floor=memory_floor)
+    return terms
+
+
+def _guard(ratio: float, terms=None, **kw) -> Guard:
+    """A guard on this machine's terms. Every command that can load a model
+    builds its guard here, so none of them can load one the terms forbid."""
+    try:
+        return Guard(bench_root(), ratio=ratio, **(terms or _terms()).guard_kw(), **kw)
+    except ValueError as e:
+        raise typer.BadParameter(str(e))
 
 
 def _stay_awake() -> None:
@@ -153,7 +179,7 @@ def preflight_cmd(
     from backend.orchestrator.agentbench import isolation
 
     agents = _agents(arms)
-    ok = _print_checks(Guard(bench_root(), ratio=ratio).preflight(agents))
+    ok = _print_checks(_guard(ratio).preflight(agents))
     bench = Bench(repo)
     n = len(bench.load_tasks())
     typer.echo(f"  {'ok  ' if n else 'FAIL'}  {'tasks':24} {n or 'none — run `mahoraga audit mine`'}")
@@ -176,7 +202,7 @@ def doctor_cmd(
     agents = _agents(arms)
     bench = Bench(repo)
     typer.echo("machine")
-    machine_ok = _print_checks(Guard(bench_root(), ratio=ratio).preflight(agents))
+    machine_ok = _print_checks(_guard(ratio).preflight(agents))
     typer.echo("bench")
     bench_ok = _print_checks(bench_checks(bench))
     if bench.load_tasks():
@@ -237,7 +263,7 @@ def tonight_cmd(
             raise typer.Exit(1)
 
     typer.echo("2. this machine")
-    checks = Guard(bench_root(), ratio=ratio).preflight(agents)
+    checks = _guard(ratio).preflight(agents)
     checks += isolation.check(bench, bench.load_config())
     _print_checks(checks)
     blocking = [c for c in checks if not c.ok and not c.waits]
@@ -393,36 +419,50 @@ def run_cmd(
     timeout: float = typer.Option(DEFAULT_TIMEOUT, "--timeout", help="Seconds per attempt."),
     repeats: int = typer.Option(1, "--repeats", min=1, help="Attempts per cell; >1 measures stability."),
     until: Optional[str] = typer.Option(None, "--until", help="Start no attempt after HH:MM (next occurrence)."),
-    wait_idle: float = typer.Option(0, "--wait-idle", help="Only start attempts after this many idle minutes."),
+    wait_idle: Optional[float] = typer.Option(None, "--wait-idle", help="Only start attempts after this many idle minutes (default: this machine's terms)."),
     ratio: float = _RATIO,
     guarded: bool = typer.Option(True, "--guard/--no-guard", help="Preflight, pause on bad conditions, drop degraded attempts."),
     wait_quiet: bool = typer.Option(False, "--wait-quiet", help="Pause while someone else's model is loaded in Ollama."),
     memory_floor: Optional[int] = typer.Option(None, "--memory-floor", min=1, max=90, help="Keep this percent of memory free for the machine's owner: wait for it, and stop an attempt that eats into it. For a shared machine."),
     force: bool = typer.Option(False, "--force", help="Run even if preflight fails."),
+    allow_cloud: bool = typer.Option(False, "--allow-cloud", help="Let a cloud arm (claude:<model>) send this repo's code to its vendor."),
 ) -> None:
     """Attempt every task with every arm. Resumable: finished attempts are skipped."""
+    from backend.orchestrator.agentbench import isolation
+    from backend.orchestrator.agentbench.agents import is_local
+
     conds = CONDITIONS if cond == "both" else (cond,)
     if not set(conds) <= set(CONDITIONS):
         raise typer.BadParameter(f"--cond must be blind, feedback or both, not {cond!r}")
     agents = _agents(arms)
     deadline = parse_until(until) if until else None
+    terms = _terms(wait_idle, memory_floor)
     bench = Bench(repo)
     if not bench.load_tasks():
         typer.echo("no tasks — run `mahoraga audit mine` first")
         raise typer.Exit(1)
+    cloud = [a for a in agents if not is_local(a)]
+    if cloud and not allow_cloud:
+        typer.echo(f"{', '.join(arm_name(a) for a in cloud)} would send {bench.repo} to "
+                   f"{', '.join(sorted({a.vendor for a in cloud}))}: pass --allow-cloud "
+                   "if that's yours to send (DATAFLOW.md, \"The cloud arm\")")
+        raise typer.Exit(1)
+    for a in cloud:
+        typer.echo(f"{arm_name(a)}: what the agent reads of {bench.repo.name} goes to "
+                   f"{a.vendor}, through a proxy that reaches only {', '.join(a.hosts)}")
 
+    preflight_ok = True
     guard = None
+    typer.echo("preflight")
     if guarded:
-        guard = Guard(bench_root(), ratio=ratio, wait_idle=wait_idle * 60, wait_quiet=wait_quiet,
-                      memory_floor=memory_floor, log=typer.echo)
-        typer.echo("preflight")
-        from backend.orchestrator.agentbench import isolation
-
-        machine_ok = _print_checks(guard.preflight(agents))
-        isolated = _print_checks(isolation.check(bench, bench.load_config()))
-        if not (machine_ok and isolated) and not force:
-            typer.echo("preflight failed; fix the above or pass --force")
-            raise typer.Exit(1)
+        guard = _guard(ratio, terms, wait_quiet=wait_quiet, log=typer.echo)
+        preflight_ok = _print_checks(guard.preflight(agents))
+    # Whether the agent can reach the answer is the measurement's validity,
+    # not the machine's health, so it's checked guarded or not.
+    preflight_ok = _print_checks(isolation.check(bench, bench.load_config())) and preflight_ok
+    if not preflight_ok and not force:
+        typer.echo("preflight failed; fix the above or pass --force")
+        raise typer.Exit(1)
     _stay_awake()
 
     def stop(signum, frame):  # take the running agent down with the run
@@ -441,8 +481,8 @@ def run_cmd(
         bench, agents, conds, only=only, timeout=timeout, repeats=repeats, guard=guard,
         deadline=deadline, progress=progress,
         settings={"conds": list(conds), "repeats": repeats, "timeout": timeout,
-                  "until": until, "wait_idle_min": wait_idle, "guarded": guarded,
-                  "wait_quiet": wait_quiet, "memory_floor": memory_floor,
+                  "until": until, **terms.record(), "guarded": guarded,
+                  "wait_quiet": wait_quiet, "allow_cloud": allow_cloud,
                   "min_speed_ratio": ratio, "forced": force},
         started=lambda run_id: typer.echo(f"run {run_id} (manifest: {manifest.path(bench, run_id)})"),
         dropped=lambda arm, why: typer.echo(f"dropped {arm}: {why}"))
@@ -503,6 +543,14 @@ def queue_add_cmd(
     bench = Bench(repo)
     if not bench.load_tasks():
         typer.echo("no tasks — run `mahoraga audit mine` first")
+        raise typer.Exit(1)
+    from backend.orchestrator.agentbench.agents import is_local
+
+    if cloud := [arm_name(a) for a in agents if not is_local(a)]:
+        # A queued job runs unattended, so it never sends code anywhere: the
+        # choice to send it is made at a terminal, each time.
+        typer.echo(f"{', '.join(cloud)} is a cloud arm: run it with `audit run --allow-cloud`, "
+                   "not from the queue")
         raise typer.Exit(1)
     pulled = pulled_models()
     missing = [a.model for a in agents if tagged(a.model) not in pulled]
@@ -663,8 +711,9 @@ def worker_cmd(
     def stamp(msg: str) -> None:
         typer.echo(f"[{datetime.now():%m-%d %H:%M:%S}] {msg}")
 
+    terms = _terms(memory_floor=memory_floor)
     drain(queue, lambda job, deadline: run_job(queue, job, deadline, progress=_echo_attempt,
-                                               memory_floor=memory_floor, log=stamp),
+                                               terms=terms, log=stamp),
           poll=poll * 60, once=once, log=stamp)
 
 
@@ -721,6 +770,7 @@ def verdict_cmd(
     repos: List[Path] = typer.Argument(..., help="Benched repos to pool evidence from."),
     arm: str = typer.Option(..., "--arm", help="The one arm to judge, <agent>:<model>."),
     cond: str = typer.Option("feedback", "--cond", help="blind or feedback (a real queue can run tests)."),
+    cloud_arm: Optional[str] = typer.Option(None, "--cloud-arm", help="A cloud arm run on the same tasks, e.g. claude:claude-opus-5-5: prices each task local resolves at what it cost there, not at your bill's average."),
     tasks_per_month: Optional[int] = typer.Option(None, "--tasks-per-month", help="Coding tasks you give cloud agents a month (default: what `tonight` saved)."),
     api_spend: Optional[float] = typer.Option(None, "--api-spend", help="Monthly API spend, USD (API billing)."),
     plan_id: Optional[str] = typer.Option(None, "--plan", help="Subscription plan id from audit/pricing.json, e.g. claude-max-5x."),
@@ -753,7 +803,8 @@ def verdict_cmd(
         raise typer.BadParameter("give exactly one of --api-spend or --plan")
     u = usage.Usage(tasks_per_month=tasks_per_month or saved.tasks_per_month, **paid)
     try:
-        v = usage.judge([Bench(r) for r in repos], arm, cond, u, deferrable_share=deferrable,
+        v = usage.judge([Bench(r) for r in repos], arm, cond, u, cloud_arm=cloud_arm,
+                        deferrable_share=deferrable,
                         triage_minutes=triage, hourly_usd=hourly, watts=watts,
                         usd_per_kwh=kwh, usage_of_cap=usage_of_cap)
     except (ValueError, KeyError) as e:
@@ -767,6 +818,7 @@ def verdict_cmd(
                          "hi": ev.rate.hi, "tasks": ev.rate.tasks, "tier": ev.tier,
                          "hardware": ev.hardware},
             "assumptions": asdict(a),
+            "cloud": asdict(v.cloud) if v.cloud else None, "cloud_usd_per_task": v.cloud_usd,
         }, indent=2))
         return
     typer.echo(render_verdict(v))

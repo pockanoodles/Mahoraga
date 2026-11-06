@@ -11,7 +11,8 @@ import pytest
 from backend.orchestrator.agentbench.stats import Rate, task_rate
 from backend.orchestrator.audit import pricing
 from backend.orchestrator.audit.verdict import (
-    SPLIT, STAY, SWITCH, Assumptions, Billing, Evidence, breakeven_rate, decide, render, usd,
+    SPLIT, STAY, SWITCH, Assumptions, Billing, Evidence, breakeven_rate, decide, materiality,
+    render,
 )
 
 
@@ -100,15 +101,38 @@ def test_an_interval_spanning_the_threshold_is_not_a_confident_call():
     assert lo < mid < hi
 
 
-def test_a_losing_net_reads_as_minus_dollars_not_dollar_minus():
+def test_a_loss_is_said_in_words_with_a_positive_figure():
     # 5 of 18 at $5 a cloud task: the point loses money, the top of the interval wins.
     v = decide(ev(5, tasks=18), A, Billing.api(1000))
     assert (v.call, v.confident) == (STAY, False) and v.monthly_usd[1] < 0
-    assert f"(~{usd(v.monthly_usd[1])}/mo)" in v.reason and "$-" not in v.reason
+    assert f"costs ${-v.monthly_usd[1]:.0f}/mo more than cloud" in v.reason
+    assert "$-" not in v.reason and "−" not in v.reason
     # A split that isn't safe to rely on: the point pays, the low end of the interval loses.
     v = decide(ev(3, tasks=6), A, Billing.api(1500))
     assert (v.call, v.confident) == (SPLIT, False) and v.monthly_usd[0] < 0
-    assert f"reaches {usd(v.monthly_usd[0])}/mo" in v.reason and "$-" not in v.reason
+    assert f"loses ${-v.monthly_usd[0]:.0f}/mo" in v.reason
+    assert "$-" not in v.reason and "−" not in v.reason
+
+
+def test_a_saving_under_the_bar_is_a_stay_that_names_the_bar():
+    # 30% at $10 a task: the point saves money, but less than 5% of a $2,000 bill.
+    v = decide(ev(12), A, Billing.api(2000))
+    lo, mid, hi = v.monthly_usd
+    assert (v.call, v.confident) == (STAY, False) and 0 < mid < 100 <= hi
+    assert f"saves about ${mid:.0f}/mo" in v.reason
+    assert "That is under 5% of your cloud bill ($100/mo), the smallest saving" in v.reason
+    assert materiality(Billing.api(2000)) == 100 and materiality(Billing.api(40)) == 5
+
+
+def test_no_reason_carries_a_dash_or_a_semicolon():
+    cases = [decide(ev(k, tasks=n), A, Billing.api(spend))
+             for k, n, spend in ((4, 40, 150), (36, 40, 2000), (12, 40, 2000), (5, 18, 1000),
+                                 (3, 6, 1500), (2, 3, 150))]
+    cases += [decide(ev(4), A, max5()), decide(ev(30), dataclasses.replace(
+        A, deferrable_share=0.5), Billing.subscription(pricing.plan("claude-pro"), None))]
+    for v in cases:
+        assert not any(c in v.reason for c in "—–;"), v.reason
+    assert "—" not in render(cases[0])
 
 
 def test_break_even_rate_matches_the_formula():
@@ -141,6 +165,17 @@ def test_breakeven_rate_is_one_function_the_verdict_quotes():
 def test_nothing_pays_when_a_cloud_task_costs_less_than_the_electricity():
     watts_hog = Assumptions(tasks_per_month=100, watts=4000, usd_per_kwh=1.0)  # $0.67 an attempt
     assert breakeven_rate(ev(10, minutes=10), watts_hog, 0.10) > 1
+
+
+def test_no_rate_pays_when_a_cloud_task_and_triage_are_both_free():
+    import math
+
+    from backend.orchestrator.audit.verdict import cloud_side
+
+    free = Assumptions(tasks_per_month=200, triage_minutes=0)
+    assert breakeven_rate(ev(10), free, 0.0) == math.inf
+    v = decide(ev(10), free, Billing.api(150), cloud_side("c", [(1.0, 1.0, 0.0)] * 5))
+    assert v.call == STAY and any(s.startswith("No resolve rate pays") for s in v.sensitivity)
 
 
 def test_switch_needs_both_a_high_floor_and_nearly_all_work_deferrable():
@@ -204,30 +239,157 @@ def test_render_lists_every_assumption():
         assert needle in text
 
 
+# ── A cloud arm on the same tasks prices the cloud side ───────────────────────
+
+
+def test_the_saving_is_what_the_cloud_spent_on_the_tasks_local_resolved():
+    from backend.orchestrator.audit.verdict import attempt_cost, cloud_side, triage_cost
+
+    # Local solves the two cheap tasks of four; the cloud solves all four.
+    side = cloud_side("claude:m / blind", [(1.0, 1.0, 0.10), (1.0, 1.0, 0.20),
+                                           (0.0, 1.0, 0.50), (0.0, 1.0, 0.80)])
+    assert (side.tasks, side.resolved, side.only_local) == (4, 4, 0)
+    assert side.usd_per_task == pytest.approx(0.40)
+    assert side.usd_saved == pytest.approx(0.15)  # not the 0.40 average
+    assert side.usd_rest == pytest.approx(0.65)
+    e = ev(10)
+    v = decide(e, A, Billing.api(150), side)
+    assert v.cloud is side and v.cloud_usd == pytest.approx(0.15)
+    queued = A.tasks_per_month * A.deferrable_share
+    p = e.rate.point
+    assert v.monthly_usd[1] == pytest.approx(
+        queued * (p * 0.15 - attempt_cost(e, A) - (1 - p) * triage_cost(A)))
+    assert decide(e, A, Billing.api(150)).cloud_usd == 0.75  # no cloud arm: the bill's average
+    out = render(v)
+    assert "cloud: claude:m / blind, resolved 4 of the 4 tasks both ran, $0.40/task measured " \
+           "($0.15 on the tasks local resolved, $0.65 on the rest)" in out
+    assert f"At your bill's $0.75 a task it pays once local resolves ≥ " \
+           f"{breakeven_rate(e, A, 0.75):.0%}" in out
+    assert "(measured: $0.15)" in out and "yours:" not in out
+
+
+def test_a_repeated_local_solve_weights_its_task_and_no_solve_falls_back_to_the_mean():
+    from backend.orchestrator.audit.verdict import cloud_side
+
+    side = cloud_side("c", [(0.5, 1.0, 0.10), (1.0, 0.0, 0.40)])
+    assert side.usd_saved == pytest.approx((0.5 * 0.10 + 0.40) / 1.5)
+    assert side.only_local == 1.0  # the second task: local solved it, the cloud didn't
+    assert cloud_side("c", [(0.0, 1.0, 0.10), (0.0, 1.0, 0.30)]).usd_saved == pytest.approx(0.20)
+    assert cloud_side("c", [(1.0, 1.0, 0.10), (1.0, 1.0, 0.30)]).usd_rest == pytest.approx(0.20)
+    with pytest.raises(ValueError, match="none of the local arm's tasks"):
+        cloud_side("c", [])
+
+
+def test_on_a_flat_plan_the_cloud_arm_adds_its_rate_and_no_price():
+    from backend.orchestrator.audit.verdict import cloud_side
+
+    side = cloud_side("c", [(1.0, 1.0, 0.1)] * 5)
+    v = decide(ev(4), A, Billing.subscription(pricing.plan("claude-max-5x"),
+                                              pricing.plan("claude-pro")), side)
+    assert v.cloud_usd is None
+    assert v.sensitivity[0].startswith("c resolved 5 of the 5 tasks both ran")
+
+
+def test_cloud_evidence_pairs_by_task_on_the_benches_and_needs_a_cost(tmp_path):
+    from backend.orchestrator.audit.evidence import cloud_from_benches
+
+    b = _bench(tmp_path, "one", {"s1": [True], "s2": [False], "s3": [True]}, cond="blind")
+    _attempts(b, {"s1": [True], "s2": [True]}, "claude:m", "blind", cost=0.2)
+    _attempts(b, {"s3": [True]}, "claude:m", "feedback", cost=9.0)  # other condition: not paired
+    # Local's rate covers s3 too, so a price from s1 and s2 alone would mix two populations.
+    with pytest.raises(ValueError, match="ran 2 of fake:m's 3 tasks"):
+        cloud_from_benches([b], "fake:m", "claude:m", "blind")
+    _attempts(b, {"s3": [True]}, "claude:m", "blind", cost=0.5)
+    side = cloud_from_benches([b], "fake:m", "claude:m", "blind")
+    assert (side.tasks, side.resolved, side.usd_saved) == (3, 3, pytest.approx(0.35))
+    assert side.label == "claude:m / blind"
+    _attempts(b, {"s3": [True]}, "claude:m", "blind")  # recorded no cost
+    with pytest.raises(ValueError, match="records no cost"):
+        cloud_from_benches([b], "fake:m", "claude:m", "blind")
+    with pytest.raises(ValueError, match="no attempts for claude:other"):
+        cloud_from_benches([b], "fake:m", "claude:other", "blind")
+    with pytest.raises(ValueError, match="can't price itself"):
+        cloud_from_benches([b], "fake:m", "fake:m", "blind")
+
+
+def test_a_cloud_attempt_on_a_task_local_never_ran_needs_no_cost(tmp_path):
+    from backend.orchestrator.audit.evidence import cloud_from_benches
+
+    # s3 is one of the bench's tasks, but only the cloud arm tried it, and recorded no cost.
+    b = _bench(tmp_path, "one", {"s1": [True], "s2": [False], "s3": []}, cond="blind")
+    _attempts(b, {"s1": [True], "s2": [True]}, "claude:m", "blind", cost=0.2)
+    _attempts(b, {"s3": [True]}, "claude:m", "blind")
+    side = cloud_from_benches([b], "fake:m", "claude:m", "blind")
+    assert (side.tasks, side.resolved) == (2, 2)
+
+
+def test_a_claim_priced_by_its_versus_slice_uses_the_cloud_cost():
+    from backend.orchestrator.audit.claims import metrics, priced
+
+    laptop = [_row(f"s{i}", i < 3, secs=1200.0) for i in range(10)]
+    cloud = [{**_row(f"s{i}", True, arm="claude:m", machine="OptiPlex 7070, 15 GB"),
+              "cost_usd": 0.1 if i < 3 else 0.3} for i in range(10)]
+    claim = {"select": {"arm": "x:m", "cond": "blind"},
+             "versus": {"select": {"arm": "claude:m", "cond": "blind"}},
+             "verdict": {"tasks_per_month": 200, "api_spend": 150, "cloud": "versus"}}
+    got = metrics(laptop, claim, versus_rows=cloud)
+    assert (got["cloud_tasks"], got["cloud_resolved"]) == (10, 10)
+    assert got["cloud_usd_saved"] == pytest.approx(0.1)
+    assert got["cloud_usd_per_task"] == pytest.approx(0.24)
+    side = priced(laptop, cloud)
+    with pytest.raises(ValueError, match="ran 9 of the 10 tasks"):
+        priced(laptop, cloud[:9])
+    v = decide(evidence_of(laptop), A, Billing.api(150), side)
+    assert (got["net_lo"], got["net"], got["net_hi"]) == v.monthly_usd
+    assert got["breakeven_rate"] == breakeven_rate(evidence_of(laptop), A, 0.1)
+    assert (got["pairs"], got["only_versus"]) == (10, 7)
+    unpriced = metrics(laptop, {**claim, "verdict": {"tasks_per_month": 200, "api_spend": 150}},
+                       versus_rows=cloud)
+    assert unpriced["breakeven_rate"] == breakeven_rate(evidence_of(laptop), A, 0.75)
+    assert "cloud_usd_saved" not in unpriced
+    with pytest.raises(ValueError, match="no cost_usd"):
+        metrics(laptop, claim, versus_rows=[{k: v for k, v in r.items() if k != "cost_usd"}
+                                            for r in cloud])
+    with pytest.raises(ValueError, match="has no rows"):
+        metrics(laptop, {**claim, "versus": {"select": {"arm": "claude:gone", "cond": "blind"}}},
+                versus_rows=cloud)
+
+
+def evidence_of(rows):
+    from backend.orchestrator.audit.claims import evidence
+    return evidence(rows)
+
+
 # ── Evidence pooled from benches ──────────────────────────────────────────────
 
 
-def _bench(tmp_path: Path, name: str, results: dict[str, list[bool]], arm="fake:m",
-           cond="feedback", tier="test-verified", machine: dict | None = None):
+def _attempts(b, results: dict[str, list[bool]], arm: str, cond: str = "feedback",
+              tier: str = "test-verified", run_id: str = "", cost: float | None = None):
     from dataclasses import asdict
 
-    from backend.orchestrator.agentbench.bank import Bench, Task
     from backend.orchestrator.agentbench.runner import Attempt
 
-    repo = tmp_path / name
-    repo.mkdir()
-    b = Bench(repo, root=tmp_path / "state")
-    b.save_tasks([Task(sha=s, base="b", subject=s, body="", gold_src=["x.py"], gold_lines=1,
-                       test_files=["t.py"], f2p=["t"], p2p=["u"]) for s in results])
-    b.attempts.mkdir(parents=True)
+    b.attempts.mkdir(parents=True, exist_ok=True)
     for sha, outs in results.items():
         for rep, ok in enumerate(outs):
             a = Attempt(sha=sha, arm=arm, cond=cond, resolved=ok, f2p_pass=int(ok), f2p_total=1,
                         regressions=0, regression_ids=[], suite_crashed=False,
                         edited_files=["x.py"], touched_tests=[], hit_gold_file=True,
                         secs=600.0, timed_out=False, llm_calls=1, tokens_sent=0, tokens_recv=0,
-                        extra={}, rep=rep, tier=tier, run_id=f"run-{name}" if machine else "")
-            (b.attempts / f"{sha}_{rep}.json").write_text(json.dumps(asdict(a)))
+                        extra={}, rep=rep, tier=tier, run_id=run_id, cost_usd=cost)
+            (b.attempts / f"{sha}_{arm.replace(':', '-')}_{rep}.json").write_text(json.dumps(asdict(a)))
+
+
+def _bench(tmp_path: Path, name: str, results: dict[str, list[bool]], arm="fake:m",
+           cond="feedback", tier="test-verified", machine: dict | None = None):
+    from backend.orchestrator.agentbench.bank import Bench, Task
+
+    repo = tmp_path / name
+    repo.mkdir()
+    b = Bench(repo, root=tmp_path / "state")
+    b.save_tasks([Task(sha=s, base="b", subject=s, body="", gold_src=["x.py"], gold_lines=1,
+                       test_files=["t.py"], f2p=["t"], p2p=["u"]) for s in results])
+    _attempts(b, results, arm, cond, tier, f"run-{name}" if machine else "")
     if machine:
         (b.dir / "runs").mkdir()
         (b.dir / "runs" / f"run-{name}.json").write_text(
@@ -497,6 +659,25 @@ def test_cli_verdict(tmp_path, monkeypatch):
     unverified = CliRunner().invoke(app, ["verdict", str(tmp_path / "one"), "--arm", "fake:m",
                                           "--tasks-per-month", "200", "--plan", "claude-max-20x"])
     assert unverified.exit_code != 0 and "--plan-price" in _plain(unverified.output)
+
+
+def test_cli_verdict_prices_with_a_cloud_arm(tmp_path, monkeypatch):
+    from typer.testing import CliRunner
+
+    from backend.orchestrator.cli.commands.agentbench import app
+
+    monkeypatch.setenv("MAHORAGA_AGENTBENCH_ROOT", str(tmp_path / "state"))
+    b = _bench(tmp_path, "one", {f"s{i}": [i < 2] for i in range(10)})
+    _attempts(b, {f"s{i}": [True] for i in range(10)}, "claude:m", cost=0.25)
+    args = ["verdict", str(tmp_path / "one"), "--arm", "fake:m", "--tasks-per-month", "200",
+            "--api-spend", "150", "--cloud-arm", "claude:m"]
+    run = CliRunner().invoke(app, args)
+    assert run.exit_code == 0, run.output
+    assert "cloud: claude:m / feedback, resolved 10 of the 10 tasks both ran" in run.output
+    got = json.loads(CliRunner().invoke(app, args + ["--json"]).output)
+    assert got["cloud_usd_per_task"] == 0.25 and got["cloud"]["tasks"] == 10
+    gone = CliRunner().invoke(app, args[:-1] + ["claude:gone"])
+    assert gone.exit_code != 0 and "noattemptsforclaude:gone" in _plain(gone.output)
 
 
 def test_evidence_refuses_attempts_from_two_machines(tmp_path):

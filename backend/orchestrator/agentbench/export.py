@@ -70,6 +70,7 @@ def rows(bench: Bench, arms: Iterable[str] = (), conds: Iterable[str] = ()) -> l
             "resolved": a.resolved, "secs": a.secs, "tier": a.tier,
             "timed_out": a.timed_out, "limit_s": limit_of(m),
             "request_errors": request_errors(bench, a),
+            "cost_usd": a.cost_usd,
             "run_id": a.run_id,
             "machine": machine_label(m) if m else "unrecorded",
             "digest": ((m.get("models", {}).get("digests") or {}).get(model) or "")[:12],

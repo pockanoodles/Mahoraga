@@ -177,6 +177,82 @@ def test_render_lists_where_the_number_is_published(tmp_path):
     assert "README.md" in render_verification(verify_claims(path, root=tmp_path))
 
 
+# ── kind "pass_at_1": a graded bench run ────────────────────────────────────
+
+
+def _graded(agent, task, passed, **run):
+    return {"agent": agent, "task": task, "passed": passed, **run}
+
+
+def _pass_claim(metrics, **extra):
+    return {"claims": [{"id": "p", "kind": "pass_at_1", "artifact": "experiments/run.jsonl",
+                        "select": {"agent": "a"}, "metrics": metrics, **extra}]}
+
+
+_RUN = [_graded("a", "t1", True, escalated_to=None, thinking_chars=0),
+        _graded("a", "t2", True, escalated_to=None, thinking_chars=0),
+        _graded("a", "t3", False, error="timed out", timed_out=True),
+        _graded("b", "t1", True), _graded("b", "t2", False), _graded("b", "t3", False)]
+
+
+def test_pass_claim_recomputes_rate_interval_and_run_counts(tmp_path):
+    path = _write(tmp_path, _RUN, _pass_claim({
+        "n": {"value": 3, "decimals": 0}, "passed": {"value": 2, "decimals": 0},
+        "pass_at_1": {"value": 0.667, "decimals": 3}, "pass_lo": {"value": 0.208, "decimals": 3},
+        "errors": {"value": 1, "decimals": 0}, "timed_out": {"value": 1, "decimals": 0},
+        "escalated": {"value": 0, "decimals": 0}, "reasoned": {"value": 0, "decimals": 0},
+    }))
+    [r] = verify_claims(path, root=tmp_path)
+    assert r.ok, render_verification([r])
+
+
+def test_pass_claim_pairs_two_agents_task_by_task(tmp_path):
+    path = _write(tmp_path, _RUN, _pass_claim(
+        {"pairs": {"value": 3, "decimals": 0}, "only_this": {"value": 1, "decimals": 0},
+         "only_versus": {"value": 0, "decimals": 0}, "mcnemar_p": {"value": 1.0, "decimals": 3}},
+        versus={"select": {"agent": "b"}}))
+    [r] = verify_claims(path, root=tmp_path)
+    assert r.ok, render_verification([r])
+
+
+def test_pass_claim_fails_on_ungraded_rows(tmp_path):
+    rows = [{"agent": "a", "task": "t1"}]
+    path = _write(tmp_path, rows, _pass_claim({"n": {"value": 1, "decimals": 0}}))
+    [r] = verify_claims(path, root=tmp_path)
+    assert not r.ok and "grade" in r.error
+
+
+def test_pass_claim_fails_on_two_answers_to_one_task(tmp_path):
+    rows = [_graded("a", "t1", True), _graded("a", "t1", False)]
+    path = _write(tmp_path, rows, _pass_claim({"n": {"value": 1, "decimals": 0}}))
+    [r] = verify_claims(path, root=tmp_path)
+    assert not r.ok and "more than once" in r.error
+
+
+def test_pass_claim_counts_zero_errors_when_the_run_records_errors(tmp_path):
+    # "b" never errored, but "a" did, so the run writes `error` when one happens
+    path = _write(tmp_path, _RUN, {"claims": [{
+        "id": "p", "kind": "pass_at_1", "artifact": "experiments/run.jsonl",
+        "select": {"agent": "b"}, "metrics": {"errors": {"value": 0, "decimals": 0}}}]})
+    [r] = verify_claims(path, root=tmp_path)
+    assert r.ok, render_verification([r])
+
+
+def test_pass_claim_reasoning_unreported_is_unknown_not_zero(tmp_path):
+    # the bench writes thinking_chars null when the agent has no telemetry for it
+    rows = [_graded("a", "t1", True, thinking_chars=0), _graded("a", "t2", True, thinking_chars=None)]
+    path = _write(tmp_path, rows, _pass_claim({"reasoned": {"value": 0, "decimals": 0}}))
+    [r] = verify_claims(path, root=tmp_path)
+    assert not r.ok
+
+
+def test_pass_claim_without_a_recorded_field_has_no_number(tmp_path):
+    rows = [_graded("a", "t1", True)]  # an older run that never wrote escalated_to
+    path = _write(tmp_path, rows, _pass_claim({"escalated": {"value": 0, "decimals": 0}}))
+    [r] = verify_claims(path, root=tmp_path)
+    assert not r.ok
+
+
 # ── the real manifest ────────────────────────────────────────────────────────
 
 

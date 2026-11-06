@@ -67,10 +67,31 @@ def memory_free_pct() -> int | None:
     return parse_sysctl_int(_run("sysctl", "-n", "kern.memorystatus_level"))
 
 
+def memory_pressure() -> int | None:
+    """The kernel's memory pressure: 1 normal, 2 warning, 4 critical."""
+    if sys.platform != "darwin":
+        return None
+    return parse_sysctl_int(_run("sysctl", "-n", "kern.memorystatus_vm_pressure_level"))
+
+
 def memory_bytes() -> int | None:
     if sys.platform != "darwin":
         return None
     return parse_sysctl_int(_run("sysctl", "-n", "hw.memsize"))
+
+
+def parse_wired(vm_stat: str) -> int | None:
+    page = re.search(r"page size of (\d+) bytes", vm_stat)
+    wired = re.search(r"Pages wired down:\s+(\d+)", vm_stat)
+    return int(page.group(1)) * int(wired.group(1)) if page and wired else None
+
+
+def wired_bytes() -> int | None:
+    """Memory the kernel can't page out. A loaded model is wired on Apple
+    silicon, so this is what the 2026-10-29 panic ran out of (14.2 of 16 GB)."""
+    if sys.platform != "darwin":
+        return None
+    return parse_wired(_run("vm_stat"))
 
 
 def notify(title: str, message: str) -> None:

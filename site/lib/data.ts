@@ -11,16 +11,19 @@ export interface Rate {
   attempts: number;
 }
 
+/** A published number, or a verdict word ("stay"), at the precision claims.json prints it. */
 export interface ClaimMetric {
-  value: number;
-  decimals: number;
+  value: number | string;
+  decimals?: number;
 }
 
 export interface Claim {
   id: string;
   description: string;
   artifact: string;
-  config: { bank: string; local_arm: string; judge: string; cloud_arm: string; date: string };
+  // Each kind of claim records its own run: a HumanEval+ cascade names its
+  // arms and judge, an agentbench slice its machine, agent and dates.
+  config: Record<string, string | number>;
   metrics: Record<string, ClaimMetric>;
 }
 
@@ -55,10 +58,71 @@ export interface ReplayStep {
 export interface CurvePoint {
   cloud_usd_per_task: number;
   breakeven: number;
+  bar: number; // the smallest monthly saving the engine calls a split (audit.verdict.materiality)
   call: "stay" | "split" | "switch";
   confident: boolean;
   monthly_usd: { lo: number; point: number; hi: number };
   reason: string;
+}
+
+/** One outside commit, and whether each setting solved it. */
+export interface SettingsTask {
+  repo: string;
+  sha: string;
+  committed: string;
+  url: string;
+  resolved: Record<string, boolean>;
+}
+
+export interface SettingsArm {
+  key: string;
+  claim: string;
+  arm: string;
+  context: number;
+  machine: string;
+  resolved: number;
+  rate: Rate;
+}
+
+/** Two neighbouring settings task by task (audit.claims.paired). */
+export interface SettingsPair {
+  from: string;
+  to: string;
+  pairs: number;
+  pair_resolved: number;
+  versus_resolved: number;
+  only_this: number; // solved under `from` only
+  only_versus: number; // solved under `to` only
+  mcnemar_p: number;
+}
+
+/** One attempt kept whole (scripts/specimen.py). */
+export interface Specimen {
+  picked: string;
+  repo: string;
+  upstream: string;
+  sha: string;
+  subject: string;
+  committed: string;
+  gold_src: string[];
+  gold_lines: number;
+  gold_diff: string;
+  f2p: string[];
+  p2p: number;
+  patch: string;
+  attempt: {
+    arm: string;
+    resolved: boolean;
+    f2p_pass: number;
+    f2p_total: number;
+    regressions: number;
+    secs: number;
+    llm_calls: number;
+    tokens_sent: number;
+    tokens_recv: number;
+    run_id: string;
+  };
+  run: { started_at: string; machine: string; harness: string; agent: string; ollama: string | null; limit_s: number };
 }
 
 export interface SiteData {
@@ -74,6 +138,9 @@ export interface SiteData {
     replay: { arm: string; cond: string; order: string; steps: ReplayStep[] };
   };
   verdict_demo: {
+    // The claim whose slice the curve is computed on, and that slice.
+    claim: string;
+    select: { arm: string; cond: string; repos?: string[] };
     evidence: { rate: Rate; minutes_per_attempt: number; tier: string; label: string; hardware: string };
     assumptions: {
       tasks_per_month: number;
@@ -85,12 +152,23 @@ export interface SiteData {
       lines: string[];
     };
     curve: CurvePoint[];
+    // An attempt's electricity and a failed attempt's triage, in dollars.
+    costs: { attempt_usd: number; triage_usd: number };
+    // The same curve at each other triage time the calculator offers.
+    by_triage: { triage_minutes: number; triage_usd: number; curve: CurvePoint[] }[];
   };
+  settings: { order: string; arms: SettingsArm[]; tasks: SettingsTask[]; pairs: SettingsPair[] };
+  /** Left out until a claim's ledger holds the same attempt (export_site.py). */
+  specimen?: Specimen;
 }
 
 export const data = raw as unknown as SiteData;
 
 export const REPO_URL = `https://github.com/${data.source.repo}`;
+
+/** A file in the repository as it stood at the export's commit, so a receipt
+ *  shows the data the page's numbers came from even after main moves on. */
+export const blob = (path: string) => `${REPO_URL}/blob/${data.source.commit}/${path}`;
 
 export function claim(id: string): Claim {
   const c = data.claims.find((x) => x.id === id);
@@ -98,24 +176,28 @@ export function claim(id: string): Claim {
   return c;
 }
 
-export function arm(name: string, cond: string): ProbeArm {
-  const a = data.probe.arms.find((x) => x.arm === name && x.cond === cond);
-  if (!a) throw new Error(`site.json has no probe arm ${name} / ${cond}`);
-  return a;
-}
-
 /** A claim metric written at the precision the claims file publishes it at. */
 export function metric(c: Claim, key: string): string {
   const m = c.metrics[key];
-  return m.value.toFixed(m.decimals);
+  if (!m) throw new Error(`claim ${c.id} has no metric ${key}`);
+  return typeof m.value === "number" ? m.value.toFixed(m.decimals ?? 0) : m.value;
 }
 
-export const pct = (x: number, digits = 0) => `${(x * 100).toFixed(digits)}%`;
-
-export function usd(x: number, digits = 0): string {
-  const abs = Math.abs(x).toLocaleString("en-US", { minimumFractionDigits: digits, maximumFractionDigits: digits });
-  return x < 0 ? `−$${abs}` : `$${abs}`;
+/** A claim metric as a number, for arithmetic or for formatting as a percentage. */
+export function num(c: Claim, key: string): number {
+  const v = c.metrics[key]?.value;
+  if (typeof v !== "number") throw new Error(`claim ${c.id} has no number ${key}`);
+  return v;
 }
+
+/** A field of the claim's run record, such as its machine or its dates. */
+export function cfg(c: Claim, key: string): string {
+  const v = c.config[key];
+  if (v === undefined) throw new Error(`claim ${c.id} has no config ${key}`);
+  return String(v);
+}
+
+export { pct, usd } from "./format";
 
 /** The curve point for a given cloud price, or the nearest one. */
 export function curveAt(usdPerTask: number): CurvePoint {

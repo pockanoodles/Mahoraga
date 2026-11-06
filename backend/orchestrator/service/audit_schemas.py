@@ -116,6 +116,7 @@ class BenchRow(BaseModel):
     attempts: int = Field(description="Counted attempts on tasks still in the bench.")
     degraded: int = Field(description="Attempts kept apart because the machine or the agent invalidated them.")
     arms: list[str]
+    cloud_arms: list[str] = Field(description="The arms that ran a vendor's model, which can price a verdict's cloud side.")
     conds: list[str]
     runs: int
     last_activity: str | None = Field(
@@ -265,6 +266,10 @@ class VerdictRequest(_Strict):
         description="Bench ids to pool. Null pools every bench with attempts for this arm and condition.")
     arm: str
     cond: str
+    cloud_arm: str | None = Field(
+        default=None,
+        description="A cloud arm run on the same tasks in the same condition. Each task local resolves is "
+                    "then priced at what that arm spent on it, instead of at the bill's average.")
     billing: Annotated[ApiBilling | SubscriptionBilling, Field(discriminator="kind")]
     assumptions: AssumptionsIn
 
@@ -297,6 +302,16 @@ class VerdictBilling(BaseModel):
     lower: Plan | None
 
 
+class VerdictCloud(BaseModel):
+    label: str
+    tasks: int = Field(description="Tasks both arms ran.")
+    resolved: float = Field(description="Of those, the ones the cloud resolved.")
+    only_local: float = Field(description="Tasks local resolved and the cloud didn't.")
+    usd_per_task: float = Field(description="The cloud's mean cost over the paired tasks.")
+    usd_saved: float = Field(description="Its mean cost on the tasks local resolved.")
+    usd_rest: float = Field(description="Its mean cost on the tasks local didn't.")
+
+
 class MonthlyUsd(BaseModel):
     lo: float
     point: float
@@ -313,6 +328,10 @@ class Verdict(BaseModel):
     monthly_usd: MonthlyUsd | None = Field(
         description="Net per month at the interval's low end, point and high end; null on a flat plan.")
     breakeven: float | None = Field(
-        description="API billing only: the resolve rate at which local pays. Above 1 means no rate does.")
+        description="API billing only: the resolve rate at which local pays. Above 1 means no rate does, "
+                    "and so does null under API billing (a cloud arm that cost nothing, with no triage time).")
+    cloud: VerdictCloud | None = Field(description="The cloud arm that priced the verdict, if one was named.")
+    cloud_usd_per_task: float | None = Field(
+        description="API billing only: the cloud price per task the verdict used, measured or the bill's average.")
     sensitivity: list[str]
     rendered: str = Field(description="The verdict as the CLI prints it.")

@@ -23,8 +23,9 @@ Consequences of that design worth knowing before adding a claim:
     new number is a manifest edit and gets reviewed as one.
 
 A claim's `kind` says what its artifact is: a live-route run (the default,
-computed below) or an audit export ("agentbench", audit/claims.py), whose
-metrics include the verdict's call, a word checked as printed.
+computed below), an audit export ("agentbench", audit/claims.py), whose
+metrics include the verdict's call, a word checked as printed, or a graded
+bench run ("pass_at_1", pass_claims.py).
 
 This runs in CI. If someone edits a headline number in the README without the
 artifact to support it, the build goes red.
@@ -206,24 +207,28 @@ def verify_claim(claim: dict[str, Any], root: Path) -> ClaimResult:
         return result
 
     kind = claim.get("kind", "live_route")
+    other = (claim.get("versus") or {}).get("artifact")
+    theirs = None
+    if other:
+        if not (root / other).is_file():
+            result.error = f"artifact not found: {other}"
+            return result
+        try:
+            theirs = load_rows(root / other)
+        except (OSError, json.JSONDecodeError) as exc:
+            result.error = f"artifact unreadable: {other}: {exc}"
+            return result
     try:
         if kind == "live_route":
             metrics = compute_metrics(rows)
         elif kind == "agentbench":
             from backend.orchestrator.audit.claims import metrics as audit_metrics
 
-            other = (claim.get("versus") or {}).get("artifact")
-            theirs = None
-            if other:
-                if not (root / other).is_file():
-                    result.error = f"artifact not found: {other}"
-                    return result
-                try:
-                    theirs = load_rows(root / other)
-                except (OSError, json.JSONDecodeError) as exc:
-                    result.error = f"artifact unreadable: {other}: {exc}"
-                    return result
             metrics = audit_metrics(rows, claim, theirs)
+        elif kind == "pass_at_1":
+            from .pass_claims import metrics as pass_metrics
+
+            metrics = pass_metrics(rows, claim, theirs)
         else:
             result.error = f"unknown claim kind: {kind}"
             return result
@@ -289,6 +294,10 @@ _LABELS = {
     "net_hi": "net $/mo, high end",
     "breakeven_rate": "break-even rate",
     "breakeven_cloud_usd": "pays once a task costs",
+    "passed": "answers passed",
+    "pass_at_1": "pass@1",
+    "pass_lo": "95% interval, low",
+    "pass_hi": "95% interval, high",
 }
 
 

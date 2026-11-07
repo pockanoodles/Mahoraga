@@ -258,7 +258,7 @@ const en: Dict = {
     title: "One pipeline, from a repository's history to a verdict.",
     lead: "Every stage can be swapped, and the log and a verdict on your own repository come out of the same code.",
     stages: [
-      { name: "Mine", body: "Keep commits whose tests fail before them and pass after." },
+      { name: "Mine", body: "Keep commits whose tests fail before them and pass after, then grade the real fix like an attempt." },
       { name: "Check", body: "Confirm the bench works and estimate the nights it needs." },
       { name: "Run", body: "A local agent attempts every task overnight, in a fresh copy." },
       { name: "Grade", body: "The tests go back in, the full suite runs, and the ledger records it." },
@@ -326,11 +326,11 @@ const en: Dict = {
       { title: "Read-only", body: "The audit only reads your repo, and every attempt works on a copy." },
       {
         title: "Sandboxed",
-        body: "On macOS, agents can write only to their copy and reach only the local model. On Linux they get their own home folder instead.",
+        body: "Agents can write only to their copy and reach only the local model, under sandbox-exec on macOS and bubblewrap on Linux.",
       },
       {
         title: "The cloud only when asked",
-        body: "The audit sends nothing. The router escalates to Claude only when the local judge rejects an answer, at most 25 times a day.",
+        body: "Local agents send nothing, and the cloud arm runs only when you pass --allow-cloud. The router escalates to Claude only when the local judge rejects an answer, at most 25 times a day.",
       },
     ],
     link: "Read DATAFLOW.md",
@@ -504,7 +504,7 @@ const ja: Dict = {
     title: "リポジトリの履歴から判定まで、ひとつのパイプラインで。",
     lead: "どの段階も差し替えられ、この記録とあなたのリポジトリの判定は同じコードから出てきます。",
     stages: [
-      { name: "抽出", body: "テストがコミットの前では失敗し、後では通るものだけを残します。" },
+      { name: "抽出", body: "テストがコミットの前では失敗し、後では通るものだけを残し、本物の修正も試行と同じように採点します。" },
       { name: "点検", body: "ベンチが動くかを確かめ、必要な晩数を見積もります。" },
       { name: "実行", body: "ローカルのエージェントが、夜のあいだに新しいコピーで全タスクに挑みます。" },
       { name: "採点", body: "テストを戻してフルスイートを走らせ、結果を台帳に記録します。" },
@@ -606,11 +606,11 @@ const ja: Dict = {
       { title: "読み取りのみ", body: "監査はリポジトリを読むだけで、試行はすべてコピーの上で行います。" },
       {
         title: "サンドボックス",
-        body: "macOS では、エージェントが書き込めるのは自分のコピーだけで、通信先はローカルのモデルだけです。Linux では専用のホームフォルダで分離します。",
+        body: "エージェントが書き込めるのは自分のコピーだけで、通信先はローカルのモデルだけです。macOS では sandbox-exec、Linux では bubblewrap で閉じ込めます。",
       },
       {
         title: "クラウドは必要なときだけ",
-        body: "監査は何も送りません。ルーターが Claude に回すのは、ローカルのジャッジが回答を却下したときだけで、1 日 25 回までです。",
+        body: "ローカルのエージェントは何も送らず、クラウドのアームは --allow-cloud を付けたときだけ動きます。ルーターが Claude に回すのは、ローカルのジャッジが回答を却下したときだけで、1 日 25 回までです。",
       },
     ],
     link: "DATAFLOW.md を読む",

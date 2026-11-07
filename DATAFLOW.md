@@ -20,7 +20,7 @@ belongs there too (`site/content/privacy.ts`).
 | Ollama's registry | A request for a model name | `ollama pull` fetches the model. |
 | Hugging Face | A request for the `all-MiniLM-L6-v2` model, no task data | The optional semantic memory extra downloads it once. |
 | GitHub (EvalPlus release) | A request for the HumanEval+ file | Only when you run `experiments/build_humaneval_bank.py fetch` to rebuild the benchmark bank. |
-| Telegram, Brave Search | The messages or queries you route through them | Only when you set `TELEGRAM_BOT_TOKEN` or `BRAVE_API_KEY`. Nothing in a request path calls the Brave tools today. |
+| Telegram | The messages you route through it | Only when you set `TELEGRAM_BOT_TOKEN`. |
 | This project's servers | Nothing | There are none. |
 
 ## The audit (`mahoraga audit …`)

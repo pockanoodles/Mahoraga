@@ -44,14 +44,14 @@ const LINKS = {
 const en: PolicyDoc = {
   title: "Privacy",
   lead: "What Mahoraga sends off your computer, where it goes, and how to stop it.",
-  updated: "Last updated 29 October 2026",
+  updated: "Last updated 7 November 2026",
   heads: { where: "Where", what: "What", why: "Why" },
   sections: [
     {
       id: "short",
       heading: "The short version",
       paras: [
-        "Mahoraga runs on your own computer, with no account, no telemetry and no server of mine behind it. The audit (mining your commits, running the local agent, grading with your tests and writing the verdict) sends nothing off your machine, because the model runs in Ollama on the same computer.",
+        "Mahoraga runs on your own computer, with no account, no telemetry and no server of mine behind it. The audit (mining your commits, running the local agent, grading with your tests and writing the verdict) sends nothing off your machine, because the model runs in Ollama on the same computer. The one exception is the audit's cloud arm, which runs only when you ask for it.",
         "Nothing you do in Mahoraga reaches me, so I hold nothing of yours to sell, share or use to train models.",
       ],
     },
@@ -59,12 +59,14 @@ const en: PolicyDoc = {
       id: "sends",
       heading: "What can leave your computer",
       paras: [
-        "The router is the one part that can send a task to the cloud. When a local answer fails its check, the router can re-run that prompt on Anthropic, up to 25 times a day, and the prompt may contain your code. This escalation is on by default but needs the claude command or an Anthropic API key, and setting MAHORAGA_CASCADE=off keeps everything local.",
+        "Two parts can send your code to the cloud. The audit's cloud arm runs Claude Code on the same tasks as the local agent. It runs only when you start a run with --allow-cloud, and what Claude Code reads of the task's copy of your repository goes to Anthropic. The queue refuses cloud arms, so nothing unattended sends code.",
+        "The router can also send a task to the cloud. When a local answer fails its check, the router can re-run that prompt on Anthropic, up to 25 times a day, and the prompt may contain your code. This escalation is on by default but needs the claude command or an Anthropic API key, and setting MAHORAGA_CASCADE=off keeps everything local.",
       ],
       ledger: [
+        { where: "Anthropic, only for a run you start with --allow-cloud", what: "What Claude Code reads of the task's copy of your repository, the task prompt, and the output of the commands it runs", why: "To measure the cloud agent that a local one would replace, on the same tasks" },
         { where: "Anthropic, when the router escalates", what: "The prompt of a task the local answer failed, which may include code", why: "To get a working answer when the local model couldn't" },
         { where: "Anthropic, only if you turn on the claude backend", what: "The mission text and the task's output", why: "To plan and check work with a cloud model" },
-        { where: "Telegram or Brave Search, only if you add their keys", what: "The messages or queries you route through them", why: "For the features that use them" },
+        { where: "Telegram, only if you add its key", what: "The messages you route through it", why: "For the Telegram channel" },
         { where: "Ollama's registry, Hugging Face and GitHub", what: "A request for a model or a benchmark file, with no task data", why: "To download what you asked to install" },
       ],
       after: [
@@ -102,14 +104,14 @@ const en: PolicyDoc = {
 const ja: PolicyDoc = {
   title: "プライバシーポリシー",
   lead: "Mahoraga がコンピューターの外へ何を送り、どこへ届くのか、そしてそれを止める方法をまとめています。",
-  updated: "最終更新 2026年10月29日",
+  updated: "最終更新 2026年11月7日",
   heads: { where: "送信先", what: "内容", why: "目的" },
   sections: [
     {
       id: "short",
       heading: "要点",
       paras: [
-        "Mahoraga はご自身のコンピューターで動き、アカウント、テレメトリ、私が運営するサーバーはありません。監査（コミットからのタスク作成、ローカルエージェントの実行、テストによる採点、判定の作成）では、モデルが同じコンピューター上の Ollama で動くため、何もマシンの外に送りません。",
+        "Mahoraga はご自身のコンピューターで動き、アカウント、テレメトリ、私が運営するサーバーはありません。監査（コミットからのタスク作成、ローカルエージェントの実行、テストによる採点、判定の作成）では、モデルが同じコンピューター上の Ollama で動くため、何もマシンの外に送りません。例外は監査のクラウドアームだけで、これは指定したときにしか動きません。",
         "Mahoraga での利用内容が私に届くことはないため、販売や共有、モデルの学習に使えるものを私は何も持っていません。",
       ],
     },
@@ -117,12 +119,14 @@ const ja: PolicyDoc = {
       id: "sends",
       heading: "コンピューターの外へ出るもの",
       paras: [
-        "クラウドへタスクを送ることがあるのは、ルーターだけです。ローカルの回答がチェックを通らなかった場合、ルーターはそのプロンプトを1日25回まで Anthropic で再実行することがあり、プロンプトにはコードが含まれることがあります。この再実行は初期状態で有効ですが、claude コマンドか Anthropic の API キーが必要で、MAHORAGA_CASCADE=off にするとすべてローカルに留まります。",
+        "コードをクラウドへ送ることがあるのは 2 か所です。監査のクラウドアームは、ローカルのエージェントと同じタスクを Claude Code で解かせるもので、--allow-cloud を付けて実行したときだけ動きます。Claude Code がタスク用のリポジトリのコピーから読んだ内容は Anthropic に送られます。キューはクラウドアームを受け付けないため、無人の実行でコードが送られることはありません。",
+        "ルーターもタスクをクラウドへ送ることがあります。ローカルの回答がチェックを通らなかった場合、ルーターはそのプロンプトを1日25回まで Anthropic で再実行することがあり、プロンプトにはコードが含まれることがあります。この再実行は初期状態で有効ですが、claude コマンドか Anthropic の API キーが必要で、MAHORAGA_CASCADE=off にするとすべてローカルに留まります。",
       ],
       ledger: [
+        { where: "Anthropic（--allow-cloud を付けて実行したときのみ）", what: "Claude Code がタスク用のリポジトリのコピーから読んだ内容、タスクのプロンプト、実行したコマンドの出力", why: "ローカルのエージェントが置き換えるクラウドのエージェントを、同じタスクで測るため" },
         { where: "Anthropic（ルーターが再実行したとき）", what: "ローカルの回答が失敗したタスクのプロンプト（コードを含むことがあります）", why: "ローカルモデルで解けなかったときに正しい回答を得るため" },
         { where: "Anthropic（claude バックエンドを有効にした場合のみ）", what: "ミッションの文面とタスクの出力", why: "クラウドのモデルで作業を計画し、確認するため" },
-        { where: "Telegram または Brave Search（キーを設定した場合のみ）", what: "それらを経由させたメッセージや検索語", why: "それらを使う機能のため" },
+        { where: "Telegram（キーを設定した場合のみ）", what: "経由させたメッセージ", why: "Telegram チャネルのため" },
         { where: "Ollama のレジストリ、Hugging Face、GitHub", what: "モデルやベンチマークファイルのダウンロード要求（タスクのデータは含みません）", why: "インストールを指示したものを取得するため" },
       ],
       after: [

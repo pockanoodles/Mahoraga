@@ -11,6 +11,8 @@ on:
   schedule:
     - cron: "23 10 * * *"   # 05:23 in New York (EST), after the OptiPlex's mining window
   workflow_dispatch:
+  pull_request:
+    paths: [".github/workflows/nightly.yml"]   # a change to it runs once on its own PR
 
 permissions:
   contents: read

@@ -11,8 +11,8 @@
 Mahoraga measures local coding agents on real code. It replays a repository's own commits on
 a local agent overnight and grades every attempt with that repository's tests. The rate
 becomes a verdict to stay on the cloud, split the work, or switch. Every result goes into a
-<a href="https://kaitosoeno.com/mahoraga/">public log</a>, and for most people the answer so
-far is to keep paying for cloud.
+<a href="https://kaitosoeno.com/mahoraga/">public log</a>. So far the answer is to keep paying
+for cloud, because on the same 47 tasks a 16 GB laptop solved 17 and Claude Code solved all 47.
 </p>
 
 <p align="center">
@@ -34,20 +34,28 @@ rarely tell you that you don't need its product. Mahoraga measures your own work
 in one pipeline (source, runner, grader, ledger, verdict).
 
 1. **Mine.** Each task is one of your commits with the fix taken out and the tests left
-   in. Only commits whose own tests fail before them and pass after them are kept.
+   in. A commit is kept only when its own tests fail without the fix and pass with it, and
+   the real fix is then graded the way an attempt would be, so every task is one a correct
+   change can pass.
 2. **Run.** A local agent (aider or opencode driving an Ollama model) attempts every task
-   overnight, each time in a fresh copy of the repository, sandboxed on macOS.
+   overnight, each time in a fresh copy of the repository and inside the operating
+   system's sandbox (`sandbox-exec` on macOS, bubblewrap on Linux). Claude Code can run
+   the same tasks as a cloud arm when you pass `--allow-cloud`, so the cloud side is
+   measured too.
 3. **Grade.** The tests are put back and the full suite runs, so an attempt counts only
    when the target tests pass and nothing that passed before has broken.
 4. **Decide.** The measured rate and its 95% interval, counted over tasks rather than
    attempts, become stay, split or switch, priced for the way you pay (by the token or by
-   subscription) and for the time a failed attempt costs you.
+   subscription) and for the time a failed attempt costs you. When a cloud arm ran the
+   same tasks, each task local solves is priced at what the cloud spent on it.
 
 ```mermaid
 flowchart LR
     Source[(Your repo history)] --> Mine[Mine tasks]
     Mine --> Run[Run a local agent]
+    Mine -.-> Cloud[Run a cloud agent, if you allow it]
     Run --> Grade[Grade with your tests]
+    Cloud -.-> Grade
     Grade --> Ledger[(Ledger of attempts)]
     Ledger --> Rate[Rate and 95% interval, per task]
     Rate --> Verdict([Stay, split or switch])
@@ -59,6 +67,13 @@ it, and the task is the commit's parent with that commit's test changes applied 
 other change (source, docs, config) left out. A task needs the commit to change both
 Python source and a pytest module, and the source change to be 250 lines or fewer.
 
+The gold check then applies the commit's real fix to the sealed task and grades it the
+way an attempt is graded. The pass-to-pass baseline every attempt is held to is the set of
+tests that pass at the base and also pass with the fix, since a test the fix itself breaks
+can't be kept passing by any correct change (SWE-bench's definition). With
+`--gate-runs K`, every gate runs K times, and a test whose result changes between runs is
+never a target or part of the baseline, so no attempt is graded on a coin toss.
+
 ```mermaid
 flowchart TD
     C[Commit C that changed code and a test] --> Base["Task tree = parent of C + C's test changes"]
@@ -66,16 +81,22 @@ flowchart TD
     A -- no --> D1[Dropped: not satisfiable]
     A -- yes --> B{"Gate B: at least one of them fails at the base?"}
     B -- no --> D2[Dropped: tests pass without the fix]
-    B -- yes --> P{"Full suite at the base has passing tests?"}
+    B -- yes --> G{"Gold check: with C's fix applied to the task, do its tests give the results they gave at C?"}
+    G -- no --> D4[Dropped: the real fix doesn't pass its own task]
+    G -- yes --> P{"Do some tests pass both at the base and with the fix?"}
     P -- no --> D3[Dropped: no baseline to protect]
-    P -- yes --> K([Kept, with its pass-to-pass baseline])
+    P -- yes --> K([Kept, with those tests as its pass-to-pass baseline])
 ```
 
 The verdict checks both ends of the interval, so it calls a split confidently only when
 the pessimistic end still pays, and it is allowed to tell you that you're not wasting
-money. On the published probe, aider and qwen3.5 (9.7B) resolved 5 of 18 real Mahoraga
-commits on a 16 GB Mac, a rate of 28% with an interval of 12% to 51%, which is well short
-of the 77% break-even for a $0.75 cloud task, so the verdict there is to stay.
+money. In the published run, aider and qwen3.5 (9.7B, 131k context) on a 16 GB MacBook
+resolved 17 of 47 tasks from attrs and more-itertools, a rate of 36% with an interval of
+24% to 50%. Claude Code on Claude Opus 5.5 resolved all 47 of the same tasks for $0.21
+each at API list prices, and for only $0.15 on the 17 the laptop also solved, which is all
+a local success saves. At that price local would have to resolve 95% of the tasks it takes
+on to break even, so the verdict is a confident stay, since splitting would cost about $77
+a month more than it saves.
 
 ### How the verdict is decided
 
@@ -109,10 +130,18 @@ flowchart TD
 
 For a per-token user, the savings on queued tasks are `p × cloud cost − local cost − (1 − p) × triage cost`, evaluated at the low end,
 the point estimate and the high end of the interval. A task pays to go local once `p` passes `(local + triage) / (cloud + triage)`,
-which is the break-even rate the verdict prints (77% for a $0.75 cloud task on the published probe). For a subscription user, the
+which is the break-even rate the verdict prints (77% for an assumed $0.75 cloud task, and 95% at the $0.15 the cloud arm spent on the tasks local also solved). For a subscription user, the
 low end must clear the rate needed to drop a tier, or the user must already be at the cap with
 the low end covering at least 10% of their usage. Every assumption prints with the verdict so a reader can disagree with a number
 and not only with the call.
+
+With `--cloud-arm`, the cloud cost stops being an assumption. The verdict prices each task
+local solves at what that cloud arm spent on the same task, so a local success saves only
+the cloud's own cost for it. In the published run the tasks local solved cost the cloud
+$0.15 each, compared to $0.24 for the rest, because the tasks a small model can solve are
+the cheap ones for the cloud too. The cloud arm has to have run every task the local arm ran, or the
+verdict refuses, since a partial cloud run would price the verdict on a different set of
+tasks.
 
 One rule runs after the call. A timeout can only lower a rate, so when at least 3 failed
 attempts ran out of time and they make up half or more of the failures, the rate is a floor
@@ -211,9 +240,11 @@ same code, and the app is one more client of the API.
 - **MCP:** `mahoraga mcp`, for example `claude mcp add mahoraga -- mahoraga mcp`. The
   bridge provides nine tools for task execution, route previews, health, agent status,
   routing statistics, and runtime policy changes. See the [MCP guide](docs/mcp.md).
-- **macOS background service:** `mahoraga service --help`. A launchd job inherits no
-  shell environment, so daemon settings come from `~/.mahoraga-v2/service.env`
-  (`KEY=VALUE` per line), applied by `mahoraga service install`.
+- **Background services:** `mahoraga service install` keeps the server running as a
+  launchd job on macOS or a systemd user unit on Linux, and `mahoraga audit service
+  install` does the same for the audit's queue worker. A service inherits no shell
+  environment, so daemon settings come from `~/.mahoraga-v2/service.env` (`KEY=VALUE`
+  per line), applied at install.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/pockanoodles/Mahoraga/main/docs/assets/app/verdict-dark.png">
@@ -585,13 +616,19 @@ The default decision log is
 
 ## Privacy
 
-The audit sends nothing off your machine, and the router sends a task to a cloud model
-only when its local answer fails and the cascade is on. [`DATAFLOW.md`](DATAFLOW.md) lists
-every place data can go, and the privacy policy is at
+The audit's local arms send nothing off your machine. A cloud arm (`claude:<model>`) runs
+only when you pass `--allow-cloud` for that run, and the queue refuses cloud arms, so
+nothing unattended sends code. When it does run, Claude Code reads the task's copy of the
+repository and its traffic goes through a proxy that allows only api.anthropic.com and
+logs every connection. The router sends a task to a cloud model only when its local answer
+fails and the cascade is on. [`DATAFLOW.md`](DATAFLOW.md) lists every place data can go,
+and the privacy policy is at
 [kaitosoeno.com/mahoraga/privacy](https://kaitosoeno.com/mahoraga/privacy/).
 
 ## Documentation
 
+- [The report: is local coding AI worth it on a 16 GB Mac?](docs/report/2026-10-local-coding-ai.md)
+- [Where your data goes](DATAFLOW.md)
 - [Documentation index](docs/README.md)
 - [Getting started](docs/getting-started.md)
 - [Configuration](docs/configuration.md)
@@ -616,16 +653,29 @@ branches, validated in CI, and merged through pull requests.
 
 ## Limitations
 
+- **The audit's published numbers come from two Python libraries.** The 47 tasks were
+  mined from attrs and more-itertools, which are small, well-tested and widely read, so a
+  model may have seen them in training, and your repository can give a different rate.
+  For that reason the report also counts each model on the commits made after its release
+  or its stated knowledge cutoff, which it can't have trained on.
+- **The cloud comparison is agent plus model.** Claude Code can run the tests through its
+  own shell under `blind` while aider can't, so the 47-to-17 gap compares the two setups
+  as they ship. Holding the agent fixed (Claude Code on a local model, or aider on the
+  cloud model) is the next measurement.
+- **A resolved task passed its tests, which is a lower bar than a merged change.** The
+  grader checks the commit's own tests and every test that passed before, and it can't
+  judge style, scope or whether a maintainer would accept the patch.
 - **The contextual bandit is not shown to improve routing.** Across three
   evaluations it never beat round-robin between the two local arms. The
   learning machinery is real and running. The claim that it routes better is
   not supported, and nothing in this repo depends on it. The cascade carries
   every published number.
-- **Every headline figure is a 16 GB result**, which bounds who it generalises
+- **The routing figures are 16 GB results**, which bounds who they generalise
   to. The local arms and the judge are all models that fit in 16 GB of unified
-  memory alongside the OS, a machine with more memory would be running
-  different, better models on both tiers, and the cost-quality tradeoff would
-  move.
+  memory alongside the OS. A machine with more memory would run different,
+  better models on both tiers, and the cost-quality tradeoff would move. The
+  audit has a 64 GB Mac Studio row as well, and on the same model file at the
+  same setting it solved what the laptop solved.
 - The committed roster expects local Ollama models and is tuned for a single
   16 GB development machine.
 - State is global to one local user. There is no multi-tenant isolation.
@@ -642,11 +692,42 @@ branches, validated in CI, and merged through pull requests.
   default to port 8000, while mission/run/task and several older HTTP clients
   currently target port 8001. The [CLI reference](docs/cli-reference.md)
   identifies the affected commands.
-- Running generated code is not sandboxed strongly enough for untrusted input.
+- The router's execution gate, the offline verifier and the tool judge run
+  generated code without the audit's sandbox, so keep them to trusted input.
 
-## Motivation
+## Related work
 
-The LLM tooling ecosystem has three established layers, each solving a different part of the problem:
+### The audit
+
+Mahoraga shares its mining recipe with other tools and benchmarks, and what it adds is the
+verdict: a rate priced for the reader's bill and time, with a local machine measured beside
+the cloud on the same tasks. The landscape on 2026-11-07, with a confidence tag on each
+source, is in [`brain/research/2026-11-07-landscape.md`](brain/research/2026-11-07-landscape.md).
+
+- **Tools that mine your own repository.** SelfBench, RepoTrials and Hugging Face's
+  Tasksmith turn a repository's merged changes into private tasks with fail-before and
+  pass-after checks, and RepoTrials also runs the real fix, as Mahoraga's gold check does.
+  None of them gives a verdict or runs a local model beside the cloud on the same tasks.
+- **Fresh public tasks.** SWE-rebench scores agents on recently mined GitHub tasks with
+  intervals and a cost per problem, and RuBench (2026) mined fix commits from live
+  repositories after the models' cutoffs and audited each agent's trajectory for attempts
+  to find the answer.
+- **Local against cloud.** Intelligence per Watt (Hazy Research, 2025) found local models
+  answer most single-turn chat and reasoning queries, which leaves open the agentic case
+  this study measures. Epoch AI tracks how far open models, and models that fit one
+  consumer GPU, trail the frontier.
+- **What a passing test is worth.** METR (2026) had maintainers review AI patches that
+  passed the tests, and they would have merged about 24 points fewer than the grader
+  passed, so a resolve rate is an upper bound on mergeable work for local and cloud alike.
+- **The agent as a variable.** Two 2026 studies measured the harness alone. Under a short
+  context, trimming old tool results raised an open model's complete solutions from 43 to
+  72 of 169 tasks, while two frontier models scored about the same under their own harness
+  and a neutral one.
+
+### The router
+
+The router was built to probe a gap between three established layers of LLM tooling, each
+solving a different part of the problem:
 
 **Gateways** (LiteLLM, Bifrost, OpenRouter) normalize provider APIs with a unified interface, failover and load balancing across OpenAI/Anthropic/etc. Their routing is rule-based and doesn't adapt.
 
@@ -659,8 +740,6 @@ The gap Mahoraga was built to probe: no existing system learns *online* which he
 **What came back is worth stating plainly.** Online *selection between arms* did not pay, the two local arms are not separable as arms on these banks, and the per-prompt oracle's 11.6-point margin over the best single arm says the remaining signal is per-prompt, not per-arm. What did pay was the tier below selection: **verify the free answer, and buy the expensive one only when verification fails.** The interesting question turned out to be not *which model* but *whether this one's answer is good enough*, and answering that locally, for free, is where the cost cut comes from.
 
 Mahoraga extends the trained-router category in three ways: online feedback rather than offline training, N heterogeneous agents (CLI tools, local models, cloud APIs) rather than two model endpoints, and local inference as the default cost tier rather than cloud escalation. The bandit accumulates experience from every routing decision and gets incrementally better with no retraining step and no deployment cycle.
-
-## Related work
 
 **Foundational:**
 - **LinUCB** (Li et al., WWW 2010): the contextual bandit algorithm Mahoraga uses for routing. Originally applied to news article recommendation. The per-arm A/b update rule and UCB exploration bonus are directly adopted here.

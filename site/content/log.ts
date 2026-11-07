@@ -96,6 +96,18 @@ const cents = (x: Claim, key: string) => `$${n(x, key).toFixed(2)}`;
 
 export const LOG: Entry[] = [
   {
+    id: "2026-11-07-gold-check",
+    date: "2026-11-07",
+    kind: "method",
+    claims: [c.laptop.id],
+    title: { en: "Each task is now checked against the fix that shipped.", ja: "各タスクは、実際に出荷された修正で確かめるようになりました。" },
+    body: {
+      en: `A commit used to become a task when its tests failed without the fix and passed with it. Mining now also grades the real fix like an attempt, so a test the fix itself breaks no longer counts against an agent. Each check can run several times, and a test whose result changes between runs is left out of the grade. The published tasks are being mined again this way, and any that change will be logged.`,
+      ja: `以前は、コミットのテストが修正なしで失敗し、修正ありで通ればタスクにしていました。今は本物の修正も試行と同じように採点するため、修正そのものが壊すテストはエージェントの失敗に数えません。各チェックは複数回実行でき、実行ごとに結果が変わるテストは採点から外します。公開済みのタスクもこの方法で掘り直しており、変わったものがあれば記録します。`,
+    },
+    receipts: [pr(93), { label: { en: "Decision record", ja: "決定の記録" }, href: blob("brain/decisions/2026-11-07-gold-check-and-task-factory.md") }],
+  },
+  {
     id: "2026-11-05-cloud-measured",
     date: "2026-11-05",
     kind: "finding",

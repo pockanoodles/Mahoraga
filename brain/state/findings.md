@@ -1503,3 +1503,59 @@ all, not whether it saves money.
 
 Course-tutor results from the 10-05 qwen-wide run (10/37) are Course Tutor's
 evaluation data and stay out of the report unless Adly agrees.
+
+## Era 37 — most of the hardware gap was the context window (2026-10-13 → 10-14)
+
+qwen3.5 (the laptop's exact GGUF) ran at a 131k context on the Studio over the same 92
+outside tasks as Era 36. It resolved **28 of 92 (30%, 22%–40%)**, against 9 at 32k and
+qwen3.6's 31 at 131k, so the wider window accounts for 19 of the 22 tasks between the two
+models. At the same context the two models are hard to tell apart, which turned Era 36's
+"memory buys solve rate" into "memory buys the context, and the context buys the rate."
+All three settings are still STAY at $0.75 a task (break-even 77%). Report §3 and §5,
+log entries `2026-10-14-context` and `2026-10-14-same-context`.
+
+## Era 38 — the laptop's own run, once two clocks were out of the way (2026-10-15 → 11-01)
+
+The first laptop nights at 131k measured clocks, not the model. A 20-minute limit timed
+out 26 of 38 attempts, because the laptop reads a long prompt at about 140 tokens a second
+(the verdict now refuses to call a stay decided when most failures are timeouts). A longer
+limit then exposed aider's own 10-minute request timeout, and 27 of the first night's 38
+attempts lost a request (journal `2026-10-28-two-clocks.md`). With each request given the
+whole attempt's limit (#68) and 90 minutes an attempt, the clean run from 10-28 to 11-01
+resolved **17 of 47 (36%, 24%–50%)**. The Studio solved 18 of the same 47 with the same
+model file, and the 4-to-5 split of the tasks they disagree on is chance (McNemar p = 1.00),
+so the laptop reaches the same answers, only slower (median attempt 28 minutes). Verdict at
+$0.75 a task: **STAY, decided**, about $67 a month in the red, and local pays once a cloud
+task costs $4.43. Only 2 of 30 failures timed out. Journal `2026-11-05-clean-run.md`, report
+§3 to §5.
+
+## Era 39 — the cloud side, measured on the same tasks (2026-11-05)
+
+Claude Code 2.1.318 on claude-opus-5-5 ran the laptop's 47 tasks on the OptiPlex (#88),
+blind, 90 minutes an attempt, an empty home each attempt, and one proxy allowing only
+api.anthropic.com (141 connections, none refused). It resolved **47 of 47 (92%–100%)** with
+a median attempt under 40 seconds and **$0.21 a task** at API list prices. Task by task:
+30 only the cloud solved, 0 only the laptop solved (McNemar p ≈ 2e-9). On the 19 tasks
+committed after June 2026, Opus 5.5's stated cutoff, the cloud solved 19 and the laptop 3,
+so memorisation doesn't explain the gap.
+
+**The price moved the verdict more than the rate did.** The tasks the laptop solved cost
+the cloud $0.15, against $0.24 for the rest, since local takes the easy tasks and those are
+the cheap ones. Priced at what the cloud spent (`verdict --cloud-arm`), the stay is about
+$77 a month in the red and the break-even rate rises from 77% to **95%**. Confound: Claude
+Code can run the tests through its shell under blind and aider can't, so this compares the
+two agents as they ship. Report §4 ("The cloud side, measured"), claims `report_2026_11_*`.
+
+## Era 40 — the published tasks survive the gold check (2026-11-07)
+
+#93 added SWE-bench's gold check to mining (the real fix applied to the sealed task and
+graded like an attempt, with pass-to-pass = passing at the base ∩ passing with the fix) and
+`--gate-runs K` (gate B and the gold check repeated, results that change between runs left
+out). The OptiPlex re-mined the 47 tasks behind the laptop and cloud rows under both, with
+K = 5, into a separate root (`~/.mahoraga-v2/screen-2026-11`, script
+`night/2026-11-07-screen.sh`, report `night/2026-11-07-screen-report.txt`). **All 47 came
+out the same**: attrs 19 of 19 and more-itertools 28 of 28 kept, with identical fail-to-pass
+and pass-to-pass sets, so no attempt's grade and no published figure changes. click was then
+mined for the first time under the new gates (20 kept, 5 dropped) and queued as a mine-only
+follow job (01:00–06:00, five gate runs, fetching first). Log entry `2026-11-07-gold-check`,
+report §3.

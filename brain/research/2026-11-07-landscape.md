@@ -30,7 +30,9 @@ tagged lower than [checked] needs a fresh read before it is quoted in public.
    mergeable work.
 4. **The harness confound is cheap to remove now.** Ollama has spoken Anthropic's Messages API
    since v0.14 (January 2026), so Claude Code can drive qwen3.5 on the laptop, which holds the
-   agent fixed. aider, the local agent so far, has shipped one release since August 2025.
+   agent fixed. Mahoraga's `claude` arm accepts only pinned `claude-*` models behind a proxy to
+   api.anthropic.com, so it needs a local mode first. aider, the local agent
+   so far, has shipped one release since August 2025.
 5. **Local got more expensive to start.** Apple raised Mac prices in June and warned in November
    that memory costs will be worse in the December quarter. The verdict assumes the machine is
    already owned, which matters more when it isn't.

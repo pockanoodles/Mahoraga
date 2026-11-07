@@ -1,5 +1,46 @@
 # Current State — 2026-11-07
 
+## 2026-11-07 (later): the published tasks pass the gold check, and a general pass
+
+**The screen is done.** All 47 published tasks came out the same under the gold check with
+five gate runs (attrs 19 of 19, more-itertools 28 of 28, identical fail-to-pass and
+pass-to-pass), so no published figure changes (findings Era 40, report §3, log entry
+`2026-11-07-gold-check`). click was then mined for the first time (20 kept, 5 dropped) and
+queued as a mine-only follow job beside attrs and more-itertools.
+
+**Branch `docs/general-pass`** brings the docs and the site up to main:
+- The README's worked example uses the paired 47-task run, and it describes the gold check,
+  the cloud arm, bubblewrap and systemd, with the audit's own limitations and related work.
+- The CLI reference's audit section is rewritten from `--help`, getting started opens with
+  the audit (including the repository's test interpreter, which the old guide left out), and
+  the docs index leads with the study.
+- The privacy policy, the Engine page and DATAFLOW.md said the audit sends nothing and that
+  macOS agents reach only Ollama, both untrue since the cloud arm. They now say what the
+  cloud arm sends and when, that a macOS local agent can reach this machine and nothing past
+  it, that a missing sandbox blocks the run, and that a `--fetch` job runs `git fetch`.
+- The report gains §7, "What the numbers don't settle", which collects prices, control,
+  privacy, hardware cost, what "resolved" means, the gap and prior art, each source checked
+  at its primary page. The findings ledger gains Eras 37 to 40.
+- `brain/research/2026-11-07-landscape.md` is the landscape behind §7.
+
+Codex is out of quota until 2026-11-11, so a Claude review stood in (15 findings against
+the code, all fixed or reworded).
+
+Still open, Kaito's calls:
+1. Merge the PR, then deploy the site (`cd site && npm run build && npx wrangler deploy`,
+   then `BASE=https://kaitosoeno.com npm run verify`).
+2. Whether the Research page gets dated context entries in its log for outside events that
+   move a verdict input (a price change, a model retirement, a hardware price). The 10-29
+   ADR keeps essays off that page, which is why the context went to report §7.
+3. The next laptop night. Holding the agent fixed (Claude Code on qwen3.5 through Ollama)
+   needs a local mode in the `claude` arm. MiMo-V2.6-Distill-Qwen-9B on 16 GB and
+   Qwen3.8-27B on the Studio are the model candidates.
+
+Found along the way, not fixed here: `--arm` help strings lose `[@ctx=N]` to Rich markup;
+`tonight --arm claude:…` crashes with a KeyError instead of refusing, and the worker doesn't
+check for cloud arms itself (the queue's refusal is the only guard); a target that is steady
+alone but flaky in the full suite stays fail-to-pass in `mine.py`.
+
 ## 2026-11-07: the OptiPlex mines every night, and a task is gated on its real fix
 
 Everything from 11-05 is closed: #87 to #92 and #72 to #76 are merged, and prod shows the
@@ -22,19 +63,25 @@ first time and queues it the same way.
 **#94** adds `nightly.yml`, which runs the slow tests and the live page each day in GitHub
 Actions. **ops#9** has the box's health check page on `mahoraga-*` units.
 
-Still open:
-1. Kaito: merge #93, #94 and ops#9 (then pull ops on the box). After #93, reinstall the
-   worker from main: on the box, `git pull` in `~/Projects/mahoraga`, then `orch agentbench
-   service install` there with no `--env`.
-2. Read the screen report. If a published task changes, that's a finding for the report.
-3. Kaito's calls:
-   - Claude Code with Bash off on the seat, the free first cut at the agent confound.
-   - aider on Opus 5.5 with an API key, about $10–20.
-   - Sonnet 5.5 and Haiku 5.5 on the 47.
-   - A cloud arm on newly mined tasks. The queue refuses cloud arms on purpose.
-4. The box has no C++ compiler, so `hnswlib` can't build there and 35 routing tests fail
-   on it (CI is green). `sudo apt install build-essential` fixes that if the box should run
-   the whole suite.
+Merged the same day on Kaito's word: #93, #94 and ops#9. The laptop's main checkout was
+pulled and both launchd jobs kickstarted, and the box's worker was reinstalled from main, so
+its unit has no PYTHONPATH. The box's `.worktrees/factory` stays until the screen script,
+which runs from it, finishes.
+
+Kaito's calls, as of the evening:
+- aider on Opus 5.5 with an API key: skipped.
+- The cloud arm is not the focus. It runs once a month by hand with
+  `~/.mahoraga-v2/night/monthly-cloud.sh SINCE` on the box, on tasks committed since SINCE
+  (2026-10-01 for the first pass), and is never queued.
+- Claude Code with Bash off: recommended against, since it measures a setup nobody runs. If
+  model against harness is wanted, test it from the local side (Claude Code or opencode on
+  qwen3.5, a laptop night).
+- Sonnet 5.5 and Haiku 5.5: recommended against for now, since a cheaper tier only
+  strengthens stay. Kaito: if they're needed, run all three tiers inside a monthly pass.
+
+The box has no C++ compiler, so `hnswlib` can't build there and 35 routing tests fail on it
+(CI is green). `sudo apt install build-essential` fixes that if the box should run the whole
+suite.
 
 ## 2026-11-05 (afternoon): the cloud side is measured, and the verdict is priced by it
 

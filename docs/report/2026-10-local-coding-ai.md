@@ -119,6 +119,14 @@ section and the next is recomputed by `orch bench verify` from one line per
 attempt in [`experiments/agentbench/`](../../experiments/agentbench/), and CI
 runs that check, so a reader can confirm each number without our machines.
 
+On 2026-11-07 the 47 tasks behind the laptop and cloud rows were mined again
+under two stricter checks. The first applies the commit's real fix to the
+finished task and grades it like an attempt, so a test the fix itself breaks
+can't count against an agent (SWE-bench's definition of the baseline). The
+second runs each check five times and leaves out any test whose result
+changes between runs. All 47 came out with the same target tests and the same
+baseline, so no figure in this report changes.
+
 Each agent got the commit's message as its task, trailers included. Nineteen
 of the 92 outside prompts carried a line naming a co-author, and two of those
 named a Claude model. Every arm read the same prompts, so the rows stay
@@ -411,7 +419,7 @@ and on 2026-03-26 Anthropic made its five-hour session limits run out faster
 during peak hours, from 05:00 to 11:00 Pacific
 ([The Register](https://www.theregister.com/software/2026/03/26/anthropic-tweaks-claude-usage-limits-to-manage-capacity/5225406)).
 The cloud price in section 4 is therefore a measurement with a date on it,
-which is why the cloud arm now runs again once a month.
+which is why the cloud arm now runs again once a month, by hand.
 
 **A cloud model can change or retire while the user changes nothing.**
 Anthropic traced weeks of weaker Claude Code results, between 4 March and 20
@@ -440,9 +448,10 @@ the M4 Max Mac Studio from $1,999 to $2,499
 ([MacRumors](https://www.macrumors.com/2026/06/25/apple-just-increased-prices/)),
 and on 2026-11-02 it said memory costs would be worse in the December quarter
 ([MacRumors](https://www.macrumors.com/2026/11/02/apple-memory-costs-increase-december/)).
-The verdict charges local only its electricity, because it assumes the
-machine is already owned. A reader who would buy a machine to go local should
-add its price, which moves the break-even further toward cloud.
+The verdict charges local its electricity and the developer's time on each
+failed attempt, but not the machine, because it assumes the machine is already
+owned. A reader who would buy a machine to go local should add its price,
+which moves the break-even further toward cloud.
 
 **A resolved task is not the same as a merged change.** METR had four
 maintainers of scikit-learn, Sphinx and pytest review 296 AI patches that
@@ -479,8 +488,9 @@ the cloud on the same tasks. The agent matters as well, since under a short
 context, trimming old tool results raised one open model's complete solutions
 from 43 to 72 of 169 SWE-bench Verified tasks
 ([arXiv 2608.26218](https://arxiv.org/abs/2608.26218)). Ollama has accepted
-Anthropic's API since January 2026, so the next edition can run Claude Code on
-the laptop's own model and hold the agent fixed.
+Anthropic's API since January 2026, so Claude Code could drive the laptop's
+own model and hold the agent fixed, which Mahoraga's harness doesn't support
+yet.
 
 ## 8. Run it on your repository
 
@@ -508,8 +518,9 @@ mahoraga audit verdict ~/code/your-repo --arm aider:qwen3.5:latest@ctx=131072 \
 ```
 
 Nothing leaves the machine during an audit with local agents. The repository
-is only read, agents run in a sandbox that can write only to their own copy,
-and the only network they can reach is the local model server. The cloud arm
+is only read, and agents run in a sandbox that can write only to their own
+copy and can't reach past this machine (on Linux, past the local model
+server). The cloud arm
 of section 4 is the one exception, and it runs only when a run is given
 `--allow-cloud`, since it sends what Claude Code reads of the task to
 Anthropic ([DATAFLOW.md](../../DATAFLOW.md)).

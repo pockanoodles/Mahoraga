@@ -1,7 +1,8 @@
 # Getting started
 
 Mahoraga has two ways in. The audit measures local coding agents on your own repository
-and gives a stay, split or switch verdict, and it needs only Ollama and an agent. The
+and gives a stay, split or switch verdict, and it needs Ollama, an agent and an environment
+that runs the repository's tests. The
 router serves tasks through local models and needs the backend, its models and,
 optionally, the web UI. Most readers want the audit first, and the router is the stage
 that acts on its verdict.
@@ -9,9 +10,13 @@ that acts on its verdict.
 ## Run the audit on your repository
 
 You need Python 3.12 or newer, Git, [Ollama](https://ollama.com/download), and a
-repository with a pytest suite. Install aider in an environment of its own, at the
-version the published log measured, because its pins would clash with Mahoraga's. On
-Linux, install bubblewrap too, since it is the sandbox every agent runs in there.
+repository with a pytest suite. The repository's tests run under its own
+`.venv/bin/python`, so that environment needs pytest and the project's dependencies, or
+pass `--python` to name another interpreter. Mahoraga's own interpreter has no pytest,
+and without one of these, mining finds no task it can run. Install aider in an
+environment of its own, at the version the published log measured, because its pins
+would clash with Mahoraga's. On Linux, install bubblewrap too, since it is the sandbox
+every agent runs in there, and the audit won't run without it.
 
 ```bash
 uv tool install --python 3.12 aider-chat==0.86.2
@@ -20,16 +25,15 @@ sudo apt install bubblewrap                                     # Linux only
 ollama pull qwen3.5:latest
 ```
 
-Check the machine and the repository, then queue a night of runs:
+Then queue a night of runs:
 
 ```bash
-mahoraga audit doctor ~/code/app --arm aider:qwen3.5:latest@ctx=131072
 mahoraga audit tonight ~/code/app --tasks-per-month 200 --plan claude-max-5x
 ```
 
-`tonight` mines up to 25 tasks from commits that changed both code and a test, queues
-them for 21:00 to 08:00, and starts the background worker (launchd on macOS, systemd on
-Linux). It asks once for how many tasks you give cloud agents a month and how you pay,
+`tonight` mines up to 25 tasks from commits that changed both code and a test, checks the
+agent, Ollama, the model and the sandbox, queues the run for 21:00 to 08:00, and starts
+the background worker (launchd on macOS, systemd on Linux). It asks once for how many tasks you give cloud agents a month and how you pay,
 since the verdict is priced for your bill. The next morning, read the result:
 
 ```bash
@@ -38,8 +42,9 @@ mahoraga audit verdict ~/code/app --arm aider:qwen3.5:latest@ctx=131072 --cond b
 ```
 
 On the published 16 GB laptop an attempt at a 131k context took 28 minutes at the median,
-so its 47 tasks took four nights, and `doctor` prints the estimate for your own machine.
-Every command and flag is in the [CLI reference](cli-reference.md#the-audit), and
+so its 47 tasks took four nights. Once tasks are mined, `mahoraga audit doctor ~/code/app`
+checks the bench and estimates the nights left on your own machine. The audit's commands
+and their main flags are in the [CLI reference](cli-reference.md#the-audit), and
 [`DATAFLOW.md`](../DATAFLOW.md) says what each part sends where. The rest of this guide
 sets up the router.
 

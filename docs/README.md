@@ -5,7 +5,8 @@ These guides describe the behavior of the current `main` branch.
 ## The study
 
 - [The report](report/2026-10-local-coding-ai.md) asks whether local coding AI is worth
-  it on a 16 GB Mac. Every figure in it links to the attempts it was computed from, and
+  it on a 16 GB Mac. Every measured figure in it links to the attempts it was computed
+  from, every outside one to its source, and
   the site's [Research page](https://kaitosoeno.com/mahoraga/) publishes it one finding
   at a time.
 - [The study's direction](../brain/decisions/2026-10-29-long-term-study.md) is the
@@ -18,9 +19,9 @@ These guides describe the behavior of the current `main` branch.
 
 - [Getting started](getting-started.md) installs the audit, checks your machine and
   repository, and queues a night of runs.
-- [CLI reference](cli-reference.md#the-audit) covers every audit command and flag:
-  mining, the queue and its worker, the cloud arm, the report, the export and the
-  verdict.
+- [CLI reference](cli-reference.md#the-audit) covers the audit's commands and their main
+  flags, from mining through the queue and its worker, the cloud arm, the report and the
+  export to the verdict.
 - [Configuration](configuration.md) covers environment variables and local state,
   including `MAHORAGA_HOME`.
 

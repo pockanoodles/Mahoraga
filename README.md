@@ -46,8 +46,9 @@ in one pipeline (source, runner, grader, ledger, verdict).
    when the target tests pass and nothing that passed before has broken.
 4. **Decide.** The measured rate and its 95% interval, counted over tasks rather than
    attempts, become stay, split or switch, priced for the way you pay (by the token or by
-   subscription) and for the time a failed attempt costs you. When a cloud arm ran the
-   same tasks, each task local solves is priced at what the cloud spent on it.
+   subscription) and for the time a failed attempt costs you. On API billing,
+   `--cloud-arm` prices each task local solves at what a cloud agent spent on the same
+   task.
 
 ```mermaid
 flowchart LR
@@ -71,8 +72,9 @@ The gold check then applies the commit's real fix to the sealed task and grades 
 way an attempt is graded. The pass-to-pass baseline every attempt is held to is the set of
 tests that pass at the base and also pass with the fix, since a test the fix itself breaks
 can't be kept passing by any correct change (SWE-bench's definition). With
-`--gate-runs K`, every gate runs K times, and a test whose result changes between runs is
-never a target or part of the baseline, so no attempt is graded on a coin toss.
+`--gate-runs K`, gate B and the gold check run K times. A target whose result changes with
+the fix applied drops the task, and a test whose result changes between runs is left out of
+the baseline, so no attempt is graded on a coin toss.
 
 ```mermaid
 flowchart TD
@@ -135,11 +137,13 @@ low end must clear the rate needed to drop a tier, or the user must already be a
 the low end covering at least 10% of their usage. Every assumption prints with the verdict so a reader can disagree with a number
 and not only with the call.
 
-With `--cloud-arm`, the cloud cost stops being an assumption. The verdict prices each task
-local solves at what that cloud arm spent on the same task, so a local success saves only
-the cloud's own cost for it. In the published run the tasks local solved cost the cloud
+With `--cloud-arm` on API billing, the cloud cost stops being an assumption. The verdict
+prices each task local solves at what that cloud arm spent on the same task, so a local
+success saves only the cloud's own cost for it. On a subscription an extra cloud task costs
+nothing, so the flag adds the cloud's row to the output and leaves the call alone. In the published run the tasks local solved cost the cloud
 $0.15 each, compared to $0.24 for the rest, because the tasks a small model can solve are
-the cheap ones for the cloud too. The cloud arm has to have run every task the local arm ran, or the
+the cheap ones for the cloud too. The cloud arm has to have run every task the local arm
+ran, under the same condition (`--cond`) and with a recorded cost for each attempt, or the
 verdict refuses, since a partial cloud run would price the verdict on a different set of
 tasks.
 
@@ -188,6 +192,11 @@ Before it queues anything, `mahoraga audit tonight` checks both. The doctor comm
 `mahoraga audit doctor`, runs the same checks on their own and prints the install line for
 anything missing.
 
+The repository's own tests run under its `.venv/bin/python` when there is one, and under
+Mahoraga's own interpreter otherwise, which has no pytest when Mahoraga is installed with
+uv or pipx. Give the repository a `.venv` with pytest and the project's dependencies, or
+name another interpreter with `--python`, or mining will find no task it can run.
+
 ## Quick start
 
 ```bash
@@ -212,8 +221,8 @@ model are there and that the agent can't see the answer, and queues the run for
 how many nights the run will take. The verdict also needs how many tasks you give cloud
 agents a month and how you pay for them. Pass them as above, or `tonight` asks once in
 the terminal. They're saved in `usage.json` next to your benches and never leave the
-machine. When the window closes, the report and the verdict are written next to the bench
-and a notification gives the resolved count and the call. Each step also has its
+machine. When the job ends, `morning.txt` in the bench directory holds the report and the
+verdict, and on macOS a notification gives the resolved count and the call. Each step also has its
 own command (`mine`, `doctor`, `queue add`, `service install`) for when you want to run
 it by hand. `orch` still works as an alias for `mahoraga`, and `orch agentbench` for
 `mahoraga audit`.
@@ -661,10 +670,11 @@ branches, validated in CI, and merged through pull requests.
 - **The cloud comparison is agent plus model.** Claude Code can run the tests through its
   own shell under `blind` while aider can't, so the 47-to-17 gap compares the two setups
   as they ship. Holding the agent fixed (Claude Code on a local model, or aider on the
-  cloud model) is the next measurement.
+  cloud model) would separate the two.
 - **A resolved task passed its tests, which is a lower bar than a merged change.** The
-  grader checks the commit's own tests and every test that passed before, and it can't
-  judge style, scope or whether a maintainer would accept the patch.
+  grader checks the commit's own tests and every test that passes both before the commit
+  and with its fix, and it can't judge style, scope or whether a maintainer would accept
+  the patch.
 - **The contextual bandit is not shown to improve routing.** Across three
   evaluations it never beat round-robin between the two local arms. The
   learning machinery is real and running. The claim that it routes better is
@@ -675,7 +685,8 @@ branches, validated in CI, and merged through pull requests.
   memory alongside the OS. A machine with more memory would run different,
   better models on both tiers, and the cost-quality tradeoff would move. The
   audit has a 64 GB Mac Studio row as well, and on the same model file at the
-  same setting it solved what the laptop solved.
+  same setting it resolved 18 of the laptop's 47 tasks to the laptop's 17, a
+  difference chance alone explains.
 - The committed roster expects local Ollama models and is tuned for a single
   16 GB development machine.
 - State is global to one local user. There is no multi-tenant isolation.

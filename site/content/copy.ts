@@ -326,11 +326,11 @@ const en: Dict = {
       { title: "Read-only", body: "The audit only reads your repo, and every attempt works on a copy." },
       {
         title: "Sandboxed",
-        body: "Agents can write only to their copy and reach only the local model, under sandbox-exec on macOS and bubblewrap on Linux.",
+        body: "Local agents can write only to their copy and can't reach past this machine, under sandbox-exec on macOS and bubblewrap on Linux.",
       },
       {
         title: "The cloud only when asked",
-        body: "Local agents send nothing, and the cloud arm runs only when you pass --allow-cloud. The router escalates to Claude only when the local judge rejects an answer, at most 25 times a day.",
+        body: "Local agents send nothing, and the cloud arm runs only when you pass --allow-cloud. The router escalates to Claude only when a local answer fails to run or the local judge rejects it, at most 25 times a day.",
       },
     ],
     link: "Read DATAFLOW.md",
@@ -606,11 +606,11 @@ const ja: Dict = {
       { title: "読み取りのみ", body: "監査はリポジトリを読むだけで、試行はすべてコピーの上で行います。" },
       {
         title: "サンドボックス",
-        body: "エージェントが書き込めるのは自分のコピーだけで、通信先はローカルのモデルだけです。macOS では sandbox-exec、Linux では bubblewrap で閉じ込めます。",
+        body: "ローカルのエージェントが書き込めるのは自分のコピーだけで、このマシンの外には通信できません。macOS では sandbox-exec、Linux では bubblewrap で閉じ込めます。",
       },
       {
         title: "クラウドは必要なときだけ",
-        body: "ローカルのエージェントは何も送らず、クラウドのアームは --allow-cloud を付けたときだけ動きます。ルーターが Claude に回すのは、ローカルのジャッジが回答を却下したときだけで、1 日 25 回までです。",
+        body: "ローカルのエージェントは何も送らず、クラウドのアームは --allow-cloud を付けたときだけ動きます。ルーターが Claude に回すのは、ローカルの回答が動かないか、ローカルのジャッジが却下したときだけで、1 日 25 回までです。",
       },
     ],
     link: "DATAFLOW.md を読む",

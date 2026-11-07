@@ -67,6 +67,7 @@ const en: PolicyDoc = {
         { where: "Anthropic, when the router escalates", what: "The prompt of a task the local answer failed, which may include code", why: "To get a working answer when the local model couldn't" },
         { where: "Anthropic, only if you turn on the claude backend", what: "The mission text and the task's output", why: "To plan and check work with a cloud model" },
         { where: "Telegram, only if you add its key", what: "The messages you route through it", why: "For the Telegram channel" },
+        { where: "Your repository's own git remote, only for a followed repository with --fetch", what: "A git fetch for new commits, with nothing of yours in it", why: "To mine the commits others push" },
         { where: "Ollama's registry, Hugging Face and GitHub", what: "A request for a model or a benchmark file, with no task data", why: "To download what you asked to install" },
       ],
       after: [
@@ -127,6 +128,7 @@ const ja: PolicyDoc = {
         { where: "Anthropic（ルーターが再実行したとき）", what: "ローカルの回答が失敗したタスクのプロンプト（コードを含むことがあります）", why: "ローカルモデルで解けなかったときに正しい回答を得るため" },
         { where: "Anthropic（claude バックエンドを有効にした場合のみ）", what: "ミッションの文面とタスクの出力", why: "クラウドのモデルで作業を計画し、確認するため" },
         { where: "Telegram（キーを設定した場合のみ）", what: "経由させたメッセージ", why: "Telegram チャネルのため" },
+        { where: "リポジトリ自身の git リモート（--fetch 付きで追跡するリポジトリのみ）", what: "新しいコミットを取得する git fetch（あなたのデータは含みません）", why: "ほかの人が push したコミットからタスクを作るため" },
         { where: "Ollama のレジストリ、Hugging Face、GitHub", what: "モデルやベンチマークファイルのダウンロード要求（タスクのデータは含みません）", why: "インストールを指示したものを取得するため" },
       ],
       after: [

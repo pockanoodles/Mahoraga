@@ -15,6 +15,7 @@ belongs there too (`site/content/privacy.ts`).
 | Nowhere (audit) | Nothing. Mining, runs, grading and the verdict all happen on your machine. | The audit exists to measure local agents on your code without sending it out. |
 | Anthropic (the audit's cloud arm, off unless you pass `--allow-cloud`) | What Claude Code reads of the task's repository, the task prompt, and its tool output | A `claude:<model>` arm measures the cloud agent the local ones would replace, on the same tasks. |
 | Ollama on `localhost:11434` | Task prompts and the repository context the agent reads | The local model answers the task. This stays on your machine unless you point `OLLAMA_BASE_URL` elsewhere. |
+| Your repository's own git remote (only for a `queue add --follow --fetch` job) | A `git fetch`, which sends nothing of yours beyond the request | A followed repository is mined again as others push to it. |
 | Anthropic (router escalation, on by default) | The prompt of a task the local answer failed, through the `claude` CLI under your login or through `ANTHROPIC_API_KEY` | A failed local answer is re-run on a cloud model. `MAHORAGA_CASCADE=off` stops it. |
 | Anthropic (planner and verifier) | Mission text and task output | Only when the `claude` backend is enabled, which it is not in the shipped configuration. |
 | Ollama's registry | A request for a model name | `ollama pull` fetches the model. |
@@ -31,22 +32,26 @@ run, sends anything out (below).
 
 - **Your repository is only read.** Mining copies commits into a separate work area
   (`~/.mahoraga-v2/agentbench/`) and every attempt happens in its own copy, so your
-  checkout is never written to.
+  checkout is never written to. The one exception is a `--follow --fetch` job, which runs
+  `git fetch` in your repository to pick up new commits and leaves the checkout alone.
 - **Agents run in an operating-system sandbox.** On macOS it is `sandbox-exec`, and on
   Linux it is bubblewrap (`apt install bubblewrap`). The agent can write only to its own
-  copy, its own home folder and a temporary folder. It can open network connections only
-  to the local ports Mahoraga gives it, which are Ollama's for a local arm and the
-  cloud arm's proxy for the cloud arm. A request anywhere else is refused by the
-  operating system. On Linux the agent gets its own private network with no route out,
-  its own `/tmp` and its own `/run`, so it can't reach other programs' sockets either.
+  copy, its own home folder and a temporary folder, and nothing it runs can reach past
+  this machine. On Linux a local agent gets its own private network with no route out,
+  its own `/tmp` and its own `/run`, and reaches only Ollama, so it can't reach other
+  programs' sockets either. On macOS a local agent can open a connection to any program
+  listening on this machine, which includes Ollama, and to nothing beyond it. On both, the
+  cloud arm can reach only its proxy. A request anywhere else is refused by the operating
+  system.
 - **Agents can't read your credentials.** The folders under your home that hold keys and
   logins (`.ssh`, `.config`, `.claude`, `.codex`, `.aws` and the like) are hidden from
   every agent.
-- **Without a sandbox, only local arms run.** On a Linux machine without bubblewrap, local
-  agents still get their own home folder, and Mahoraga starts them with their update
-  checks and analytics turned off (for aider, `--no-check-update --no-analytics`). But
-  nothing stops them opening a connection, and the run's preflight says so. The cloud arm
-  refuses to start.
+- **Without a sandbox, nothing runs unless you force it.** On a Linux machine without
+  bubblewrap the isolation check fails, so `tonight` queues nothing, a queued job fails,
+  and `run` stops unless you pass `--force`. A forced local agent still gets its own home
+  folder, and Mahoraga starts it with its update checks and analytics turned off (for
+  aider, `--no-check-update --no-analytics`), but nothing stops it opening a connection.
+  The cloud arm refuses to start even then.
 - **The model runs on your machine.** Ollama answers at `http://127.0.0.1:11434` unless
   you point `OLLAMA_BASE_URL` somewhere else.
 - **Results stay local.** Tasks, attempts, run manifests and verdicts are files under

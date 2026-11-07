@@ -282,8 +282,11 @@ journals or decisions.
 
 `mahoraga audit` (also `orch agentbench`, its name before the product) measures which
 coding agent and model can fix bugs in a given repository, using that repository's own
-history. The repository must be a git repository with a pytest suite. It is only read,
-and all state lives under `~/.mahoraga-v2/agentbench/` (or under `$MAHORAGA_HOME`).
+history. The repository must be a git repository with a pytest suite, and its tests run
+under its own `.venv/bin/python` when there is one (pass `--python` otherwise, since
+Mahoraga's own interpreter has no pytest). Mahoraga only reads the repository, apart from
+the `git fetch` a `--follow --fetch` job runs in it, and all state lives under
+`~/.mahoraga-v2/agentbench/`, which `MAHORAGA_HOME` or `MAHORAGA_AGENTBENCH_ROOT` moves.
 
 ```bash
 mahoraga audit tonight [REPO] [--arm aider:qwen3.5:latest@ctx=131072] [--window 21:00-08:00]
@@ -291,7 +294,7 @@ mahoraga audit tonight [REPO] [--arm aider:qwen3.5:latest@ctx=131072] [--window 
 mahoraga audit mine [REPO] [--limit 25] [--max-lines 250] [--rev HEAD] [--commit SHA ...]
     [--python PATH] [--pytest-arg ARG ...] [--gate-runs K]
 mahoraga audit preflight [REPO] --arm aider:qwen3.5:latest [--arm ...]
-mahoraga audit doctor [REPO] --arm aider:qwen3.5:latest [--cond feedback|blind|both] [--repeats K]
+mahoraga audit doctor [REPO] [--arm aider:qwen3.5:latest] [--cond feedback|blind|both] [--repeats K]
 mahoraga audit run [REPO] --arm aider:qwen3.5:latest [--arm ...]
     [--cond blind|feedback|both] [--repeats K] [--task SHA ...] [--timeout SECS]
     [--until HH:MM] [--wait-idle MIN] [--wait-quiet] [--memory-floor PCT]
@@ -304,8 +307,8 @@ mahoraga audit service install | uninstall | start | stop | status
 mahoraga audit report [REPO] [--since YYYY-MM-DD] [--json]
 mahoraga audit export REPO [REPO ...] --out FILE.jsonl [--arm ...] [--cond ...]
 mahoraga audit verdict REPO [REPO ...] --arm aider:qwen3.5:latest [--cloud-arm claude:MODEL]
-    [--tasks-per-month N] (--api-spend USD | --plan claude-pro|claude-max-5x|...
-    [--plan-price USD] [--usage-of-cap 1.0]) [--cond feedback] [--deferrable 0.25]
+    [--tasks-per-month N] [--api-spend USD | --plan claude-pro|claude-max-5x|...
+    [--plan-price USD] [--usage-of-cap 1.0]] [--cond feedback] [--deferrable 0.25]
     [--hourly 50] [--triage-min 3] [--watts 40] [--kwh 0.30] [--json]
 mahoraga audit reseal [REPO]
 ```
@@ -314,8 +317,9 @@ mahoraga audit reseal [REPO]
   tasks if the repository has none, checks the agent, Ollama and the model, sizes the
   attempt time limit to this machine's measured speed, queues the run for the window,
   and starts the worker. It asks once for your monthly task count and how you pay, and
-  saves them in `usage.json` beside the benches. When the window closes, the report and
-  the verdict are written next to the bench and a notification gives the call.
+  saves them in `usage.json` beside the benches. When the job ends, `morning.txt` in the
+  bench directory holds the report and, once your usage is saved, the verdict, and on
+  macOS a notification gives the call.
 - **mine** takes commits that changed both source and a test module. The task is the
   parent plus the commit's test changes. Gate A keeps a commit only if its tests pass at
   the commit, and gate B only if at least one of them fails at the base. The gold check
@@ -323,9 +327,10 @@ mahoraga audit reseal [REPO]
   attempt is graded, and requires its tests to give the results they gave at the commit.
   The pass-to-pass baseline is the set of tests that pass at the base and also with the
   fix, so a test the fix itself breaks is recorded in `gold_fails` and never held against
-  an attempt. `--gate-runs K` runs every gate K times, and a test whose result changes
-  between runs is recorded in `flaky`, which is never fail-to-pass or pass-to-pass. Every
-  dropped commit is printed with its reason.
+  an attempt. `--gate-runs K` runs gate B and the gold check K times (gate A runs once). A
+  target whose result changes with the fix applied drops the task, a test whose result
+  changes between runs is left out of the pass-to-pass baseline, and both are recorded in
+  `flaky`. Every dropped commit is printed with its reason.
 - **run** resets each task, lets the agent edit, restores the test files, and grades. An
   attempt is resolved when the commit's tests pass and no pass-to-pass test regressed.
   `feedback` also passes the task's test command to the agent. It is resumable, and
@@ -340,7 +345,8 @@ mahoraga audit reseal [REPO]
   its models' digests when it is added, waits for its window (and, with `--wait-quiet`,
   for an Ollama nobody else is using), and always says why it waits or why it ended in
   `queue ls`. A `--follow` job never finishes, since it mines the repository's new commits
-  each window (`--fetch` pulls them first) and runs them, so each new model meets work
+  each window (`--fetch` runs `git fetch` in the repository first and mines the upstream
+  branch, leaving your checkout alone) and runs them, so each new model meets work
   that postdates it. A `--follow` job with no `--arm` only mines, which suits a machine
   that runs no models. The queue refuses cloud arms, so nothing unattended sends code out.
 - **worker** runs queued jobs as their windows open, and **service** keeps it running in
@@ -362,10 +368,13 @@ mahoraga audit reseal [REPO]
   of the interval, so it is marked not yet decided when the interval spans the
   threshold. Every unmeasured input is printed with it. Prices come from the dated,
   sourced `backend/orchestrator/audit/pricing.json`, and a plan whose price wasn't read
-  from the vendor's page is refused unless you pass `--plan-price`. With `--cloud-arm`,
-  each task local resolves is priced at what that cloud arm spent on the same task, and
-  the verdict refuses unless the cloud arm ran every task the local arm ran. It also
-  refuses evidence whose run manifests name two machines.
+  from the vendor's page is refused unless you pass `--plan-price`. Without billing flags
+  it uses what `tonight` saved in `usage.json`. With `--cloud-arm` on API billing, each
+  task local resolves is priced at what that cloud arm spent on the same task, and on a
+  subscription the cloud's row is printed without changing the call. The verdict refuses
+  a cloud arm unless it ran every task the local arm ran, under the same `--cond`, with a
+  recorded cost for each attempt. It also refuses when the local arm's attempts come from
+  two machines (the cloud arm's may come from another).
 - **reseal** takes the answer out of task clones mined before 2026-10-13 and keeps their
   attempts.
 - Every **run** writes a manifest (`runs/<run_id>.json`) recording model digests, Ollama
@@ -422,12 +431,16 @@ agent runs with its own HOME under the bench root, so it never sees your config 
 provider credentials, and the folders under your home that hold keys and logins are
 hidden from it. On macOS it runs under `sandbox-exec`, and on Linux under bubblewrap
 when `bwrap` is installed. Either way the agent and its children can write only inside
-the task's checkout, that HOME and a temp area, and can open network connections only
-to the ports Mahoraga gives it (Ollama's, or the cloud arm's proxy). On Linux it also
-gets its own network namespace with no route out, its own `/tmp` and its own `/run`.
-Your repository is read-only to it. Without a sandbox, local arms still get their own
-HOME and the run's preflight says nothing else contains them, and the cloud arm refuses
-to start.
+the task's checkout, that HOME and a temp area, and nothing they run can reach past this
+machine. On Linux a local agent gets its own network namespace with no route out, its
+own `/tmp` and its own `/run`, and reaches only Ollama through a relay. On macOS a local
+agent can reach any port on localhost, which includes Ollama, and nothing off the
+machine. The cloud arm reaches only its proxy on either system. Your repository is
+read-only to the agent.
+
+Without a sandbox the isolation checks fail. `tonight` then queues nothing, a queued job
+fails, and `run` stops unless you pass `--force`, which leaves local arms only their own
+HOME. The cloud arm refuses to start even then.
 
 Local arms use local Ollama models only. Ollama `-cloud` models are refused, since they
 would send code off the machine outside the audited egress client.

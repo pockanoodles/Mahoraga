@@ -1,0 +1,94 @@
+name: Nightly
+
+# What a pull request's CI can't see:
+#   - the slow tests, which load the real embedding model (a download);
+#   - the page as it is served. It can drift from main with no pull request at
+#     all: a merge nobody deployed, or personal-website changing the menu pill
+#     the page loads from /site/menu.js.
+# GitHub emails a failed scheduled run to whoever last changed this schedule.
+
+on:
+  schedule:
+    - cron: "23 10 * * *"   # 05:23 in New York (EST), after the OptiPlex's mining window
+  workflow_dispatch:
+  pull_request:
+    paths: [".github/workflows/nightly.yml"]   # a change to it runs once on its own PR
+
+permissions:
+  contents: read
+
+jobs:
+  slow-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: System build deps (hnswlib)
+        timeout-minutes: 10
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends build-essential
+
+      - name: Install, with the semantic extra on CPU-only torch
+        # As in ci.yml: hnswlib built portable, outside the pip cache. torch
+        # from the CPU index, or pip pulls gigabytes of CUDA wheels.
+        env:
+          HNSWLIB_NO_NATIVE: "1"
+        run: |
+          python -m pip install -U pip
+          pip install --no-cache-dir "hnswlib>=0.8.0"
+          pip install torch --index-url https://download.pytorch.org/whl/cpu
+          pip install -r requirements.txt -r requirements-semantic.txt
+          pip install -e .
+
+      - name: Slow tests
+        run: pytest -m slow -q -rs --junitxml=slow.xml
+
+      - name: None of them skipped
+        # The real-model tests skip when sentence-transformers or the model
+        # can't load, and pytest still exits 0. Here the extra is installed,
+        # so a skip is the failure this job exists to see.
+        run: |
+          python - <<'EOF'
+          import sys
+          import xml.etree.ElementTree as ET
+          suite = ET.parse("slow.xml").getroot().find("testsuite")
+          skipped, total = int(suite.get("skipped")), int(suite.get("tests"))
+          print(f"{total} slow tests ran, {skipped} skipped")
+          sys.exit(1 if skipped or not total else 0)
+          EOF
+
+  live-page:
+    # kaitosoeno.com/mahoraga against main's export, in a browser, both
+    # languages. Red here with CI green means main isn't what's deployed.
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: site
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: site/package-lock.json
+
+      - name: Install
+        run: |
+          npm ci
+          npm run prepare-assets
+          npx playwright install --with-deps chromium-headless-shell
+
+      - name: The domain serves the menu pill
+        # verify.mjs treats a missing /site/menu.js as this site's own
+        # preview and skips the menu's checks, so on the live domain its
+        # absence has to fail here first.
+        run: curl -fsS -o /dev/null https://kaitosoeno.com/site/menu.js
+
+      - name: Drive the live page
+        run: BASE=https://kaitosoeno.com npm run verify

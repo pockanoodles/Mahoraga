@@ -43,9 +43,21 @@ jobs:
           pip install -e .
 
       - name: Slow tests
-        # -rs lists skips: the embedding tests skip when the model can't be
-        # loaded, and a run that skipped them all has checked nothing.
-        run: pytest -m slow -q -rs
+        run: pytest -m slow -q -rs --junitxml=slow.xml
+
+      - name: None of them skipped
+        # The real-model tests skip when sentence-transformers or the model
+        # can't load, and pytest still exits 0. Here the extra is installed,
+        # so a skip is the failure this job exists to see.
+        run: |
+          python - <<'EOF'
+          import sys
+          import xml.etree.ElementTree as ET
+          suite = ET.parse("slow.xml").getroot().find("testsuite")
+          skipped, total = int(suite.get("skipped")), int(suite.get("tests"))
+          print(f"{total} slow tests ran, {skipped} skipped")
+          sys.exit(1 if skipped or not total else 0)
+          EOF
 
   live-page:
     # kaitosoeno.com/mahoraga against main's export, in a browser, both
@@ -69,6 +81,12 @@ jobs:
           npm ci
           npm run prepare-assets
           npx playwright install --with-deps chromium-headless-shell
+
+      - name: The domain serves the menu pill
+        # verify.mjs treats a missing /site/menu.js as this site's own
+        # preview and skips the menu's checks, so on the live domain its
+        # absence has to fail here first.
+        run: curl -fsS -o /dev/null https://kaitosoeno.com/site/menu.js
 
       - name: Drive the live page
         run: BASE=https://kaitosoeno.com npm run verify

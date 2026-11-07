@@ -51,8 +51,10 @@ Between June and September 2026 the flagship open model lines moved up and
 out of the size that fits consumer hardware ([Era 31](../../brain/state/findings.md)).
 Qwen 3.6 and 3.8 ship no model under 17 GB, the smallest `qwen3-coder` is
 19 GB, and Meta's line now starts at 17.31 GB. Smaller releases did continue
-(IBM's granite 4.2 8B and a 9B from ornith-ai), but none of them has a
-verified advantage in writing code. This matters for the thesis, since a
+(IBM's granite 4.2 8B and a 9B from ornith-ai, then in September Xiaomi's 9B
+fine-tune of the same Qwen3.5 base and JetBrains' Mellum 2.1, a 12B model with
+2.5B parameters active), but none of them has a verified advantage in writing
+code, and the scores published for the last two are their makers' own. This matters for the thesis, since a
 widening gap between a free local tier and a paid frontier tier makes routing
 between them more useful rather than less.
 
@@ -384,7 +386,103 @@ clone is now rebuilt with nothing of the answer in it, and the one attempt
 that saw it was discarded. Aider cannot run shell commands, so no aider result
 in this report was affected.
 
-## 7. Run it on your repository
+## 7. What the numbers don't settle
+
+The rates above say whether a local agent can do this work today, on these
+repositories and these machines. A developer choosing between local and cloud
+also weighs what each side will cost next year, who controls the model, where
+the code goes and what "resolved" means, and a resolve rate measures none of
+those. This section collects what was public on 2026-11-07 and names the part
+of the verdict each item would move. The fuller notes, with a confidence tag on
+every source, are in [the landscape note](../../brain/research/2026-11-07-landscape.md).
+
+**Cloud prices are falling per token and rising per developer.** Opus 5.5
+lists at $4 per million input tokens and $20 per million output tokens,
+compared to $5 and $25 for the Opus models before it
+([Anthropic pricing](https://platform.claude.com/docs/en/about-claude/pricing)).
+Agents spend far more tokens on a task than a chat does, though, and Gartner
+described per-developer AI coding bills rising from $20 to $100 a month to
+$2,000 to $5,000 under consumption pricing
+([The Register, 2026-06-24](https://www.theregister.com/ai-and-ml/2026/06/24/ai-coding-agents-could-soon-cost-more-than-the-developers-using-them/5260864)).
+Flat plans moved the same way. GitHub moved every Copilot plan to token-priced
+credits on 2026-06-01
+([GitHub](https://github.blog/news-insights/company-news/github-copilot-is-moving-to-usage-based-billing/)),
+and on 2026-03-26 Anthropic made its five-hour session limits run out faster
+during peak hours, from 05:00 to 11:00 Pacific
+([The Register](https://www.theregister.com/software/2026/03/26/anthropic-tweaks-claude-usage-limits-to-manage-capacity/5225406)).
+The cloud price in section 4 is therefore a measurement with a date on it,
+which is why the cloud arm now runs again once a month.
+
+**A cloud model can change or retire while the user changes nothing.**
+Anthropic traced weeks of weaker Claude Code results, between 4 March and 20
+April 2026, to three changes in the product around the model (a lower default
+reasoning effort, a bug that kept clearing its older reasoning, and an
+instruction to cut verbosity), while its API and inference layer were
+unaffected ([postmortem, 2026-04-23](https://www.anthropic.com/engineering/april-23-postmortem)).
+Its models also retire on a schedule, with at least 60 days' notice, and Opus
+5.5 is listed as available until at least 2027-09-22
+([model deprecations](https://platform.claude.com/docs/en/about-claude/model-deprecations)),
+so the cloud row in section 4 can only be repeated until then. The laptop's
+model file can be run again in ten years, and for a study that measures the
+same tasks over time that difference is part of the result.
+
+**Local agents send nothing out, and consumer cloud plans keep more than most
+users expect.** Since Anthropic's 2025-08-28 terms, a Free, Pro or Max user who
+allows training has their chats and Claude Code sessions kept for five years
+instead of 30 days, while API and commercial accounts are excluded
+([Anthropic](https://www.anthropic.com/news/updates-to-our-consumer-terms)).
+No input to the verdict captures this. A reader whose code can't leave the
+machine should read the verdict as the price of keeping it local.
+
+**The hardware got more expensive this year.** Apple raised Mac prices on
+2026-06-25 as memory costs climbed, the MacBook Pro from $1,699 to $1,999 and
+the M4 Max Mac Studio from $1,999 to $2,499
+([MacRumors](https://www.macrumors.com/2026/06/25/apple-just-increased-prices/)),
+and on 2026-11-02 it said memory costs would be worse in the December quarter
+([MacRumors](https://www.macrumors.com/2026/11/02/apple-memory-costs-increase-december/)).
+The verdict charges local only its electricity, because it assumes the
+machine is already owned. A reader who would buy a machine to go local should
+add its price, which moves the break-even further toward cloud.
+
+**A resolved task is not the same as a merged change.** METR had four
+maintainers of scikit-learn, Sphinx and pytest review 296 AI patches that
+passed the tests, and they would have merged about 24 percentage points fewer
+than the grader passed
+([METR, 2026-03-10](https://metr.org/notes/2026-03-10-many-swe-bench-passing-prs-would-not-be-merged-into-main/)).
+The same gap would lower both rows in section 4, so the cloud's 47 and the
+laptop's 17 are both upper bounds on work a maintainer would accept. The
+verdict's three minutes to triage a failed attempt has no study behind it in
+either direction, which is why every verdict prints it and `--triage-min`
+changes it.
+
+**The models that fit a laptop trail the frontier further than the headlines
+say.** The best open models are about four months behind the closed frontier
+on Epoch AI's capabilities index
+([Epoch AI](https://epoch.ai/data-insights/open-closed-eci-gap)), but they need
+datacenter hardware. Epoch's 2025 estimate put open models that fit one
+consumer GPU 6 to 12 months behind
+([Epoch AI](https://epoch.ai/data-insights/consumer-gpu-model-gap)), and a
+9.7B model on 16 GB is smaller than that class, which fits a gap of 17 tasks
+against 47 here. Models from Chinese labs were the largest share of Hugging
+Face downloads over the year to February 2026, at 41%
+([Hugging Face](https://huggingface.co/blog/huggingface/state-of-os-hf-spring-2026)),
+and the qwen models in this report are among them, so the local option also
+depends on where open weights keep coming from.
+
+**Other tools mine repositories too, and the agent is part of the result.**
+SelfBench, RepoTrials and Hugging Face's Tasksmith turn a repository's merged
+changes into private tasks with checks like the ones in section 3, and
+SWE-rebench refreshes public tasks the same way
+([SWE-rebench](https://swe-rebench.com/)). What this report adds is a verdict
+priced for the reader's bill and time, with a local machine measured beside
+the cloud on the same tasks. The agent matters as well, since under a short
+context, trimming old tool results raised one open model's complete solutions
+from 43 to 72 of 169 SWE-bench Verified tasks
+([arXiv 2608.26218](https://arxiv.org/abs/2608.26218)). Ollama has accepted
+Anthropic's API since January 2026, so the next edition can run Claude Code on
+the laptop's own model and hold the agent fixed.
+
+## 8. Run it on your repository
 
 The measurement takes one command, and the answer is ready the next morning.
 
@@ -409,6 +507,9 @@ mahoraga audit verdict ~/code/your-repo --arm aider:qwen3.5:latest@ctx=131072 \
     --tasks-per-month 200 --plan claude-max-5x --usage-of-cap 0.6
 ```
 
-Nothing leaves the machine during an audit. The repository is only read,
-agents run in a sandbox that can write only to their own copy, and the only
-network they can reach is the local model server.
+Nothing leaves the machine during an audit with local agents. The repository
+is only read, agents run in a sandbox that can write only to their own copy,
+and the only network they can reach is the local model server. The cloud arm
+of section 4 is the one exception, and it runs only when a run is given
+`--allow-cloud`, since it sends what Claude Code reads of the task to
+Anthropic ([DATAFLOW.md](../../DATAFLOW.md)).

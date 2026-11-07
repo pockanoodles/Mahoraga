@@ -1,6 +1,7 @@
 """Run one queued job, and leave on it why it stopped or what it waits for."""
 from __future__ import annotations
 
+import json
 import shutil
 import time
 from datetime import datetime
@@ -34,6 +35,8 @@ def run_job(queue: Queue, job: Job, deadline: float | None, *,
     """Attempts counted. Every way out of here sets the job's `why`.
     `terms` belong to the machine, not the job: the worker's own setting."""
     bench = Bench(Path(job.repo), root=queue.root)
+    if job.mines_only:  # no model to ask for: nothing below applies
+        return mine_window(queue, job, bench, deadline, log)
 
     def morning() -> None:
         now = next(j for j in queue.jobs() if j.id == job.id)  # with the why just set
@@ -64,7 +67,7 @@ def run_job(queue: Queue, job: Job, deadline: float | None, *,
         return fail(f"not on PATH: {', '.join(missing)}")
     if job.follow:
         try:
-            new = follow(bench, job.fetch, log)
+            new = follow(bench, job.fetch, log, runs=job.gate_runs)
         except Exception as e:  # noqa: BLE001 — a failed fetch or mine is reported, not fatal
             queue.update(job.id, why=f"mining new commits failed: {e}"[:300])
             new = []
@@ -177,8 +180,35 @@ def _settle(queue: Queue, job: Job, deadline: float | None, total: int, why: str
     return 0
 
 
-def follow(bench: Bench, fetch: bool, log: Callable[[str], None]) -> list:
-    """Fetch (for a repo others commit to), backfill dates, and mine new commits."""
+def mine_window(queue: Queue, job: Job, bench: Bench, deadline: float | None,
+                log: Callable[[str], None]) -> int:
+    """A job with no arms: mine the repo's new commits, then rest until the
+    window closes (or FOLLOW_EVERY, without one), even when mining failed, so
+    a fetch that can't reach the remote isn't retried in a loop all night.
+    Returns 0: it counts no attempts."""
+    def dropped() -> int:
+        return len(json.loads(bench.dropped_path.read_text())) if bench.dropped_path.exists() else 0
+
+    until = deadline if deadline else time.time() + FOLLOW_EVERY
+    again = f"mines again after {datetime.fromtimestamp(until):%m-%d %H:%M}"
+    before = dropped()
+    try:
+        new = follow(bench, job.fetch, log, runs=job.gate_runs)
+    except Exception as e:  # noqa: BLE001 — reported on the job, retried next window
+        queue.update(job.id, rest_until=until, why=f"mining failed: {e}"[:250] + f"; {again}")
+        log(f"job {job.id}: mining failed: {e}")
+        return 0
+    total = len(bench.load_tasks())
+    queue.update(job.id, rest_until=until,
+                 why=f"{len(new)} new tasks, {dropped() - before} commits dropped, "
+                     f"{total} tasks in the bench; {again}")
+    log(f"job {job.id}: {len(new)} new tasks mined, {total} in the bench")
+    return 0
+
+
+def follow(bench: Bench, fetch: bool, log: Callable[[str], None], runs: int = 1) -> list:
+    """Fetch (for a repo others commit to), backfill dates, and mine new commits,
+    each gate's tests run `runs` times."""
     rev = "HEAD"
     if fetch:
         git("fetch", "-q", cwd=bench.repo)
@@ -190,6 +220,6 @@ def follow(bench: Bench, fetch: bool, log: Callable[[str], None]) -> list:
             git("rev-parse", "--abbrev-ref", "origin/HEAD", cwd=bench.repo, check=False).strip(),
         ) if r and r != "origin/HEAD"), "HEAD")
     backfill_dates(bench)
-    return mine_new(bench, bench.load_config(), rev,
+    return mine_new(bench, bench.load_config(), rev, runs=runs,
                     progress=lambda sha, task, why: log(
                         f"  mined {sha[:10]}: " + ("ok" if task else f"drop {why}")))

@@ -13,9 +13,12 @@ Subcommands
   mahoraga audit report [REPO] [--json]
   mahoraga audit reseal [REPO]                — take the answer out of old task clones
   mahoraga audit queue add [REPO] --arm ... [--window 21:00-08:00]
+  mahoraga audit queue add [REPO] --follow --fetch [--gate-runs K]
+                                              — no --arm: only mine, on a machine with no models
   mahoraga audit queue ls                     — every job, and why it is where it is
   mahoraga audit worker                       — run queued jobs as their windows open
-  mahoraga audit service install|status|stop|start|uninstall — the worker under launchd
+  mahoraga audit service install|status|stop|start|uninstall — the worker as a service
+                                                (launchd on macOS, systemd on Linux)
 
 REPO defaults to the current directory and must be a git repo with a pytest
 suite. State lives under ~/.mahoraga-v2/agentbench/; REPO is only read.
@@ -147,15 +150,17 @@ def mine_cmd(
     commits: Optional[List[str]] = typer.Option(None, "--commit", help="Build exactly these commits."),
     python: Optional[str] = typer.Option(None, "--python", help="Interpreter for the repo's tests."),
     pytest_args: Optional[List[str]] = typer.Option(None, "--pytest-arg", help="Extra pytest arg, e.g. '-m not slow'."),
+    gate_runs: int = typer.Option(1, "--gate-runs", min=1, help="Run each gate's tests this many times; a test whose result changes is flaky and left out."),
 ) -> None:
     """Build gated tasks from commits that changed both source and tests."""
-    if _mine(Bench(repo), limit, max_lines, rev, commits, python, pytest_args) is None:
+    if _mine(Bench(repo), limit, max_lines, rev, commits, python, pytest_args,
+             gate_runs) is None:
         raise typer.Exit(1)
 
 
 def _mine(bench: Bench, limit: int, max_lines: int = 250, rev: str = "HEAD",
           commits: Optional[List[str]] = None, python: Optional[str] = None,
-          pytest_args: Optional[List[str]] = None):
+          pytest_args: Optional[List[str]] = None, gate_runs: int = 1):
     """(tasks, dropped) after mining, or None when there was no commit to try."""
     try:
         prior = bench.load_config()
@@ -177,11 +182,13 @@ def _mine(bench: Bench, limit: int, max_lines: int = 250, rev: str = "HEAD",
     typer.echo(f"building {len(shas)} candidates into {bench.dir}")
 
     def progress(sha, task, reason):
+        left_out = "".join(f" {name}={len(ids)}" for name, ids in (
+            ("flaky", task.flaky), ("gold_fails", task.gold_fails)) if ids) if task else ""
         typer.echo(f"  {sha[:10]}  " + (
             f"ok  f2p={len(task.f2p)} p2p={len(task.p2p)} files={len(task.gold_src)} "
-            f"lines={task.gold_lines}" if task else f"drop  {reason}"))
+            f"lines={task.gold_lines}{left_out}" if task else f"drop  {reason}"))
 
-    tasks, dropped = mine(bench, config, shas, progress)
+    tasks, dropped = mine(bench, config, shas, progress, runs=gate_runs)
     typer.echo(f"{len(tasks)} tasks in the bench, {len(dropped)} dropped")
     return tasks, dropped
 
@@ -409,21 +416,21 @@ def _tonight_usage(tasks_per_month: Optional[int], plan_id: Optional[str],
 
 
 def _ensure_worker() -> None:
-    """The launchd worker running, installed if it isn't. An install that
-    already exists keeps its own settings (a workdir, an env)."""
-    if sys.platform != "darwin":
-        typer.echo("  start it and leave it running: mahoraga audit worker "
-                   "(in tmux, or as a systemd user service)")
-        return
-    from backend.orchestrator.cli.commands.service import _is_loaded, install_job, start_job
+    """The worker running as a service (launchd on a Mac, a systemd user unit
+    on Linux), installed if it isn't. An install that already exists keeps its
+    own settings (a workdir, an env)."""
+    from backend.orchestrator.cli.commands import service
 
+    if not service.supported():
+        typer.echo("  start it and leave it running: mahoraga audit worker (in tmux, for one)")
+        return
     job = _worker_job(bench_root())
-    if job.plist.exists() and _is_loaded(job):
-        typer.echo("  running under launchd")
-    elif job.plist.exists():
-        start_job(job, _SERVICE_CLI)
+    if service.installed(job) and service.running(job):
+        typer.echo(f"  running under {service.manager()}")
+    elif service.installed(job):
+        service.start_job(job, _SERVICE_CLI)
     else:
-        install_job(job, _SERVICE_CLI)
+        service.install_job(job, _SERVICE_CLI)
 
 
 @app.command("run")
@@ -531,7 +538,7 @@ app.add_typer(queue_app, name="queue")
 @queue_app.command("add")
 def queue_add_cmd(
     repo: Path = _REPO,
-    arms: List[str] = _ARMS,
+    arms: Optional[List[str]] = typer.Option(None, "--arm", help="<agent>:<model>[@ctx=N], repeatable. None with --follow: the job only mines, for a machine with no models."),
     cond: str = typer.Option("blind", "--cond", help="blind, feedback, or both."),
     tasks: Optional[List[str]] = typer.Option(None, "--task", help="Only these task shas."),
     repeats: int = typer.Option(1, "--repeats", min=1),
@@ -540,6 +547,7 @@ def queue_add_cmd(
     follow: bool = typer.Option(False, "--follow", help="Never finish: mine new commits each window and run them."),
     fetch: bool = typer.Option(False, "--fetch", help="With --follow, git fetch first (a repo others commit to)."),
     timeout: Optional[float] = typer.Option(None, "--timeout", help="Seconds per attempt (default: sized to this machine's speed, measured once)."),
+    gate_runs: int = typer.Option(1, "--gate-runs", min=1, help="With --follow: run each gate's tests this many times when mining; flaky tests are left out."),
 ) -> None:
     """Queue a run. Each model's digest is pinned now, so the job fails rather
     than measure different weights if a tag moves before it runs."""
@@ -555,6 +563,10 @@ def queue_add_cmd(
             parse_window(window)
         except ValueError as e:
             raise typer.BadParameter(str(e))
+    if not arms:
+        _queue_mining(repo, window, fetch, gate_runs, follow=follow,
+                      runs_arms=bool(tasks or repeats != 1 or wait_quiet or timeout is not None))
+        return
     agents = _agents(arms)
     bench = Bench(repo)
     if not bench.load_tasks():
@@ -577,11 +589,36 @@ def queue_add_cmd(
         job = Queue(bench_root()).add(
             str(bench.repo), arms, cond, tasks=tasks, repeats=repeats, window=window,
             wait_quiet=wait_quiet, follow=follow, fetch=fetch, timeout=timeout,
-            pinned={a.model: pulled[tagged(a.model)] for a in agents})
+            gate_runs=gate_runs, pinned={a.model: pulled[tagged(a.model)] for a in agents})
     except ValueError as e:
         raise typer.BadParameter(str(e))
     typer.echo(f"queued {job.id}: {bench.repo.name} {' '.join(arms)} {cond}"
                + (f", {window}" if window else "") + (", following new commits" if follow else ""))
+
+
+def _queue_mining(repo: Path, window: Optional[str], fetch: bool, gate_runs: int, *,
+                  follow: bool, runs_arms: bool) -> None:
+    """`queue add` with no --arm: a follow job that only mines."""
+    from backend.orchestrator.agentbench.queue import Queue
+
+    if not follow:
+        raise typer.BadParameter("a job with no --arm only mines, so it needs --follow")
+    if runs_arms:
+        raise typer.BadParameter("--task, --repeats, --wait-quiet and --timeout are for "
+                                 "running arms; a job with no --arm only mines")
+    bench = Bench(repo)
+    try:
+        bench.load_config()
+    except FileNotFoundError:
+        # The test interpreter and pytest args are chosen once, at a terminal.
+        typer.echo(f"{bench.repo.name} has never been mined: run `mahoraga audit mine` "
+                   "on it first, with the --python its tests need")
+        raise typer.Exit(1)
+    job = Queue(bench_root()).add(str(bench.repo), [], "blind", pinned={}, window=window,
+                                  follow=True, fetch=fetch, gate_runs=gate_runs)
+    typer.echo(f"queued {job.id}: {bench.repo.name}, mining only"
+               + (f", {window}" if window else ", every 6 hours")
+               + f", each gate run {gate_runs}x" + (", fetching first" if fetch else ""))
 
 
 @queue_app.command("ls")
@@ -600,14 +637,19 @@ def queue_ls_cmd() -> None:
     ahead = None  # the job a worker takes first, among those it could run now
     for j in jobs:
         try:
-            conds = CONDITIONS if j.cond == "both" else (j.cond,)
-            left, total = open_cells(Bench(Path(j.repo)), _agents(j.arms), conds,
-                                     set(j.tasks) or None, j.repeats)
-            cells = f"{total - left}/{total} cells"
+            if j.mines_only:
+                cells = f"{len(Bench(Path(j.repo)).load_tasks())} tasks"
+            else:
+                conds = CONDITIONS if j.cond == "both" else (j.cond,)
+                left, total = open_cells(Bench(Path(j.repo)), _agents(j.arms), conds,
+                                         set(j.tasks) or None, j.repeats)
+                cells = f"{total - left}/{total} cells"
         except Exception as e:  # noqa: BLE001 — a broken job still gets its line
             cells = f"? cells ({e})"[:60]
-        typer.echo(f"{j.id}  {j.status:8} {Path(j.repo).name:16} {' '.join(j.arms)}  "
-                   f"{j.cond}  {j.window or 'any time'}  {cells}"
+        what = (f"mining only, gates run {j.gate_runs}x" if j.mines_only
+                else f"{' '.join(j.arms)}  {j.cond}")
+        typer.echo(f"{j.id}  {j.status:8} {Path(j.repo).name:16} {what}  "
+                   f"{j.window or 'any time'}  {cells}"
                    + ("  follow" + ("+fetch" if j.fetch else "") if j.follow else ""))
         runnable = (j.status == "pending" and j.rest_until <= now
                     and window_deadline(j.window, now) is not None)
@@ -642,7 +684,7 @@ def queue_retry_cmd(job_id: str) -> None:
     typer.echo(f"requeued {job_id}")
 
 
-service_app = typer.Typer(help="Keep the queue worker running under launchd.",
+service_app = typer.Typer(help="Keep the queue worker running (launchd on macOS, systemd on Linux).",
                           no_args_is_help=True)
 app.add_typer(service_app, name="service")
 _SERVICE_CLI = "mahoraga audit service"
@@ -674,7 +716,7 @@ def service_install_cmd(
 
 @service_app.command("uninstall")
 def service_uninstall_cmd() -> None:
-    """Stop the worker and remove its launchd job. The queue is kept."""
+    """Stop the worker and remove its service. The queue is kept."""
     from backend.orchestrator.cli.commands.service import uninstall_job
 
     uninstall_job(_worker_job())

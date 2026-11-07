@@ -1,4 +1,40 @@
-# Current State — 2026-11-05
+# Current State — 2026-11-07
+
+## 2026-11-07: the OptiPlex mines every night, and a task is gated on its real fix
+
+Everything from 11-05 is closed: #87 to #92 and #72 to #76 are merged, and prod shows the
+95% bar. The laptop's daemon and audit worker had been unloaded since 11-05 01:39 and were
+bootstrapped again on 11-07.
+
+**#93 (`feat/task-factory`)**, ADR `2026-11-07-gold-check-and-task-factory.md`, makes two changes:
+- **Gold check and `--gate-runs K`.** p2p now has to pass with the real fix too, and a flaky
+  test is never f2p or p2p.
+- **The factory.** A `queue add --follow` with no `--arm` only mines, and `audit service`
+  writes a systemd user unit on Linux.
+
+**On the OptiPlex**, `mahoraga-audit-worker.service` runs from `.worktrees/factory`, pinned to
+#93, with PYTHONPATH. It mines attrs and more-itertools at 01:00–06:00 with `--fetch
+--gate-runs 5`. `night/2026-11-07-screen.sh` re-mines the published 47 under the new gates in
+`~/.mahoraga-v2/screen-2026-11`, never in the real benches (backup in
+`backup-2026-11-07`). It writes `night/2026-11-07-screen-report.txt`, then mines click for the
+first time and queues it the same way.
+
+**#94** adds `nightly.yml`, which runs the slow tests and the live page each day in GitHub
+Actions. **ops#9** has the box's health check page on `mahoraga-*` units.
+
+Still open:
+1. Kaito: merge #93, #94 and ops#9 (then pull ops on the box). After #93, reinstall the
+   worker from main: on the box, `git pull` in `~/Projects/mahoraga`, then `orch agentbench
+   service install` there with no `--env`.
+2. Read the screen report. If a published task changes, that's a finding for the report.
+3. Kaito's calls:
+   - Claude Code with Bash off on the seat, the free first cut at the agent confound.
+   - aider on Opus 5.5 with an API key, about $10–20.
+   - Sonnet 5.5 and Haiku 5.5 on the 47.
+   - A cloud arm on newly mined tasks. The queue refuses cloud arms on purpose.
+4. The box has no C++ compiler, so `hnswlib` can't build there and 35 routing tests fail
+   on it (CI is green). `sudo apt install build-essential` fixes that if the box should run
+   the whole suite.
 
 ## 2026-11-05 (afternoon): the cloud side is measured, and the verdict is priced by it
 

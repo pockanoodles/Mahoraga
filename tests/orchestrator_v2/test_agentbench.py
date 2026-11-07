@@ -1909,10 +1909,15 @@ def test_the_cli_queues_a_mining_job_only_for_a_mined_repo(mined, repo, tmp_path
     listed = cli.invoke(agentbench_app, ["queue", "ls"])
     assert "mining only, gates run 3x" in listed.output and "1 tasks" in listed.output
 
+    # Usage errors print in a box, coloured in CI and wrapped at 80 columns.
+    def plain(output: str) -> str:
+        import re
+        return re.sub(r"[\s│╭╮╰╯─]+", "", re.sub(r"\x1b\[[0-9;]*m", "", output))
+
     out = cli.invoke(agentbench_app, ["queue", "add", str(repo["path"])])
-    assert out.exit_code != 0 and "needs --follow" in out.output
+    assert out.exit_code != 0 and "needs--follow" in plain(out.output)
     out = cli.invoke(agentbench_app, ["queue", "add", str(repo["path"]), "--follow", "--repeats", "2"])
-    assert out.exit_code != 0 and "only mines" in out.output
+    assert out.exit_code != 0 and "onlymines" in plain(out.output)
     fresh = _calc_repo(tmp_path, "never-mined")
     out = cli.invoke(agentbench_app, ["queue", "add", str(fresh), "--follow"])
     assert out.exit_code == 1 and "never been mined" in out.output

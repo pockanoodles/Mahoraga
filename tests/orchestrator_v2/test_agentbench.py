@@ -224,6 +224,74 @@ def test_mine_gates_and_baselines(mined, repo):
     assert repo["shas"]["refactor"] not in tasks
 
 
+def _calc_repo(tmp_path: Path, name: str, ops_tests: str = TESTS) -> Path:
+    """A calc repo at its first commit, for a test that needs its own history."""
+    r = tmp_path / name
+    r.mkdir()
+    _git(r, "init", "-q")
+    _commit(r, "init", {"calc/__init__.py": "", "calc/ops.py": OPS, "tests/test_ops.py": ops_tests})
+    FakeAgent.source = r
+    return r
+
+
+MUL = OPS + "\n\ndef mul(a, b):\n    return a * b\n"
+MUL_TEST = "from calc.ops import mul\n\n\ndef test_mul():\n    assert mul(3, 4) == 12\n"
+
+
+def _flips(name: str) -> str:
+    """A test that passes on even runs and fails on odd ones. It counts its
+    runs in HOME, which every mining run shares."""
+    return (f"\n\ndef test_{name}():\n    import os, pathlib\n"
+            f"    p = pathlib.Path(os.environ['HOME']) / 'flips-{name}'\n"
+            f"    n = int(p.read_text()) if p.exists() else 0\n"
+            f"    p.write_text(str(n + 1))\n    assert n % 2 == 0\n")
+
+
+def test_a_test_the_real_fix_breaks_is_not_pass_to_pass(tmp_path, config):
+    r = _calc_repo(tmp_path, "floor", TESTS + "\n\ndef test_sub_below_zero():\n"
+                                              "    assert sub(2, 3) == -1\n")
+    sha = _commit(r, "feat: add mul, and sub floors at zero", {
+        "calc/ops.py": MUL.replace("return a - b", "return max(a - b, 0)"),
+        "tests/test_mul.py": MUL_TEST})
+    bench = Bench(r, root=tmp_path / "state")
+    [task], dropped = mine(bench, config, [sha])
+    assert dropped == {} and task.gate_runs == 1 and task.flaky == []
+    assert task.gold_fails == ["tests.test_ops::test_sub_below_zero"]
+    assert set(task.p2p) == {"tests.test_ops::test_add", "tests.test_ops::test_sub"}
+    # So the real fix resolves its own task. Held to the base alone, as p2p was
+    # before the gold check, no correct solution could.
+    gold = FakeAgent("gold", apply_gold)
+    assert run_attempt(bench, config, task, gold, "blind").resolved
+    unsolvable = dataclasses.replace(task, p2p=task.p2p + task.gold_fails)
+    assert not run_attempt(bench, config, unsolvable, gold, "blind").resolved
+
+
+def test_a_test_that_flips_is_left_out_and_named(tmp_path, monkeypatch):
+    r = _calc_repo(tmp_path, "coin", TESTS + _flips("coin"))
+    sha = _commit(r, "feat: add mul", {"calc/ops.py": MUL, "tests/test_mul.py": MUL_TEST})
+    monkeypatch.setenv("MAHORAGA_AGENTBENCH_ROOT", str(tmp_path / "state"))
+    out = CliRunner().invoke(agentbench_app, ["mine", str(r), "--python", sys.executable,
+                                              "--gate-runs", "2"])
+    assert out.exit_code == 0, out.output
+    assert "flaky=1" in out.output and "1 tasks in the bench" in out.output
+    [task] = Bench(r, root=tmp_path / "state").load_tasks()
+    assert task.sha == sha and task.gate_runs == 2
+    assert task.flaky == ["tests.test_ops::test_coin"]
+    assert "tests.test_ops::test_coin" not in task.p2p and task.gold_fails == []
+    assert task.f2p == ["tests.test_mul::test_mul"]
+
+
+def test_a_target_that_flips_with_the_fix_drops_the_task(tmp_path, config):
+    r = _calc_repo(tmp_path, "flipper")
+    sha = _commit(r, "feat: add mul", {"calc/ops.py": MUL,
+                                       "tests/test_mul.py": MUL_TEST + _flips("mul_coin")})
+    tasks, dropped = mine(Bench(r, root=tmp_path / "state"), SuiteConfig(python=sys.executable),
+                          [sha], runs=2)
+    assert tasks == []
+    assert dropped[sha].startswith("gold check: with the fix applied, "
+                                   "tests.test_mul::test_mul_coin gave a different result")
+
+
 def test_task_base_has_tests_but_not_the_fix(mined, repo):
     clone = mined.clone(repo["shas"]["mul"])
     assert (clone / "tests/test_mul.py").exists()

@@ -147,15 +147,17 @@ def mine_cmd(
     commits: Optional[List[str]] = typer.Option(None, "--commit", help="Build exactly these commits."),
     python: Optional[str] = typer.Option(None, "--python", help="Interpreter for the repo's tests."),
     pytest_args: Optional[List[str]] = typer.Option(None, "--pytest-arg", help="Extra pytest arg, e.g. '-m not slow'."),
+    gate_runs: int = typer.Option(1, "--gate-runs", min=1, help="Run each gate's tests this many times; a test whose result changes is flaky and left out."),
 ) -> None:
     """Build gated tasks from commits that changed both source and tests."""
-    if _mine(Bench(repo), limit, max_lines, rev, commits, python, pytest_args) is None:
+    if _mine(Bench(repo), limit, max_lines, rev, commits, python, pytest_args,
+             gate_runs) is None:
         raise typer.Exit(1)
 
 
 def _mine(bench: Bench, limit: int, max_lines: int = 250, rev: str = "HEAD",
           commits: Optional[List[str]] = None, python: Optional[str] = None,
-          pytest_args: Optional[List[str]] = None):
+          pytest_args: Optional[List[str]] = None, gate_runs: int = 1):
     """(tasks, dropped) after mining, or None when there was no commit to try."""
     try:
         prior = bench.load_config()
@@ -177,11 +179,13 @@ def _mine(bench: Bench, limit: int, max_lines: int = 250, rev: str = "HEAD",
     typer.echo(f"building {len(shas)} candidates into {bench.dir}")
 
     def progress(sha, task, reason):
+        left_out = "".join(f" {name}={len(ids)}" for name, ids in (
+            ("flaky", task.flaky), ("gold_fails", task.gold_fails)) if ids) if task else ""
         typer.echo(f"  {sha[:10]}  " + (
             f"ok  f2p={len(task.f2p)} p2p={len(task.p2p)} files={len(task.gold_src)} "
-            f"lines={task.gold_lines}" if task else f"drop  {reason}"))
+            f"lines={task.gold_lines}{left_out}" if task else f"drop  {reason}"))
 
-    tasks, dropped = mine(bench, config, shas, progress)
+    tasks, dropped = mine(bench, config, shas, progress, runs=gate_runs)
     typer.echo(f"{len(tasks)} tasks in the bench, {len(dropped)} dropped")
     return tasks, dropped
 

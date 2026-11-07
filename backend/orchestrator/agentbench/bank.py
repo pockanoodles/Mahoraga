@@ -48,11 +48,19 @@ class Task:
     gold_lines: int  # added + removed lines across gold_src
     test_files: list[str]  # the commit's test modules: the targets
     f2p: list[str]  # pass at the commit, fail at the base: must pass after
-    p2p: list[str]  # pass at the base across the full suite: must stay passing
+    p2p: list[str]  # pass at the base and with the real fix: must stay passing
     # When the commit landed (committer date, ISO 8601): what decides whether a
     # model released before it could have trained on it. "" = mined before
     # dates were kept; `mahoraga audit reseal` fills it in.
     committed: str = ""
+    # How many times each gate ran its tests. 0 = mined before 2026-11-07,
+    # when p2p was checked at the base only and every gate ran once.
+    gate_runs: int = 0
+    # Left out of f2p and p2p because their result changed between runs.
+    flaky: list[str] = field(default_factory=list)
+    # Passed at the base but not with the real fix (failed, skipped or gone):
+    # no correct solution keeps them passing, so they aren't p2p.
+    gold_fails: list[str] = field(default_factory=list)
 
     def to_json(self) -> str:
         return json.dumps(asdict(self))

@@ -1,4 +1,5 @@
-"""orch service — manage Mahoraga as a macOS launchd background service.
+"""orch service — manage Mahoraga as a background service: a launchd job on a
+Mac, a systemd user unit on Linux (`systemd.py`, same contract).
 
 Configuration note: a launchd job does NOT inherit your shell's environment. It
 starts with a minimal PATH and no user variables at all, which silently breaks
@@ -26,6 +27,7 @@ enough.
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 import sys
 import time
@@ -36,7 +38,9 @@ from xml.sax.saxutils import escape as _xml_escape
 import typer
 from backend.orchestrator import paths
 
-app = typer.Typer(help="Manage Mahoraga as a background service (macOS launchd).")
+from . import systemd
+
+app = typer.Typer(help="Manage Mahoraga as a background service (launchd on macOS, systemd on Linux).")
 
 _LABEL = "com.mahoraga.orch"
 _PLIST_PATH = Path.home() / "Library" / "LaunchAgents" / f"{_LABEL}.plist"
@@ -259,11 +263,34 @@ def _unload(job: Job) -> subprocess.CompletedProcess[str]:
     return _launchctl("bootout", f"{domain}/{job.label}")
 
 
+def _linux() -> bool:
+    return sys.platform.startswith("linux")
+
+
+def supported() -> bool:
+    """Whether this machine has a service manager the install can use."""
+    return sys.platform == "darwin" or (_linux() and shutil.which("systemctl") is not None)
+
+
+def manager() -> str:
+    return "systemd" if _linux() else "launchd"
+
+
+def installed(job: Job) -> bool:
+    return systemd.unit_path(job).exists() if _linux() else job.plist.exists()
+
+
+def running(job: Job) -> bool:
+    return systemd.is_running(job) if _linux() else _is_loaded(job)
+
+
 def install_job(job: Job, cli: str = "orch service") -> None:
     orch = _orch_bin()
     if not orch.exists():
         typer.echo(f"orch binary not found at {orch}. Run `pip install -e .` first.", err=True)
         raise typer.Exit(1)
+    if _linux():
+        return systemd.install(job, orch, {**_build_environment(), **job.env}, cli)
     job.log.parent.mkdir(parents=True, exist_ok=True)
     job.plist.parent.mkdir(parents=True, exist_ok=True)
     job.plist.write_text(render_plist(job))
@@ -284,6 +311,8 @@ def install_job(job: Job, cli: str = "orch service") -> None:
 
 
 def uninstall_job(job: Job) -> None:
+    if _linux():
+        return systemd.uninstall(job)
     if _is_loaded(job):
         _unload(job)
         typer.echo("Service unloaded.")
@@ -295,6 +324,8 @@ def uninstall_job(job: Job) -> None:
 
 
 def start_job(job: Job, cli: str = "orch service") -> None:
+    if _linux():
+        return systemd.start(job, cli)
     if not job.plist.exists():
         typer.echo(f"Service not installed. Run `{cli} install` first.", err=True)
         raise typer.Exit(1)
@@ -319,6 +350,8 @@ def stop_job(job: Job, cli: str = "orch service") -> None:
     # SuccessfulExit:false treats as a crash and respawns. Unloading removes
     # the job from launchd entirely, so KeepAlive never acts. This is why
     # `orch service stop` used to be undone at once — brain/state/findings.md Era 8.
+    if _linux():
+        return systemd.stop(job, cli)
     if not _is_loaded(job):
         typer.echo("Service already stopped.")
         return
@@ -330,6 +363,8 @@ def stop_job(job: Job, cli: str = "orch service") -> None:
 
 
 def status_job(job: Job) -> None:
+    if _linux():
+        return systemd.status(job)
     if not job.plist.exists():
         typer.echo("Not installed.")
         return

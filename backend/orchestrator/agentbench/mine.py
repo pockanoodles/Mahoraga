@@ -7,9 +7,18 @@ solution.
 Two gates drop a candidate, with the reason recorded:
   A. at C, the commit's own test modules pass   (the task is satisfiable)
   B. at the base, >=1 of those tests fails       (the task discriminates)
-Then the full suite at the base fixes the pass-to-pass baseline that every
-attempt is held to. A base with no passing tests at all can't detect a
+Then the gold check: the real fix (every change C made outside its tests) is
+applied to the sealed task clone and graded the way an attempt would be. Its
+targets must give the results they gave at C, and the pass-to-pass baseline
+every attempt is held to is the tests that pass at the base AND with the fix.
+A test the fix itself fails, skips or removes can't be kept passing by any
+correct solution, so it isn't pass-to-pass (SWE-bench's definition; until
+2026-11-07 only the base was checked). A base with no such tests can't detect a
 regression, so it is dropped too.
+
+`runs` repeats every gate's tests. A test whose result changes between runs is
+flaky: a target that flips with the fix drops the task, and a flaky test is
+never fail-to-pass or pass-to-pass, so no attempt is graded on a coin toss.
 
 A task clone holds no trace of the answer (`seal`): its base commit's parent
 is C's parent, and it has its own objects, fetched up to that parent only.
@@ -105,7 +114,24 @@ class Drop(Exception):
     """A candidate that can't be a task; the message is the recorded reason."""
 
 
-def build_task(bench: Bench, config: SuiteConfig, sha: str) -> Task:
+def steady(results: list[dict[str, str]]) -> tuple[set[str], set[str]]:
+    """Over repeated runs of one pytest call: (the tests that passed in every
+    run, the flaky ones that passed in some runs and not others). A run that
+    crashed passed nothing."""
+    sets = [passing(r) for r in results]
+    always = set.intersection(*sets)
+    return always, set.union(*sets) - always
+
+
+def _some(tests: set[str]) -> str:
+    """A few of `tests`, for a drop reason that has to stay short."""
+    names = sorted(tests)
+    return ", ".join(names[:3]) + (f" and {len(names) - 3} more" if len(names) > 3 else "")
+
+
+def build_task(bench: Bench, config: SuiteConfig, sha: str, runs: int = 1) -> Task:
+    if runs < 1:
+        raise ValueError("each gate runs its tests at least once")
     d = bench.clone(sha)
     if d.exists():
         shutil.rmtree(d)
@@ -117,6 +143,9 @@ def build_task(bench: Bench, config: SuiteConfig, sha: str) -> Task:
 
     def pytest(targets=None):
         return run_pytest(d, config.python, bench.home, targets, config.pytest_args)
+
+    def repeat(targets=None):
+        return [pytest(targets) for _ in range(runs)]
 
     changes = [line.split("\t") for line in
                git("diff", "--name-status", "--no-renames", f"{sha}^", sha, cwd=d).splitlines()]
@@ -137,6 +166,11 @@ def build_task(bench: Bench, config: SuiteConfig, sha: str) -> Task:
     if not passing_c:
         raise Drop("gate A: every target test skipped")
 
+    # The real fix: every change C made outside its tests, so the base plus
+    # this patch is C's tree exactly. Taken now, while the clone still has C,
+    # and kept as bytes: decoding it would rewrite CRLF and refuse non-UTF-8.
+    fix = subprocess.run(["git", "diff", "--binary", "--no-renames", f"{sha}^", sha, "--",
+                          *(p for _, p in src)], cwd=d, capture_output=True, check=True).stdout
     for status, path in src:
         if status == "A":
             git("rm", "-q", "--", path, cwd=d)
@@ -150,20 +184,54 @@ def build_task(bench: Bench, config: SuiteConfig, sha: str) -> Task:
     committed = git("log", "-1", "--format=%cI", sha, cwd=d).strip()
     base = seal(d, bench.repo, git("rev-parse", f"{sha}^", cwd=d).strip())
 
-    at_base = pytest(tests)
-    f2p = sorted(passing_c if CRASH in at_base else passing_c - passing(at_base))
+    # Gate B. Fail-to-pass: passes with the fix, and passes in no run without
+    # it. A run that can't import the unwritten code crashes, passing nothing.
+    without, flaky_without = steady(repeat(tests))
+    f2p = sorted(passing_c - without - flaky_without)
     if not f2p:
+        if passing_c & flaky_without:
+            raise Drop(f"gate B: without the fix, {_some(passing_c & flaky_without)} passed "
+                       f"in some of {runs} runs")
         raise Drop("gate B: the tests already pass without the fix")
-
-    p2p = sorted(passing(pytest()))
-    if not p2p:
+    passing_base, flaky_base = steady(repeat())
+    if not passing_base:
         raise Drop("no pass-to-pass baseline: the suite can't run at the base")
+
+    # Gold check, in the task clone the grader uses: the fix applied to the
+    # base, run the way an attempt that reproduced it exactly would be graded.
+    try:
+        applied = subprocess.run(["git", "apply", "--binary", "-"], cwd=d, input=fix,
+                                 capture_output=True)
+        if applied.returncode:
+            raise Drop(f"gold check: the fix doesn't apply to the task base "
+                       f"({applied.stderr.decode(errors='replace')[-200:]!r})")
+        targets_fix = repeat(tests)
+        suite_fix = repeat()
+    finally:
+        git("reset", "-q", "--hard", base, cwd=d)
+        git("clean", "-qfdx", cwd=d)
+    if crashed := sum(CRASH in r for r in targets_fix + suite_fix):
+        raise Drop(f"gold check: the tests do not run with the fix applied "
+                   f"({crashed} of {2 * runs} runs)")
+    # Strict: each target gives the result it gave at the commit, in every run.
+    if changed := {t for r in targets_fix for t in r.keys() | at_c.keys()
+                   if r.get(t) != at_c.get(t)}:
+        raise Drop(f"gold check: with the fix applied, {_some(changed)} gave a different "
+                   f"result than at the commit in some of {runs} runs")
+    passing_fix, flaky_fix = steady(suite_fix)
+    p2p = sorted(passing_base & passing_fix)
+    if not p2p:
+        raise Drop("gold check: no test that passes at the base also passes with the fix")
+    flaky = flaky_base | flaky_fix | (flaky_without & passing_c)
+    # Steady at the base and never passing with the fix: failed, skipped or gone.
+    gold_fails = passing_base - passing_fix - flaky_fix
 
     gold_lines = sum(int(a) + int(r) for a, r, *_ in
                      (line.split("\t") for line in numstat.splitlines()) if a != "-")
     return Task(
         sha=sha, base=base, subject=subject, body=body, committed=committed,
         gold_src=gold_src, gold_lines=gold_lines, test_files=tests, f2p=f2p, p2p=p2p,
+        gate_runs=runs, flaky=sorted(flaky), gold_fails=sorted(gold_fails),
     )
 
 
@@ -237,7 +305,7 @@ def full_shas(repo: Path, shas: Iterable[str]) -> dict[str, str]:
 
 
 def mine_new(bench: Bench, config: SuiteConfig, rev: str = "HEAD", *, look_back: int = 200,
-             max_new: int = 25, max_lines: int = 250,
+             max_new: int = 25, max_lines: int = 250, runs: int = 1,
              progress: Callable[[str, Task | None, str | None], None] = lambda *a: None,
              ) -> list[Task]:
     """Mine commits the bench has never seen, newest first, at most `max_new`
@@ -250,7 +318,7 @@ def mine_new(bench: Bench, config: SuiteConfig, rev: str = "HEAD", *, look_back:
     fresh = [c.sha for c in candidates if full[c.sha] not in known][:max_new]
     if not fresh:
         return []
-    tasks, _ = mine(bench, config, fresh, progress)
+    tasks, _ = mine(bench, config, fresh, progress, runs=runs)
     return [t for t in tasks if t.sha in fresh]
 
 
@@ -288,8 +356,9 @@ def reseal(bench: Bench, progress: Callable[[str, str], None] = lambda sha, msg:
 
 def mine(bench: Bench, config: SuiteConfig, shas: list[str],
          progress: Callable[[str, Task | None, str | None], None] = lambda *a: None,
-         ) -> tuple[list[Task], dict[str, str]]:
-    """Build each sha into a task; merge into the bench by sha.
+         runs: int = 1) -> tuple[list[Task], dict[str, str]]:
+    """Build each sha into a task, its gates' tests run `runs` times; merge
+    into the bench by sha.
 
     Rebuilding a subset keeps the other tasks. A rebuilt task's base commit is
     new, so its old attempts no longer apply and are removed.
@@ -302,7 +371,7 @@ def mine(bench: Bench, config: SuiteConfig, shas: list[str],
         for old in bench.attempts.glob(f"*__{sha}__r*"):
             old.unlink()
         try:
-            task = build_task(bench, config, sha)
+            task = build_task(bench, config, sha, runs)
         except Drop as e:
             tasks.pop(sha, None)
             dropped[sha] = str(e)

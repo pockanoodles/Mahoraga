@@ -90,6 +90,28 @@ def test_an_install_that_does_not_stay_up_fails(tmp_path, monkeypatch):
         systemd.install(_job(tmp_path), Path("/o"), {}, "c", settle=0)
 
 
+def test_a_unit_waiting_to_restart_is_neither_running_nor_stopped(tmp_path, monkeypatch):
+    # A crash loop spends RestartSec as activating (auto-restart), no process up.
+    monkeypatch.setattr(systemd, "_state", lambda job: {"ActiveState": "activating",
+                                                        "SubState": "auto-restart"})
+    calls = []
+    monkeypatch.setattr(systemd, "_systemctl", lambda *a: calls.append(a) or
+                        subprocess.CompletedProcess(a, 0, "", ""))
+    job = _job(tmp_path)
+    assert not systemd.is_running(job) and not systemd.is_stopped(job)
+    systemd.stop(job, "c")  # the pending restart is called off
+    assert calls == [("stop", "mahoraga-audit-worker.service")]
+
+
+def test_an_install_that_crash_loops_is_not_reported_running(tmp_path, monkeypatch):
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    monkeypatch.setattr(systemd, "_systemctl", lambda *a: subprocess.CompletedProcess(a, 0, "", ""))
+    monkeypatch.setattr(systemd, "_state", lambda job: {"ActiveState": "activating",
+                                                        "SubState": "auto-restart"})
+    with pytest.raises(typer.Exit):
+        systemd.install(_job(tmp_path), Path("/o"), {}, "c", settle=0)
+
+
 def test_on_linux_the_service_commands_use_systemd(tmp_path, monkeypatch):
     monkeypatch.setattr(service, "_linux", lambda: True)
     monkeypatch.setattr(service, "_orch_bin", lambda: Path(sys.executable))

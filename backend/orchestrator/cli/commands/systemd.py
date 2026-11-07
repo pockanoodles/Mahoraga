@@ -92,7 +92,16 @@ def _state(job: Job) -> dict[str, str]:
 
 
 def is_running(job: Job) -> bool:
-    return _state(job).get("ActiveState") in ("active", "activating", "reloading")
+    """A process is up. Not "activating": a unit that crashed waits out
+    RestartSec as activating (auto-restart) with nothing running, and a crash
+    loop spends most of its time there."""
+    state = _state(job)
+    return state.get("ActiveState") == "active" and state.get("SubState") == "running"
+
+
+def is_stopped(job: Job) -> bool:
+    """Nothing running and nothing pending: a unit waiting to restart is neither."""
+    return _state(job).get("ActiveState") in ("inactive", "failed", None)
 
 
 def _fail(what: str, result: subprocess.CompletedProcess[str]) -> None:
@@ -138,7 +147,7 @@ def install(job: Job, orch_bin: Path, environment: dict[str, str], cli: str,
 
 def uninstall(job: Job) -> None:
     unit = unit_name(job.label)
-    if is_running(job) or unit_path(job).exists():
+    if not is_stopped(job) or unit_path(job).exists():
         _systemctl("disable", "--now", unit)
         typer.echo("Service stopped and disabled.")
     if unit_path(job).exists():
@@ -159,7 +168,7 @@ def start(job: Job, cli: str) -> None:
 
 
 def stop(job: Job, cli: str) -> None:
-    if not is_running(job):
+    if is_stopped(job):  # a unit waiting to restart still gets stopped
         typer.echo("Service already stopped.")
         return
     if (r := _systemctl("stop", unit_name(job.label))).returncode:

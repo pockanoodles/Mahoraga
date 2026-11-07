@@ -167,9 +167,10 @@ def build_task(bench: Bench, config: SuiteConfig, sha: str, runs: int = 1) -> Ta
         raise Drop("gate A: every target test skipped")
 
     # The real fix: every change C made outside its tests, so the base plus
-    # this patch is C's tree exactly. Taken now, while the clone still has C.
-    fix = git("diff", "--binary", "--no-renames", f"{sha}^", sha, "--",
-              *(p for _, p in src), cwd=d)
+    # this patch is C's tree exactly. Taken now, while the clone still has C,
+    # and kept as bytes: decoding it would rewrite CRLF and refuse non-UTF-8.
+    fix = subprocess.run(["git", "diff", "--binary", "--no-renames", f"{sha}^", sha, "--",
+                          *(p for _, p in src)], cwd=d, capture_output=True, check=True).stdout
     for status, path in src:
         if status == "A":
             git("rm", "-q", "--", path, cwd=d)
@@ -199,7 +200,7 @@ def build_task(bench: Bench, config: SuiteConfig, sha: str, runs: int = 1) -> Ta
     # Gold check, in the task clone the grader uses: the fix applied to the
     # base, run the way an attempt that reproduced it exactly would be graded.
     try:
-        applied = subprocess.run(["git", "apply", "--binary", "-"], cwd=d, input=fix.encode(),
+        applied = subprocess.run(["git", "apply", "--binary", "-"], cwd=d, input=fix,
                                  capture_output=True)
         if applied.returncode:
             raise Drop(f"gold check: the fix doesn't apply to the task base "

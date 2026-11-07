@@ -19,6 +19,14 @@ import pytest
 from backend.orchestrator.cli.commands import service
 
 
+@pytest.fixture(autouse=True)
+def _launchd(monkeypatch):
+    """These are the launchd side's tests, wherever they run: on Linux (CI)
+    the commands would otherwise take the systemd side and call a real
+    systemctl. test_service_systemd.py covers that side."""
+    monkeypatch.setattr(service, "_linux", lambda: False)
+
+
 # ── service.env parsing ──────────────────────────────────────────────────────
 
 

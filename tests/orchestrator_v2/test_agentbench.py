@@ -281,6 +281,19 @@ def test_a_test_that_flips_is_left_out_and_named(tmp_path, monkeypatch):
     assert task.f2p == ["tests.test_mul::test_mul"]
 
 
+def test_a_fix_with_crlf_lines_applies_as_committed(tmp_path, config):
+    # Read back as text, the patch would lose its \r and no longer apply.
+    r = tmp_path / "crlf"
+    r.mkdir()
+    _git(r, "init", "-q")
+    _commit(r, "init", {"calc/__init__.py": "", "calc/ops.py": OPS.replace("\n", "\r\n"),
+                        "tests/test_ops.py": TESTS})
+    sha = _commit(r, "feat: add mul", {"calc/ops.py": MUL.replace("\n", "\r\n"),
+                                       "tests/test_mul.py": MUL_TEST})
+    tasks, dropped = mine(Bench(r, root=tmp_path / "state"), config, [sha])
+    assert dropped == {} and [t.sha for t in tasks] == [sha]
+
+
 def test_a_target_that_flips_with_the_fix_drops_the_task(tmp_path, config):
     r = _calc_repo(tmp_path, "flipper")
     sha = _commit(r, "feat: add mul", {"calc/ops.py": MUL,

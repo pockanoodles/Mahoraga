@@ -1842,6 +1842,69 @@ def test_following_a_pinned_clone_fetches_and_mines_upstream(repo, tmp_path, con
     assert _git(pinned, "rev-parse", "--short", "HEAD") == repo["shas"]["docs"]  # still pinned
 
 
+DIV = {"calc/ops.py": OPS + "\n\ndef mul(a, b):\n    return a * b\n\n\ndef div(a, b):\n    return a / b\n",
+       "tests/test_div.py": "from calc.ops import div\n\n\ndef test_div():\n    assert div(6, 3) == 2\n"}
+
+
+def _no_models():
+    raise AssertionError("a job that only mines never asks for a model")
+
+
+def test_a_job_with_no_arms_only_mines_and_rests(mined, repo):
+    q = Queue(mined.dir.parent)
+    job = q.add(str(mined.repo), [], "blind", pinned={}, follow=True, gate_runs=2)
+    assert job.mines_only
+    div = _commit(repo["path"], "feat: add div", DIV)
+    end = time.time() + 3600
+    assert run_job(q, job, end, pulled=_no_models, agents_for=lambda arms: _no_models(),
+                   log=lambda m: None) == 0
+    [after] = q.jobs()
+    assert after.status == PENDING and after.rest_until == end
+    assert after.why.startswith("1 new tasks, 0 commits dropped, 2 tasks in the bench; "
+                                "mines again after ")
+    new = next(t for t in mined.load_tasks() if t.sha == div)
+    assert new.gate_runs == 2 and new.f2p == ["tests.test_div::test_div"]
+    assert load_attempts(mined) == []  # mined, never run
+    assert q.next_open(time.time()) is None  # resting until the window closes
+
+
+def test_mining_that_fails_rests_until_the_next_window(mined, repo, tmp_path):
+    _git(repo["path"], "remote", "add", "origin", str(tmp_path / "gone"))
+    q = Queue(mined.dir.parent)
+    job = q.add(str(mined.repo), [], "blind", pinned={}, follow=True, fetch=True)
+    run_job(q, job, None, pulled=_no_models, log=lambda m: None)  # the remote is unreachable
+    [after] = q.jobs()
+    assert after.why.startswith("mining failed: git fetch")
+    assert after.rest_until > time.time() + 5 * 3600  # not retried in a loop
+    assert after.status == PENDING
+
+
+def test_a_job_with_no_arms_has_to_follow(mined):
+    with pytest.raises(ValueError, match="only mines"):
+        Queue(mined.dir.parent).add(str(mined.repo), [], "blind", pinned={})
+
+
+def test_the_cli_queues_a_mining_job_only_for_a_mined_repo(mined, repo, tmp_path, monkeypatch):
+    monkeypatch.setenv("MAHORAGA_AGENTBENCH_ROOT", str(mined.dir.parent))
+    cli = CliRunner()
+    out = cli.invoke(agentbench_app, ["queue", "add", str(repo["path"]), "--follow", "--fetch",
+                                      "--gate-runs", "3", "--window", "01:00-07:00"])
+    assert out.exit_code == 0, out.output
+    assert "mining only, 01:00-07:00, each gate run 3x, fetching first" in out.output
+    [job] = Queue(mined.dir.parent).jobs()
+    assert job.mines_only and job.fetch and job.gate_runs == 3 and job.pinned == {}
+    listed = cli.invoke(agentbench_app, ["queue", "ls"])
+    assert "mining only, gates run 3x" in listed.output and "1 tasks" in listed.output
+
+    out = cli.invoke(agentbench_app, ["queue", "add", str(repo["path"])])
+    assert out.exit_code != 0 and "needs --follow" in out.output
+    out = cli.invoke(agentbench_app, ["queue", "add", str(repo["path"]), "--follow", "--repeats", "2"])
+    assert out.exit_code != 0 and "only mines" in out.output
+    fresh = _calc_repo(tmp_path, "never-mined")
+    out = cli.invoke(agentbench_app, ["queue", "add", str(fresh), "--follow"])
+    assert out.exit_code == 1 and "never been mined" in out.output
+
+
 def test_a_bench_written_by_a_newer_version_still_loads(mined, repo, tmp_path):
     run_matrix(mined, [FakeAgent("m", apply_gold)], ["blind"])
     line = json.loads(mined.tasks_path.read_text().splitlines()[0])

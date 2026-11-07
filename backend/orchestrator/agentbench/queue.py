@@ -19,7 +19,9 @@ says, at any moment, what it is waiting for or why it stopped.
            repo's new commits (fetching first, for a repo someone else
            commits to), runs whatever cells are open, and rests until the
            window closes. A model added today is then measured on commits it
-           can't have trained on, more of them every week.
+           can't have trained on, more of them every week. A follow job with
+           no arms only mines: a machine with no models (the OptiPlex) keeps
+           the task pool growing, gated, for the machines that run it.
 
 The file is `<bench root>/queue.json`, rewritten under a lock, so a job can be
 added while the worker runs.
@@ -67,6 +69,13 @@ class Job:
     notify: bool = False
     # Seconds per attempt; None sizes it to this machine (limit.py).
     timeout: float | None = None
+    # How many times mining runs each gate's tests (mine.py); flaky tests are
+    # left out of every task this job mines.
+    gate_runs: int = 1
+
+    @property
+    def mines_only(self) -> bool:
+        return not self.arms
 
 
 def _stamp(now: float) -> str:
@@ -133,16 +142,21 @@ class Queue:
     def add(self, repo: str, arms: list[str], cond: str, *, pinned: dict[str, str],
             tasks: list[str] | None = None, repeats: int = 1, window: str | None = None,
             wait_quiet: bool = False, follow: bool = False, fetch: bool = False,
-            notify: bool = False, timeout: float | None = None,
+            notify: bool = False, timeout: float | None = None, gate_runs: int = 1,
             now: float | None = None) -> Job:
         if window is not None:
             parse_window(window)
         if follow and tasks:
             raise ValueError("a follow job runs every task the repo grows; it can't name tasks")
+        if not arms and not follow:
+            raise ValueError("a job with no arms only mines, so it has to follow the repo")
+        if gate_runs < 1:
+            raise ValueError("each gate runs its tests at least once")
         job = Job(id=secrets.token_hex(3), repo=repo, arms=list(arms), cond=cond,
                   tasks=list(tasks or []), repeats=repeats, window=window, pinned=pinned,
                   added_at=_stamp(now or time.time()), wait_quiet=wait_quiet,
-                  follow=follow, fetch=fetch, notify=notify, timeout=timeout)
+                  follow=follow, fetch=fetch, notify=notify, timeout=timeout,
+                  gate_runs=gate_runs)
         with self.edit() as jobs:
             jobs.append(job)
         return job
@@ -196,7 +210,7 @@ def drain(queue: Queue, run_job: Callable[[Job, float | None], None], *,
         if found:
             job, deadline = found
             idle_said = False
-            log(f"job {job.id}: {Path(job.repo).name} {' '.join(job.arms)}")
+            log(f"job {job.id}: {Path(job.repo).name} {' '.join(job.arms) or 'mining only'}")
             run_job(job, None if deadline == float("inf") else deadline)
             continue
         if once:

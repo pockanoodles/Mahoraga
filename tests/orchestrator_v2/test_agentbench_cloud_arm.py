@@ -660,8 +660,10 @@ print(json.dumps({{"type": "probe", "ollama": reach(u.hostname, u.port),
         monkeypatch.setenv("PATH", f"{bindir}:/usr/bin:/bin")
         monkeypatch.setenv("HTTP_PROXY", "http://somewhere-else:8080")  # never used
         monkeypatch.setattr(agents.ollama, "BASE_URL", f"http://127.0.0.1:{ollama_stand_in.port}")
+        # bindir is readable as an install would be: under bubblewrap, /tmp is private.
         run = agents.AiderAgent("qwen3.5:latest", home=tmp_path / "home").attempt(
-            work, "p", test_cmd=None, timeout=60, readable=[Path(sys.executable).parent.parent])
+            work, "p", test_cmd=None, timeout=60,
+            readable=[Path(sys.executable).parent.parent, bindir])
     probe = next(json.loads(line) for line in run.log.splitlines() if line.startswith('{"type": "probe"'))
     assert probe == {"type": "probe", "ollama": "ping", "prices": "HTTP/1.1 403 Forbidden",
                      "direct": "blocked"}

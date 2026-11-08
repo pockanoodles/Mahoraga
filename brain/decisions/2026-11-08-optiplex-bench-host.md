@@ -64,7 +64,10 @@ local rows, and printed under the same receipt.
 
 - **Models on the box's CPU.** At 2–3 tok/s, one Claude Code attempt (39–127 model calls)
   takes hours. A 1–3B model is fast enough but measures only a floor nobody would ship.
-- **RAM for the box.** Single-channel DDR4 limits generation speed, and more of it doesn't
-  help (`project-cloud-arm-optiplex`).
+- **RAM for the box: parked (Kaito, 2026-11-08).** Generation speed is set by memory
+  bandwidth, and more capacity doesn't add any. The spare machine at home is DDR3, so
+  its sticks don't fit the 7070 (DDR4), and as a host it would generate slower still. It
+  stays unused for Mahoraga. Inference belongs on the Studio or the laptop, and the box hosts
+  the bench.
 - **Exposing the Studio's Ollama on the tailnet.** Ollama has no auth; a tunnel over the SSH
   that already exists keeps it on loopback.

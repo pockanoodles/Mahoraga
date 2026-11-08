@@ -266,6 +266,17 @@ def test_a_claude_error_result_is_the_harness_failing_not_the_model():
     assert (cut.tokens_sent, cut.tokens_recv) == (13, 13)  # from the calls it did report
 
 
+def test_a_reply_past_the_output_cap_is_the_model_not_the_harness():
+    # The text Claude Code 2.1.318 ended seven Studio attempts with on 2026-11-07.
+    capped = _ev(type="result", subtype="success", is_error=True, num_turns=40,
+                 result="API Error: Claude's response exceeded the 8192 output token maximum. "
+                        "To configure this behavior, set the CLAUDE_CODE_MAX_OUTPUT_TOKENS "
+                        "environment variable.")
+    run = parse_claude_events(capped)
+    assert run.crashed == ""  # scored on the checkout, not retried
+    assert run.extra["capped_calls"] == 1 and run.limited_until is None
+
+
 def test_a_usage_limit_is_the_account_running_out_not_the_agent():
     rejected = _ev(type="rate_limit_event", rate_limit_info={
         "status": "rejected", "resetsAt": 1793908200, "rateLimitType": "five_hour"})
@@ -458,7 +469,7 @@ def test_a_cloud_only_manifest_never_asks_ollama(monkeypatch):
 def test_claude_on_an_ollama_model_is_a_local_arm():
     agent = parse_arm("claude:qwen3.5:latest@ctx=131072")
     assert isinstance(agent, ClaudeCodeAgent) and agent.local
-    assert (agent.model, agent.num_ctx, agent.num_predict) == ("qwen3.5:latest", 131072, 8192)
+    assert (agent.model, agent.num_ctx, agent.num_predict) == ("qwen3.5:latest", 131072, 32000)
     assert arm_name(agent) == "claude:qwen3.5:latest@ctx=131072"
     assert arm_name(parse_arm("claude:qwen3.5:latest")) == "claude:qwen3.5:latest"
     assert not agents.is_cloud_arm("claude:qwen3.5:latest@ctx=131072")
@@ -501,14 +512,14 @@ def test_a_local_claude_attempt_reaches_ollama_and_nothing_else(fake_local_claud
     [call] = seen
     cmd, env = call["cmd"], call["env"]
     # The served tag carries the arm's context: the endpoint takes no options.
-    assert derived == [("qwen3.5:latest", {"num_ctx": 131072, "num_predict": 8192})]
+    assert derived == [("qwen3.5:latest", {"num_ctx": 131072, "num_predict": 32000})]
     assert cmd[cmd.index("--model") + 1] == "agentbench/served"
     assert env["ANTHROPIC_BASE_URL"] == "http://127.0.0.1:11434"
     for role in ("ANTHROPIC_MODEL", "ANTHROPIC_DEFAULT_HAIKU_MODEL", "ANTHROPIC_SMALL_FAST_MODEL",
                  "ANTHROPIC_DEFAULT_SONNET_MODEL", "CLAUDE_CODE_SUBAGENT_MODEL"):
         assert env[role] == "agentbench/served"  # no second model loads
     assert env["API_TIMEOUT_MS"] == "5400000"  # the attempt's limit is the only clock
-    assert env["CLAUDE_CODE_MAX_OUTPUT_TOKENS"] == "8192"
+    assert env["CLAUDE_CODE_MAX_OUTPUT_TOKENS"] == "32000"  # the CLI's own fallback
     for leak in ("ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN"):
         assert leak not in env
     # HTTPS asks a proxy that allows nothing and names each host; Ollama stays direct.

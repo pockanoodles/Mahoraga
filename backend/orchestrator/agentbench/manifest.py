@@ -100,6 +100,15 @@ def inference() -> dict[str, Any]:
     return {"ollama": url, "machine": declared, "here": here}
 
 
+def served_by(m: dict[str, Any]) -> str:
+    """", model served by <machine>" for a run whose model answered from
+    another machine, "" otherwise (and for manifests older than `inference`)."""
+    inf = m.get("inference") or {}
+    if not inf or inf.get("here", True):
+        return ""
+    return f", model served by {inf.get('machine') or urlsplit(inf.get('ollama', '')).hostname or '?'}"
+
+
 def harness() -> dict[str, Any]:
     """Which Mahoraga measured this. The package version always; the commit
     only from a source checkout. An installed package sits in site-packages,

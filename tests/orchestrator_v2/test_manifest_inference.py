@@ -58,3 +58,15 @@ def test_evidence_refuses_a_split_run_pooled_with_a_local_one(tmp_path):
         "OptiPlex 7070, 16 GB, model served by Mac Studio M5 Max, 64 GB"
     with pytest.raises(ValueError, match="2 machines"):
         evidence._hardware([bench], {"r1", "r2"})
+
+
+def test_a_receipt_tells_a_split_run_from_a_local_one():
+    from backend.orchestrator.agentbench.report import _setup
+
+    base = {"models": {"ollama": "0.40.13", "digests": {"m": "sha256:aaaabbbbcccc1111"}},
+            "machine": BOX, "harness": {"version": "2.1.0", "commit": "c1bf98130ab"}}
+    here = _setup({**base, "inference": {"ollama": "http://127.0.0.1:11434", "here": True}}, "fake:m")
+    there = _setup({**base, "inference": {"ollama": "http://127.0.0.1:11435", "here": False,
+                                          "machine": "Mac Studio M5 Max, 64 GB"}}, "fake:m")
+    assert "OptiPlex 7070 16 GB, " in here and "served by" not in here
+    assert "OptiPlex 7070 16 GB, model served by Mac Studio M5 Max, 64 GB, " in there

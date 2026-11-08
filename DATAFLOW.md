@@ -55,7 +55,11 @@ run, sends anything out (below).
   nothing stops them opening a connection, and the run's preflight says so. The cloud arm
   refuses to start.
 - **The model runs on your machine.** Ollama answers at `http://127.0.0.1:11434` unless
-  you point `OLLAMA_BASE_URL` somewhere else.
+  you point `OLLAMA_BASE_URL` somewhere else. If you do, task prompts and the code the agent
+  reads go to that machine, and each run's manifest records where (`inference`). A tunnel
+  hides that behind a loopback address, so name the machine in
+  `MAHORAGA_INFERENCE_MACHINE`; a verdict then reports the two machines together and never
+  pools them with a run that kept the model at home.
 - **Results stay local.** Tasks, attempts, run manifests and verdicts are files under
   `~/.mahoraga-v2/`, and nothing uploads them.
 

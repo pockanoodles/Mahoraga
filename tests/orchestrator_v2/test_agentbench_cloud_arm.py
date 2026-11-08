@@ -509,15 +509,20 @@ def test_a_local_claude_attempt_reaches_ollama_and_nothing_else(fake_local_claud
         assert env[role] == "agentbench/served"  # no second model loads
     assert env["API_TIMEOUT_MS"] == "5400000"  # the attempt's limit is the only clock
     assert env["CLAUDE_CODE_MAX_OUTPUT_TOKENS"] == "8192"
-    for leak in ("ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN", "HTTPS_PROXY"):
+    for leak in ("ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN"):
         assert leak not in env
+    # HTTPS asks a proxy that allows nothing and names each host; Ollama stays direct.
+    proxy_port = int(env["HTTPS_PROXY"].rsplit(":", 1)[1])
+    assert env["HTTPS_PROXY"].startswith("http://127.0.0.1:") and "127.0.0.1" in env["NO_PROXY"]
+    assert env["HTTP_PROXY"] == ""
     assert env["CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"] == "1"
     assert env["CLAUDE_CODE_TMPDIR"] == str(tmp_path / "home" / "attempt" / "tmp")
     # The same flags and the same hidden home as the cloud arm; only Ollama's port open.
     assert cmd[cmd.index("--disallowedTools") + 1] == "WebFetch,WebSearch"
     assert Path.home().resolve() in call["hidden"]
-    assert call["loopback"] == [11434]
+    assert call["loopback"] == [11434, proxy_port]
     assert run.cost_usd is None  # the CLI priced it at Claude's rates; nothing was billed
+    assert run.extra["egress_refused"] == 0 and run.extra["egress_tunnels"] == 0
     assert run.llm_calls == 2 and run.crashed == ""
 
 
@@ -611,10 +616,16 @@ def write(path):
         open(path, "w").write("x"); return "ok"
     except OSError:
         return "blocked"
+def via_proxy(target):
+    ph, pp = os.environ["HTTPS_PROXY"].removeprefix("http://").rsplit(":", 1)
+    s = socket.create_connection((ph, int(pp)), 5)
+    s.sendall(f"CONNECT {{target}} HTTP/1.1\\r\\n\\r\\n".encode())
+    status = s.recv(4096).split(b"\\r\\n")[0].decode(); s.close(); return status
 print(json.dumps({{"type": "probe", "ollama": reach(u.hostname, u.port),
                    "other": reach("127.0.0.1", probe["other"]),
                    "direct": reach("1.1.1.1", 443),
-                   "tmpdir": write(os.path.join(os.environ["CLAUDE_CODE_TMPDIR"], "x"))}}))
+                   "tmpdir": write(os.path.join(os.environ["CLAUDE_CODE_TMPDIR"], "x")),
+                   "statsig": via_proxy("statsig.anthropic.com:443")}}))
 print(json.dumps({{"type": "result", "is_error": False, "num_turns": 1, "total_cost_usd": 0.5,
                    "usage": {{"input_tokens": 1, "output_tokens": 1}}}}))
 """)
@@ -633,5 +644,53 @@ print(json.dumps({{"type": "result", "is_error": False, "num_turns": 1, "total_c
     assert run.crashed == "", run.log[-1500:]
     probe = next(json.loads(line) for line in run.log.splitlines() if line.startswith('{"type": "probe"'))
     assert probe == {"type": "probe", "ollama": "ping", "other": "blocked", "direct": "blocked",
-                     "tmpdir": "ok"}
+                     "tmpdir": "ok", "statsig": "HTTP/1.1 403 Forbidden"}
     assert run.cost_usd is None
+    # What it asked for is named in its record; the direct try is stopped, unnamed.
+    assert (run.extra["egress_refused"], run.extra["egress_tunnels"]) == (1, 0)
+    [asked] = [json.loads(line) for line in run.log.splitlines() if line.startswith('{"type": "egress"')]
+    assert (asked["host"], asked["port"], asked["allowed"]) == ("statsig.anthropic.com", 443, False)
+
+
+@pytest.mark.skipif(not has_sandbox(), reason="needs sandbox-exec or bubblewrap")
+def test_inside_the_sandbox_aider_s_tries_to_leave_are_named(tmp_path, monkeypatch):
+    """A stand-in `aider` that asks the proxy for litellm's price list, tries
+    the internet directly, and reaches Ollama at OLLAMA_API_BASE."""
+    bindir, work = tmp_path / "bin", tmp_path / "work"
+    bindir.mkdir()
+    work.mkdir()
+    script = bindir / "aider"
+    script.write_text(f"""#!{sys.executable} -I
+import json, os, socket
+from urllib.parse import urlsplit
+def reach(host, port):
+    try:
+        s = socket.create_connection((host, port), 5)
+        s.sendall(b"ping"); got = s.recv(4).decode(); s.close(); return got
+    except OSError:
+        return "blocked"
+def via_proxy(target):
+    ph, pp = os.environ["HTTPS_PROXY"].removeprefix("http://").rsplit(":", 1)
+    s = socket.create_connection((ph, int(pp)), 5)
+    s.sendall(f"CONNECT {{target}} HTTP/1.1\\r\\n\\r\\n".encode())
+    status = s.recv(4096).split(b"\\r\\n")[0].decode(); s.close(); return status
+u = urlsplit(os.environ["OLLAMA_API_BASE"])
+print(json.dumps({{"type": "probe", "ollama": reach(u.hostname, u.port),
+                   "prices": via_proxy("raw.githubusercontent.com:443"),
+                   "direct": reach("1.1.1.1", 443)}}))
+""")
+    script.chmod(0o755)
+    with Echo() as ollama_stand_in:
+        monkeypatch.setenv("PATH", f"{bindir}:/usr/bin:/bin")
+        monkeypatch.setenv("HTTP_PROXY", "http://somewhere-else:8080")  # never used
+        monkeypatch.setattr(agents.ollama, "BASE_URL", f"http://127.0.0.1:{ollama_stand_in.port}")
+        # bindir is readable as an install would be: under bubblewrap, /tmp is private.
+        run = agents.AiderAgent("qwen3.5:latest", home=tmp_path / "home").attempt(
+            work, "p", test_cmd=None, timeout=60,
+            readable=[Path(sys.executable).parent.parent, bindir])
+    probe = next(json.loads(line) for line in run.log.splitlines() if line.startswith('{"type": "probe"'))
+    assert probe == {"type": "probe", "ollama": "ping", "prices": "HTTP/1.1 403 Forbidden",
+                     "direct": "blocked"}
+    assert run.extra["egress_refused"] == 1 and run.extra["search_mismatches"] == 0
+    [asked] = [json.loads(line) for line in run.log.splitlines() if line.startswith('{"type": "egress"')]
+    assert asked["host"] == "raw.githubusercontent.com" and not asked["allowed"]

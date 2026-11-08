@@ -15,7 +15,9 @@ A local arm's model must be local: an Ollama cloud tag is refused, since
 Ollama would forward the code off the machine. The cloud arm reaches its
 vendor only through `egress.Proxy`, which tunnels to the vendor's API host
 and nowhere else and records every connection: that proxy is the audited
-egress for agent traffic, and the cloud arm won't start without it.
+egress for agent traffic, and the cloud arm won't start without it. A local
+arm gets the same proxy with nothing allowed (`local_net`), so its record
+names every host it tried to reach, and none was reached.
 
 Containment is enforced by the OS, not asked of the agent. On macOS every
 agent runs under `sandbox-exec`, on Linux under bubblewrap: it can write only
@@ -292,6 +294,58 @@ def ollama_net() -> Iterator[tuple[dict[int, Path], str]]:
 OLLAMA_PORT = 11434
 
 
+@dataclass
+class LocalNet:
+    """What a local arm can reach: Ollama, and a proxy that tunnels nowhere."""
+    ports: dict[int, Path]  # Linux: a loopback port inside -> the socket outside
+    ollama: str  # Ollama's URL as the agent sees it
+    proxy: egress.Proxy
+    proxy_url: str  # the proxy's URL as the agent sees it
+
+    def env(self) -> dict[str, str]:
+        """HTTPS asks the proxy, which names each host; loopback goes direct,
+        for a client that takes one proxy for every scheme. Ollama is plain
+        HTTP, which HTTPS_PROXY leaves alone, and no proxy the user's own
+        environment names is ever used."""
+        direct = "localhost,127.0.0.1,::1"
+        return {"HTTPS_PROXY": self.proxy_url, "https_proxy": self.proxy_url,
+                "NO_PROXY": direct, "no_proxy": direct,
+                "HTTP_PROXY": "", "http_proxy": "", "ALL_PROXY": "", "all_proxy": ""}
+
+    def loopback(self) -> list[int] | None:
+        """macOS: the only ports an agent confined to them needs, Ollama's and
+        the proxy's. None under bubblewrap, where `ports` is the way out."""
+        if self.ports:
+            return None
+        return [urlsplit(self.ollama).port or OLLAMA_PORT, int(self.proxy_url.rsplit(":", 1)[1])]
+
+    def record(self, run: AgentRun) -> AgentRun:
+        """Every host asked of the proxy, at the end of the log, and counted:
+        `egress_refused` is how often the agent tried to leave the machine."""
+        run.log += self.proxy.log_lines()
+        run.extra.update(self.proxy.summary())
+        return run
+
+
+@contextlib.contextmanager
+def local_net() -> Iterator[LocalNet]:
+    """The network a local arm gets. The sandbox stops every connection but
+    Ollama's; this names them. What honors HTTPS_PROXY (Claude Code, Node,
+    Bun, httpx) asks the proxy, which allows no host and records each one, so
+    an attempt's record says where the agent tried to go and that nothing
+    left. A program that ignores the proxy settings is stopped all the same,
+    by the sandbox, but goes unnamed."""
+    with ollama_net() as (ports, base), contextlib.ExitStack() as stack:
+        if linux_sandbox():
+            d = Path(stack.enter_context(tempfile.TemporaryDirectory(prefix="mh-px-")))
+            proxy = stack.enter_context(egress.Proxy((), unix=d / "egress.sock"))
+            yield LocalNet({**ports, PROXY_PORT: d / "egress.sock"}, base, proxy,
+                           f"http://127.0.0.1:{PROXY_PORT}")
+        else:
+            proxy = stack.enter_context(egress.Proxy(()))
+            yield LocalNet(dict(ports), base, proxy, f"http://{proxy.address}")
+
+
 def _launch(cmd: list[str], cwd: Path, env: dict[str, str], timeout: float,
             writable: Sequence[Path] = (), hidden: Sequence[Path] = (),
             readable: Sequence[Path] = (), ports: Mapping[int, Path] | None = None,
@@ -387,15 +441,16 @@ class AiderAgent:
         if test_cmd:
             cmd += ["--auto-test", "--test-cmd", shlex.join(test_cmd)]
         try:
-            with ollama_net() as (ports, base):
-                env = {**os.environ, "HOME": str(self.home), "OLLAMA_API_BASE": base}
+            with local_net() as net:
+                env = {**os.environ, **net.env(), "HOME": str(self.home),
+                       "OLLAMA_API_BASE": net.ollama}
                 log, timed_out, secs = _launch(cmd, workdir, env, timeout, [self.home],
-                                               hidden, readable, ports)
+                                               hidden, readable, net.ports)
         finally:
             settings.unlink(missing_ok=True)
         tokens = re.findall(r"Tokens: ([\d.]+k?) sent, ([\d.]+k?) received", log)
         calls = aider_tool_calls(log)
-        return AgentRun(
+        return net.record(AgentRun(
             log=log, secs=secs, timed_out=timed_out, crashed=aider_crash(log),
             unreadable=f"{calls} tool calls, which aider can't run" if calls else "",
             request_errors=aider_request_errors(log),
@@ -412,7 +467,7 @@ class AiderAgent:
                 # report tells "ran out of budget" from "answered wrong".
                 "capped_calls": sum(_num(r) >= 0.98 * self.num_predict for _, r in tokens),
             },
-        )
+        ))
 
 
 def aider_crash(log: str) -> str:
@@ -509,12 +564,13 @@ class OpenCodeAgent:
         self.home.mkdir(parents=True, exist_ok=True)
         cmd = [binary, "run", "--pure", "--format", "json", "--title", "agentbench",
                "--dir", str(workdir), "--model", f"ollama/{served}", prompt]
-        with ollama_net() as (ports, base):
-            out, timed_out, secs = _launch(cmd, workdir, self._env(served, base), timeout,
-                                           [self.home], hidden, readable, ports)
+        with local_net() as net:
+            out, timed_out, secs = _launch(cmd, workdir,
+                                           {**self._env(served, net.ollama), **net.env()},
+                                           timeout, [self.home], hidden, readable, net.ports)
         run = parse_opencode_events(out)
         run.log, run.secs, run.timed_out = out, secs, timed_out
-        return run
+        return net.record(run)
 
 
 def parse_opencode_events(out: str) -> AgentRun:
@@ -743,18 +799,17 @@ class ClaudeCodeAgent:
                        ) -> AgentRun:
         served = ollama.derive(self.model, {"num_ctx": self.num_ctx,
                                             "num_predict": self.num_predict})
-        with ollama_net() as (ports, base):
-            # Linux: the relay's socket is the only way out. macOS: Ollama's port.
-            loopback = None if ports else [urlsplit(base).port or OLLAMA_PORT]
-            out, timed_out, secs = _launch(self._cmd(str(binary), prompt, served), workdir,
-                                           self._local_env(home, base, served, timeout),
-                                           timeout, [home], hidden, readable, ports, loopback)
+        with local_net() as net:
+            env = {**self._local_env(home, net.ollama, served, timeout), **net.env()}
+            out, timed_out, secs = _launch(self._cmd(str(binary), prompt, served), workdir, env,
+                                           timeout, [home], hidden, readable, net.ports,
+                                           net.loopback())
         run = parse_claude_events(out)
         run.log, run.secs, run.timed_out = out, secs, timed_out
         run.cost_usd = None
         if timed_out:
             run.crashed = ""
-        return run
+        return net.record(run)
 
 
 def interpreter_dirs(binary: Path) -> list[Path]:

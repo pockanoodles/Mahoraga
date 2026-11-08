@@ -19,6 +19,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from typing import Iterable, Optional
+from urllib.parse import urlsplit
 
 from . import manifest
 from .agents import aider_request_errors
@@ -27,9 +28,16 @@ from .runner import DEFAULT_TIMEOUT, Attempt, attempt_log, load_attempts
 
 
 def machine_label(m: dict) -> str:
-    """The machine a run was on, as evidence.py names it."""
+    """The machine a run was on, as evidence.py names it. When the model
+    answered from another machine, the label names both: the pair is the setup
+    that was measured, and it is neither machine on its own."""
     hw = m.get("machine", {})
-    return f"{hw.get('model', '?')}, {hw.get('memory_gb', '?')} GB"
+    label = f"{hw.get('model', '?')}, {hw.get('memory_gb', '?')} GB"
+    inf = m.get("inference") or {}
+    if inf and not inf.get("here", True):
+        where = inf.get("machine") or urlsplit(inf.get("ollama", "")).hostname or "?"
+        label += f", model served by {where}"
+    return label
 
 
 def limit_of(m: dict) -> Optional[float]:

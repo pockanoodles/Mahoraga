@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import platform
 import re
 import secrets
@@ -21,6 +22,7 @@ import subprocess
 import time
 from pathlib import Path
 from typing import Any, Iterable
+from urllib.parse import urlsplit
 
 from . import host, ollama
 from .agents import Agent, is_local
@@ -79,6 +81,23 @@ def _linux_hardware() -> dict[str, Any]:
     if m := re.search(r"^MemTotal:\s*(\d+) kB", _read("/proc/meminfo"), re.MULTILINE):
         out["memory_gb"] = round(int(m.group(1)) * 1024 / 2**30)
     return out
+
+
+LOOPBACK = {"127.0.0.1", "localhost", "::1"}
+
+
+def inference() -> dict[str, Any]:
+    """Where the local model answered. `machine` is about the harness's host,
+    which runs the agent and the tests; the model can answer from another one
+    when OLLAMA_BASE_URL points there, and then that machine set the speed.
+
+    A tunnel makes a remote Ollama look like loopback, so no URL can prove the
+    model ran here: MAHORAGA_INFERENCE_MACHINE names the machine behind it
+    ("Mac Studio M5 Max, 64 GB"), and a run that sets it is never `here`."""
+    url = ollama.BASE_URL
+    declared = os.environ.get("MAHORAGA_INFERENCE_MACHINE", "").strip() or None
+    here = (urlsplit(url).hostname or "") in LOOPBACK and declared is None
+    return {"ollama": url, "machine": declared, "here": here}
 
 
 def harness() -> dict[str, Any]:
@@ -152,6 +171,7 @@ def build(bench: Bench, agents: list[Agent], tasks: list[Task], *, run_id: str,
         "suite": json.loads(bench.config_path.read_text()) if bench.config_path.exists() else None,
         "tasks": tasks_fingerprint(bench, tasks),
         "machine": machine(),
+        **({"inference": inference()} if any(is_local(a) for a in agents) else {}),
         "harness": harness(),
         "agents": agent_versions(agents),
         "models": models(agents),

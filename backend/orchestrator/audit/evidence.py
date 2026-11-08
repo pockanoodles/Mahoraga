@@ -13,6 +13,7 @@ from collections import defaultdict
 
 from backend.orchestrator.agentbench import manifest
 from backend.orchestrator.agentbench.bank import Bench
+from backend.orchestrator.agentbench.export import machine_label
 from backend.orchestrator.agentbench.runner import load_attempts
 from backend.orchestrator.agentbench.stats import task_rate
 
@@ -22,13 +23,13 @@ from .verdict import CloudSide, Evidence, cloud_side
 def _hardware(benches: list[Bench], run_ids: set[str]) -> str:
     """The machine behind the evidence. A verdict is for one machine: a solve
     rate pooled from the laptop and the Studio describes neither, so attempts
-    from two recorded machines are refused rather than labelled."""
+    from two recorded machines are refused rather than labelled. A run whose
+    model answered from another machine is its own setup (export.machine_label)."""
     seen = set()
     for b in benches:
         for m in manifest.load_all(b):
             if m["run_id"] in run_ids:
-                hw = m.get("machine", {})
-                seen.add(f"{hw.get('model', '?')}, {hw.get('memory_gb', '?')} GB")
+                seen.add(machine_label(m))
     if len(seen) > 1:
         raise ValueError(f"the attempts come from {len(seen)} machines ({'; '.join(sorted(seen))}); "
                          "judge each machine's benches separately")

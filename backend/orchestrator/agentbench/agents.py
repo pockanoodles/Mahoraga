@@ -78,6 +78,12 @@ class AgentRun:
     # What the vendor bills the attempt at its API prices, as the agent reports
     # it. None for a local arm, and for a cloud attempt cut off before its report.
     cost_usd: float | None = None
+    # A cloud account that ran out of usage mid-attempt: when it resets (epoch
+    # seconds; 0 if the agent didn't say) and which window ran out. None = it
+    # didn't. Such an attempt measured the account, not the model, and a retry
+    # before the reset would end the same way.
+    limited_until: float | None = None
+    limit_window: str = ""
 
 
 class Agent(Protocol):
@@ -789,12 +795,18 @@ def parse_claude_events(out: str) -> AgentRun:
 
     An error result (a refused login, a usage limit) is the harness failing,
     not the model, so it's a crash: the attempt is retried, not scored. So is
-    a run that ends without a result, unless the limit cut it off."""
+    a run that ends without a result, unless the limit cut it off.
+
+    Each model call's limit check comes as a `rate_limit_event`. One the
+    account's limit `rejected`, in a run that then failed, makes the run
+    `limited_until` the window's reset, so the runner can wait for it instead
+    of spending its retries on an account with nothing left."""
     run = AgentRun(log="", secs=0, timed_out=False,
                    extra={"tool_calls": 0, "tool_errors": 0, "bash_calls": 0, "turns": 0,
                           "thinking_chars": 0})
     usage: dict[str, dict] = {}
     result: dict | None = None
+    rejected: dict | None = None
     for line in out.splitlines():
         try:
             event = json.loads(line)
@@ -820,6 +832,10 @@ def parse_claude_events(out: str) -> AgentRun:
                 if isinstance(block, dict) and block.get("type") == "tool_result" \
                         and block.get("is_error"):
                     run.extra["tool_errors"] += 1
+        elif kind == "rate_limit_event":
+            info = event.get("rate_limit_info")
+            if isinstance(info, dict) and info.get("status") == "rejected":
+                rejected = info
         elif kind == "result":
             result = event
     run.llm_calls = len(usage)
@@ -836,13 +852,38 @@ def parse_claude_events(out: str) -> AgentRun:
     run.tokens_recv = tokens("output_tokens")
     if result is None:
         run.crashed = "claude ended without a result"
-        return run
+        return _limited(run, rejected, "")
     run.extra["turns"] = int(result.get("num_turns") or 0)
     cost = result.get("total_cost_usd")
     run.cost_usd = float(cost) if isinstance(cost, (int, float)) else None
     if result.get("is_error"):
         why = str(result.get("result") or result.get("subtype") or "error")
         run.crashed = f"claude: {why.splitlines()[0][:200] if why else 'error'}"
+        return _limited(run, rejected, why)
+    return run
+
+
+# How the CLI says a turn ended on the account's limit, for a run with no
+# `rate_limit_event` to go by: "Claude AI usage limit reached|1762380000" from
+# CLIs before that event, "You've hit your limit · resets 3am" after it.
+_LIMIT_TEXT = re.compile(r"usage limit reached(?:\|(\d+))?|hit your (?:usage )?limit",
+                         re.IGNORECASE)
+
+
+def _limited(run: AgentRun, rejected: dict | None, why: str) -> AgentRun:
+    """A failed run the account's limit explains: when the limit resets, in
+    epoch seconds, or 0 when nothing said. A reset time is never guessed."""
+    said = _LIMIT_TEXT.search(why)
+    if rejected is None and not said:
+        return run
+    resets = (rejected or {}).get("resetsAt")
+    if isinstance(resets, (int, float)) and not isinstance(resets, bool) and resets > 0:
+        run.limited_until = float(resets)
+    elif said and said.group(1):
+        run.limited_until = float(said.group(1))
+    else:
+        run.limited_until = 0.0
+    run.limit_window = str((rejected or {}).get("rateLimitType") or "")
     return run
 
 

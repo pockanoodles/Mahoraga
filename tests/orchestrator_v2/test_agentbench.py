@@ -22,7 +22,8 @@ import httpx
 import pytest
 from typer.testing import CliRunner
 
-from backend.orchestrator.agentbench import manifest
+from backend.orchestrator.agentbench import manifest, session
+from backend.orchestrator.agentbench import runner as runner_mod
 from backend.orchestrator.agentbench.agents import (
     AgentRun, AiderAgent, OpenCodeAgent, _launch, aider_crash, aider_request_errors,
     aider_tool_calls, parse_arm,
@@ -39,7 +40,8 @@ from backend.orchestrator.agentbench.host import (Power, parse_idle, parse_power
                                                   parse_wired)
 from backend.orchestrator.agentbench.report import outcome, render, summarise
 from backend.orchestrator.agentbench.runner import (
-    arm_name, load_attempts, load_degraded, prompt_for, run_attempt, run_matrix, without_trailers,
+    LIMIT_SLACK, UsageLimited, arm_name, load_attempts, load_degraded, prompt_for, run_attempt,
+    run_matrix, without_trailers,
 )
 from backend.orchestrator.cli.commands.agentbench import app as agentbench_app, parse_until
 
@@ -986,6 +988,73 @@ def test_an_arm_the_agent_keeps_failing_is_dropped(mined, repo):
     assert len(broken.calls) == 1 and len(fine.calls) == 2 and len(done) == 2
     assert dropped == [("fake:broken", "1 tasks in a row where the agent failed, not the "
                         "model (last: agent crashed: ImportError in _svdp.py line 23)")]
+
+
+def _limited_then(agent: FakeAgent, untils: list) -> FakeAgent:
+    """`agent`, whose tries report these usage limits in turn (None = it ran)."""
+    seq, orig = iter(untils), agent.attempt
+
+    def attempt(*a, **k):
+        run = orig(*a, **k)
+        until = next(seq)
+        if until is not None:
+            run.limited_until, run.limit_window, run.crashed = until, "five_hour", "claude: limit"
+        return run
+
+    agent.attempt = attempt
+    return agent
+
+
+def test_a_usage_limit_waits_for_the_reset_and_spends_no_try(mined, repo, monkeypatch):
+    slept, notes = [], []
+    monkeypatch.setattr(runner_mod, "_sleep", slept.append)
+    soon = time.time() + 600
+    agent = _limited_then(FakeAgent("m", apply_gold), [soon, soon, None])
+    # No retries to spare, and one harness failure would drop the arm: neither is spent.
+    done = run_matrix(mined, [agent], ["blind"], max_degraded=0, max_harness_failures=1,
+                      note=notes.append)
+    assert len(done) == 1 and done[0].resolved
+    assert len(slept) == 2 and all(590 <= s <= 600 + LIMIT_SLACK for s in slept)
+    tries = load_degraded(mined)  # kept, as every degraded try is
+    assert [t.limited_until for t in tries] == [soon, soon]
+    assert all(t.degraded == [f"usage limit: {runner_mod.describe_limit('five_hour', soon)}"]
+               for t in tries)
+    assert notes[0].startswith("fake:m: the five_hour window is out of usage until ")
+
+
+def test_a_usage_limit_the_run_cant_wait_for_stops_it(mined, repo, monkeypatch):
+    monkeypatch.setattr(runner_mod, "_sleep", lambda s: pytest.fail("waited when it shouldn't"))
+    later = time.time() + 2 * 3600
+    agent = _limited_then(FakeAgent("m", apply_gold), [later])
+    with pytest.raises(UsageLimited) as e:
+        run_matrix(mined, [agent], ["blind"], deadline=time.time() + 3600)
+    assert (e.value.until, e.value.window, e.value.done) == (later, "five_hour", [])
+    # No reset given, or a weekly one: never a guess, never a sleep for days.
+    for until in (0.0, time.time() + 3 * 86400):
+        with pytest.raises(UsageLimited):
+            run_matrix(mined, [_limited_then(FakeAgent("m", apply_gold), [until])], ["blind"])
+    # A limit back after every reset ends the run too.
+    monkeypatch.setattr(runner_mod, "_sleep", lambda s: None)
+    soon = time.time() + 60
+    with pytest.raises(UsageLimited):
+        run_matrix(mined, [_limited_then(FakeAgent("m", apply_gold), [soon] * 3)], ["blind"])
+
+
+def test_a_run_a_usage_limit_stopped_says_so_and_keeps_what_it_counted(mined, monkeypatch):
+    finished, notes, counted = [], [], object()
+    monkeypatch.setattr(session.manifest, "build", lambda *a, **k: {})
+    monkeypatch.setattr(session.manifest, "write", lambda *a, **k: None)
+    monkeypatch.setattr(session.manifest, "finish",
+                        lambda bench, run_id, n, stopped, gave_up: finished.append((n, stopped)))
+
+    def limited(*a, **k):
+        raise UsageLimited("fake:m", "seven_day", time.time() + 86400, [counted])
+
+    monkeypatch.setattr(session, "run_matrix", limited)
+    _, done, stopped = session.run(mined, [FakeAgent("m")], ["blind"], note=notes.append)
+    assert (done, stopped, finished) == ([counted], "usage limit", [(1, "usage limit")])
+    assert "the seven_day window is out of usage until" in notes[0]
+    assert "Rerun it after the reset" in notes[0]
 
 
 def test_a_counted_attempt_resets_the_harness_failure_streak(mined, repo):

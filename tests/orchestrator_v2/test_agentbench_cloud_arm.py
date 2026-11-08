@@ -255,13 +255,37 @@ def test_claude_thinking_is_counted():
 
 
 def test_a_claude_error_result_is_the_harness_failing_not_the_model():
-    limit = _ev(type="result", subtype="success", is_error=True, num_turns=1,
-                result="Claude AI usage limit reached|1762380000", total_cost_usd=0)
-    assert parse_claude_events(limit).crashed == "claude: Claude AI usage limit reached|1762380000"
+    login = _ev(type="result", subtype="success", is_error=True, num_turns=1,
+                result="Invalid API key · Please run /login", total_cost_usd=0)
+    run = parse_claude_events(login)
+    assert run.crashed == "claude: Invalid API key · Please run /login"
+    assert run.limited_until is None
     cut = parse_claude_events(_CLAUDE_EVENTS.rsplit("\n", 1)[0])  # no result line
     assert cut.crashed == "claude ended without a result"
     assert cut.cost_usd is None
     assert (cut.tokens_sent, cut.tokens_recv) == (13, 13)  # from the calls it did report
+
+
+def test_a_usage_limit_is_the_account_running_out_not_the_agent():
+    rejected = _ev(type="rate_limit_event", rate_limit_info={
+        "status": "rejected", "resetsAt": 1793908200, "rateLimitType": "five_hour"})
+    error = _ev(type="result", subtype="success", is_error=True, num_turns=1,
+                result="You've hit your limit · resets 3am")
+    run = parse_claude_events("\n".join([rejected, error]))
+    assert (run.limited_until, run.limit_window) == (1793908200.0, "five_hour")
+    assert run.crashed  # not scored, either way
+    # Older CLIs said it in the result alone, the reset after a bar.
+    legacy = parse_claude_events(_ev(type="result", is_error=True,
+                                     result="Claude AI usage limit reached|1762380000"))
+    assert (legacy.limited_until, legacy.limit_window) == (1762380000.0, "")
+    # No time given is 0, never a guess.
+    for said in ("Usage limit reached", "You've hit your limit · resets 3am"):
+        assert parse_claude_events(_ev(type="result", is_error=True, result=said)).limited_until == 0.0
+    # Every call reports its check: one allowed, or a refusal the run got past, isn't a limit.
+    allowed = _ev(type="rate_limit_event", rate_limit_info={
+        "status": "allowed", "resetsAt": 1793908200, "rateLimitType": "five_hour"})
+    assert parse_claude_events("\n".join([allowed, _CLAUDE_EVENTS])).limited_until is None
+    assert parse_claude_events("\n".join([rejected, _CLAUDE_EVENTS])).limited_until is None
 
 
 # ── the agent ─────────────────────────────────────────────────────────────────

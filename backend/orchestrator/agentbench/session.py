@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any, Callable
 from . import manifest
 from .agents import Agent
 from .bank import Bench
-from .runner import DEFAULT_TIMEOUT, Attempt, run_matrix
+from .runner import DEFAULT_TIMEOUT, USAGE_LIMIT, Attempt, UsageLimited, run_matrix
 
 if TYPE_CHECKING:
     from .guard import Guard
@@ -21,10 +21,11 @@ def run(bench: Bench, agents: list[Agent], conds: tuple[str, ...] | list[str], *
         progress: Callable[[Attempt], None] = lambda a: None,
         dropped: Callable[[str, str], None] = lambda arm, why: None,
         started: Callable[[str], None] = lambda run_id: None,
+        note: Callable[[str], None] = lambda msg: None,
         ) -> tuple[str, list[Attempt], str]:
-    """(run_id, attempts counted, why it stopped: completed, deadline or
-    interrupted). The manifest is written before the first attempt and stamped
-    with the stop reason even when the run dies."""
+    """(run_id, attempts counted, why it stopped: completed, deadline, usage
+    limit or interrupted). The manifest is written before the first attempt and
+    stamped with the stop reason even when the run dies."""
     run_id = manifest.new_run_id()
     manifest.write(bench, manifest.build(
         bench, agents, [t for t in bench.load_tasks() if not only or t.sha in only],
@@ -42,8 +43,12 @@ def run(bench: Bench, agents: list[Agent], conds: tuple[str, ...] | list[str], *
 
     try:
         done = run_matrix(bench, agents, conds, only, timeout, repeats, guard=guard,
-                          deadline=deadline, run_id=run_id, progress=progress, dropped=drop)
+                          deadline=deadline, run_id=run_id, progress=progress, dropped=drop,
+                          note=note)
         stopped = "deadline" if deadline and time.time() >= deadline else "completed"
+    except UsageLimited as e:
+        done, stopped = e.done, USAGE_LIMIT
+        note(f"{e}: the run stops here. Rerun it after the reset; filled cells are skipped")
     finally:
         manifest.finish(bench, run_id, len(done), stopped, gave_up)
     return run_id, done, stopped

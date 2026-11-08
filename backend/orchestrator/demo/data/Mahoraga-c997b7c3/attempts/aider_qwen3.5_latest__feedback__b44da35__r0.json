@@ -36,5 +36,7 @@
  "tier": "test-verified",
  "run_id": "",
  "request_errors": null,
- "cost_usd": null
+ "cost_usd": null,
+ "limited_until": null,
+ "limit_window": ""
 }

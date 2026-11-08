@@ -1,8 +1,10 @@
 # ADR 2026-11-08 — The OptiPlex hosts the bench, and the model answers from wherever it runs well
 
 ## Status
-Part 1 accepted (2026-11-08, PR #101). Part 3 proposed: it needs Kaito's word on the Studio
-(an access path from the box, and its electricity at night).
+Parts 1 and 2 accepted (2026-11-08, PR #101). Part 3 declined by Kaito the same day: the box
+does not drive the Studio. The split-host record stays, for any machine that serves a model
+to another (a reader's home server, or the laptop for a smoke). Cloud tiers below Opus stay
+out of the monthly pass (also declined 11-08).
 
 **Builds on:** `2026-11-07-gold-check-and-task-factory.md` (the box mines every night) and
 `2026-10-29-long-term-study.md` (the study keeps measuring as new models meet new work).
@@ -39,7 +41,7 @@ local rows, and printed under the same receipt.
    a steady stream of human commits after June 2026 (the newest models' cutoff), and a
    different kind of code from what's already there. Two small utility libraries were the
    study's whole task pool, and a reviewer would say so first.
-3. **Proposed: the box drives the Studio's Ollama every night.** A follow job with arms
+3. **Declined: the box drives the Studio's Ollama every night.** A follow job with arms
    (`aider:qwen3.5` and `claude:qwen3.5`, the two harnesses the published rows use) runs on
    the box. The Studio only answers model calls, through a tunnel the box opens (`ssh -L`),
    so Ollama never listens on the network. The Studio then needs no Mahoraga worker, clones

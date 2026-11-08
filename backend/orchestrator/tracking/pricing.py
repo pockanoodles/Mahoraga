@@ -13,6 +13,19 @@ PRICING = {
     "claude-sonnet-5": {"input": 3.00, "output": 15.00, "cache_read": 0.30},
     "claude-opus-4-6": {"input": 5.00, "output": 25.00, "cache_read": 0.50},
     "claude-opus-4-8": {"input": 5.00, "output": 25.00, "cache_read": 0.50},
+    # Added 2026-11-07 from the Claude API's model table (cached 2026-10-06); the
+    # rows above stay as the Phase 4 bench froze them. Without these, the 5.5
+    # models priced at the wrong row: claude-opus-5-5 at sonnet-4-6's (no prefix
+    # matched), claude-sonnet-5-5 at claude-sonnet-5's (its prefix). A cache read
+    # the table doesn't list is the usual tenth of input.
+    "claude-opus-4-7": {"input": 5.00, "output": 25.00, "cache_read": 0.50},
+    "claude-opus-5": {"input": 5.00, "output": 25.00, "cache_read": 0.50},
+    "claude-opus-5-5": {"input": 4.00, "output": 20.00, "cache_read": 0.20},
+    "claude-sonnet-5-5": {"input": 2.00, "output": 10.00, "cache_read": 0.20},
+    # Prompts up to 100k tokens; longer ones bill at $0.50 / $2.50.
+    "claude-haiku-5-5": {"input": 0.10, "output": 0.50, "cache_read": 0.01},
+    "claude-fable-5": {"input": 10.00, "output": 50.00, "cache_read": 1.00},
+    "claude-fable-5-1": {"input": 10.00, "output": 50.00, "cache_read": 0.25},
 }
 
 

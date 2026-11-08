@@ -609,6 +609,10 @@ class ClaudeCodeAgent:
     """
 
     name = "claude"
+    # The class's default, the cloud arm; an instance on an Ollama model sets
+    # its own (`local_model`). The local app's agent list reads the class, so
+    # it doesn't offer Claude Code on a pulled model until that path is tried.
+    local = False
     vendor = "Anthropic"
     hosts = CLAUDE_HOSTS
 
@@ -648,16 +652,23 @@ class ClaudeCodeAgent:
             raise ValueError(f"{path} is empty")
         return token
 
+    @staticmethod
+    def _home_env(home: Path) -> dict[str, str]:
+        """The attempt's own HOME, and its own temp dir: the CLI otherwise
+        makes /tmp/claude-<uid>, which macOS's sandbox won't let it write and
+        which every attempt would share."""
+        return {"HOME": str(home), "CLAUDE_CODE_TMPDIR": str(home / "tmp")}
+
     def _env(self, home: Path, token: str, proxy_url: str) -> dict[str, str]:
         inherited = {k: os.environ[k] for k in _CLOUD_ENV_KEEP if k in os.environ}
-        return {**inherited, **_CLAUDE_QUIET, "HOME": str(home),
+        return {**inherited, **_CLAUDE_QUIET, **self._home_env(home),
                 "CLAUDE_CODE_OAUTH_TOKEN": token,
                 "HTTPS_PROXY": proxy_url, "HTTP_PROXY": proxy_url}
 
     def _local_env(self, home: Path, base: str, served: str, timeout: float) -> dict[str, str]:
         inherited = {k: os.environ[k] for k in _CLOUD_ENV_KEEP if k in os.environ}
         return {**inherited, **_CLAUDE_QUIET, **{k: served for k in _CLAUDE_MODEL_ROLES},
-                "HOME": str(home), "ANTHROPIC_BASE_URL": base,
+                **self._home_env(home), "ANTHROPIC_BASE_URL": base,
                 "ANTHROPIC_AUTH_TOKEN": "ollama",  # Ollama ignores it; the CLI wants one
                 "API_TIMEOUT_MS": str(int(timeout * 1000)),
                 "CLAUDE_CODE_MAX_OUTPUT_TOKENS": str(self.num_predict)}
@@ -697,7 +708,7 @@ class ClaudeCodeAgent:
             prompt += f"\n\nYou can check your work by running: {shlex.join(test_cmd)}"
         home = self.home / "attempt"  # fresh every time
         shutil.rmtree(home, ignore_errors=True)
-        home.mkdir(parents=True)
+        (home / "tmp").mkdir(parents=True)
         hidden, readable = self.confine(binary, hidden, readable)
         if self.local:
             return self._attempt_local(binary, workdir, prompt, home, timeout, hidden, readable)

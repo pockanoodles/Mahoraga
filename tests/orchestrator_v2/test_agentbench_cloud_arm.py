@@ -332,7 +332,7 @@ def test_each_claude_attempt_starts_from_an_empty_home(fake_claude, tmp_path):
     agent, seen = fake_claude
     for _ in range(2):
         agent.attempt(tmp_path, "p", test_cmd=None, timeout=60)
-    assert [c["home_files"] for c in seen] == [[], []]
+    assert [c["home_files"] for c in seen] == [["tmp"], ["tmp"]]  # its own temp dir, empty
 
 
 def test_a_cloud_attempt_keeps_what_it_runs_when_the_home_is_hidden(tmp_path, monkeypatch):
@@ -488,6 +488,7 @@ def test_a_local_claude_attempt_reaches_ollama_and_nothing_else(fake_local_claud
     for leak in ("ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN", "HTTPS_PROXY"):
         assert leak not in env
     assert env["CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"] == "1"
+    assert env["CLAUDE_CODE_TMPDIR"] == str(tmp_path / "home" / "attempt" / "tmp")
     # The same flags and the same hidden home as the cloud arm; only Ollama's port open.
     assert cmd[cmd.index("--disallowedTools") + 1] == "WebFetch,WebSearch"
     assert Path.home().resolve() in call["hidden"]
@@ -581,9 +582,15 @@ def reach(host, port):
         s.sendall(b"ping"); got = s.recv(4).decode(); s.close(); return got
     except OSError:
         return "blocked"
+def write(path):
+    try:
+        open(path, "w").write("x"); return "ok"
+    except OSError:
+        return "blocked"
 print(json.dumps({{"type": "probe", "ollama": reach(u.hostname, u.port),
                    "other": reach("127.0.0.1", probe["other"]),
-                   "direct": reach("1.1.1.1", 443)}}))
+                   "direct": reach("1.1.1.1", 443),
+                   "tmpdir": write(os.path.join(os.environ["CLAUDE_CODE_TMPDIR"], "x"))}}))
 print(json.dumps({{"type": "result", "is_error": False, "num_turns": 1, "total_cost_usd": 0.5,
                    "usage": {{"input_tokens": 1, "output_tokens": 1}}}}))
 """)
@@ -601,5 +608,6 @@ print(json.dumps({{"type": "result", "is_error": False, "num_turns": 1, "total_c
                             readable=[Path(sys.executable).parent.parent])
     assert run.crashed == "", run.log[-1500:]
     probe = next(json.loads(line) for line in run.log.splitlines() if line.startswith('{"type": "probe"'))
-    assert probe == {"type": "probe", "ollama": "ping", "other": "blocked", "direct": "blocked"}
+    assert probe == {"type": "probe", "ollama": "ping", "other": "blocked", "direct": "blocked",
+                     "tmpdir": "ok"}
     assert run.cost_usd is None

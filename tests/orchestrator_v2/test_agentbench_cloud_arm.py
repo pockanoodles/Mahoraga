@@ -242,8 +242,16 @@ def test_claude_events_are_counted():
     assert run.tokens_sent == 13 + 1000 + 200  # cache reads and writes were sent too
     assert run.tokens_recv == 13
     assert run.cost_usd == 0.4321
-    assert run.extra == {"tool_calls": 2, "tool_errors": 1, "bash_calls": 1, "turns": 3}
+    assert run.extra == {"tool_calls": 2, "tool_errors": 1, "bash_calls": 1, "turns": 3,
+                         "thinking_chars": 0}
     assert run.crashed == ""
+
+
+def test_claude_thinking_is_counted():
+    thought = _ev(type="assistant", message={"id": "m1", "content": [
+        {"type": "thinking", "thinking": "Where is the bug?"},
+        {"type": "tool_use", "name": "Bash", "id": "t1"}]})
+    assert parse_claude_events(thought).extra["thinking_chars"] == len("Where is the bug?")
 
 
 def test_a_claude_error_result_is_the_harness_failing_not_the_model():
@@ -263,7 +271,9 @@ def test_a_cloud_arm_names_a_pinned_model():
     agent = parse_arm("claude:claude-sonnet-5-5")
     assert isinstance(agent, ClaudeCodeAgent) and not agent.local
     assert arm_name(agent) == "claude:claude-sonnet-5-5"  # no context in its name
-    for bad in ("claude:sonnet", "claude:opus", "claude:claude-sonnet-latest", "claude:gpt-5"):
+    # Any other model is an Ollama tag (a local arm, below), so only Claude's
+    # own names and the CLI's aliases are refused here.
+    for bad in ("claude:sonnet", "claude:opus", "claude:opus[1m]", "claude:claude-sonnet-latest"):
         with pytest.raises(ValueError, match="pinned"):
             parse_arm(bad)
     with pytest.raises(ValueError, match="cloud arm"):
@@ -322,7 +332,7 @@ def test_each_claude_attempt_starts_from_an_empty_home(fake_claude, tmp_path):
     agent, seen = fake_claude
     for _ in range(2):
         agent.attempt(tmp_path, "p", test_cmd=None, timeout=60)
-    assert [c["home_files"] for c in seen] == [[], []]
+    assert [c["home_files"] for c in seen] == [["tmp"], ["tmp"]]  # its own temp dir, empty
 
 
 def test_a_cloud_attempt_keeps_what_it_runs_when_the_home_is_hidden(tmp_path, monkeypatch):
@@ -418,6 +428,75 @@ def test_a_cloud_only_manifest_never_asks_ollama(monkeypatch):
         "cloud": {"claude-sonnet-5-5": "Anthropic"}}
 
 
+# ── Claude Code on a local model ──────────────────────────────────────────────
+
+
+def test_claude_on_an_ollama_model_is_a_local_arm():
+    agent = parse_arm("claude:qwen3.5:latest@ctx=131072")
+    assert isinstance(agent, ClaudeCodeAgent) and agent.local
+    assert (agent.model, agent.num_ctx, agent.num_predict) == ("qwen3.5:latest", 131072, 8192)
+    assert arm_name(agent) == "claude:qwen3.5:latest@ctx=131072"
+    assert arm_name(parse_arm("claude:qwen3.5:latest")) == "claude:qwen3.5:latest"
+    assert not agents.is_cloud_arm("claude:qwen3.5:latest@ctx=131072")
+    assert agents.is_cloud_arm("claude:claude-opus-5-5")
+    assert not agents.is_cloud_arm("aider:qwen3.5:latest@ctx=131072")
+    with pytest.raises(ValueError, match="Ollama cloud model"):
+        parse_arm("claude:qwen3.5:cloud")  # Ollama would forward the code off the machine
+
+
+@pytest.fixture
+def fake_local_claude(tmp_path, monkeypatch):
+    """A local ClaudeCodeAgent whose launches are recorded, not run, with no
+    token anywhere: a local arm never needs one."""
+    agent = ClaudeCodeAgent("qwen3.5:latest", num_ctx=131072, home=tmp_path / "home",
+                            token_file=tmp_path / "no-token")
+    seen: list[dict] = []
+
+    def launch(cmd, cwd, env, timeout, writable=(), hidden=(), readable=(), ports=None,
+               loopback=None):
+        seen.append({"cmd": cmd, "env": env, "hidden": hidden, "ports": ports,
+                     "loopback": loopback})
+        return _CLAUDE_EVENTS, False, 4.0
+
+    derived: list[tuple] = []
+    monkeypatch.setattr(agents.ollama, "derive",
+                        lambda m, p, base_url=None: derived.append((m, p)) or "agentbench/served")
+    monkeypatch.setattr(agents.ollama, "BASE_URL", "http://127.0.0.1:11434")
+    monkeypatch.setattr(agents, "_launch", launch)
+    monkeypatch.setattr(agents, "has_sandbox", lambda: True)
+    monkeypatch.setattr(agents, "linux_sandbox", lambda: False)
+    monkeypatch.setattr(shutil, "which", lambda n: "/bin/" + n)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-api-would-bill-the-api")
+    monkeypatch.setenv("CLAUDE_CODE_OAUTH_TOKEN", "sk-ant-oat01-a-login")
+    return agent, seen, derived
+
+
+def test_a_local_claude_attempt_reaches_ollama_and_nothing_else(fake_local_claude, tmp_path):
+    agent, seen, derived = fake_local_claude
+    run = agent.attempt(tmp_path, "Fix it.", test_cmd=None, timeout=5400)
+    [call] = seen
+    cmd, env = call["cmd"], call["env"]
+    # The served tag carries the arm's context: the endpoint takes no options.
+    assert derived == [("qwen3.5:latest", {"num_ctx": 131072, "num_predict": 8192})]
+    assert cmd[cmd.index("--model") + 1] == "agentbench/served"
+    assert env["ANTHROPIC_BASE_URL"] == "http://127.0.0.1:11434"
+    for role in ("ANTHROPIC_MODEL", "ANTHROPIC_DEFAULT_HAIKU_MODEL", "ANTHROPIC_SMALL_FAST_MODEL",
+                 "ANTHROPIC_DEFAULT_SONNET_MODEL", "CLAUDE_CODE_SUBAGENT_MODEL"):
+        assert env[role] == "agentbench/served"  # no second model loads
+    assert env["API_TIMEOUT_MS"] == "5400000"  # the attempt's limit is the only clock
+    assert env["CLAUDE_CODE_MAX_OUTPUT_TOKENS"] == "8192"
+    for leak in ("ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN", "HTTPS_PROXY"):
+        assert leak not in env
+    assert env["CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"] == "1"
+    assert env["CLAUDE_CODE_TMPDIR"] == str(tmp_path / "home" / "attempt" / "tmp")
+    # The same flags and the same hidden home as the cloud arm; only Ollama's port open.
+    assert cmd[cmd.index("--disallowedTools") + 1] == "WebFetch,WebSearch"
+    assert Path.home().resolve() in call["hidden"]
+    assert call["loopback"] == [11434]
+    assert run.cost_usd is None  # the CLI priced it at Claude's rates; nothing was billed
+    assert run.llm_calls == 2 and run.crashed == ""
+
+
 # ── end to end, in the real sandbox ───────────────────────────────────────────
 
 
@@ -482,3 +561,53 @@ print(json.dumps({{"type": "result", "is_error": False, "num_turns": 1, "total_c
     assert probe["secret"] in ("blocked", "empty")  # macOS denies it; bubblewrap empties it
     assert run.extra["egress_tunnels"] == 1 and run.extra["egress_refused"] == 1
     assert run.cost_usd == 0.01 and run.crashed == ""
+
+
+@pytest.mark.skipif(not has_sandbox(), reason="needs sandbox-exec or bubblewrap")
+def test_inside_the_sandbox_a_local_claude_reaches_only_ollama(tmp_path, monkeypatch):
+    """A stand-in `claude` that tries Ollama at ANTHROPIC_BASE_URL, another
+    loopback port, and the internet. Only Ollama answers."""
+    bindir, work = tmp_path / "bin", tmp_path / "work"
+    bindir.mkdir()
+    work.mkdir()
+    script = bindir / "claude"
+    script.write_text(f"""#!{sys.executable} -I
+import json, os, socket
+from urllib.parse import urlsplit
+probe = json.load(open("probe.json"))
+u = urlsplit(os.environ["ANTHROPIC_BASE_URL"])
+def reach(host, port):
+    try:
+        s = socket.create_connection((host, port), 5)
+        s.sendall(b"ping"); got = s.recv(4).decode(); s.close(); return got
+    except OSError:
+        return "blocked"
+def write(path):
+    try:
+        open(path, "w").write("x"); return "ok"
+    except OSError:
+        return "blocked"
+print(json.dumps({{"type": "probe", "ollama": reach(u.hostname, u.port),
+                   "other": reach("127.0.0.1", probe["other"]),
+                   "direct": reach("1.1.1.1", 443),
+                   "tmpdir": write(os.path.join(os.environ["CLAUDE_CODE_TMPDIR"], "x"))}}))
+print(json.dumps({{"type": "result", "is_error": False, "num_turns": 1, "total_cost_usd": 0.5,
+                   "usage": {{"input_tokens": 1, "output_tokens": 1}}}}))
+""")
+    script.chmod(0o755)
+    home = tmp_path / "realhome"
+    home.mkdir()
+    with Echo() as ollama_stand_in, Echo() as other:
+        monkeypatch.setenv("HOME", str(home))
+        monkeypatch.setenv("PATH", f"{bindir}:/usr/bin:/bin")
+        monkeypatch.setattr(agents.ollama, "BASE_URL", f"http://127.0.0.1:{ollama_stand_in.port}")
+        monkeypatch.setattr(agents.ollama, "derive", lambda m, p, base_url=None: "served")
+        (work / "probe.json").write_text(json.dumps({"other": other.port}))
+        agent = ClaudeCodeAgent("qwen3.5:latest", home=tmp_path / "home")
+        run = agent.attempt(work, "p", test_cmd=None, timeout=60,
+                            readable=[Path(sys.executable).parent.parent])
+    assert run.crashed == "", run.log[-1500:]
+    probe = next(json.loads(line) for line in run.log.splitlines() if line.startswith('{"type": "probe"'))
+    assert probe == {"type": "probe", "ollama": "ping", "other": "blocked", "direct": "blocked",
+                     "tmpdir": "ok"}
+    assert run.cost_usd is None

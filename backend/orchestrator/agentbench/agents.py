@@ -7,8 +7,9 @@ the result from git, so an agent never reports its own success.
 
 Agents: `aider` (search/replace edit blocks over a repo map) and `opencode`
 (a tool loop: read, grep, edit, bash) on local Ollama models, and `claude`
-(Claude Code, headless) as the cloud arm the local ones are measured against.
-Same prompt, same tasks, same grader, so a difference is the arm's.
+(Claude Code, headless): on a Claude model, the cloud arm the local ones are
+measured against; on an Ollama model, a local arm that holds the agent fixed
+against it. Same prompt, same tasks, same grader, so a difference is the arm's.
 
 A local arm's model must be local: an Ollama cloud tag is refused, since
 Ollama would forward the code off the machine. The cloud arm reaches its
@@ -108,9 +109,18 @@ def is_local(agent) -> bool:
 
 
 def is_cloud_arm(arm: str) -> bool:
-    """Whether a recorded arm (`<agent>:<model>...`) ran a vendor's model."""
-    cls = AGENTS.get(arm.partition(":")[0])
-    return cls is not None and not is_local(cls)
+    """Whether a recorded arm (`<agent>:<model>[@ctx=N]`) ran a vendor's model."""
+    name, _, rest = arm.partition(":")
+    cls = AGENTS.get(name)
+    return cls is not None and not runs_local(cls, rest.partition("@")[0])
+
+
+def runs_local(cls, model: str) -> bool:
+    """Whether agent class `cls` on `model` runs on this machine. aider and
+    opencode only drive Ollama; Claude Code drives either, so for it the model
+    decides (`ClaudeCodeAgent.local_model`)."""
+    local_model = getattr(cls, "local_model", None)
+    return local_model(model) if local_model else is_local(cls)
 
 
 def agent_home(name: str) -> Path:
@@ -542,44 +552,90 @@ def claude_token_file() -> Path:
 _CLOUD_ENV_KEEP = ("PATH", "LANG", "LC_ALL", "LC_CTYPE", "TERM", "TZ", "USER", "LOGNAME",
                    "SHELL", "TMPDIR")
 
+# Claude Code's model aliases: each moves when the vendor ships, so an arm
+# never names one, and none of them is an Ollama model.
+_CLAUDE_ALIASES = frozenset({"default", "best", "sonnet", "opus", "haiku", "opusplan"})
+
+# Claude Code reaches for nothing but its model: no telemetry, error reports,
+# update checks or feedback, in either mode.
+_CLAUDE_QUIET = {"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1", "DISABLE_AUTOUPDATER": "1",
+                 "DISABLE_TELEMETRY": "1", "DISABLE_ERROR_REPORTING": "1",
+                 "DISABLE_BUG_COMMAND": "1"}
+
+# Where the CLI looks up a model by role: on a local arm each is the model
+# under test, so a background call or a subagent never loads a second one.
+_CLAUDE_MODEL_ROLES = ("ANTHROPIC_MODEL", "ANTHROPIC_DEFAULT_OPUS_MODEL",
+                       "ANTHROPIC_DEFAULT_SONNET_MODEL", "ANTHROPIC_DEFAULT_HAIKU_MODEL",
+                       "ANTHROPIC_SMALL_FAST_MODEL", "CLAUDE_CODE_SUBAGENT_MODEL")
+
 
 class ClaudeCodeAgent:
-    """Claude Code (`claude -p`), the cloud arm: a vendor's own agent on its
-    own model, run the way a user runs it, so the local arms are measured
-    against what they'd replace.
+    """Claude Code (`claude -p`). On a Claude model it's the cloud arm: a
+    vendor's own agent on its own model, run the way a user runs it, so the
+    local arms are measured against what they'd replace. On an Ollama model
+    it's a local arm, and the one that holds the agent fixed against the cloud
+    arm: aider can't run the tests and Claude Code can, even blind, so aider
+    against Claude Code measures agent and model together.
 
-    The model is a pinned id (claude-sonnet-5-5), never an alias like
-    `sonnet`, which moves when the vendor ships. Auth is a long-lived token
-    from `claude setup-token`, read from `claude_token_file()`, so the CLI
-    runs with a fresh, empty HOME for each attempt: none of the user's
-    CLAUDE.md, skills, hooks, MCP servers or memory, and nothing one attempt
-    writes reaches the next. Edits in the checkout and Bash are allowed; web
-    fetch and search are not, and the sandbox gives no route out but the
-    proxy, which reaches only `CLAUDE_HOSTS`.
+    A Claude model is a pinned id (claude-sonnet-5-5), never an alias like
+    `sonnet`, which moves when the vendor ships. Either way the CLI runs with
+    a fresh, empty HOME for each attempt: none of the user's CLAUDE.md,
+    skills, hooks, MCP servers or memory, and nothing one attempt writes
+    reaches the next. Edits in the checkout and Bash are allowed; web fetch
+    and search are not. It sees none of the user's home but its checkout, its
+    own HOME, and the programs it runs (the CLI, and the interpreter behind
+    the test venv), and only the environment variables in `_CLOUD_ENV_KEEP`.
+    The two modes differ only in where the model is, so a difference between
+    them is the model's.
+
+    Cloud: auth is a long-lived token from `claude setup-token`, read from
+    `claude_token_file()`, and the sandbox gives no route out but the proxy,
+    which reaches only `CLAUDE_HOSTS`. Cost is the CLI's own
+    `total_cost_usd`: what the attempt costs at API prices, whether the login
+    is a subscription or not.
+
+    Local: the CLI talks to Ollama's Anthropic-compatible endpoint (Ollama
+    0.14 and later), and the sandbox opens Ollama's port and nothing else.
+    That endpoint takes no options, so the model is served as a derived tag
+    with num_ctx and num_predict baked in, as for opencode. Every model the
+    CLI might reach for (its fast model for background calls, a subagent's)
+    is the one under test, so no second model loads. Its request clock is the
+    attempt's limit: its own ten minutes would cut a long prefill short on a
+    slow machine, the way litellm's cut aider's (#68). It has no cost, since
+    the CLI prices any model at Claude's rates and nothing is billed.
 
     The feedback condition names the test command in the prompt, as for
-    opencode. Cost is the CLI's own `total_cost_usd`: what the attempt costs
-    at API prices, whether the login is a subscription or not.
-
-    What it reads goes to the vendor, so it sees less than a local arm: none
-    of the user's home but its checkout, its own HOME, and the programs it
-    runs (the CLI, and the interpreter behind the test venv), and only the
-    environment variables in `_CLOUD_ENV_KEEP`.
+    opencode.
     """
 
     name = "claude"
+    # The class's default, the cloud arm; an instance on an Ollama model sets
+    # its own (`local_model`). The local app's agent list reads the class, so
+    # it doesn't offer Claude Code on a pulled model until that path is tried.
     local = False
     vendor = "Anthropic"
     hosts = CLAUDE_HOSTS
 
-    def __init__(self, model: str, *, home: Path | None = None,
-                 token_file: Path | None = None) -> None:
-        if not re.fullmatch(r"claude-[a-z0-9]+(-[a-z0-9.]+)+", model) or model.endswith("latest"):
+    def __init__(self, model: str, *, num_ctx: int | None = None, num_predict: int = 8192,
+                 home: Path | None = None, token_file: Path | None = None) -> None:
+        self.local = self.local_model(model)
+        if self.local:
+            _require_local(model)
+            self.num_ctx, self.num_predict = num_ctx or DEFAULT_NUM_CTX, num_predict
+        elif not re.fullmatch(r"claude-[a-z0-9]+(-[a-z0-9.]+)+", model) or model.endswith("latest"):
             raise ValueError(f"{model!r} isn't a pinned Claude model id, e.g. claude-sonnet-5-5: "
                              "an alias moves when the vendor ships, and the arm with it")
+        elif num_ctx is not None:
+            raise ValueError(f"claude:{model} is a cloud arm: its context is the vendor's")
         self.model = model
         self.home = home or agent_home("claude")
         self.token_file = token_file
+
+    @staticmethod
+    def local_model(model: str) -> bool:
+        """An Ollama tag runs here. A Claude id, or one of the CLI's own
+        aliases (`sonnet`, `opus[1m]`), is the vendor's model."""
+        return not (model.startswith("claude-") or model.split("[")[0] in _CLAUDE_ALIASES)
 
     def _token(self) -> str:
         path = self.token_file or claude_token_file()
@@ -596,18 +652,31 @@ class ClaudeCodeAgent:
             raise ValueError(f"{path} is empty")
         return token
 
+    @staticmethod
+    def _home_env(home: Path) -> dict[str, str]:
+        """The attempt's own HOME, and its own temp dir: the CLI otherwise
+        makes /tmp/claude-<uid>, which macOS's sandbox won't let it write and
+        which every attempt would share."""
+        return {"HOME": str(home), "CLAUDE_CODE_TMPDIR": str(home / "tmp")}
+
     def _env(self, home: Path, token: str, proxy_url: str) -> dict[str, str]:
         inherited = {k: os.environ[k] for k in _CLOUD_ENV_KEEP if k in os.environ}
-        return {**inherited, "HOME": str(home), "CLAUDE_CODE_OAUTH_TOKEN": token,
-                "HTTPS_PROXY": proxy_url, "HTTP_PROXY": proxy_url,
-                "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1", "DISABLE_AUTOUPDATER": "1",
-                "DISABLE_TELEMETRY": "1", "DISABLE_ERROR_REPORTING": "1",
-                "DISABLE_BUG_COMMAND": "1"}
+        return {**inherited, **_CLAUDE_QUIET, **self._home_env(home),
+                "CLAUDE_CODE_OAUTH_TOKEN": token,
+                "HTTPS_PROXY": proxy_url, "HTTP_PROXY": proxy_url}
 
-    def _cmd(self, binary: str, prompt: str) -> list[str]:
+    def _local_env(self, home: Path, base: str, served: str, timeout: float) -> dict[str, str]:
+        inherited = {k: os.environ[k] for k in _CLOUD_ENV_KEEP if k in os.environ}
+        return {**inherited, **_CLAUDE_QUIET, **{k: served for k in _CLAUDE_MODEL_ROLES},
+                **self._home_env(home), "ANTHROPIC_BASE_URL": base,
+                "ANTHROPIC_AUTH_TOKEN": "ollama",  # Ollama ignores it; the CLI wants one
+                "API_TIMEOUT_MS": str(int(timeout * 1000)),
+                "CLAUDE_CODE_MAX_OUTPUT_TOKENS": str(self.num_predict)}
+
+    def _cmd(self, binary: str, prompt: str, model: str | None = None) -> list[str]:
         # The prompt goes right after -p: a list-valued flag before it would take it in.
         return [binary, "-p", prompt, "--output-format", "stream-json", "--verbose",
-                "--model", self.model, "--permission-mode", "acceptEdits",
+                "--model", model or self.model, "--permission-mode", "acceptEdits",
                 "--allowedTools", "Bash", "--disallowedTools", "WebFetch,WebSearch",
                 "--strict-mcp-config"]
 
@@ -630,15 +699,19 @@ class ClaudeCodeAgent:
             raise FileNotFoundError("claude not on PATH")
         binary = Path(found).resolve()  # run by its real path: the link sits in the hidden home
         if not has_sandbox():
-            raise RuntimeError("the cloud arm runs only inside the OS sandbox, which this machine "
+            # Local too: the sandbox, not the environment, is what keeps a
+            # local attempt's code from reaching the vendor.
+            raise RuntimeError("Claude Code runs only inside the OS sandbox, which this machine "
                                "doesn't have: on Linux, install bubblewrap (apt install bubblewrap)")
-        token = self._token()
+        token = None if self.local else self._token()
         if test_cmd:
             prompt += f"\n\nYou can check your work by running: {shlex.join(test_cmd)}"
         home = self.home / "attempt"  # fresh every time
         shutil.rmtree(home, ignore_errors=True)
-        home.mkdir(parents=True)
+        (home / "tmp").mkdir(parents=True)
         hidden, readable = self.confine(binary, hidden, readable)
+        if self.local:
+            return self._attempt_local(binary, workdir, prompt, home, timeout, hidden, readable)
         with contextlib.ExitStack() as stack:
             if linux_sandbox():
                 d = Path(stack.enter_context(tempfile.TemporaryDirectory(prefix="mh-net-")))
@@ -657,6 +730,24 @@ class ClaudeCodeAgent:
         run.extra.update(proxy.summary())
         if timed_out:
             run.crashed = ""  # cut off by the limit, which is an outcome, not a crash
+        return run
+
+    def _attempt_local(self, binary: Path, workdir: Path, prompt: str, home: Path,
+                       timeout: float, hidden: Sequence[Path], readable: Sequence[Path]
+                       ) -> AgentRun:
+        served = ollama.derive(self.model, {"num_ctx": self.num_ctx,
+                                            "num_predict": self.num_predict})
+        with ollama_net() as (ports, base):
+            # Linux: the relay's socket is the only way out. macOS: Ollama's port.
+            loopback = None if ports else [urlsplit(base).port or OLLAMA_PORT]
+            out, timed_out, secs = _launch(self._cmd(str(binary), prompt, served), workdir,
+                                           self._local_env(home, base, served, timeout),
+                                           timeout, [home], hidden, readable, ports, loopback)
+        run = parse_claude_events(out)
+        run.log, run.secs, run.timed_out = out, secs, timed_out
+        run.cost_usd = None
+        if timed_out:
+            run.crashed = ""
         return run
 
 
@@ -700,7 +791,8 @@ def parse_claude_events(out: str) -> AgentRun:
     not the model, so it's a crash: the attempt is retried, not scored. So is
     a run that ends without a result, unless the limit cut it off."""
     run = AgentRun(log="", secs=0, timed_out=False,
-                   extra={"tool_calls": 0, "tool_errors": 0, "bash_calls": 0, "turns": 0})
+                   extra={"tool_calls": 0, "tool_errors": 0, "bash_calls": 0, "turns": 0,
+                          "thinking_chars": 0})
     usage: dict[str, dict] = {}
     result: dict | None = None
     for line in out.splitlines():
@@ -718,6 +810,10 @@ def parse_claude_events(out: str) -> AgentRun:
                 if isinstance(block, dict) and block.get("type") == "tool_use":
                     run.extra["tool_calls"] += 1
                     run.extra["bash_calls"] += block.get("name") == "Bash"
+                elif isinstance(block, dict) and block.get("type") == "thinking":
+                    # Whether the model reasoned at all: on a local model, the
+                    # endpoint decides, and a thinking model on it may or may not.
+                    run.extra["thinking_chars"] += len(block.get("thinking") or "")
         elif kind == "user":
             content = msg.get("content")
             for block in content if isinstance(content, list) else []:
@@ -757,14 +853,15 @@ def parse_arm(spec: str) -> Agent:
     """`<agent>:<model>[@ctx=N]`, e.g. aider:gpt-oss:20b@ctx=131072. The context
     is part of the arm: the same model at two sizes is two arms, recorded and
     reported apart. Ollama tags can't contain `@`, so the split is unambiguous.
-    A cloud arm (claude:claude-sonnet-5-5) has the vendor's context, not ours."""
+    A cloud arm (claude:claude-sonnet-5-5) has the vendor's context, not ours;
+    Claude Code on an Ollama model (claude:qwen3.5:latest@ctx=131072) is local."""
     body, at, opt = spec.partition("@")
     name, sep, model = body.partition(":")
     if not sep or not model:
         raise ValueError(f"arm {spec!r} must be <agent>:<model>, e.g. aider:qwen3.5:latest")
     if name not in AGENTS:
         raise ValueError(f"unknown agent {name!r}; available: {', '.join(sorted(AGENTS))}")
-    if not AGENTS[name].local:
+    if not runs_local(AGENTS[name], model):
         if at:
             raise ValueError(f"{name} is a cloud arm: its context is the vendor's, so "
                              f"@{opt} can't be set")

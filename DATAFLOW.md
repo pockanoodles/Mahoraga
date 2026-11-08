@@ -39,6 +39,13 @@ run, sends anything out (below).
   cloud arm's proxy for the cloud arm. A request anywhere else is refused by the
   operating system. On Linux the agent gets its own private network with no route out,
   its own `/tmp` and its own `/run`, so it can't reach other programs' sockets either.
+- **A local arm's attempts to leave are recorded, and none get through.** A local agent
+  also gets a proxy (`agentbench/egress.py`) that allows no host. Anything that follows
+  the standard `HTTPS_PROXY` setting asks it first, and it refuses each request and
+  records which host was asked for, in the attempt's log and as its `egress_refused`
+  count. For example, aider asks GitHub for litellm's price list each time it starts. A
+  program that ignores the setting is refused by the sandbox as before, but its
+  destination isn't named.
 - **Agents can't read your credentials.** The folders under your home that hold keys and
   logins (`.ssh`, `.config`, `.claude`, `.codex`, `.aws` and the like) are hidden from
   every agent.

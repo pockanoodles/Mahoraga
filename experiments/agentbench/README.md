@@ -12,6 +12,7 @@ for every claim in `experiments/claims.json` of kind `agentbench`, and CI runs i
 | `laptop-2026-10-131k.jsonl` | 16 GB MacBook Pro (M4, Mac16,1) | the clean 131k run: qwen3.5 under aider, blind, 90-minute limit, on the 47 more-itertools and attrs tasks (2026-10-28 to 2026-11-01) |
 | `optiplex-2026-11-cloud.jsonl` | Dell OptiPlex 7070, 16 GB | the cloud arm: Claude Code on claude-opus-5-5, blind, 90-minute limit, on the same 47 tasks (2026-11-05). Each line adds `cost_usd`, the CLI's cost at API list prices |
 | `optiplex-2026-11-tiers.jsonl` | Dell OptiPlex 7070, 16 GB | the two cheaper cloud tiers, claude-sonnet-5-5 and claude-haiku-5-5, with the Opus run's agent, flags and limit, on the same 47 tasks (2026-11-08) |
+| `studio-2026-11-claude-local.jsonl` | Mac Studio M5 Max, 64 GB | the same agent as the cloud: Claude Code 2.1.318 driving qwen3.5 (the laptop's model file) at 131k through Ollama, blind, 90-minute limit, on the same 47 tasks (2026-11-07 to 2026-11-08). 16 cells ran on #100's output cap, including every cell the old 8192 cap had crashed |
 
 `specimen-2026-10.json` is not a ledger. It keeps one attempt whole for the landing page:
 the first task of the laptop's clean 131k run (more-itertools `f89d7a3`, picked by its

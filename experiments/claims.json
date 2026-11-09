@@ -1050,6 +1050,226 @@
         "margin": { "value": 0.10, "decimals": 2 },
         "standing": { "value": "open" }
       }
+    },
+    {
+      "id": "report_2026_11_studio_claude_qwen35",
+      "kind": "agentbench",
+      "description": "§4 and the map: Claude Code driving qwen3.5 (the laptop's model file) on the Studio, on the laptop's 47 tasks, blind",
+      "artifact": "experiments/agentbench/studio-2026-11-claude-local.jsonl",
+      "select": {"arm": "claude:qwen3.5:laptop-dec52a4@ctx=131072", "cond": "blind"},
+      "config": {
+        "machine": "Mac Studio M5 Max, 64 GB (Mac17,14)",
+        "agent": "Claude Code 2.1.318, the cloud arm's flags, prompt, empty HOME and sandbox, pointed at Ollama's Anthropic endpoint; only Ollama's port open",
+        "model": "qwen3.5:laptop-dec52a4, the laptop's GGUF (sha256 dec52a44), at a 131k context",
+        "harness": "4ec7bebd6 for 31 cells (2026-11-07 night); 0fa2d94a6 (#100, output cap 32000) for 16: the 11 more-itertools cells left at 07:30, 6e3786c, and 4 cells whose kept attempt followed a crash at the 8192 cap",
+        "dates": "2026-11-07 to 2026-11-08",
+        "limit": "90 minutes"
+      },
+      "published_in": ["README.md", "docs/report/2026-10-local-coding-ai.md"],
+      "metrics": {
+        "tasks": { "value": 47, "decimals": 0 },
+        "resolved": { "value": 34, "decimals": 0 },
+        "rate": { "value": 0.72, "decimals": 2 },
+        "rate_lo": { "value": 0.58, "decimals": 2 },
+        "rate_hi": { "value": 0.83, "decimals": 2 },
+        "minutes": { "value": 4.9, "decimals": 1 },
+        "timed_out": { "value": 0, "decimals": 0 }
+      }
+    },
+    {
+      "id": "report_2026_11_claude_vs_aider_studio",
+      "kind": "agentbench",
+      "description": "§4: Claude Code against aider, each driving the same qwen3.5 model file at 131k on the Studio, task by task",
+      "artifact": "experiments/agentbench/studio-2026-11-claude-local.jsonl",
+      "select": {"arm": "claude:qwen3.5:laptop-dec52a4@ctx=131072", "cond": "blind"},
+      "versus": {
+        "artifact": "experiments/agentbench/studio-2026-10.jsonl",
+        "select": {"arm": "aider:qwen3.5:laptop-dec52a4@ctx=131072", "cond": "blind", "repos": ["attrs", "more-itertools"]}
+      },
+      "config": {
+        "this": "report_2026_11_studio_claude_qwen35",
+        "versus": "the Studio's aider run at 131k, 2026-10-13 to 2026-10-14 (report_2026_10_laptop_vs_studio_131k)"
+      },
+      "published_in": ["docs/report/2026-10-local-coding-ai.md"],
+      "metrics": {
+        "pairs": { "value": 47, "decimals": 0 },
+        "pair_resolved": { "value": 34, "decimals": 0 },
+        "versus_resolved": { "value": 18, "decimals": 0 },
+        "only_this": { "value": 17, "decimals": 0 },
+        "only_versus": { "value": 1, "decimals": 0 },
+        "mcnemar_p": { "value": 0.0001, "decimals": 4 }
+      }
+    },
+    {
+      "id": "report_2026_11_same_agent_vs_opus55",
+      "kind": "agentbench",
+      "description": "§4 and the map: Claude Code on qwen3.5 (Studio) against Claude Code on Opus 5.5, on the same 47 tasks",
+      "artifact": "experiments/agentbench/studio-2026-11-claude-local.jsonl",
+      "select": {"arm": "claude:qwen3.5:laptop-dec52a4@ctx=131072", "cond": "blind"},
+      "versus": {
+        "artifact": "experiments/agentbench/optiplex-2026-11-cloud.jsonl",
+        "select": {"arm": "claude:claude-opus-5-5", "cond": "blind"}
+      },
+      "capability": "versus",
+      "config": {
+        "local": "report_2026_11_studio_claude_qwen35",
+        "cloud": "report_2026_11_cloud_opus55"
+      },
+      "published_in": ["README.md", "docs/report/2026-10-local-coding-ai.md"],
+      "metrics": {
+        "pairs": { "value": 47, "decimals": 0 },
+        "pair_resolved": { "value": 34, "decimals": 0 },
+        "versus_resolved": { "value": 47, "decimals": 0 },
+        "only_this": { "value": 0, "decimals": 0 },
+        "only_versus": { "value": 13, "decimals": 0 },
+        "gap": { "value": 0.28, "decimals": 2 },
+        "gap_lo": { "value": 0.17, "decimals": 2 },
+        "gap_hi": { "value": 0.42, "decimals": 2 },
+        "margin": { "value": 0.10, "decimals": 2 },
+        "standing": { "value": "behind" }
+      }
+    },
+    {
+      "id": "report_2026_11_same_agent_vs_opus55_after_june",
+      "kind": "agentbench",
+      "description": "§4 and the map: Claude Code on qwen3.5 (Studio) against Claude Code on Opus 5.5, on the tasks committed after June 2026",
+      "artifact": "experiments/agentbench/studio-2026-11-claude-local.jsonl",
+      "select": {"arm": "claude:qwen3.5:laptop-dec52a4@ctx=131072", "cond": "blind", "committed_from": "2026-07-01"},
+      "versus": {
+        "artifact": "experiments/agentbench/optiplex-2026-11-cloud.jsonl",
+        "select": {"arm": "claude:claude-opus-5-5", "cond": "blind", "committed_from": "2026-07-01"}
+      },
+      "capability": "versus",
+      "config": {
+        "split": "commit date on or after 2026-07-01"
+      },
+      "published_in": ["README.md", "docs/report/2026-10-local-coding-ai.md"],
+      "metrics": {
+        "pairs": { "value": 19, "decimals": 0 },
+        "pair_resolved": { "value": 17, "decimals": 0 },
+        "versus_resolved": { "value": 19, "decimals": 0 },
+        "only_this": { "value": 0, "decimals": 0 },
+        "only_versus": { "value": 2, "decimals": 0 },
+        "gap": { "value": 0.11, "decimals": 2 },
+        "gap_lo": { "value": -0.08, "decimals": 2 },
+        "gap_hi": { "value": 0.31, "decimals": 2 },
+        "margin": { "value": 0.10, "decimals": 2 },
+        "standing": { "value": "open" }
+      }
+    },
+    {
+      "id": "report_2026_11_same_agent_vs_sonnet55",
+      "kind": "agentbench",
+      "description": "§4 and the map: Claude Code on qwen3.5 (Studio) against Claude Code on Sonnet 5.5, on the same 47 tasks",
+      "artifact": "experiments/agentbench/studio-2026-11-claude-local.jsonl",
+      "select": {"arm": "claude:qwen3.5:laptop-dec52a4@ctx=131072", "cond": "blind"},
+      "versus": {
+        "artifact": "experiments/agentbench/optiplex-2026-11-tiers.jsonl",
+        "select": {"arm": "claude:claude-sonnet-5-5", "cond": "blind"}
+      },
+      "capability": "versus",
+      "config": {
+        "local": "report_2026_11_studio_claude_qwen35",
+        "cloud": "report_2026_11_cloud_sonnet55"
+      },
+      "published_in": ["README.md", "docs/report/2026-10-local-coding-ai.md"],
+      "metrics": {
+        "pairs": { "value": 47, "decimals": 0 },
+        "pair_resolved": { "value": 34, "decimals": 0 },
+        "versus_resolved": { "value": 43, "decimals": 0 },
+        "only_this": { "value": 2, "decimals": 0 },
+        "only_versus": { "value": 11, "decimals": 0 },
+        "gap": { "value": 0.19, "decimals": 2 },
+        "gap_lo": { "value": 0.05, "decimals": 2 },
+        "gap_hi": { "value": 0.34, "decimals": 2 },
+        "margin": { "value": 0.10, "decimals": 2 },
+        "standing": { "value": "open" }
+      }
+    },
+    {
+      "id": "report_2026_11_same_agent_vs_sonnet55_after_june",
+      "kind": "agentbench",
+      "description": "§4 and the map: Claude Code on qwen3.5 (Studio) against Claude Code on Sonnet 5.5, on the tasks committed after June 2026",
+      "artifact": "experiments/agentbench/studio-2026-11-claude-local.jsonl",
+      "select": {"arm": "claude:qwen3.5:laptop-dec52a4@ctx=131072", "cond": "blind", "committed_from": "2026-07-01"},
+      "versus": {
+        "artifact": "experiments/agentbench/optiplex-2026-11-tiers.jsonl",
+        "select": {"arm": "claude:claude-sonnet-5-5", "cond": "blind", "committed_from": "2026-07-01"}
+      },
+      "capability": "versus",
+      "config": {
+        "split": "commit date on or after 2026-07-01"
+      },
+      "published_in": ["README.md", "docs/report/2026-10-local-coding-ai.md"],
+      "metrics": {
+        "pairs": { "value": 19, "decimals": 0 },
+        "pair_resolved": { "value": 17, "decimals": 0 },
+        "versus_resolved": { "value": 18, "decimals": 0 },
+        "only_this": { "value": 0, "decimals": 0 },
+        "only_versus": { "value": 1, "decimals": 0 },
+        "gap": { "value": 0.05, "decimals": 2 },
+        "gap_lo": { "value": -0.12, "decimals": 2 },
+        "gap_hi": { "value": 0.25, "decimals": 2 },
+        "margin": { "value": 0.10, "decimals": 2 },
+        "standing": { "value": "open" }
+      }
+    },
+    {
+      "id": "report_2026_11_same_agent_vs_haiku55",
+      "kind": "agentbench",
+      "description": "§4 and the map: Claude Code on qwen3.5 (Studio) against Claude Code on Haiku 5.5, on the same 47 tasks",
+      "artifact": "experiments/agentbench/studio-2026-11-claude-local.jsonl",
+      "select": {"arm": "claude:qwen3.5:laptop-dec52a4@ctx=131072", "cond": "blind"},
+      "versus": {
+        "artifact": "experiments/agentbench/optiplex-2026-11-tiers.jsonl",
+        "select": {"arm": "claude:claude-haiku-5-5", "cond": "blind"}
+      },
+      "capability": "versus",
+      "config": {
+        "local": "report_2026_11_studio_claude_qwen35",
+        "cloud": "report_2026_11_cloud_haiku55"
+      },
+      "published_in": ["README.md", "docs/report/2026-10-local-coding-ai.md"],
+      "metrics": {
+        "pairs": { "value": 47, "decimals": 0 },
+        "pair_resolved": { "value": 34, "decimals": 0 },
+        "versus_resolved": { "value": 47, "decimals": 0 },
+        "only_this": { "value": 0, "decimals": 0 },
+        "only_versus": { "value": 13, "decimals": 0 },
+        "gap": { "value": 0.28, "decimals": 2 },
+        "gap_lo": { "value": 0.17, "decimals": 2 },
+        "gap_hi": { "value": 0.42, "decimals": 2 },
+        "margin": { "value": 0.10, "decimals": 2 },
+        "standing": { "value": "behind" }
+      }
+    },
+    {
+      "id": "report_2026_11_same_agent_vs_haiku55_after_june",
+      "kind": "agentbench",
+      "description": "§4 and the map: Claude Code on qwen3.5 (Studio) against Claude Code on Haiku 5.5, on the tasks committed after June 2026",
+      "artifact": "experiments/agentbench/studio-2026-11-claude-local.jsonl",
+      "select": {"arm": "claude:qwen3.5:laptop-dec52a4@ctx=131072", "cond": "blind", "committed_from": "2026-07-01"},
+      "versus": {
+        "artifact": "experiments/agentbench/optiplex-2026-11-tiers.jsonl",
+        "select": {"arm": "claude:claude-haiku-5-5", "cond": "blind", "committed_from": "2026-07-01"}
+      },
+      "capability": "versus",
+      "config": {
+        "split": "commit date on or after 2026-07-01"
+      },
+      "published_in": ["README.md", "docs/report/2026-10-local-coding-ai.md"],
+      "metrics": {
+        "pairs": { "value": 19, "decimals": 0 },
+        "pair_resolved": { "value": 17, "decimals": 0 },
+        "versus_resolved": { "value": 19, "decimals": 0 },
+        "only_this": { "value": 0, "decimals": 0 },
+        "only_versus": { "value": 2, "decimals": 0 },
+        "gap": { "value": 0.11, "decimals": 2 },
+        "gap_lo": { "value": -0.08, "decimals": 2 },
+        "gap_hi": { "value": 0.31, "decimals": 2 },
+        "margin": { "value": 0.10, "decimals": 2 },
+        "standing": { "value": "open" }
+      }
     }
   ]
 }

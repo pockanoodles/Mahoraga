@@ -644,7 +644,7 @@
         "dates": "2026-10-28 to 2026-11-01",
         "limit": "90 minutes"
       },
-      "published_in": ["docs/report/2026-10-local-coding-ai.md"],
+      "published_in": ["README.md", "docs/report/2026-10-local-coding-ai.md"],
       "verdict": {
         "tasks_per_month": 200,
         "api_spend": 150
@@ -723,7 +723,7 @@
         "dates": "2026-11-05",
         "limit": "90 minutes"
       },
-      "published_in": ["docs/report/2026-10-local-coding-ai.md"],
+      "published_in": ["README.md", "docs/report/2026-10-local-coding-ai.md"],
       "metrics": {
         "tasks": { "value": 47, "decimals": 0 },
         "resolved": { "value": 47, "decimals": 0 },
@@ -749,7 +749,7 @@
         "local": "the laptop's 131k run (report_2026_10_laptop_131k)",
         "cloud": "report_2026_11_cloud_opus55"
       },
-      "published_in": ["docs/report/2026-10-local-coding-ai.md"],
+      "published_in": ["README.md", "docs/report/2026-10-local-coding-ai.md"],
       "verdict": {
         "tasks_per_month": 200,
         "api_spend": 150,

@@ -1,8 +1,12 @@
 # Results
 
-Every number Mahoraga publishes, the artifact it came from, and the limits it
-carries. Nothing here is quoted from memory — each figure is recomputed from a
-per-case JSONL committed to this repo.
+Every number the routing layer publishes, the artifact it came from, and the
+limits it carries. Nothing here is quoted from memory, since each figure is
+recomputed from a per-case JSONL committed to this repo. The audit's numbers
+(local agents on real repositories, and the cloud agent on the same tasks) are
+in [the report](report/2026-10-local-coding-ai.md), and the same `orch bench
+verify` recomputes them from the attempts in
+[`experiments/agentbench/`](../experiments/agentbench/).
 
 ## Verify it in one second
 

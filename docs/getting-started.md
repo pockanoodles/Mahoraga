@@ -1,9 +1,59 @@
 # Getting started
 
-This guide sets up the local Ollama roster, FastAPI service, web UI, and
-optional semantic memory.
+Mahoraga has two ways in. The audit measures local coding agents on your own repository
+and gives a stay, split or switch verdict, and it needs Ollama, an agent and an environment
+that runs the repository's tests. The
+router serves tasks through local models and needs the backend, its models and,
+optionally, the web UI. Most readers want the audit first, and the router is the stage
+that acts on its verdict.
 
-## Prerequisites
+## Run the audit on your repository
+
+You need Python 3.12 or newer, Git, [Ollama](https://ollama.com/download), and a
+repository with a pytest suite. The repository's tests run under its own
+`.venv/bin/python`, so that environment needs pytest and the project's dependencies, or
+pass `--python` to name another interpreter. Mahoraga's own interpreter has no pytest,
+and without one of these, mining finds no task it can run. Install aider in an
+environment of its own, at the version the published log measured, because its pins
+would clash with Mahoraga's. On Linux, install bubblewrap too, since it is the sandbox
+every agent runs in there, and the audit won't run without it.
+
+```bash
+uv tool install --python 3.12 aider-chat==0.86.2
+uv tool install git+https://github.com/pockanoodles/Mahoraga   # until the first release
+sudo apt install bubblewrap                                     # Linux only
+ollama pull qwen3.5:latest
+```
+
+Then queue a night of runs:
+
+```bash
+mahoraga audit tonight ~/code/app --tasks-per-month 200 --plan claude-max-5x
+```
+
+`tonight` mines up to 25 tasks from commits that changed both code and a test, checks the
+agent, Ollama, the model and the sandbox, queues the run for 21:00 to 08:00, and starts
+the background worker (launchd on macOS, systemd on Linux). It asks once for how many tasks you give cloud agents a month and how you pay,
+since the verdict is priced for your bill. The next morning, read the result:
+
+```bash
+mahoraga audit report ~/code/app
+mahoraga audit verdict ~/code/app --arm aider:qwen3.5:latest@ctx=131072 --cond blind
+```
+
+On the published 16 GB laptop an attempt at a 131k context took 28 minutes at the median,
+so its 47 tasks took four nights. Once tasks are mined, `mahoraga audit doctor ~/code/app`
+checks the bench and estimates the nights left on your own machine. The audit's commands
+and their main flags are in the [CLI reference](cli-reference.md#the-audit), and
+[`DATAFLOW.md`](../DATAFLOW.md) says what each part sends where. The rest of this guide
+sets up the router.
+
+## Set up the router
+
+This part sets up the local Ollama roster, the FastAPI service, the web UI, and optional
+semantic memory.
+
+### Prerequisites
 
 - Python 3.12 or newer
 - [Ollama](https://ollama.com/)
@@ -22,11 +72,11 @@ sudo apt-get install build-essential
 xcode-select --install
 ```
 
-## Install
+### Install
 
 ```bash
-git clone https://github.com/pockanoodles/Mahoraga.git
-cd Mahoraga
+git clone https://github.com/pockanoodles/Mahoraga.git mahoraga
+cd mahoraga
 
 python3 -m venv .venv
 source .venv/bin/activate
@@ -34,7 +84,7 @@ python -m pip install -r requirements.txt
 python -m pip install -e .
 ```
 
-The editable install creates the `orch` command.
+The editable install creates the `mahoraga` command and its older name, `orch`.
 
 Copy the environment template if you want to customize local settings:
 
@@ -44,19 +94,19 @@ cp .env.example .env
 
 The default local-only setup does not require an API key.
 
-## Pull the configured models
+### Pull the configured models
 
-The committed [`agents.yaml`](../agents.yaml) enables three Ollama models:
+The committed [`agents.yaml`](../agents.yaml) enables two Ollama models, and qwen3.5 is
+also the judge:
 
 ```bash
 ollama pull qwen3.5:latest
 ollama pull granite4.1:8b
-ollama pull qwen3:14b
 ```
 
-The 14B model is a diagnostic arm and requires roughly 9.3 GB on disk. On a
-smaller machine, set its `enabled` field to `false` in `agents.yaml` before
-starting Mahoraga.
+The other models in `agents.yaml` (qwen3:14b, granite4.2, ornith and others) are
+disabled, and each one's comment there says why. Set a model's `enabled` field to `true`
+before starting Mahoraga to add it to the pool.
 
 Confirm that Ollama is available:
 
@@ -64,7 +114,7 @@ Confirm that Ollama is available:
 curl http://127.0.0.1:11434/api/tags
 ```
 
-## Start the backend
+### Start the backend
 
 ```bash
 orch serve
@@ -87,7 +137,7 @@ For development reloads:
 orch serve --reload
 ```
 
-## Build or develop the web UI
+### Build or develop the web UI
 
 FastAPI serves `frontend/dist/` at `/` when a production build exists:
 
@@ -109,7 +159,7 @@ npm run dev
 
 Open `http://127.0.0.1:5173`. Vite proxies `/api` requests to the backend.
 
-## Enable semantic episodic memory
+### Enable semantic episodic memory
 
 Semantic mode is the runtime default, but its encoder and the `hnswlib` index
 it searches are optional installs:
@@ -129,7 +179,7 @@ orch memory backfill --dry-run
 orch memory backfill
 ```
 
-## Run tests
+### Run tests
 
 ```bash
 pytest -m "not slow"
@@ -138,16 +188,16 @@ pytest -m "not slow"
 Cloud development environments do not have Ollama, so live local-model routing
 is expected to be unavailable there. Unit tests mock adapters and workers.
 
-## Next steps
+### Next steps
 
 - Configure the roster and runtime in [Configuration](configuration.md).
 - Connect an editor or agent client with [MCP integration](mcp.md).
 - Inspect command families in the [CLI reference](cli-reference.md).
 - Measure routing with [Experiments and evaluation](experimentation.md).
 
-## Troubleshooting
+### Troubleshooting
 
-### `orch` is not found
+#### `orch` is not found
 
 Activate the virtual environment and install the package:
 
@@ -156,7 +206,7 @@ source .venv/bin/activate
 python -m pip install -e .
 ```
 
-### An Ollama agent is offline
+#### An Ollama agent is offline
 
 Check the Ollama server and verify the exact configured tag:
 
@@ -167,13 +217,13 @@ ollama pull qwen3.5:latest
 
 If you changed `agents.yaml`, restart `orch serve`.
 
-### A mission or run command cannot connect
+#### A mission or run command cannot connect
 
 Some legacy HTTP CLI clients still target port 8001, while `orch serve`
 defaults to 8000. See [Port behavior](cli-reference.md#port-behavior) for the
 affected commands and current workaround.
 
-### Semantic memory falls back to keyword retrieval
+#### Semantic memory falls back to keyword retrieval
 
 Verify that the optional encoder and its index can be imported:
 

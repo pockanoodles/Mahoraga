@@ -1,20 +1,39 @@
 # CLI reference
 
-The editable Python install exposes the `orch` command:
+The Python install exposes the `mahoraga` command, and `orch` is the same program under its
+older name:
 
 ```bash
 python -m pip install -e .
-orch --help
+mahoraga --help
 ```
 
 This page maps the current command tree and its runtime prerequisites. Use
-`orch <group> <command> --help` for the complete option list and defaults.
+`mahoraga <group> <command> --help` for the complete option list and defaults. The
+examples below use `orch` where the routing layer's docs always have, and either name
+works everywhere.
 
 ## Command tree
 
 ```text
-orch
+mahoraga                 (also installed as orch)
 ├── serve
+├── version
+├── mcp
+├── demo
+├── audit                (also agentbench, its name before the product)
+│   ├── tonight
+│   ├── mine
+│   ├── preflight
+│   ├── doctor
+│   ├── run
+│   ├── queue {add, ls, cancel, retry}
+│   ├── worker
+│   ├── service {install, uninstall, start, stop, status}
+│   ├── report
+│   ├── export
+│   ├── verdict
+│   └── reseal
 ├── mission {new, show, list}
 ├── plan {create, show, list, generate, approve}
 ├── run {start, show, list, cancel}
@@ -37,8 +56,12 @@ orch
 │   └── refresh
 ├── bench
 │   ├── run
+│   ├── live-route
+│   ├── repro
+│   ├── verify
 │   ├── validate
-│   └── report {compat-matrix, reweight, quality-replay, verify, runs}
+│   └── report {compat-matrix, cost, reweight, quality-replay, verify, grade,
+│               route-sim, judge-gate, judge-bank, runs, code-judge, reward-judge}
 ├── eval {ab}
 ├── rankings
 ├── agent {add}
@@ -56,7 +79,6 @@ orch
 │   ├── drift-history
 │   ├── override-roi
 │   └── weekly
-├── agentbench {mine, preflight, doctor, run, report, verdict}
 └── service {install, uninstall, start, stop, status}
 ```
 
@@ -256,61 +278,109 @@ orch brain query "execution gate" --k 5
 These commands inspect the repo-local `brain/` notes. They do not append
 journals or decisions.
 
-## Agent bench
+## The audit
 
-`orch agentbench` measures which coding agent + local model can fix bugs in a
-given repo, using that repo's own history. The repo must be a git repo with a
-pytest suite; it is only read, and all state lives under
-`~/.mahoraga-v2/agentbench/`.
+`mahoraga audit` (also `orch agentbench`, its name before the product) measures which
+coding agent and model can fix bugs in a given repository, using that repository's own
+history. The repository must be a git repository with a pytest suite, and its tests run
+under its own `.venv/bin/python` when there is one (pass `--python` otherwise, since
+Mahoraga's own interpreter has no pytest). Mahoraga only reads the repository, apart from
+the `git fetch` a `--follow --fetch` job runs in it, and all state lives under
+`~/.mahoraga-v2/agentbench/`, which `MAHORAGA_HOME` or `MAHORAGA_AGENTBENCH_ROOT` moves.
 
 ```bash
-orch agentbench mine [REPO]                 # commits -> gated tasks
-    [--limit 25] [--max-lines 250] [--rev HEAD] [--commit SHA ...]
-    [--python PATH] [--pytest-arg ARG ...]
-orch agentbench preflight [REPO] --arm aider:qwen3.5:latest [--arm ...]
-orch agentbench doctor [REPO] --arm aider:qwen3.5:latest [--cond feedback|blind|both] [--repeats K]
-orch agentbench run [REPO] --arm aider:qwen3.5:latest [--arm ...]
+mahoraga audit tonight [REPO] [--arm aider:qwen3.5:latest@ctx=131072] [--window 21:00-08:00]
+    [--tasks-per-month N] [--plan claude-max-5x | --api-spend USD] [--timeout SECS]
+mahoraga audit mine [REPO] [--limit 25] [--max-lines 250] [--rev HEAD] [--commit SHA ...]
+    [--python PATH] [--pytest-arg ARG ...] [--gate-runs K]
+mahoraga audit preflight [REPO] --arm aider:qwen3.5:latest [--arm ...]
+mahoraga audit doctor [REPO] [--arm aider:qwen3.5:latest] [--cond feedback|blind|both] [--repeats K]
+mahoraga audit run [REPO] --arm aider:qwen3.5:latest [--arm ...]
     [--cond blind|feedback|both] [--repeats K] [--task SHA ...] [--timeout SECS]
-    [--until HH:MM] [--wait-idle MIN] [--min-speed 0.5] [--no-guard] [--force]
-orch agentbench report [REPO] [--json]
-orch agentbench verdict REPO [REPO ...] --arm aider:qwen3.5:latest --tasks-per-month N
-    (--api-spend USD | --plan claude-pro|claude-max-5x|... [--plan-price USD] [--usage-of-cap 1.0])
-    [--cond feedback] [--deferrable 0.25] [--hourly 50] [--triage-min 3]
-    [--watts 40] [--kwh 0.30] [--json]
+    [--until HH:MM] [--wait-idle MIN] [--wait-quiet] [--memory-floor PCT]
+    [--min-speed 0.5] [--no-guard] [--force] [--allow-cloud]
+mahoraga audit queue add [REPO] [--arm ...] [--window HH:MM-HH:MM] [--wait-quiet]
+    [--follow [--fetch] [--gate-runs K]]
+mahoraga audit queue ls | cancel JOB | retry JOB
+mahoraga audit worker [--once] [--poll 5] [--memory-floor PCT]
+mahoraga audit service install | uninstall | start | stop | status
+mahoraga audit report [REPO] [--since YYYY-MM-DD] [--json]
+mahoraga audit export REPO [REPO ...] --out FILE.jsonl [--arm ...] [--cond ...]
+mahoraga audit verdict REPO [REPO ...] --arm aider:qwen3.5:latest [--cloud-arm claude:MODEL]
+    [--tasks-per-month N] [--api-spend USD | --plan claude-pro|claude-max-5x|...
+    [--plan-price USD] [--usage-of-cap 1.0]] [--cond feedback] [--deferrable 0.25]
+    [--hourly 50] [--triage-min 3] [--watts 40] [--kwh 0.30] [--json]
+mahoraga audit reseal [REPO]
 ```
 
-- **mine** takes commits that changed both source and a test module. The task
-  is the parent plus the commit's test changes. It is kept only if the tests
-  pass at the commit and at least one fails at the base. The full suite at the
-  base becomes the pass-to-pass baseline.
-- **run** resets each task, lets the agent edit, restores the test files, and
-  grades. An attempt is resolved when the commit's tests pass and no
-  pass-to-pass test regressed. `feedback` also passes the task's test command
-  to the agent. Resumable; `--repeats` above 1 records separate attempts per
-  cell.
-- **doctor** runs preflight's machine checks, then checks the bench (tasks
-  mined, test interpreter present, task clones in place, disk space), then
-  estimates the attempts left, the nights they'll take, and the interval
-  they'll buy. It uses this bench's own median attempt time once there is one.
-- **run** also writes a manifest per run (`runs/<run_id>.json`) recording
-  model digests, Ollama and agent versions, the harness commit, hashes of the
-  tasks and prompts, the machine and its power state. Every attempt records
-  the `run_id` it came from and the grading tier that decided it.
-- **report** prints resolve rates, multi-file resolve rates, regressions,
-  failure modes (`no-edit`, `wrong-file`, `broke-other`, `partial+broke`,
-  `partial`, `wrong-fix`), stability across repeats, and a per-task matrix.
-  Rates are weighted by task, with 95% Wilson intervals over *tasks*:
-  repeats of one task aren't independent, so only more tasks narrow an
-  interval. A precision line says how many tasks and nights ±10% would take.
-- **verdict** pools one arm's evidence across repos and answers *stay*,
-  *split* or *switch* for your billing. On API billing it weighs cloud cost
-  per task against electricity and your time to triage a failed local
-  attempt. On a subscription the only gains are a lower tier or headroom
-  under a cap you hit. The call is made at both ends of the interval, so it
-  is marked not yet decided when the interval spans the threshold. Every
-  unmeasured input is printed with it. Prices come from the dated,
-  sourced `backend/orchestrator/audit/pricing.json`. A plan whose price
-  wasn't read from the vendor's page is refused unless you pass `--plan-price`.
+- **tonight** goes from a repository to an answer by morning. It mines up to `--limit`
+  tasks if the repository has none, checks the agent, Ollama and the model, sizes the
+  attempt time limit to this machine's measured speed, queues the run for the window,
+  and starts the worker. It asks once for your monthly task count and how you pay, and
+  saves them in `usage.json` beside the benches. When the job ends, `morning.txt` in the
+  bench directory holds the report and, once your usage is saved, the verdict, and on
+  macOS a notification gives the call.
+- **mine** takes commits that changed both source and a test module. The task is the
+  parent plus the commit's test changes. Gate A keeps a commit only if its tests pass at
+  the commit, and gate B only if at least one of them fails at the base. The gold check
+  then applies the commit's real fix to the sealed task clone, grades it the way an
+  attempt is graded, and requires its tests to give the results they gave at the commit.
+  The pass-to-pass baseline is the set of tests that pass at the base and also with the
+  fix, so a test the fix itself breaks is recorded in `gold_fails` and never held against
+  an attempt. `--gate-runs K` runs gate B and the gold check K times (gate A runs once). A
+  target whose result changes with the fix applied drops the task, a test whose result
+  changes between runs is left out of the pass-to-pass baseline, and both are recorded in
+  `flaky`. Every dropped commit is printed with its reason.
+- **run** resets each task, lets the agent edit, restores the test files, and grades. An
+  attempt is resolved when the commit's tests pass and no pass-to-pass test regressed.
+  `feedback` also passes the task's test command to the agent. It is resumable, and
+  `--repeats` above 1 records separate attempts per cell. On a machine someone else
+  uses, `--memory-floor` keeps that percent of memory free for its owner, waiting for it
+  and stopping an attempt that eats into it.
+- **doctor** runs preflight's machine checks, then checks the bench (tasks mined, test
+  interpreter present, task clones in place, disk space), then estimates the attempts
+  left, the nights they'll take, and the interval they'll buy. It uses this bench's own
+  median attempt time once there is one.
+- **queue** holds runs that wait for their window and start on their own. Each job pins
+  its models' digests when it is added, waits for its window (and, with `--wait-quiet`,
+  for an Ollama nobody else is using), and always says why it waits or why it ended in
+  `queue ls`. A `--follow` job never finishes, since it mines the repository's new commits
+  each window (`--fetch` runs `git fetch` in the repository first and mines the upstream
+  branch, leaving your checkout alone) and runs them, so each new model meets work
+  that postdates it. A `--follow` job with no `--arm` only mines, which suits a machine
+  that runs no models. The queue refuses cloud arms, so nothing unattended sends code out.
+- **worker** runs queued jobs as their windows open, and **service** keeps it running in
+  the background as a launchd job on macOS or a systemd user unit on Linux, restarted if
+  it dies. `service status` shows whether it runs, its last log lines and the queue.
+- **report** prints resolve rates, multi-file resolve rates, regressions, failure modes
+  (`no-edit`, `wrong-file`, `broke-other`, `partial+broke`, `partial`, `wrong-fix`),
+  stability across repeats, and a per-task matrix. Rates are weighted by task, with 95%
+  Wilson intervals over *tasks*, because repeats of one task aren't independent, so only
+  more tasks narrow an interval. A precision line says how many tasks and nights ±10%
+  would take. `--since` counts only the tasks committed on or after a date, such as a
+  model's release, which is work the model can't have trained on.
+- **export** writes the counted attempts one line each, which is what `mahoraga bench
+  verify` recomputes the published rates and verdicts from.
+- **verdict** pools one arm's evidence across repos and answers *stay*, *split* or
+  *switch* for your billing. On API billing it weighs cloud cost per task against
+  electricity and your time to triage a failed local attempt. On a subscription the only
+  gains are a lower tier or headroom under a cap you hit. The call is made at both ends
+  of the interval, so it is marked not yet decided when the interval spans the
+  threshold. Every unmeasured input is printed with it. Prices come from the dated,
+  sourced `backend/orchestrator/audit/pricing.json`, and a plan whose price wasn't read
+  from the vendor's page is refused unless you pass `--plan-price`. Without billing flags
+  it uses what `tonight` saved in `usage.json`. With `--cloud-arm` on API billing, each
+  task local resolves is priced at what that cloud arm spent on the same task, and on a
+  subscription the cloud's row is printed without changing the call. The verdict refuses
+  a cloud arm unless it ran every task the local arm ran, under the same `--cond`, with a
+  recorded cost for each attempt. It also refuses when the local arm's attempts come from
+  two machines (the cloud arm's may come from another).
+- **reseal** takes the answer out of task clones mined before 2026-10-13 and keeps their
+  attempts.
+- Every **run** writes a manifest (`runs/<run_id>.json`) recording model digests, Ollama
+  and agent versions, the harness commit, hashes of the tasks and prompts, the machine
+  and its power state. Every attempt records the `run_id` it came from and the grading
+  tier that decided it.
 
 **The guard** (on by default for `run`) keeps results from measuring the
 machine instead of the agent. A throttled local model is slow enough to time
@@ -334,9 +404,9 @@ out the agent's calls, and those failures look exactly like model failures.
 `run` holds off sleep with `caffeinate` for its lifetime; closing the lid
 still sleeps the machine. `--until 07:30` starts no attempt after 07:30.
 
-Arms are `<agent>:<model>`, e.g. `aider:qwen3.5:latest` or
-`opencode:qwen3.5:latest`. Both agents get the same prompt and the same
-generation budget (32k context, 8,192 tokens per call), so a difference
+Arms are `<agent>:<model>[@ctx=N]`, e.g. `aider:qwen3.5:latest@ctx=131072` or
+`opencode:qwen3.5:latest`. The context defaults to 32,768 tokens. Both local agents get
+the same prompt and the same generation budget (8,192 tokens per call), so a difference
 between two arms on the same model is the agent's.
 
 - **aider** edits with search/replace blocks over a repo map. `feedback` uses
@@ -347,17 +417,33 @@ between two arms on the same model is the agent's.
   that shares the base weights. Only the ollama provider is enabled and web
   fetch is denied. `feedback` names the test command in the prompt, and the
   agent runs it itself.
+- **claude** is the cloud arm (`claude:claude-opus-5-5`). It runs Claude Code headless
+  with its own file tools and Bash and with its web tools off, in an empty home each
+  attempt, and it runs only when `run` gets `--allow-cloud`. Its one way out is a proxy
+  that allows api.anthropic.com alone and logs every connection, and each attempt
+  records the CLI's own cost at API list prices. It reads the task's copy of your
+  repository and sends what it reads to Anthropic, as [`DATAFLOW.md`](../DATAFLOW.md)
+  describes. It signs in with a Claude Code token read from
+  `~/.config/mahoraga/claude-token`, or from the file `MAHORAGA_CLAUDE_TOKEN_FILE` names.
 
-**Containment** is enforced by the OS, not requested of the agent. Each agent
-runs with its own HOME under the bench root, so it never sees your config or
-provider credentials. On macOS it also runs under `sandbox-exec`, which lets it
-and its children write only inside the task's checkout, that HOME, and the
-per-user temp area, and open network connections only to localhost (Ollama).
-Your repo is read-only to it. On other platforms only the HOME isolation
-applies.
+**Containment** is enforced by the operating system, not requested of the agent. Each
+agent runs with its own HOME under the bench root, so it never sees your config or
+provider credentials, and the folders under your home that hold keys and logins are
+hidden from it. On macOS it runs under `sandbox-exec`, and on Linux under bubblewrap
+when `bwrap` is installed. Either way the agent and its children can write only inside
+the task's checkout, that HOME and a temp area, and nothing they run can reach past this
+machine. On Linux a local agent gets its own network namespace with no route out, its
+own `/tmp` and its own `/run`, and reaches only Ollama through a relay. On macOS a local
+agent can reach any port on localhost, which includes Ollama, and nothing off the
+machine. The cloud arm reaches only its proxy on either system. Your repository is
+read-only to the agent.
 
-Models are local Ollama models only; Ollama `-cloud` models are refused, since
-they would send code off the machine outside the audited egress client.
+Without a sandbox the isolation checks fail. `tonight` then queues nothing, a queued job
+fails, and `run` stops unless you pass `--force`, which leaves local arms only their own
+HOME. The cloud arm refuses to start even then.
+
+Local arms use local Ollama models only. Ollama `-cloud` models are refused, since they
+would send code off the machine outside the audited egress client.
 
 ## Agent and rankings commands
 
@@ -365,18 +451,20 @@ they would send code off the machine outside the audited egress client.
 checks server health, benchmarks the model unless `--skip-benchmark` is used,
 and refreshes rankings. Both currently use the legacy port 8001 client.
 
-## macOS service
+## Background services
 
 ```bash
-orch service install
-orch service start
-orch service status
-orch service stop
-orch service uninstall
+mahoraga service install
+mahoraga service start
+mahoraga service status
+mahoraga service stop
+mahoraga service uninstall
 ```
 
-This group manages a launchd job, runs `orch serve` on port 8000, and writes
-logs to `~/.mahoraga-v2/server.log`. It is macOS-only.
+This group runs `mahoraga serve` on port 8000 in the background, as a launchd job on
+macOS or a systemd user unit on Linux, and writes logs to `~/.mahoraga-v2/server.log`.
+The audit's queue worker has its own service under `mahoraga audit service`, described
+under [The audit](#the-audit).
 
 ## Port behavior
 
@@ -388,7 +476,7 @@ The CLI currently has two hard-coded HTTP defaults:
 | MCP bridge | `status`, `events`, `approve`, and `reject` |
 | `orch bench run` | `orch rankings` |
 | `orch benchmark v2-review` | `orch agent add` |
-| macOS launchd service | `orch benchmark refresh` and `orch eval ab` |
+| `mahoraga service` (launchd or systemd) | `orch benchmark refresh` and `orch eval ab` |
 
 For MCP, the UI, and live batches, run the normal `orch serve` on port 8000.
 For a workflow that uses the legacy mission/run clients, start a separate

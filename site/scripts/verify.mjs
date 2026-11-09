@@ -335,6 +335,11 @@ for (const [loc, width, height] of [[LOCALES[0], 1000, 558], [LOCALES[0], 1280, 
 // on the same square opens it, and so does a tap on the tip's own link.
 {
   const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
+  // The tab a tap opens loads GitHub, and Playwright reports the tab only once
+  // its first response arrives. GitHub took 11 s to answer a commit page with
+  // a 504 on 11-09, past the wait below, so these checks would measure GitHub.
+  // They ask whether a tab opens, so GitHub answers here at once.
+  await ctx.route("https://github.com/**", (route) => route.fulfill({ status: 200, contentType: "text/html", body: "" }));
   const page = await ctx.newPage();
   await page.goto(`${BASE}/mahoraga/`, { waitUntil: "networkidle" });
   const sq = page.locator("#settings .sgrid__sq").first();

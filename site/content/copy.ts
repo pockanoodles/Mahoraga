@@ -12,6 +12,29 @@ export interface Dict {
   meta: Record<"research" | "engine" | "install" | "privacy", { title: string; description: string }>;
   nav: { research: string; engine: string; install: string; github: string; label: string; updated: (date: string) => string };
   hero: { questionLabel: string; question: string; eyebrow: string; statement: string; sub: string; cta: string; more: string };
+  // The map (ADR 2026-11-08): one row per kind of work, local and cloud on the
+  // same tasks. Its numbers arrive as arguments from the claims, as everywhere.
+  map: {
+    title: string;
+    lead: string;
+    head: { work: string; local: string; cloud: string; caught: string };
+    work47: (n: number) => string;
+    workAfter: (n: number) => string;
+    work92: (n: number) => string;
+    laptop: (k: number, n: number, rate: string, lo: string, hi: string) => string;
+    studio35: (k: number, n: number, rate: string, lo: string, hi: string) => string;
+    count: (k: number, n: number) => string;
+    opus: (k: number, n: number, usd: string) => string;
+    notRun: string;
+    no: string;
+    needsSpent: (rate: string) => string;
+    needsAssumed: (rate: string, price: string) => string;
+    runningTitle: string;
+    running: string[];
+    rule: string;
+    source: string;
+    sourceLink: string;
+  };
   standing: {
     title: string;
     // n: the commits the settings rows share; own: the laptop run's share of
@@ -102,7 +125,7 @@ export interface Dict {
     minutes: (m: number) => string;
     costs: (power: string, time: string) => string;
   };
-  headless: { title: string; lead: string; mcpNote: string; viewer: string };
+  byHand: { title: string; lead: string };
   privacy: { title: string; items: { title: string; body: string }[]; link: string; policy: string };
   run: {
     title: string;
@@ -140,7 +163,7 @@ export interface Dict {
     contributing: string;
     security: string;
     dataflow: string;
-    results: string;
+    app: string;
     language: string;
   };
 }
@@ -150,17 +173,17 @@ const MONTHS = ["January", "February", "March", "April", "May", "June", "July", 
 const en: Dict = {
   meta: {
     research: {
-      title: "Mahoraga: local coding AI, measured on real code",
+      title: "Mahoraga: where local AI has caught up with the cloud",
       description:
-        "Mahoraga is an open engine that measures local coding agents on real commits and logs every result with the data behind it.",
+        "Mahoraga is a long-term study that measures local and cloud AI on the same real commits, grades them with each repository's own tests, and dates every result.",
     },
     engine: {
-      title: "Mahoraga: how the engine reaches a verdict",
+      title: "Mahoraga: how each row is measured",
       description:
-        "Mahoraga grades a local agent on your repository's own commits and turns the share it resolves into a stay, split, or switch verdict.",
+        "Each row is real commits graded by the repository's own tests, with local and cloud on the same tasks. The same pipeline gives a verdict on your own repository.",
     },
     install: {
-      title: "Mahoraga: install it and run it on your own repository",
+      title: "Mahoraga: replicate it on your own repository",
       description:
         "Install Mahoraga from source and queue a night's run on your own repository, on macOS or Linux with Python 3.12+ and Ollama.",
     },
@@ -169,15 +192,40 @@ const en: Dict = {
       description: "What Mahoraga sends off your computer, where it goes, and how to stop it.",
     },
   },
-  nav: { research: "Research", engine: "Engine", install: "Install", github: "GitHub", label: "Mahoraga", updated: (d) => `Updated ${d}` },
+  nav: { research: "Research", engine: "Method", install: "Replicate", github: "GitHub", label: "Mahoraga", updated: (d) => `Updated ${d}` },
   hero: {
     questionLabel: "The question",
-    question: "Should you keep paying for cloud coding AI, or run a model on your own machine?",
+    question: "Where has local AI caught up with the cloud?",
     eyebrow: "Where local stands, November 2026",
-    statement: "For most people, the answer is still to keep paying for cloud.",
-    sub: "Mahoraga measures local coding AI on real code, and this page is its log. Each attempt is graded by the repository's own tests, and every number here is recomputed from committed data.",
+    statement: "Local hasn't caught up on any coding work measured so far.",
+    sub: "Mahoraga is a long-term study of local against cloud AI on the same real commits. Each attempt is graded by the repository's own tests, and every number here is recomputed from committed data.",
     cta: "Read the log",
-    more: "See the engine",
+    more: "See the method",
+  },
+  map: {
+    title: "One row for each kind of work, with both sides on the same tasks.",
+    lead: "Local has caught up on a row when even the low end of its 95% interval clears the break-even line, and no row has crossed yet.",
+    head: { work: "Work", local: "Local, best measured", cloud: "Cloud, same tasks", caught: "Caught up?" },
+    work47: (n) => `Real commits from attrs and more-itertools (${n} tasks)`,
+    workAfter: (n) => `The ${n} of those committed after June 2026, past both models' training data`,
+    work92: (n) => `Real commits from attrs, more-itertools and click (${n} tasks)`,
+    laptop: (k, n, rate, lo, hi) => `aider and qwen3.5 (9.7B) on a 16 GB MacBook: ${k} of ${n}, ${rate} (95% interval ${lo} to ${hi})`,
+    studio35: (k, n, rate, lo, hi) => `aider and qwen3.6 (35B) on a 64 GB Mac Studio: ${k} of ${n}, ${rate} (95% interval ${lo} to ${hi})`,
+    count: (k, n) => `${k} of ${n}`,
+    opus: (k, n, usd) => `Claude Code and Opus 5.5: ${k} of ${n}, at ${usd} a task`,
+    notRun: "Not run yet",
+    no: "No",
+    needsSpent: (rate) => `No. Local needs ${rate} at what the cloud spent.`,
+    needsAssumed: (rate, price) => `No. Local needs ${rate} at an assumed ${price} a cloud task.`,
+    runningTitle: "Being measured now",
+    running: [
+      "Claude Code driving qwen3.5 on the Mac Studio, so both sides use the same agent and whatever gap remains belongs to the model.",
+      "Sonnet 5.5 and Haiku 5.5 on the same tasks as Opus 5.5, so each row can say which cloud tier local has caught up with.",
+      "New commits mined every night, so each new model meets work made after its release.",
+    ],
+    rule: "Coding comes first because a commit grades itself with its tests. Another kind of work joins the map only when it has a check just as mechanical, and real tasks behind it.",
+    source: "Every number in the table is recomputed in CI from the committed attempts.",
+    sourceLink: "Read the report",
   },
   standing: {
     title: "Real commits resolved",
@@ -255,8 +303,8 @@ const en: Dict = {
     follow: "Follow new entries in a feed reader",
   },
   engine: {
-    title: "One pipeline, from a repository's history to a verdict.",
-    lead: "Every stage can be swapped, and the log and a verdict on your own repository come out of the same code.",
+    title: "One pipeline, from a repository's history to a row of the map.",
+    lead: "The map's rows and a verdict on your own repository come out of the same code, and every stage can be swapped.",
     stages: [
       { name: "Mine", body: "Keep commits whose tests fail before them and pass after, then grade the real fix like an attempt." },
       { name: "Check", body: "Confirm the bench works and estimate the nights it needs." },
@@ -314,11 +362,9 @@ const en: Dict = {
     minutes: (m) => `${m} min`,
     costs: (power, time) => `One local attempt burns about ${power} of electricity, and checking a failed one costs ${time} of your time.`,
   },
-  headless: {
-    title: "Built to be scripted.",
-    lead: "The CLI, the HTTP API and the MCP server all reach the same engine, so a scripted verdict matches the one in the log.",
-    mcpNote: "Add it to Claude Code or any MCP client to hand the router tasks.",
-    viewer: "The same server also hosts a small local viewer for runs and verdicts.",
+  byHand: {
+    title: "Each step has its own command.",
+    lead: "The tonight command does the whole setup at once. Each stage also runs on its own when you want to drive it by hand.",
   },
   privacy: {
     title: "Your code stays on your machine.",
@@ -385,7 +431,7 @@ const en: Dict = {
     contributing: "Contributing",
     security: "Security",
     dataflow: "Data flow",
-    results: "Results",
+    app: "App and router",
     language: "日本語",
   },
 };
@@ -395,17 +441,17 @@ const jaWord: Record<CurvePoint["call"], string> = { stay: "継続", split: "分
 const ja: Dict = {
   meta: {
     research: {
-      title: "Mahoraga：ローカルのコーディング AI を、実際のコードで測る",
+      title: "Mahoraga：ローカルの AI はどこでクラウドに追いついたか",
       description:
-        "Mahoraga は、ローカルのコーディングエージェントを実際のコミットで測るオープンなエンジンです。結果はすべて、根拠のデータと一緒に記録しています。",
+        "Mahoraga は、同じ実際のコミットでローカルとクラウドの AI を測り、各リポジトリ自身のテストで採点して、結果に日付をつけて記録する長期の研究です。",
     },
     engine: {
-      title: "Mahoraga：エンジンが判定を出すまで",
+      title: "Mahoraga：各行の測り方",
       description:
-        "Mahoraga は、リポジトリ自身のコミットでローカルのエージェントを採点し、解決できた割合を「継続」「分担」「移行」の判定に変えます。",
+        "各行は、リポジトリ自身のテストで採点した実際のコミットで、ローカルとクラウドを同じタスクで測ります。同じパイプラインで、あなたのリポジトリの判定も出せます。",
     },
     install: {
-      title: "Mahoraga：インストールして、自分のリポジトリで動かす",
+      title: "Mahoraga：自分のリポジトリで再現する",
       description:
         "Mahoraga をソースからインストールし、自分のリポジトリで一晩の計測を予約します。macOS か Linux で、Python 3.12 以降と Ollama を使います。",
     },
@@ -414,15 +460,40 @@ const ja: Dict = {
       description: "Mahoraga がコンピューターの外へ何を送り、どこへ届くのか、そしてそれを止める方法。",
     },
   },
-  nav: { research: "研究", engine: "エンジン", install: "インストール", github: "GitHub", label: "Mahoraga", updated: (d) => `${d} 更新` },
+  nav: { research: "研究", engine: "方法", install: "再現", github: "GitHub", label: "Mahoraga", updated: (d) => `${d} 更新` },
   hero: {
     questionLabel: "問い",
-    question: "クラウドのコーディング AI に払い続けるべきか、それとも自分のマシンでモデルを動かすべきか。",
+    question: "ローカルの AI は、どこでクラウドに追いついたのか。",
     eyebrow: "ローカルの現在地（2026 年 11 月）",
-    statement: "多くの人にとって、答えは今もクラウドに払い続けることです。",
-    sub: "Mahoraga は実際のコードでローカルのコーディング AI を測り、このページはその記録です。各試行はそのリポジトリ自身のテストで採点し、ここにある数字はすべてコミット済みのデータから計算し直しています。",
+    statement: "これまで測ったコーディングの仕事では、まだどこでも追いついていません。",
+    sub: "Mahoraga は、同じ実際のコミットでローカルとクラウドの AI を比べ続ける長期の研究です。各試行はそのリポジトリ自身のテストで採点し、ここにある数字はすべてコミット済みのデータから計算し直しています。",
     cta: "記録を読む",
-    more: "エンジンを見る",
+    more: "方法を見る",
+  },
+  map: {
+    title: "仕事の種類ごとに 1 行、両者を同じタスクで測っています。",
+    lead: "ローカルが追いついたと言えるのは、95% 区間の下端でさえ損益分岐線を越えたときで、まだ越えた行はありません。",
+    head: { work: "仕事", local: "ローカル（最良の計測）", cloud: "クラウド（同じタスク）", caught: "追いついたか" },
+    work47: (n) => `attrs と more-itertools の実際のコミット（${n} タスク）`,
+    workAfter: (n) => `そのうち 2026 年 6 月より後にコミットされた ${n} タスク（両モデルの学習データより後）`,
+    work92: (n) => `attrs、more-itertools、click の実際のコミット（${n} タスク）`,
+    laptop: (k, n, rate, lo, hi) => `16 GB の MacBook で aider と qwen3.5（9.7B）：${n} 件中 ${k} 件、${rate}（95% 区間 ${lo}〜${hi}）`,
+    studio35: (k, n, rate, lo, hi) => `64 GB の Mac Studio で aider と qwen3.6（35B）：${n} 件中 ${k} 件、${rate}（95% 区間 ${lo}〜${hi}）`,
+    count: (k, n) => `${n} 件中 ${k} 件`,
+    opus: (k, n, usd) => `Claude Code と Opus 5.5：${n} 件中 ${k} 件、1 タスク ${usd}`,
+    notRun: "まだ測っていません",
+    no: "いいえ",
+    needsSpent: (rate) => `いいえ。クラウドが実際に使った額では、ローカルに ${rate} が必要です。`,
+    needsAssumed: (rate, price) => `いいえ。クラウドのタスクを 1 件 ${price} と仮定すると、ローカルに ${rate} が必要です。`,
+    runningTitle: "いま測っているもの",
+    running: [
+      "Mac Studio で Claude Code に qwen3.5 を動かさせ、両側のエージェントをそろえます。それでも残る差は、モデルの差です。",
+      "Opus 5.5 と同じタスクで Sonnet 5.5 と Haiku 5.5 も測り、ローカルがどのクラウドの層に追いついたかを各行で言えるようにします。",
+      "新しいコミットを毎晩掘り出し、新しいモデルがリリース後の仕事にも出会うようにします。",
+    ],
+    rule: "コーディングから始めるのは、コミットが自分のテストで採点できるからです。ほかの種類の仕事は、同じくらい機械的な確認方法と実際のタスクがそろったときにだけ、この表に加わります。",
+    source: "表の数字はすべて、コミット済みの試行から CI で計算し直しています。",
+    sourceLink: "レポートを読む",
   },
   standing: {
     title: "解決した実際のコミット",
@@ -501,8 +572,8 @@ const ja: Dict = {
     follow: "新しい記録をフィードで受け取る（英語）",
   },
   engine: {
-    title: "リポジトリの履歴から判定まで、ひとつのパイプラインで。",
-    lead: "どの段階も差し替えられ、この記録とあなたのリポジトリの判定は同じコードから出てきます。",
+    title: "リポジトリの履歴から表の 1 行まで、ひとつのパイプラインで。",
+    lead: "表の各行とあなたのリポジトリの判定は同じコードから出てきて、どの段階も差し替えられます。",
     stages: [
       { name: "抽出", body: "テストがコミットの前では失敗し、後では通るものだけを残し、本物の修正も試行と同じように採点します。" },
       { name: "点検", body: "ベンチが動くかを確かめ、必要な晩数を見積もります。" },
@@ -594,11 +665,9 @@ const ja: Dict = {
     minutes: (m) => `${m} 分`,
     costs: (power, time) => `ローカルの試行 1 回の電気代は約 ${power} で、失敗した試行を確認する時間は、時給に換算すると ${time} です。`,
   },
-  headless: {
-    title: "スクリプトから使うための設計。",
-    lead: "CLI、HTTP API、MCP サーバーはどれも同じエンジンにつながるので、スクリプトで出した判定はこの記録と一致します。",
-    mcpNote: "Claude Code などの MCP クライアントに追加すれば、ルーターにタスクを渡せます。",
-    viewer: "同じサーバーには、実行記録と判定を見るための小さなローカルビューアーもあります。",
+  byHand: {
+    title: "各段階に、それぞれのコマンドがあります。",
+    lead: "tonight コマンドは準備を一度に済ませます。手で動かしたいときは、各段階を単独でも実行できます。",
   },
   privacy: {
     title: "コードは、手元から出ていきません。",
@@ -664,7 +733,7 @@ const ja: Dict = {
     contributing: "コントリビューション",
     security: "セキュリティ",
     dataflow: "データフロー",
-    results: "結果",
+    app: "アプリとルーター",
     language: "English",
   },
 };

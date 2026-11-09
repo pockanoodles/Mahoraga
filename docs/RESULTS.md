@@ -20,7 +20,7 @@ the value published below. It exits nonzero on any mismatch and runs in CI, so
 prose cannot drift away from data.
 
 That is the cheap half of reproducibility. The expensive half —
-[`orch bench repro`](../README.md#reproduce-the-benchmark) — re-runs the whole
+[`orch bench repro`](app.md#reproduce-the-benchmark) — re-runs the whole
 benchmark on your hardware (~3.5 h, Ollama + `claude` CLI). Verification asks
 "does the README match the data"; reproduction asks "is the data real here".
 They answer different questions and you want both.
@@ -113,7 +113,7 @@ Not supported, and not claimed anywhere:
 
 - **Anything about production, users, uptime, or scale.** Mahoraga has one user
   by design. Daily-use figures are tracked separately by
-  [`orch metrics usage`](../README.md#monitoring) and are a different claim.
+  [`orch metrics usage`](app.md#monitoring) and are a different claim.
 - **That the contextual bandit improves routing.** It does not, measurably: in
   head-to-head evaluation it never beat round-robin between the two local arms.
   The bandit is architecture in this repo, not a result. The cascade is the

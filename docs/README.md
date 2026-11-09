@@ -4,18 +4,22 @@ These guides describe the behavior of the current `main` branch.
 
 ## The study
 
-- [The report](report/2026-10-local-coding-ai.md) asks whether local coding AI is worth
-  it on a 16 GB Mac. Every measured figure in it links to the attempts it was computed
-  from, every outside one to its source, and
-  the site's [Research page](https://kaitosoeno.com/mahoraga/) publishes it one finding
-  at a time.
-- [The study's direction](../brain/decisions/2026-10-29-long-term-study.md) is the
-  decision record for why Mahoraga is a long-term study, what the site publishes, and the
+Mahoraga is a long-term study of where local AI has caught up with cloud AI, measured on real
+commits with each repository's own tests and dated because the line is expected to move.
+
+- [The map](../README.md#the-map-so-far) is the current state, one row per kind of work, with
+  local and cloud on the same tasks.
+- [The report](report/2026-10-local-coding-ai.md) is the full write-up. Every measured figure
+  in it links to the attempts it was computed from, every outside one to its source, and the
+  site's [Research page](https://kaitosoeno.com/mahoraga/) publishes it one finding at a time.
+- [The study's direction](../brain/decisions/2026-11-08-the-map.md) is the decision record
+  for the map, what counts as local having caught up, and what may join it. It refines
+  [the 10-29 record](../brain/decisions/2026-10-29-long-term-study.md), which still sets the
   conditions pooled results from readers wait on.
 - [`../DATAFLOW.md`](../DATAFLOW.md) says what each part of Mahoraga sends where, written
   for a reader who doesn't read code.
 
-## Run the audit
+## Replicate it on your repository
 
 - [Getting started](getting-started.md) installs the audit, checks your machine and
   repository, and queues a night of runs.
@@ -25,11 +29,13 @@ These guides describe the behavior of the current `main` branch.
 - [Configuration](configuration.md) covers environment variables and local state,
   including `MAHORAGA_HOME`.
 
-## The routing layer
+## The app, the router and MCP
 
-The router is the stage that acts on the audit's verdict, by answering with a local model
-and paying for a cloud model only when the local answer fails.
+These came before the study, and no number on the map depends on them. The router only has
+work to do once a row of the map says local has caught up.
 
+- [The app, the router and MCP](app.md) is their overview: the interfaces, the demo, the
+  cascade, routing and rewards, the routing benchmark and its monitoring.
 - [Getting started](getting-started.md#set-up-the-router) sets up the backend, the local
   models and the web UI.
 - [Configuration](configuration.md) covers agents, routing behavior and its environment
@@ -43,7 +49,8 @@ and paying for a cloud model only when the local answer fails.
 
 ## Understand and extend Mahoraga
 
-- [`../README.md`](../README.md) is the project overview and architecture.
+- [`../README.md`](../README.md) is the study's overview: the map, the method and how to
+  replicate it.
 - [`../agents.yaml`](../agents.yaml) is the source of truth for the router's agent
   roster.
 - [`specs/`](specs/) holds design specifications and research plans.

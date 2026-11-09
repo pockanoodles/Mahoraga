@@ -169,7 +169,7 @@ Same model and prompt framing either way, so routed pass@1 is comparable; the
 always-cloud dollar column is not, because the two bill differently. The same
 choice applies to the live serving cascade through `MAHORAGA_ESCALATE_TO`.
 See the README's
-[Reproduce the benchmark](../README.md#reproduce-the-benchmark) section.
+[Reproduce the benchmark](app.md#reproduce-the-benchmark) section.
 Unlike `bench run`, it does not need the FastAPI service — it drives the
 workers directly through `bench live-route`.
 

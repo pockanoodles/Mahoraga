@@ -5,12 +5,15 @@ the route `kaitosoeno.com/mahoraga*`, so it releases with Mahoraga rather than w
 personal site, which stays the origin for every other path. It has three pages, each in
 English under `/mahoraga/` and in Japanese under `/mahoraga/ja/`:
 
-- **Research** (`/mahoraga/`, the landing page): where local stands, one task in full, the
-  settings grid and the log (`components/Research.tsx`).
-- **Engine** (`/mahoraga/engine/`): the pipeline, the first probe replayed, the verdict
-  calculator and what stays on the machine (`components/Engine.tsx`).
-- **Install** (`/mahoraga/install/`): installing it, running it, scripting it and helping
-  with it (`components/Install.tsx`).
+- **Research** (`/mahoraga/`, the landing page): where local stands, the map of where it
+  has caught up (`components/MapTable.tsx`), one task in full, the settings grid and the log
+  (`components/Research.tsx`).
+- **Method** (`/mahoraga/engine/`): the pipeline, the first probe replayed, the verdict
+  calculator and what stays on the machine (`components/Engine.tsx`). The path kept its
+  old name when the page became Method on 2026-11-08, so links to it still work.
+- **Replicate** (`/mahoraga/install/`): installing it, running it, each stage's command and
+  helping with it (`components/Install.tsx`). The app, the HTTP API and MCP are documented
+  apart in `../docs/app.md` and stay off the site.
 
 `components/Shell.tsx` gives every page the same bar, footer and menu, and `lib/routes.ts`
 holds every page's path, which the links, the metadata and the sitemap all read. The menu

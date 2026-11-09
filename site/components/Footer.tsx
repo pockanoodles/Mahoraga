@@ -45,8 +45,8 @@ export function Footer({ t, locale, page }: { t: Dict; locale: Locale; page: Pag
               </a>
             </li>
             <li>
-              <a href={`${GIT}/blob/main/docs/RESULTS.md`} target="_blank" rel="noreferrer">
-                {t.footer.results}
+              <a href={`${GIT}/blob/main/docs/app.md`} target="_blank" rel="noreferrer">
+                {t.footer.app}
               </a>
             </li>
             <li>

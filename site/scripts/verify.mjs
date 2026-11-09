@@ -25,15 +25,16 @@ const LOCALES = [
   {
     lang: "en",
     root: "/mahoraga/",
-    nav: ["Research", "Engine", "Install"],
+    nav: ["Research", "Method", "Replicate"],
     menuLabel: "MENU",
     unaffiliated: "Mahoraga is not affiliated with Anthropic, OpenAI, Alibaba, IBM or Ollama.",
     stay: "Stay",
     open: "Not yet decided",
-    answer: "For most people, the answer is still to keep paying for cloud.",
+    answer: "Local hasn't caught up on any coding work measured so far.",
+    mapRows: 3,
     h1: {
-      research: "Should you keep paying for cloud coding AI, or run a model on your own machine?",
-      engine: "One pipeline, from a repository's history to a verdict.",
+      research: "Where has local AI caught up with the cloud?",
+      engine: "One pipeline, from a repository's history to a row of the map.",
       install: "Run it on your own repository.",
       privacy: "Privacy",
     },
@@ -41,15 +42,16 @@ const LOCALES = [
   {
     lang: "ja",
     root: "/mahoraga/ja/",
-    nav: ["研究", "エンジン", "インストール"],
+    nav: ["研究", "方法", "再現"],
     menuLabel: "メニュー",
     unaffiliated: "Mahoraga は Anthropic、OpenAI、Alibaba、IBM、Ollama のいずれとも提携していません。",
     stay: "継続",
     open: "未確定",
-    answer: "多くの人にとって、答えは今もクラウドに払い続けることです。",
+    answer: "これまで測ったコーディングの仕事では、まだどこでも追いついていません。",
+    mapRows: 3,
     h1: {
-      research: "クラウドのコーディング AI に払い続けるべきか、それとも自分のマシンでモデルを動かすべきか。",
-      engine: "リポジトリの履歴から判定まで、ひとつのパイプラインで。",
+      research: "ローカルの AI は、どこでクラウドに追いついたのか。",
+      engine: "リポジトリの履歴から表の 1 行まで、ひとつのパイプラインで。",
       install: "あなたのリポジトリで動かす。",
       privacy: "プライバシーポリシー",
     },
@@ -113,6 +115,11 @@ async function research(page, loc, vp, tag) {
   // The question is the h1, in its own panel, and the dated answer follows it.
   check((await page.locator(".hero__question h1").count()) === 1, `${tag}: the question is the h1, in its own panel`);
   check((await page.textContent(".hero__answer .hero__statement"))?.trim() === loc.answer, `${tag}: the answer follows the question`);
+  // The map: one row per kind of work, each with a work label and three cells.
+  const mapRows = await page.locator("#map .map__table tbody tr").count();
+  check(mapRows === loc.mapRows, `${tag}: the map has ${loc.mapRows} rows (${mapRows})`);
+  const mapCells = await page.locator("#map .map__table tbody td").count();
+  check(mapCells === 3 * mapRows, `${tag}: every map row has its local, cloud and caught-up cells`);
 
   // The hero chart: measured rows draw an interval and a rate, and the run still
   // under way shows no rate at all, since a number read mid-run would be peeking.
@@ -258,11 +265,11 @@ async function install(page, tag) {
   check(cmds > 0 && copies === cmds, `${tag}: every run command has a copy button (${copies}/${cmds})`);
   check((await page.locator(".run__cmd code", { hasText: "mahoraga audit tonight" }).count()) === 1, `${tag}: the run section queues tonight's run`);
 
-  // Code tabs switch, and each shows a real command.
-  await page.locator('[role="tab"]', { hasText: "HTTP" }).click();
-  check((await page.textContent(".codetabs__panel"))?.includes("/api/audit/verdict"), `${tag}: HTTP tab shows the verdict endpoint`);
-  await page.locator('[role="tab"]', { hasText: "MCP" }).click();
-  check((await page.textContent(".codetabs__panel"))?.includes("mahoraga mcp"), `${tag}: MCP tab shows mahoraga mcp`);
+  // Each stage has its own command. The app, the HTTP API and MCP are
+  // documented apart (docs/app.md), so the page offers no tab for them.
+  const panel = (await page.textContent("#steps .codetabs__panel")) ?? "";
+  check(["audit mine", "audit doctor", "audit run", "audit verdict"].every((c) => panel.includes(`mahoraga ${c}`)), `${tag}: the by-hand section shows each stage's command`);
+  check((await page.locator('[role="tab"]', { hasText: /HTTP|MCP/ }).count()) === 0, `${tag}: no tab for the app's HTTP API or MCP`);
 }
 
 // The privacy policy: the footer reaches it from every page, and its

@@ -96,6 +96,21 @@ const cents = (x: Claim, key: string) => `$${n(x, key).toFixed(2)}`;
 
 export const LOG: Entry[] = [
   {
+    id: "2026-11-08-the-map",
+    date: "2026-11-08",
+    kind: "method",
+    claims: [c.vsCloud.id],
+    title: {
+      en: "The study now asks where local has caught up, one kind of work at a time.",
+      ja: "研究の問いは、ローカルがどこで追いついたか、を仕事の種類ごとに見るものになりました。",
+    },
+    body: {
+      en: `Each kind of work is now a row, with local and cloud measured on the same tasks, and local has caught up on a row when even the low end of its interval clears the break-even line. No row has crossed yet, since on the ${n(c.vsCloud, "pairs")} paired tasks local still needs ${pct(n(c.vsCloud, "breakeven_rate"))}. The cloud side now includes Sonnet 5.5 and Haiku 5.5 beside Opus 5.5, because local may reach a cheaper tier long before the best one. Coding comes first because a commit grades itself with its tests, and another kind of work joins only with a check just as mechanical.`,
+      ja: `仕事の種類ごとに 1 行を設け、ローカルとクラウドを同じタスクで測ります。ローカルが追いついたと言えるのは、区間の下端でさえ損益分岐線を越えたときです。対にした ${n(c.vsCloud, "pairs")} タスクでは、ローカルにまだ ${pct(n(c.vsCloud, "breakeven_rate"))} が必要なので、越えた行はありません。クラウド側には Opus 5.5 に加えて Sonnet 5.5 と Haiku 5.5 も入れました。ローカルは最上位の層より先に、安い層に追いつくかもしれないからです。コーディングから始めるのは、コミットが自分のテストで採点できるからで、ほかの種類の仕事は同じくらい機械的な確認方法がそろったときにだけ加わります。`,
+    },
+    receipts: [{ label: { en: "Decision record", ja: "決定の記録" }, href: blob("brain/decisions/2026-11-08-the-map.md") }],
+  },
+  {
     id: "2026-11-07-gold-check",
     date: "2026-11-07",
     kind: "method",

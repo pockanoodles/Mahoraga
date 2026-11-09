@@ -47,7 +47,8 @@ these repositories the cloud solves as many tasks as the report's verdicts
 assume, at under a third of the price they assume. The two cheaper tiers ran
 the same tasks on 2026-11-08. Claude Haiku 5.5 also resolved all 47, at about
 a cent a task, and Claude Sonnet 5.5 resolved 43 at $0.07, so local trails
-every tier.
+every tier. Measured as a gap on the same tasks, every tier's resolve rate
+sits 55 to 64 points above local's.
 
 ## 1. The local tier stopped getting new models
 
@@ -300,6 +301,47 @@ It tried to install packages so it could run the tests, which made 217
 connections to pypi.org and one to api.github.com, and the proxy refused all
 of them. It then solved the tasks without those packages. Opus and Sonnet
 connected to api.anthropic.com alone.
+
+### Caught up, by capability
+
+The break-even rate answers whether a reader should move work to local, and
+it is priced by what the cloud spends. Haiku 5.5 spent less than a cent on
+each task the laptop solved, so against Haiku the break-even rate asks local
+to resolve 100% of the queue. A bar that high says more about the cloud's
+price than about what local can do. The map therefore reads a second number
+for each tier, which is the gap between the cloud's resolve rate and local's
+on the same tasks ([the decision](../../brain/decisions/2026-11-08-caught-up-by-capability.md)).
+
+The gap comes with a 95% interval (Tango's score interval for paired results),
+and it is read against a margin of 10 points that was fixed before any new
+run. Local has caught up with a tier when the whole interval sits below 10
+points, and it is behind when the whole interval sits above. An interval that
+straddles the margin is too close to call. Ten points is about how close the
+cloud's own tiers are on these tasks, since Sonnet trails Opus by 8.5.
+
+| Tier | Gap on all 47 tasks (cloud minus local) | Gap on the 19 committed after June 2026 | Standing |
+| --- | --- | --- | --- |
+| Claude Opus 5.5 | 64 points (50 to 76) | 84 points (53 to 94) | behind |
+| Claude Sonnet 5.5 | 55 points (38 to 69) | 79 points (49 to 91) | behind |
+| Claude Haiku 5.5 | 64 points (50 to 76) | 84 points (53 to 94) | behind |
+
+Local is behind every tier, and the cheapest tier leads by as much as the
+most expensive one. The laptop ran under aider while the cloud ran under
+Claude Code, so part of each gap belongs to the agent. A run of Claude Code
+driving qwen3.5 on the laptop will replace this row's local side, and the gap
+that remains will then belong to the model.
+
+The test also shows how much evidence a row needs. On these 47 tasks Sonnet
+trails Opus by 8.5 points (0.3 to 19.9), which straddles the margin, so the
+test can't call even two cloud tiers level. In a simulation, a local model
+that is truly level and disagrees with the cloud on one task in ten reads
+"caught up" 43% of the time on 47 tasks and 94% of the time on 150. The
+coding row therefore grows toward 150 tasks. Two more conditions guard a
+crossing once one appears. The tasks committed after the cloud model's
+training cutoff can't read "behind" on their own, and the crossing has to
+hold after the next batch of newly mined tasks is added. The map tests every
+tier again each month, and enough repeated tests would eventually cross by
+chance.
 
 ## 5. The hardware question
 

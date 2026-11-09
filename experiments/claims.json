@@ -745,6 +745,7 @@
         "artifact": "experiments/agentbench/optiplex-2026-11-cloud.jsonl",
         "select": {"arm": "claude:claude-opus-5-5", "cond": "blind"}
       },
+      "capability": "versus",
       "config": {
         "local": "the laptop's 131k run (report_2026_10_laptop_131k)",
         "cloud": "report_2026_11_cloud_opus55"
@@ -771,7 +772,12 @@
         "net_lo": { "value": -94, "decimals": 0 },
         "net_hi": { "value": -58, "decimals": 0 },
         "breakeven_rate": { "value": 0.95, "decimals": 2 },
-        "breakeven_cloud_usd": { "value": 4.43, "decimals": 2 }
+        "breakeven_cloud_usd": { "value": 4.43, "decimals": 2 },
+        "gap": { "value": 0.64, "decimals": 2 },
+        "gap_lo": { "value": 0.50, "decimals": 2 },
+        "gap_hi": { "value": 0.76, "decimals": 2 },
+        "margin": { "value": 0.10, "decimals": 2 },
+        "standing": { "value": "behind" }
       }
     },
     {
@@ -788,6 +794,7 @@
         "artifact": "experiments/agentbench/optiplex-2026-11-cloud.jsonl",
         "select": {"arm": "claude:claude-opus-5-5", "cond": "blind", "committed_from": "2026-07-01"}
       },
+      "capability": "versus",
       "config": {
         "split": "commit date on or after 2026-07-01"
       },
@@ -795,7 +802,12 @@
       "metrics": {
         "pairs": { "value": 19, "decimals": 0 },
         "pair_resolved": { "value": 3, "decimals": 0 },
-        "versus_resolved": { "value": 19, "decimals": 0 }
+        "versus_resolved": { "value": 19, "decimals": 0 },
+        "gap": { "value": 0.84, "decimals": 2 },
+        "gap_lo": { "value": 0.53, "decimals": 2 },
+        "gap_hi": { "value": 0.94, "decimals": 2 },
+        "margin": { "value": 0.10, "decimals": 2 },
+        "standing": { "value": "behind" }
       }
     },
     {
@@ -869,6 +881,7 @@
         "artifact": "experiments/agentbench/optiplex-2026-11-tiers.jsonl",
         "select": {"arm": "claude:claude-sonnet-5-5", "cond": "blind"}
       },
+      "capability": "versus",
       "config": {
         "local": "the laptop's 131k run (report_2026_10_laptop_131k)",
         "cloud": "report_2026_11_cloud_sonnet55"
@@ -893,7 +906,12 @@
         "net": { "value": -79, "decimals": 0 },
         "net_lo": { "value": -95, "decimals": 0 },
         "net_hi": { "value": -61, "decimals": 0 },
-        "breakeven_rate": { "value": 0.98, "decimals": 2 }
+        "breakeven_rate": { "value": 0.98, "decimals": 2 },
+        "gap": { "value": 0.55, "decimals": 2 },
+        "gap_lo": { "value": 0.38, "decimals": 2 },
+        "gap_hi": { "value": 0.69, "decimals": 2 },
+        "margin": { "value": 0.10, "decimals": 2 },
+        "standing": { "value": "behind" }
       }
     },
     {
@@ -909,6 +927,7 @@
         "artifact": "experiments/agentbench/optiplex-2026-11-tiers.jsonl",
         "select": {"arm": "claude:claude-haiku-5-5", "cond": "blind"}
       },
+      "capability": "versus",
       "config": {
         "local": "the laptop's 131k run (report_2026_10_laptop_131k)",
         "cloud": "report_2026_11_cloud_haiku55"
@@ -933,7 +952,12 @@
         "net": { "value": -80, "decimals": 0 },
         "net_lo": { "value": -95, "decimals": 0 },
         "net_hi": { "value": -62, "decimals": 0 },
-        "breakeven_rate": { "value": 1.00, "decimals": 2 }
+        "breakeven_rate": { "value": 1.00, "decimals": 2 },
+        "gap": { "value": 0.64, "decimals": 2 },
+        "gap_lo": { "value": 0.50, "decimals": 2 },
+        "gap_hi": { "value": 0.76, "decimals": 2 },
+        "margin": { "value": 0.10, "decimals": 2 },
+        "standing": { "value": "behind" }
       }
     },
     {
@@ -950,6 +974,7 @@
         "artifact": "experiments/agentbench/optiplex-2026-11-tiers.jsonl",
         "select": {"arm": "claude:claude-sonnet-5-5", "cond": "blind", "committed_from": "2026-07-01"}
       },
+      "capability": "versus",
       "config": {
         "split": "commit date on or after 2026-07-01"
       },
@@ -957,7 +982,12 @@
       "metrics": {
         "pairs": { "value": 19, "decimals": 0 },
         "pair_resolved": { "value": 3, "decimals": 0 },
-        "versus_resolved": { "value": 18, "decimals": 0 }
+        "versus_resolved": { "value": 18, "decimals": 0 },
+        "gap": { "value": 0.79, "decimals": 2 },
+        "gap_lo": { "value": 0.49, "decimals": 2 },
+        "gap_hi": { "value": 0.91, "decimals": 2 },
+        "margin": { "value": 0.10, "decimals": 2 },
+        "standing": { "value": "behind" }
       }
     },
     {
@@ -974,6 +1004,7 @@
         "artifact": "experiments/agentbench/optiplex-2026-11-tiers.jsonl",
         "select": {"arm": "claude:claude-haiku-5-5", "cond": "blind", "committed_from": "2026-07-01"}
       },
+      "capability": "versus",
       "config": {
         "split": "commit date on or after 2026-07-01"
       },
@@ -981,7 +1012,12 @@
       "metrics": {
         "pairs": { "value": 19, "decimals": 0 },
         "pair_resolved": { "value": 3, "decimals": 0 },
-        "versus_resolved": { "value": 19, "decimals": 0 }
+        "versus_resolved": { "value": 19, "decimals": 0 },
+        "gap": { "value": 0.84, "decimals": 2 },
+        "gap_lo": { "value": 0.53, "decimals": 2 },
+        "gap_hi": { "value": 0.94, "decimals": 2 },
+        "margin": { "value": 0.10, "decimals": 2 },
+        "standing": { "value": "behind" }
       }
     },
     {
@@ -997,6 +1033,7 @@
         "artifact": "experiments/agentbench/optiplex-2026-11-cloud.jsonl",
         "select": {"arm": "claude:claude-opus-5-5", "cond": "blind"}
       },
+      "capability": "versus",
       "config": {
         "this": "report_2026_11_cloud_sonnet55",
         "versus": "report_2026_11_cloud_opus55"
@@ -1006,7 +1043,12 @@
         "pairs": { "value": 47, "decimals": 0 },
         "only_this": { "value": 0, "decimals": 0 },
         "only_versus": { "value": 4, "decimals": 0 },
-        "mcnemar_p": { "value": 0.125, "decimals": 3 }
+        "mcnemar_p": { "value": 0.125, "decimals": 3 },
+        "gap": { "value": 0.085, "decimals": 3 },
+        "gap_lo": { "value": 0.003, "decimals": 3 },
+        "gap_hi": { "value": 0.199, "decimals": 3 },
+        "margin": { "value": 0.10, "decimals": 2 },
+        "standing": { "value": "open" }
       }
     }
   ]

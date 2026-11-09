@@ -13,7 +13,8 @@ commits with each repository's own tests and dated because the line is expected 
   in it links to the attempts it was computed from, every outside one to its source, and the
   site's [Research page](https://kaitosoeno.com/mahoraga/) publishes it one finding at a time.
 - [The study's direction](../brain/decisions/2026-11-08-the-map.md) is the decision record
-  for the map, what counts as local having caught up, and what may join it. It refines
+  for the map and what may join it, and [a second record](../brain/decisions/2026-11-08-caught-up-by-capability.md)
+  fixes what counts as local having caught up. The first refines
   [the 10-29 record](../brain/decisions/2026-10-29-long-term-study.md), which still sets the
   conditions pooled results from readers wait on.
 - [`../DATAFLOW.md`](../DATAFLOW.md) says what each part of Mahoraga sends where, written

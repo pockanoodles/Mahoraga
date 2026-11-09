@@ -1100,6 +1100,289 @@
           "value": 19
         }
       }
+    },
+    {
+      "artifact": "experiments/agentbench/optiplex-2026-11-tiers.jsonl",
+      "config": {
+        "agent": "Claude Code 2.1.318, headless, with its own file tools and Bash, web tools off, an empty HOME each attempt",
+        "cost": "the CLI's total_cost_usd, at API list prices; the run used a Claude seat, which bills no per-task price",
+        "dates": "2026-11-08",
+        "egress": "one allowlisting proxy, api.anthropic.com:443 only: 141 tunnels over 47 attempts, none refused",
+        "harness": "1aec6507c (main after #101)",
+        "limit": "90 minutes",
+        "machine": "Dell OptiPlex 7070, i7-9700, 16 GB (Debian 13), no model runs on it",
+        "model": "claude-sonnet-5-5"
+      },
+      "description": "§4 and the map: Claude Code on Sonnet 5.5, on the laptop's 47 tasks, blind",
+      "id": "report_2026_11_cloud_sonnet55",
+      "metrics": {
+        "minutes": {
+          "decimals": 2,
+          "value": 0.31
+        },
+        "rate": {
+          "decimals": 2,
+          "value": 0.91
+        },
+        "rate_hi": {
+          "decimals": 2,
+          "value": 0.97
+        },
+        "rate_lo": {
+          "decimals": 2,
+          "value": 0.8
+        },
+        "resolved": {
+          "decimals": 0,
+          "value": 43
+        },
+        "tasks": {
+          "decimals": 0,
+          "value": 47
+        },
+        "timed_out": {
+          "decimals": 0,
+          "value": 0
+        }
+      }
+    },
+    {
+      "artifact": "experiments/agentbench/optiplex-2026-11-tiers.jsonl",
+      "config": {
+        "agent": "Claude Code 2.1.318, headless, with its own file tools and Bash, web tools off, an empty HOME each attempt",
+        "cost": "the CLI's total_cost_usd, at API list prices; the run used a Claude seat, which bills no per-task price",
+        "dates": "2026-11-08",
+        "egress": "one allowlisting proxy, api.anthropic.com:443 only: 141 tunnels over 47 attempts; it refused 218 more (217 to pypi.org from pip installs the agent tried, 1 to api.github.com)",
+        "harness": "1aec6507c (main after #101)",
+        "limit": "90 minutes",
+        "machine": "Dell OptiPlex 7070, i7-9700, 16 GB (Debian 13), no model runs on it",
+        "model": "claude-haiku-5-5"
+      },
+      "description": "§4 and the map: Claude Code on Haiku 5.5, on the laptop's 47 tasks, blind",
+      "id": "report_2026_11_cloud_haiku55",
+      "metrics": {
+        "minutes": {
+          "decimals": 2,
+          "value": 0.6
+        },
+        "rate_lo": {
+          "decimals": 2,
+          "value": 0.92
+        },
+        "resolved": {
+          "decimals": 0,
+          "value": 47
+        },
+        "tasks": {
+          "decimals": 0,
+          "value": 47
+        },
+        "timed_out": {
+          "decimals": 0,
+          "value": 0
+        }
+      }
+    },
+    {
+      "artifact": "experiments/agentbench/laptop-2026-10-131k.jsonl",
+      "config": {
+        "cloud": "report_2026_11_cloud_sonnet55",
+        "local": "the laptop's 131k run (report_2026_10_laptop_131k)"
+      },
+      "description": "§4 and the map: the laptop's 131k run against Sonnet 5.5 on the same 47 tasks, and the verdict priced by what Sonnet spent",
+      "id": "report_2026_11_laptop_vs_sonnet55",
+      "metrics": {
+        "breakeven_rate": {
+          "decimals": 2,
+          "value": 0.98
+        },
+        "call": {
+          "value": "stay"
+        },
+        "cloud_usd_per_task": {
+          "decimals": 2,
+          "value": 0.07
+        },
+        "cloud_usd_saved": {
+          "decimals": 2,
+          "value": 0.05
+        },
+        "confident": {
+          "value": "yes"
+        },
+        "mcnemar_p": {
+          "decimals": 7,
+          "value": 2e-07
+        },
+        "net": {
+          "decimals": 0,
+          "value": -79
+        },
+        "net_hi": {
+          "decimals": 0,
+          "value": -61
+        },
+        "net_lo": {
+          "decimals": 0,
+          "value": -95
+        },
+        "only_this": {
+          "decimals": 0,
+          "value": 1
+        },
+        "only_versus": {
+          "decimals": 0,
+          "value": 27
+        },
+        "pair_resolved": {
+          "decimals": 0,
+          "value": 17
+        },
+        "pairs": {
+          "decimals": 0,
+          "value": 47
+        },
+        "versus_resolved": {
+          "decimals": 0,
+          "value": 43
+        }
+      }
+    },
+    {
+      "artifact": "experiments/agentbench/laptop-2026-10-131k.jsonl",
+      "config": {
+        "cloud": "report_2026_11_cloud_haiku55",
+        "local": "the laptop's 131k run (report_2026_10_laptop_131k)"
+      },
+      "description": "§4 and the map: the laptop's 131k run against Haiku 5.5 on the same 47 tasks, and the verdict priced by what Haiku spent",
+      "id": "report_2026_11_laptop_vs_haiku55",
+      "metrics": {
+        "breakeven_rate": {
+          "decimals": 2,
+          "value": 1.0
+        },
+        "call": {
+          "value": "stay"
+        },
+        "cloud_usd_per_task": {
+          "decimals": 3,
+          "value": 0.01
+        },
+        "cloud_usd_saved": {
+          "decimals": 3,
+          "value": 0.007
+        },
+        "confident": {
+          "value": "yes"
+        },
+        "mcnemar_p": {
+          "decimals": 9,
+          "value": 2e-09
+        },
+        "net": {
+          "decimals": 0,
+          "value": -80
+        },
+        "net_hi": {
+          "decimals": 0,
+          "value": -62
+        },
+        "net_lo": {
+          "decimals": 0,
+          "value": -95
+        },
+        "only_this": {
+          "decimals": 0,
+          "value": 0
+        },
+        "only_versus": {
+          "decimals": 0,
+          "value": 30
+        },
+        "pair_resolved": {
+          "decimals": 0,
+          "value": 17
+        },
+        "pairs": {
+          "decimals": 0,
+          "value": 47
+        },
+        "versus_resolved": {
+          "decimals": 0,
+          "value": 47
+        }
+      }
+    },
+    {
+      "artifact": "experiments/agentbench/laptop-2026-10-131k.jsonl",
+      "config": {
+        "split": "commit date on or after 2026-07-01"
+      },
+      "description": "§4 and the map: the laptop against Sonnet 5.5 on the 19 tasks committed after June 2026",
+      "id": "report_2026_11_laptop_vs_sonnet55_after_june",
+      "metrics": {
+        "pair_resolved": {
+          "decimals": 0,
+          "value": 3
+        },
+        "pairs": {
+          "decimals": 0,
+          "value": 19
+        },
+        "versus_resolved": {
+          "decimals": 0,
+          "value": 18
+        }
+      }
+    },
+    {
+      "artifact": "experiments/agentbench/laptop-2026-10-131k.jsonl",
+      "config": {
+        "split": "commit date on or after 2026-07-01"
+      },
+      "description": "§4 and the map: the laptop against Haiku 5.5 on the 19 tasks committed after June 2026",
+      "id": "report_2026_11_laptop_vs_haiku55_after_june",
+      "metrics": {
+        "pair_resolved": {
+          "decimals": 0,
+          "value": 3
+        },
+        "pairs": {
+          "decimals": 0,
+          "value": 19
+        },
+        "versus_resolved": {
+          "decimals": 0,
+          "value": 19
+        }
+      }
+    },
+    {
+      "artifact": "experiments/agentbench/optiplex-2026-11-tiers.jsonl",
+      "config": {
+        "this": "report_2026_11_cloud_sonnet55",
+        "versus": "report_2026_11_cloud_opus55"
+      },
+      "description": "§4: Sonnet 5.5 against Opus 5.5 on the same 47 tasks, under the same agent",
+      "id": "report_2026_11_sonnet55_vs_opus55",
+      "metrics": {
+        "mcnemar_p": {
+          "decimals": 3,
+          "value": 0.125
+        },
+        "only_this": {
+          "decimals": 0,
+          "value": 0
+        },
+        "only_versus": {
+          "decimals": 0,
+          "value": 4
+        },
+        "pairs": {
+          "decimals": 0,
+          "value": 47
+        }
+      }
     }
   ],
   "probe": {
@@ -2940,7 +3223,7 @@
     ]
   },
   "source": {
-    "commit": "fb71195",
+    "commit": "fd5eb6e",
     "repo": "pockanoodles/Mahoraga",
     "version": "2.1.0"
   },

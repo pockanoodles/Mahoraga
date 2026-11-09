@@ -26,7 +26,10 @@ export function MapTable({ t }: { t: Dict["map"] }) {
     {
       work: t.work47(n(vs, "pairs")),
       local: t.laptop(n(vs, "pair_resolved"), n(vs, "pairs"), pct(n(laptop, "rate")), pct(n(laptop, "rate_lo")), pct(n(laptop, "rate_hi"))),
-      cloud: tiers.map((x) => t.tier(x.model, n(x.vs, "versus_resolved"), n(x.vs, "pairs"), `$${n(x.vs, "cloud_usd_per_task").toFixed(2)}`)),
+      cloud: tiers.map((x, i) => {
+        const line = t.tier(x.model, n(x.vs, "versus_resolved"), n(x.vs, "pairs"), `$${n(x.vs, "cloud_usd_per_task").toFixed(2)}`);
+        return i === 0 ? t.agent(line) : line;
+      }),
       caught: t.needsTiers(...(tiers.map((x) => pct(n(x.vs, "breakeven_rate"))) as [string, string, string])),
     },
     {

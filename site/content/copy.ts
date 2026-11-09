@@ -24,8 +24,10 @@ export interface Dict {
     laptop: (k: number, n: number, rate: string, lo: string, hi: string) => string;
     studio35: (k: number, n: number, rate: string, lo: string, hi: string) => string;
     count: (k: number, n: number) => string;
-    // One line per cloud tier, each tier's model named by MapTable.
+    // One line per cloud tier, each tier's model named by MapTable; the agent
+    // is named once, on the first line.
     tier: (model: string, k: number, n: number, usd: string) => string;
+    agent: (line: string) => string;
     tierCount: (model: string, k: number, n: number) => string;
     notRun: string;
     no: string;
@@ -214,7 +216,8 @@ const en: Dict = {
     laptop: (k, n, rate, lo, hi) => `aider and qwen3.5 (9.7B) on a 16 GB MacBook: ${k} of ${n}, ${rate} (95% interval ${lo} to ${hi})`,
     studio35: (k, n, rate, lo, hi) => `aider and qwen3.6 (35B) on a 64 GB Mac Studio: ${k} of ${n}, ${rate} (95% interval ${lo} to ${hi})`,
     count: (k, n) => `${k} of ${n}`,
-    tier: (model, k, n, usd) => `Claude Code and ${model}: ${k} of ${n}, at ${usd} a task`,
+    tier: (model, k, n, usd) => `${model}: ${k} of ${n}, at ${usd} a task`,
+    agent: (line) => `Claude Code and ${line}`,
     tierCount: (model, k, n) => `${model}: ${k} of ${n}`,
     notRun: "Not run yet",
     no: "No",
@@ -482,7 +485,8 @@ const ja: Dict = {
     laptop: (k, n, rate, lo, hi) => `16 GB の MacBook で aider と qwen3.5（9.7B）：${n} 件中 ${k} 件、${rate}（95% 区間 ${lo}〜${hi}）`,
     studio35: (k, n, rate, lo, hi) => `64 GB の Mac Studio で aider と qwen3.6（35B）：${n} 件中 ${k} 件、${rate}（95% 区間 ${lo}〜${hi}）`,
     count: (k, n) => `${n} 件中 ${k} 件`,
-    tier: (model, k, n, usd) => `Claude Code と ${model}：${n} 件中 ${k} 件、1 タスク ${usd}`,
+    tier: (model, k, n, usd) => `${model}：${n} 件中 ${k} 件、1 タスク ${usd}`,
+    agent: (line) => `Claude Code と ${line}`,
     tierCount: (model, k, n) => `${model}：${n} 件中 ${k} 件`,
     notRun: "まだ測っていません",
     no: "いいえ",

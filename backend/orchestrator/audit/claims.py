@@ -40,6 +40,12 @@ since two machines' rows live in two files.
 prices the verdict's cloud side with the `versus` slice, a cloud arm run on the
 same tasks: each task local resolved saves what that arm spent on it, rather
 than the bill's average (verdict.CloudSide).
+
+    "capability": "versus"
+
+reads the `versus` slice as the cloud and this one as local, and adds the gap
+between them (the cloud's rate minus local's), its interval and the map's
+standing at the fixed margin (capability.py).
 """
 from __future__ import annotations
 
@@ -49,6 +55,7 @@ from typing import Any, Optional
 
 from backend.orchestrator.agentbench.stats import mcnemar_exact, task_rate
 
+from .capability import capability
 from .verdict import (Assumptions, Billing, CloudSide, Evidence, breakeven_cloud_cost,
                       breakeven_rate, cloud_side, decide)
 
@@ -224,4 +231,11 @@ def metrics(rows: list[dict], claim: dict[str, Any],
         out["breakeven_cloud_usd"] = breakeven_cloud_cost(ev, a)
     if theirs is not None:
         out.update(paired(picked, theirs))
+    which = claim.get("capability")
+    if which is not None:
+        if which != "versus":
+            raise ValueError(f'capability takes "versus" (the cloud slice), not {which!r}')
+        if theirs is None:
+            raise ValueError("the capability gap needs a versus slice to read as the cloud")
+        out.update(capability(int(out["only_this"]), int(out["only_versus"]), int(out["pairs"])))
     return out

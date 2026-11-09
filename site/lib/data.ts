@@ -197,7 +197,7 @@ export function cfg(c: Claim, key: string): string {
   return String(v);
 }
 
-export { pct, usd } from "./format";
+export { pct, points, usd } from "./format";
 
 /** The curve point for a given cloud price, or the nearest one. */
 export function curveAt(usdPerTask: number): CurvePoint {

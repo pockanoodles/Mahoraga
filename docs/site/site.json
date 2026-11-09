@@ -1041,6 +1041,22 @@
         "confident": {
           "value": "yes"
         },
+        "gap": {
+          "decimals": 2,
+          "value": 0.64
+        },
+        "gap_hi": {
+          "decimals": 2,
+          "value": 0.76
+        },
+        "gap_lo": {
+          "decimals": 2,
+          "value": 0.5
+        },
+        "margin": {
+          "decimals": 2,
+          "value": 0.1
+        },
         "mcnemar_p": {
           "decimals": 9,
           "value": 2e-09
@@ -1073,6 +1089,9 @@
           "decimals": 0,
           "value": 47
         },
+        "standing": {
+          "value": "behind"
+        },
         "versus_resolved": {
           "decimals": 0,
           "value": 47
@@ -1087,6 +1106,22 @@
       "description": "§4: the same pair on the 19 tasks committed after June 2026, Opus 5.5's stated knowledge cutoff",
       "id": "report_2026_11_laptop_vs_cloud_after_june",
       "metrics": {
+        "gap": {
+          "decimals": 2,
+          "value": 0.84
+        },
+        "gap_hi": {
+          "decimals": 2,
+          "value": 0.94
+        },
+        "gap_lo": {
+          "decimals": 2,
+          "value": 0.53
+        },
+        "margin": {
+          "decimals": 2,
+          "value": 0.1
+        },
         "pair_resolved": {
           "decimals": 0,
           "value": 3
@@ -1094,6 +1129,9 @@
         "pairs": {
           "decimals": 0,
           "value": 19
+        },
+        "standing": {
+          "value": "behind"
         },
         "versus_resolved": {
           "decimals": 0,
@@ -1210,6 +1248,22 @@
         "confident": {
           "value": "yes"
         },
+        "gap": {
+          "decimals": 2,
+          "value": 0.55
+        },
+        "gap_hi": {
+          "decimals": 2,
+          "value": 0.69
+        },
+        "gap_lo": {
+          "decimals": 2,
+          "value": 0.38
+        },
+        "margin": {
+          "decimals": 2,
+          "value": 0.1
+        },
         "mcnemar_p": {
           "decimals": 7,
           "value": 2e-07
@@ -1241,6 +1295,9 @@
         "pairs": {
           "decimals": 0,
           "value": 47
+        },
+        "standing": {
+          "value": "behind"
         },
         "versus_resolved": {
           "decimals": 0,
@@ -1275,6 +1332,22 @@
         "confident": {
           "value": "yes"
         },
+        "gap": {
+          "decimals": 2,
+          "value": 0.64
+        },
+        "gap_hi": {
+          "decimals": 2,
+          "value": 0.76
+        },
+        "gap_lo": {
+          "decimals": 2,
+          "value": 0.5
+        },
+        "margin": {
+          "decimals": 2,
+          "value": 0.1
+        },
         "mcnemar_p": {
           "decimals": 9,
           "value": 2e-09
@@ -1307,6 +1380,9 @@
           "decimals": 0,
           "value": 47
         },
+        "standing": {
+          "value": "behind"
+        },
         "versus_resolved": {
           "decimals": 0,
           "value": 47
@@ -1321,6 +1397,22 @@
       "description": "§4 and the map: the laptop against Sonnet 5.5 on the 19 tasks committed after June 2026",
       "id": "report_2026_11_laptop_vs_sonnet55_after_june",
       "metrics": {
+        "gap": {
+          "decimals": 2,
+          "value": 0.79
+        },
+        "gap_hi": {
+          "decimals": 2,
+          "value": 0.91
+        },
+        "gap_lo": {
+          "decimals": 2,
+          "value": 0.49
+        },
+        "margin": {
+          "decimals": 2,
+          "value": 0.1
+        },
         "pair_resolved": {
           "decimals": 0,
           "value": 3
@@ -1328,6 +1420,9 @@
         "pairs": {
           "decimals": 0,
           "value": 19
+        },
+        "standing": {
+          "value": "behind"
         },
         "versus_resolved": {
           "decimals": 0,
@@ -1343,6 +1438,22 @@
       "description": "§4 and the map: the laptop against Haiku 5.5 on the 19 tasks committed after June 2026",
       "id": "report_2026_11_laptop_vs_haiku55_after_june",
       "metrics": {
+        "gap": {
+          "decimals": 2,
+          "value": 0.84
+        },
+        "gap_hi": {
+          "decimals": 2,
+          "value": 0.94
+        },
+        "gap_lo": {
+          "decimals": 2,
+          "value": 0.53
+        },
+        "margin": {
+          "decimals": 2,
+          "value": 0.1
+        },
         "pair_resolved": {
           "decimals": 0,
           "value": 3
@@ -1350,6 +1461,9 @@
         "pairs": {
           "decimals": 0,
           "value": 19
+        },
+        "standing": {
+          "value": "behind"
         },
         "versus_resolved": {
           "decimals": 0,
@@ -1366,6 +1480,22 @@
       "description": "§4: Sonnet 5.5 against Opus 5.5 on the same 47 tasks, under the same agent",
       "id": "report_2026_11_sonnet55_vs_opus55",
       "metrics": {
+        "gap": {
+          "decimals": 3,
+          "value": 0.085
+        },
+        "gap_hi": {
+          "decimals": 3,
+          "value": 0.199
+        },
+        "gap_lo": {
+          "decimals": 3,
+          "value": 0.003
+        },
+        "margin": {
+          "decimals": 2,
+          "value": 0.1
+        },
         "mcnemar_p": {
           "decimals": 3,
           "value": 0.125
@@ -1381,6 +1511,9 @@
         "pairs": {
           "decimals": 0,
           "value": 47
+        },
+        "standing": {
+          "value": "open"
         }
       }
     }
@@ -3223,7 +3356,7 @@
     ]
   },
   "source": {
-    "commit": "fd5eb6e",
+    "commit": "2dd1640",
     "repo": "pockanoodles/Mahoraga",
     "version": "2.1.0"
   },

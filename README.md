@@ -32,20 +32,26 @@ and Claude Code solved all 47, on Opus 5.5 and on Haiku 5.5 at about a cent a ta
 ## The map so far
 
 Each row is one kind of work, with local and cloud measured on the same tasks. Local has
-caught up on a row when even the low end of its 95% interval clears the break-even rate.
-That rate is the point where what the cloud spends on the tasks local solves pays for the
-developer time spent checking the tasks local fails.
+caught up with a cloud tier when the cloud's lead on those tasks (its resolve rate minus
+local's) stays under 10 points across the whole 95% interval. The margin was fixed before any
+new run, and a crossing is printed only after newly mined tasks confirm it. The price column
+is the break-even verdict, which says whether moving the work to local pays at what the cloud
+spent.
 
-| Work | Local, best measured | Cloud, same tasks | Caught up? | Measured |
-| --- | --- | --- | --- | --- |
-| Real commits from attrs and more-itertools (47 tasks) | aider and qwen3.5 (9.7B) on a 16 GB MacBook: 17 of 47 (36%, interval 24% to 50%) | Claude Code on Opus 5.5: 47 of 47 at $0.21 a task. On Sonnet 5.5: 43 of 47 at $0.07. On Haiku 5.5: 47 of 47 at $0.01 | No, against any tier. Break-even at what each tier spent is 95% for Opus, 98% for Sonnet and 100% for Haiku | Oct to Nov 2026 |
-| The same 47, only the 19 commits made after June 2026 (after Opus 5.5's stated training cutoff) | 3 of 19 | Opus 19, Sonnet 18 and Haiku 19, each of 19 | No | Oct to Nov 2026 |
-| Real commits from attrs, more-itertools and click (92 tasks) | aider and qwen3.6 (35B) on a 64 GB Mac Studio: 31 of 92 (34%, interval 25% to 44%) | Not run yet | No. Break-even is 77% at an assumed $0.75 a cloud task | Oct 2026 |
+| Work | Local, best measured | Cloud, same tasks | Caught up? | At today's prices | Measured |
+| --- | --- | --- | --- | --- | --- |
+| Real commits from attrs and more-itertools (47 tasks) | aider and qwen3.5 (9.7B) on a 16 GB MacBook: 17 of 47 (36%, interval 24% to 50%) | Claude Code on Opus 5.5: 47 of 47 at $0.21 a task. On Sonnet 5.5: 43 of 47 at $0.07. On Haiku 5.5: 47 of 47 at $0.01 | No, behind every tier. The cloud leads by 64 points against Opus (50 to 76), 55 against Sonnet (38 to 69) and 64 against Haiku (50 to 76) | Stay. To break even, local needs 95% against Opus, 98% against Sonnet and 100% against Haiku | Oct to Nov 2026 |
+| The same 47, only the 19 commits made after June 2026 (after Opus 5.5's stated training cutoff) | 3 of 19 | Opus 19, Sonnet 18 and Haiku 19, each of 19 | No, behind every tier, by 84 points against Opus (53 to 94), 79 against Sonnet (49 to 91) and 84 against Haiku (53 to 94) | Not priced on its own | Oct to Nov 2026 |
+| Real commits from attrs, more-itertools and click (92 tasks) | aider and qwen3.6 (35B) on a 64 GB Mac Studio: 31 of 92 (34%, interval 25% to 44%) | Not run yet | No standing until a cloud tier runs these tasks | Stay. Break-even is 77% at an assumed $0.75 a cloud task | Oct 2026 |
 
 The cheapest tier is no easier to catch. Haiku 5.5 solved all 47 tasks, and at a cent a task
-local would have to solve nearly every task to save more than it costs to check its failures.
-[Section 4 of the report](docs/report/2026-10-local-coding-ai.md#every-cloud-tier) has the
-three tiers side by side.
+local would have to solve every task to save more than it costs to check its failures. That
+made a price-based line measure the cloud's price, so "caught up" is now the gap on the same
+tasks ([the decision](brain/decisions/2026-11-08-caught-up-by-capability.md)). Forty-seven
+tasks are also too few to show that two sides are level, since even Sonnet against Opus is too
+close to call, so the coding row will grow toward about 150 tasks.
+[Section 4 of the report](docs/report/2026-10-local-coding-ai.md#caught-up-by-capability) has
+the test and the three tiers side by side.
 
 Two measurements are running now, and each adds to the table once it finishes.
 

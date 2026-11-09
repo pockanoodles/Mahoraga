@@ -1,4 +1,25 @@
-# Current State — 2026-11-08
+# Current State — 2026-11-09
+
+## 2026-11-08 (late): caught up is the gap on the same tasks
+
+**#103 merged and deployed** (every cloud tier on the map). Kaito then asked for a planning
+session on a capability test and accepted all six recommendations ("go on ur recs"). ADR
+`2026-11-08-caught-up-by-capability.md` supersedes decision 2 of the map ADR:
+- Caught up with a tier means the cloud's lead on the same tasks (its rate minus local's)
+  stays under **10 points** across its 95% interval (Tango's paired score interval,
+  `agentbench/stats.py:paired_difference`; standing in `audit/capability.py`). The four
+  standings are behind, open, caught up and ahead.
+- Claude Code on both sides, so a crossing belongs to the model. A crossing also needs the
+  after-cutoff tasks not to read behind and a confirmation on freshly mined tasks. The site's
+  build stops on a crossing until both exist.
+- The break-even verdict moved to its own column ("At today's prices").
+- Today every tier reads behind: 64 points against Opus (50 to 76), 55 against Sonnet (38 to
+  69), 64 against Haiku (50 to 76). Sonnet against Opus reads open (8.5, 0.3 to 19.9), so 47
+  tasks can't show parity. The coding row needs about 150 tasks.
+
+**Next for the map:** merge #100, run Claude Code + qwen3.5 on the laptop on the 47, grow the
+row toward 150 from the factory with every tier on each batch, then the speech-to-text row as
+the positive control.
 
 ## 2026-11-08: the map, and every cloud tier on it
 
@@ -22,8 +43,7 @@ follow job e4840b. packaging kept 0 of 25 (every candidate failed gate B). tomlk
   not merged), then its commit-date split and a map row.
 - The cloud arm on click's tasks, for the 92-task row's cloud column.
 - A positive control outside coding (speech to text graded by word error rate).
-- Whether the map's line should stay price-based now that a cloud task can cost a cent (see
-  Era 41). This is Kaito's call.
+- ~~Whether the map's line should stay price-based~~: decided 11-08 late, see above.
 - The repo split, as its own decision later.
 - `sudo apt install -y build-essential` on the OptiPlex, so hnswlib builds and the full
   suite runs there.

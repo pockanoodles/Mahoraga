@@ -4,6 +4,9 @@
 
 export const pct = (x: number, digits = 0) => `${(x * 100).toFixed(digits)}%`;
 
+/** A share as whole percentage points, the unit the map's gaps are printed in. */
+export const points = (x: number) => Math.round(x * 100);
+
 export function usd(x: number, digits = 0): string {
   const abs = Math.abs(x).toLocaleString("en-US", { minimumFractionDigits: digits, maximumFractionDigits: digits });
   return x < 0 ? `−$${abs}` : `$${abs}`;

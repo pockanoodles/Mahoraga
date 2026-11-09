@@ -1117,6 +1117,77 @@ def test_mcnemar_exact_matches_known_values():
     assert mcnemar_exact(5, 5) == 1.0
 
 
+def _constrained_p21(only_a, only_b, n, d):
+    """The chance only b solves a task, fitted with the difference held at d,
+    by brute force: the log-likelihood is concave in it, so a golden-section
+    search finds its peak."""
+    import math
+
+    lo, hi = max(0.0, -d), (1 - d) / 2
+
+    def ll(p21):
+        cells = ((only_a, p21 + d), (only_b, p21), (n - only_a - only_b, 1 - 2 * p21 - d))
+        if any(k and p <= 0 for k, p in cells):
+            return -math.inf
+        return sum(k * math.log(p) for k, p in cells if k)
+
+    g = (math.sqrt(5) - 1) / 2
+    for _ in range(200):
+        x1, x2 = hi - g * (hi - lo), lo + g * (hi - lo)
+        if ll(x1) < ll(x2):
+            lo = x1
+        else:
+            hi = x2
+    return (lo + hi) / 2
+
+
+def test_the_paired_interval_is_the_score_test_inverted():
+    import math
+
+    from backend.orchestrator.agentbench.stats import Z95, _tango_z, paired_difference
+
+    # The closed form's constrained fit is the likelihood's peak.
+    for a, b, n, d in [(30, 0, 47, 0.5), (27, 1, 47, 0.4), (4, 0, 47, 0.02), (5, 3, 60, -0.05)]:
+        big_a, big_b = 2 * n, -a - b + (2 * n - a + b) * d
+        q = (math.sqrt(big_b ** 2 + 4 * big_a * b * d * (1 - d)) - big_b) / (2 * big_a)
+        assert q == pytest.approx(_constrained_p21(a, b, n, d), abs=1e-6)
+    # Each end is where the statistic reaches the 95% bound.
+    gap, lo, hi = paired_difference(27, 1, 47)
+    assert gap == pytest.approx(26 / 47)
+    assert _tango_z(27, 1, 47, lo) == pytest.approx(Z95, abs=1e-6)
+    assert _tango_z(27, 1, 47, hi) == pytest.approx(-Z95, abs=1e-6)
+
+
+def test_the_paired_interval_at_its_edges():
+    from backend.orchestrator.agentbench.stats import Z95, paired_difference
+
+    # No task splits the arms: the interval is ±z²/(n+z²), from the statistic
+    # solved by hand.
+    gap, lo, hi = paired_difference(0, 0, 47)
+    assert (gap, lo) == (0.0, pytest.approx(-hi))
+    assert hi == pytest.approx(Z95 ** 2 / (47 + Z95 ** 2), abs=1e-9)
+    # Every task splits one way: the interval reaches the bound it can't pass.
+    gap, lo, hi = paired_difference(20, 0, 20)
+    assert (gap, hi) == (1.0, 1.0)
+    assert lo == pytest.approx((20 - Z95 ** 2) / (20 + Z95 ** 2), abs=1e-9)
+    # Swapping the arms mirrors the interval.
+    a = paired_difference(9, 3, 40)
+    b = paired_difference(3, 9, 40)
+    assert (b[0], b[1], b[2]) == pytest.approx((-a[0], -a[2], -a[1]))
+    assert paired_difference(0, 0, 0) == (0.0, -1.0, 1.0)
+    with pytest.raises(ValueError, match="don't fit"):
+        paired_difference(30, 20, 47)
+
+
+def test_the_published_gaps():
+    from backend.orchestrator.agentbench.stats import paired_difference
+
+    # Haiku 5.5 (and Opus 5.5) against the laptop, 30 to 0 over 47 tasks.
+    assert paired_difference(30, 0, 47) == pytest.approx((0.638, 0.495, 0.760), abs=1e-3)
+    # Opus 5.5 against Sonnet 5.5, 4 to 0: the interval straddles 10 points.
+    assert paired_difference(4, 0, 47) == pytest.approx((0.085, 0.003, 0.199), abs=1e-3)
+
+
 def test_no_attempt_starts_after_the_deadline(mined, repo):
     agent = FakeAgent("m", apply_gold)
     assert run_matrix(mined, [agent], ["blind"], deadline=time.time() - 1) == []

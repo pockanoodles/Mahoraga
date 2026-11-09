@@ -2911,7 +2911,7 @@ html[data-vt="in"]::view-transition-new(vt-name) {
 }
 
 .map__table tbody th {
-  width: 26%;
+  width: 16%;
   font-weight: 500;
   color: var(--mh-ink);
 }
@@ -2921,7 +2921,12 @@ html[data-vt="in"]::view-transition-new(vt-name) {
 }
 
 .map__caught {
+  width: 26%;
   color: var(--mh-ink);
+}
+
+.map__price {
+  width: 18%;
 }
 
 /* One cloud tier per line inside a cell. */

@@ -1516,6 +1516,381 @@
           "value": "open"
         }
       }
+    },
+    {
+      "artifact": "experiments/agentbench/studio-2026-11-claude-local.jsonl",
+      "config": {
+        "agent": "Claude Code 2.1.318, the cloud arm's flags, prompt, empty HOME and sandbox, pointed at Ollama's Anthropic endpoint; only Ollama's port open",
+        "dates": "2026-11-07 to 2026-11-08",
+        "harness": "4ec7bebd6 for 31 cells (2026-11-07 night); 0fa2d94a6 (#100, output cap 32000) for 16: the 11 more-itertools cells left at 07:30, 6e3786c, and 4 cells whose kept attempt followed a crash at the 8192 cap",
+        "limit": "90 minutes",
+        "machine": "Mac Studio M5 Max, 64 GB (Mac17,14)",
+        "model": "qwen3.5:laptop-dec52a4, the laptop's GGUF (sha256 dec52a44), at a 131k context"
+      },
+      "description": "§4 and the map: Claude Code driving qwen3.5 (the laptop's model file) on the Studio, on the laptop's 47 tasks, blind",
+      "id": "report_2026_11_studio_claude_qwen35",
+      "metrics": {
+        "minutes": {
+          "decimals": 1,
+          "value": 4.9
+        },
+        "rate": {
+          "decimals": 2,
+          "value": 0.72
+        },
+        "rate_hi": {
+          "decimals": 2,
+          "value": 0.83
+        },
+        "rate_lo": {
+          "decimals": 2,
+          "value": 0.58
+        },
+        "resolved": {
+          "decimals": 0,
+          "value": 34
+        },
+        "tasks": {
+          "decimals": 0,
+          "value": 47
+        },
+        "timed_out": {
+          "decimals": 0,
+          "value": 0
+        }
+      }
+    },
+    {
+      "artifact": "experiments/agentbench/studio-2026-11-claude-local.jsonl",
+      "config": {
+        "this": "report_2026_11_studio_claude_qwen35",
+        "versus": "the Studio's aider run at 131k, 2026-10-13 to 2026-10-14 (report_2026_10_laptop_vs_studio_131k)"
+      },
+      "description": "§4: Claude Code against aider, each driving the same qwen3.5 model file at 131k on the Studio, task by task",
+      "id": "report_2026_11_claude_vs_aider_studio",
+      "metrics": {
+        "mcnemar_p": {
+          "decimals": 4,
+          "value": 0.0001
+        },
+        "only_this": {
+          "decimals": 0,
+          "value": 17
+        },
+        "only_versus": {
+          "decimals": 0,
+          "value": 1
+        },
+        "pair_resolved": {
+          "decimals": 0,
+          "value": 34
+        },
+        "pairs": {
+          "decimals": 0,
+          "value": 47
+        },
+        "versus_resolved": {
+          "decimals": 0,
+          "value": 18
+        }
+      }
+    },
+    {
+      "artifact": "experiments/agentbench/studio-2026-11-claude-local.jsonl",
+      "config": {
+        "cloud": "report_2026_11_cloud_opus55",
+        "local": "report_2026_11_studio_claude_qwen35"
+      },
+      "description": "§4 and the map: Claude Code on qwen3.5 (Studio) against Claude Code on Opus 5.5, on the same 47 tasks",
+      "id": "report_2026_11_same_agent_vs_opus55",
+      "metrics": {
+        "gap": {
+          "decimals": 2,
+          "value": 0.28
+        },
+        "gap_hi": {
+          "decimals": 2,
+          "value": 0.42
+        },
+        "gap_lo": {
+          "decimals": 2,
+          "value": 0.17
+        },
+        "margin": {
+          "decimals": 2,
+          "value": 0.1
+        },
+        "only_this": {
+          "decimals": 0,
+          "value": 0
+        },
+        "only_versus": {
+          "decimals": 0,
+          "value": 13
+        },
+        "pair_resolved": {
+          "decimals": 0,
+          "value": 34
+        },
+        "pairs": {
+          "decimals": 0,
+          "value": 47
+        },
+        "standing": {
+          "value": "behind"
+        },
+        "versus_resolved": {
+          "decimals": 0,
+          "value": 47
+        }
+      }
+    },
+    {
+      "artifact": "experiments/agentbench/studio-2026-11-claude-local.jsonl",
+      "config": {
+        "split": "commit date on or after 2026-07-01"
+      },
+      "description": "§4 and the map: Claude Code on qwen3.5 (Studio) against Claude Code on Opus 5.5, on the tasks committed after June 2026",
+      "id": "report_2026_11_same_agent_vs_opus55_after_june",
+      "metrics": {
+        "gap": {
+          "decimals": 2,
+          "value": 0.11
+        },
+        "gap_hi": {
+          "decimals": 2,
+          "value": 0.31
+        },
+        "gap_lo": {
+          "decimals": 2,
+          "value": -0.08
+        },
+        "margin": {
+          "decimals": 2,
+          "value": 0.1
+        },
+        "only_this": {
+          "decimals": 0,
+          "value": 0
+        },
+        "only_versus": {
+          "decimals": 0,
+          "value": 2
+        },
+        "pair_resolved": {
+          "decimals": 0,
+          "value": 17
+        },
+        "pairs": {
+          "decimals": 0,
+          "value": 19
+        },
+        "standing": {
+          "value": "open"
+        },
+        "versus_resolved": {
+          "decimals": 0,
+          "value": 19
+        }
+      }
+    },
+    {
+      "artifact": "experiments/agentbench/studio-2026-11-claude-local.jsonl",
+      "config": {
+        "cloud": "report_2026_11_cloud_sonnet55",
+        "local": "report_2026_11_studio_claude_qwen35"
+      },
+      "description": "§4 and the map: Claude Code on qwen3.5 (Studio) against Claude Code on Sonnet 5.5, on the same 47 tasks",
+      "id": "report_2026_11_same_agent_vs_sonnet55",
+      "metrics": {
+        "gap": {
+          "decimals": 2,
+          "value": 0.19
+        },
+        "gap_hi": {
+          "decimals": 2,
+          "value": 0.34
+        },
+        "gap_lo": {
+          "decimals": 2,
+          "value": 0.05
+        },
+        "margin": {
+          "decimals": 2,
+          "value": 0.1
+        },
+        "only_this": {
+          "decimals": 0,
+          "value": 2
+        },
+        "only_versus": {
+          "decimals": 0,
+          "value": 11
+        },
+        "pair_resolved": {
+          "decimals": 0,
+          "value": 34
+        },
+        "pairs": {
+          "decimals": 0,
+          "value": 47
+        },
+        "standing": {
+          "value": "open"
+        },
+        "versus_resolved": {
+          "decimals": 0,
+          "value": 43
+        }
+      }
+    },
+    {
+      "artifact": "experiments/agentbench/studio-2026-11-claude-local.jsonl",
+      "config": {
+        "split": "commit date on or after 2026-07-01"
+      },
+      "description": "§4 and the map: Claude Code on qwen3.5 (Studio) against Claude Code on Sonnet 5.5, on the tasks committed after June 2026",
+      "id": "report_2026_11_same_agent_vs_sonnet55_after_june",
+      "metrics": {
+        "gap": {
+          "decimals": 2,
+          "value": 0.05
+        },
+        "gap_hi": {
+          "decimals": 2,
+          "value": 0.25
+        },
+        "gap_lo": {
+          "decimals": 2,
+          "value": -0.12
+        },
+        "margin": {
+          "decimals": 2,
+          "value": 0.1
+        },
+        "only_this": {
+          "decimals": 0,
+          "value": 0
+        },
+        "only_versus": {
+          "decimals": 0,
+          "value": 1
+        },
+        "pair_resolved": {
+          "decimals": 0,
+          "value": 17
+        },
+        "pairs": {
+          "decimals": 0,
+          "value": 19
+        },
+        "standing": {
+          "value": "open"
+        },
+        "versus_resolved": {
+          "decimals": 0,
+          "value": 18
+        }
+      }
+    },
+    {
+      "artifact": "experiments/agentbench/studio-2026-11-claude-local.jsonl",
+      "config": {
+        "cloud": "report_2026_11_cloud_haiku55",
+        "local": "report_2026_11_studio_claude_qwen35"
+      },
+      "description": "§4 and the map: Claude Code on qwen3.5 (Studio) against Claude Code on Haiku 5.5, on the same 47 tasks",
+      "id": "report_2026_11_same_agent_vs_haiku55",
+      "metrics": {
+        "gap": {
+          "decimals": 2,
+          "value": 0.28
+        },
+        "gap_hi": {
+          "decimals": 2,
+          "value": 0.42
+        },
+        "gap_lo": {
+          "decimals": 2,
+          "value": 0.17
+        },
+        "margin": {
+          "decimals": 2,
+          "value": 0.1
+        },
+        "only_this": {
+          "decimals": 0,
+          "value": 0
+        },
+        "only_versus": {
+          "decimals": 0,
+          "value": 13
+        },
+        "pair_resolved": {
+          "decimals": 0,
+          "value": 34
+        },
+        "pairs": {
+          "decimals": 0,
+          "value": 47
+        },
+        "standing": {
+          "value": "behind"
+        },
+        "versus_resolved": {
+          "decimals": 0,
+          "value": 47
+        }
+      }
+    },
+    {
+      "artifact": "experiments/agentbench/studio-2026-11-claude-local.jsonl",
+      "config": {
+        "split": "commit date on or after 2026-07-01"
+      },
+      "description": "§4 and the map: Claude Code on qwen3.5 (Studio) against Claude Code on Haiku 5.5, on the tasks committed after June 2026",
+      "id": "report_2026_11_same_agent_vs_haiku55_after_june",
+      "metrics": {
+        "gap": {
+          "decimals": 2,
+          "value": 0.11
+        },
+        "gap_hi": {
+          "decimals": 2,
+          "value": 0.31
+        },
+        "gap_lo": {
+          "decimals": 2,
+          "value": -0.08
+        },
+        "margin": {
+          "decimals": 2,
+          "value": 0.1
+        },
+        "only_this": {
+          "decimals": 0,
+          "value": 0
+        },
+        "only_versus": {
+          "decimals": 0,
+          "value": 2
+        },
+        "pair_resolved": {
+          "decimals": 0,
+          "value": 17
+        },
+        "pairs": {
+          "decimals": 0,
+          "value": 19
+        },
+        "standing": {
+          "value": "open"
+        },
+        "versus_resolved": {
+          "decimals": 0,
+          "value": 19
+        }
+      }
     }
   ],
   "probe": {
@@ -3356,7 +3731,7 @@
     ]
   },
   "source": {
-    "commit": "2dd1640",
+    "commit": "09a592c",
     "repo": "pockanoodles/Mahoraga",
     "version": "2.1.0"
   },

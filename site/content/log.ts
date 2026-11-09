@@ -50,6 +50,7 @@ const S4 = "4-when-local-pays";
 const S4CLOUD = "the-cloud-side-measured";
 const S4TIERS = "every-cloud-tier";
 const S4CAP = "caught-up-by-capability";
+const S4SAME = "the-same-agent-on-both-sides";
 const S5 = "5-the-hardware-question";
 const S6 = "6-what-we-got-wrong-along-the-way";
 const S1 = "1-the-local-tier-stopped-getting-new-models";
@@ -81,6 +82,12 @@ const c = {
   vsSonnet: claim("report_2026_11_laptop_vs_sonnet55"),
   vsHaiku: claim("report_2026_11_laptop_vs_haiku55"),
   sonnetOpus: claim("report_2026_11_sonnet55_vs_opus55"),
+  same: claim("report_2026_11_studio_claude_qwen35"),
+  agents: claim("report_2026_11_claude_vs_aider_studio"),
+  sameOpus: claim("report_2026_11_same_agent_vs_opus55"),
+  sameSonnet: claim("report_2026_11_same_agent_vs_sonnet55"),
+  sameHaiku: claim("report_2026_11_same_agent_vs_haiku55"),
+  sameAfter: claim("report_2026_11_same_agent_vs_opus55_after_june"),
 };
 const n = (x: Claim, key: string) => num(x, key);
 const m = (x: Claim, key: string) => metric(x, key);
@@ -103,6 +110,21 @@ const cents = (x: Claim, key: string) => `$${n(x, key).toFixed(2)}`;
 const gapOf = (x: Claim) => points(n(x, "gap")); // the cloud's lead over local, in points
 
 export const LOG: Entry[] = [
+  {
+    id: "2026-11-09-same-agent",
+    date: "2026-11-09",
+    kind: "finding",
+    claims: [c.same.id, c.agents.id, c.sameOpus.id, c.sameSonnet.id, c.sameHaiku.id, c.sameAfter.id],
+    title: {
+      en: `With the same agent on both sides, local solved ${n(c.same, "resolved")} of the ${n(c.same, "tasks")}.`,
+      ja: `両側のエージェントをそろえると、ローカルは ${n(c.same, "tasks")} 件中 ${n(c.same, "resolved")} 件を解きました。`,
+    },
+    body: {
+      en: `Claude Code drove qwen3.5 through Ollama on the Mac Studio, with the laptop's own model file and the cloud run's version, flags and prompt. It resolved ${n(c.same, "resolved")} of the ${n(c.same, "tasks")} tasks, where aider with the same model on the same machine resolved ${n(c.agents, "versus_resolved")}, so the agent accounts for much of the gap to the cloud. The cloud still leads, by ${gapOf(c.sameOpus)} points against Opus and ${gapOf(c.sameHaiku)} against Haiku, while Sonnet's lead of ${gapOf(c.sameSonnet)} points is not settled. It is the first standing on the map that isn't "behind", and it isn't a crossing. On the ${n(c.sameAfter, "pairs")} tasks committed after June 2026, local solved ${n(c.sameAfter, "pair_resolved")}.`,
+      ja: `Mac Studio で、Claude Code に Ollama 経由で qwen3.5 を動かさせました。モデルファイルはノートと同じもので、Claude Code のバージョン、フラグ、プロンプトはクラウドの計測と同じです。${n(c.same, "tasks")} タスク中 ${n(c.same, "resolved")} 件を解決し、同じマシンで同じモデルを aider で動かしたときの ${n(c.agents, "versus_resolved")} 件を大きく上回りました。クラウドとの差の多くは、エージェントによるものです。クラウドはまだ Opus に対して ${gapOf(c.sameOpus)} ポイント、Haiku に対して ${gapOf(c.sameHaiku)} ポイントリードしていますが、Sonnet のリード ${gapOf(c.sameSonnet)} ポイントはまだ決まっていません。表の中で「遅れ」以外の判定はこれが初めてですが、追いついたわけではありません。2026 年 6 月より後にコミットされた ${n(c.sameAfter, "pairs")} タスクでは、ローカルは ${n(c.sameAfter, "pair_resolved")} 件を解決しました。`,
+    },
+    receipts: [report(4, S4SAME), artifact(c.same)],
+  },
   {
     id: "2026-11-08-capability",
     date: "2026-11-08",

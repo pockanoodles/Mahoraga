@@ -31,7 +31,7 @@ const LOCALES = [
     stay: "Stay",
     open: "Not yet decided",
     answer: "Local hasn't caught up on any coding work measured so far.",
-    mapRows: 3,
+    mapRows: 4,
     h1: {
       research: "Where has local AI caught up with the cloud?",
       engine: "One pipeline, from a repository's history to a row of the map.",
@@ -48,7 +48,7 @@ const LOCALES = [
     stay: "継続",
     open: "未確定",
     answer: "これまで測ったコーディングの仕事では、まだどこでも追いついていません。",
-    mapRows: 3,
+    mapRows: 4,
     h1: {
       research: "ローカルの AI は、どこでクラウドに追いついたのか。",
       engine: "リポジトリの履歴から表の 1 行まで、ひとつのパイプラインで。",

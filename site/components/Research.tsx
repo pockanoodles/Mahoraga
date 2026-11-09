@@ -1,5 +1,6 @@
-// The research page, which is the landing page: where local stands now, one
-// task in full, the setting that mattered, and the log of every result. Every
+// The research page, which is the landing page: where local stands now, the
+// map of where it has caught up, one task in full, the setting that mattered,
+// and the log of every result. Every
 // measured number is read from the engine's export through lib/data.ts or
 // content/log.ts, and a footnote or a source link names the artifact it came from.
 import type { Dict, Locale } from "@/content/copy";
@@ -7,6 +8,7 @@ import { STANDING } from "@/content/log";
 import { blob, cfg, claim, data, num, pct } from "@/lib/data";
 import { pagePath } from "@/lib/routes";
 import { Log } from "./Log";
+import { MapTable } from "./MapTable";
 import { Notes } from "./Notes";
 import { Reveal } from "./Reveal";
 import { SettingsGrid } from "./SettingsGrid";
@@ -83,6 +85,21 @@ export function Research({ t, locale }: { t: Dict; locale: Locale }) {
               <path d="M5 12h14M13 6l6 6-6 6" />
             </svg>
           </a>
+        </div>
+      </section>
+
+      {/* ── The map: one row per kind of work ── */}
+      <section id="map" className="band" aria-labelledby="map-title">
+        <div className="band__body band__body--wide">
+          <Reveal>
+            <h2 id="map-title" className="h2 center">
+              {t.map.title}
+            </h2>
+            <p className="lede center">{t.map.lead}</p>
+          </Reveal>
+          <Reveal delay={80}>
+            <MapTable t={t.map} />
+          </Reveal>
         </div>
       </section>
 

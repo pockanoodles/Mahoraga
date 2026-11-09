@@ -1988,8 +1988,16 @@ site-menu {
 :lang(ja) .hero__eyebrow,
 :lang(ja) .standing__title,
 :lang(ja) .log__month-title,
-:lang(ja) .entry__kind {
+:lang(ja) .entry__kind,
+:lang(ja) .map__table thead th,
+:lang(ja) .map__table td::before,
+:lang(ja) .map__running-title {
   letter-spacing: 0.08em;
+}
+
+/* A work label breaks between phrases, as the standing's labels do. */
+:lang(ja) .map__table tbody th {
+  word-break: auto-phrase;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -2866,5 +2874,117 @@ html[data-vt="in"]::view-transition-new(vt-name) {
   .ledger__cell > .ledger__label {
     display: block;
     margin-bottom: 2px;
+  }
+}
+
+/* The map: one row per kind of work, local and cloud on the same tasks. A table
+   on a wide screen; on a phone each row stacks, and each cell names its column. */
+.map {
+  margin-top: var(--mh-s-8);
+}
+
+.map__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 15px;
+  line-height: 1.5;
+  font-variant-numeric: tabular-nums;
+}
+
+.map__table thead th {
+  padding: 0 var(--mh-s-5) var(--mh-s-3) 0;
+  border-bottom: 1px solid var(--mh-line-strong);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-align: left;
+  text-transform: uppercase;
+  color: var(--mh-faint);
+}
+
+.map__table tbody th,
+.map__table td {
+  padding: var(--mh-s-5) var(--mh-s-5) var(--mh-s-5) 0;
+  border-bottom: 1px solid var(--mh-line);
+  text-align: left;
+  vertical-align: top;
+}
+
+.map__table tbody th {
+  width: 26%;
+  font-weight: 500;
+  color: var(--mh-ink);
+}
+
+.map__table td {
+  color: var(--mh-muted);
+}
+
+.map__caught {
+  color: var(--mh-ink);
+}
+
+.map__running {
+  margin-top: var(--mh-s-8);
+}
+
+.map__running-title {
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--mh-faint);
+}
+
+.map__running ul {
+  margin: var(--mh-s-3) 0 0;
+  padding-left: 1.1em;
+  list-style: disc;
+  color: var(--mh-muted);
+  font-size: 15px;
+  line-height: 1.55;
+}
+
+.map__running li::marker {
+  color: var(--mh-faint);
+}
+
+.map__running li + li {
+  margin-top: var(--mh-s-2);
+}
+
+.map__rule {
+  margin-top: var(--mh-s-5);
+  max-width: var(--mh-measure-lede);
+}
+
+@media (max-width: 760px) {
+  .map__table thead {
+    display: none;
+  }
+
+  .map__table tr {
+    display: block;
+    padding: var(--mh-s-4) 0;
+    border-bottom: 1px solid var(--mh-line);
+  }
+
+  .map__table tbody th,
+  .map__table td {
+    display: block;
+    width: auto;
+    padding: 0;
+    border: 0;
+  }
+
+  .map__table td::before {
+    content: attr(data-label);
+    display: block;
+    margin-top: var(--mh-s-3);
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--mh-faint);
   }
 }

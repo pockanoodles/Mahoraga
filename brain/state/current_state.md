@@ -1,5 +1,17 @@
 # Current State — 2026-11-09
 
+## 2026-11-09 (morning): the capability test and the same-agent row are live
+
+**#104 (the capability test), #100 (the output cap) and #105 (the same-agent row) are merged**,
+in that order, and the site is deployed with them (prod verify passed: four map rows, 36 log
+entries). The laptop's checkout is on the merge and both launchd jobs were restarted.
+Retargeting #105 from #104's branch to `main` didn't start CI, because CI doesn't run on a PR
+edit, so the PR was closed and reopened to run it.
+
+**Open:** the laptop's own same-agent run (Kaito's call), growing the coding row toward 150
+tasks, the speech-to-text row, the cloud arm on click's tasks, and build-essential on the
+OptiPlex.
+
 ## 2026-11-09 (night): the same agent on both sides
 
 The Studio's same-agent run finished on 11-08 at 16:05 (#100's output cap for the last 16
@@ -11,9 +23,9 @@ cells). **Claude Code + qwen3.5 (the laptop's model file) resolved 34 of 47**, c
 "The same agent on both sides", a map row and a log entry. #104's site check flaked on
 GitHub's latency (a 504 after 11 s), now stubbed in `verify.mjs`.
 
-**Open:** merge #104 and the stacked PR (Kaito), #100 (the output cap; its Studio cells are in
-this ledger), the laptop's own same-agent run (it needs a plan that fits 16 GB: jetsam at 131k
-on the first night).
+**Open:** ~~merge #104 and the stacked PR (#105), and #100 (the output cap; its Studio cells
+are in this ledger)~~, all merged 11-09 morning, see above. The laptop's own same-agent run (it
+needs a plan that fits 16 GB: jetsam at 131k on the first night).
 
 ## 2026-11-08 (late): caught up is the gap on the same tasks
 
@@ -54,8 +66,8 @@ its dev-server tests, and the re-mine with `-m "not dev_server"` kept 12 of 25 a
 follow job e4840b. packaging kept 0 of 25 (every candidate failed gate B). tomlkit kept 24.
 
 **Open:**
-- The same-agent run's last 11 more-itertools tasks on the Studio, on #100's output cap (#100
-  not merged), then its commit-date split and a map row.
+- ~~The same-agent run's last 11 more-itertools tasks on the Studio, on #100's output cap (#100
+  not merged), then its commit-date split and a map row~~: done, and #100 and #105 merged 11-09.
 - The cloud arm on click's tasks, for the 92-task row's cloud column.
 - A positive control outside coding (speech to text graded by word error rate).
 - ~~Whether the map's line should stay price-based~~: decided 11-08 late, see above.

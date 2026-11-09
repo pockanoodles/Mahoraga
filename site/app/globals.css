@@ -2911,7 +2911,7 @@ html[data-vt="in"]::view-transition-new(vt-name) {
 }
 
 .map__table tbody th {
-  width: 26%;
+  width: 20%;
   font-weight: 500;
   color: var(--mh-ink);
 }

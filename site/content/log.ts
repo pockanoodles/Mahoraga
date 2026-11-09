@@ -7,7 +7,7 @@
 // disappears from claims.json breaks the build. Run settings (a 90-minute
 // limit, a 131k context) and the figures a correction retracts are not
 // measurements of the result, so they are written out.
-import { REPO_URL, blob, claim, data, metric, num, pct, type Claim } from "@/lib/data";
+import { REPO_URL, blob, claim, data, metric, num, pct, points, type Claim } from "@/lib/data";
 import type { Locale } from "./copy";
 
 export type Kind = "running" | "finding" | "correction" | "void" | "method" | "null" | "start";
@@ -49,6 +49,7 @@ const S3 = "3-local-agents-on-real-repositories";
 const S4 = "4-when-local-pays";
 const S4CLOUD = "the-cloud-side-measured";
 const S4TIERS = "every-cloud-tier";
+const S4CAP = "caught-up-by-capability";
 const S5 = "5-the-hardware-question";
 const S6 = "6-what-we-got-wrong-along-the-way";
 const S1 = "1-the-local-tier-stopped-getting-new-models";
@@ -79,6 +80,7 @@ const c = {
   haiku: claim("report_2026_11_cloud_haiku55"),
   vsSonnet: claim("report_2026_11_laptop_vs_sonnet55"),
   vsHaiku: claim("report_2026_11_laptop_vs_haiku55"),
+  sonnetOpus: claim("report_2026_11_sonnet55_vs_opus55"),
 };
 const n = (x: Claim, key: string) => num(x, key);
 const m = (x: Claim, key: string) => metric(x, key);
@@ -98,8 +100,27 @@ const triage = data.verdict_demo.assumptions.triage_minutes; // assumed, and pri
 const SUP: Record<string, string> = { "-": "⁻", 0: "⁰", 1: "¹", 2: "²", 3: "³", 4: "⁴", 5: "⁵", 6: "⁶", 7: "⁷", 8: "⁸", 9: "⁹" };
 const below = (p: number) => `< 10${[...String(Math.ceil(Math.log10(p)))].map((d) => SUP[d]).join("")}`;
 const cents = (x: Claim, key: string) => `$${n(x, key).toFixed(2)}`;
+const gapOf = (x: Claim) => points(n(x, "gap")); // the cloud's lead over local, in points
 
 export const LOG: Entry[] = [
+  {
+    id: "2026-11-08-capability",
+    date: "2026-11-08",
+    kind: "method",
+    claims: [c.vsCloud.id, c.vsSonnet.id, c.vsHaiku.id, c.sonnetOpus.id],
+    title: {
+      en: "Caught up is now measured by the gap on the same tasks.",
+      ja: "「追いついた」は、同じタスクでの差で測るようになりました。",
+    },
+    body: {
+      en: `Priced at what Haiku 5.5 spent, the break-even line asked local to resolve ${pct(n(c.vsHaiku, "breakeven_rate"))} of the queue, which measured the cloud's price more than local's ability. Each tier is now compared with local on the same tasks, as the gap between their resolve rates with its 95% interval. Local has caught up when the whole interval sits under ${points(n(c.vsCloud, "margin"))} points, a margin fixed before any new run, and a crossing is printed only after freshly mined tasks confirm it. Local is behind every tier today, by ${gapOf(c.vsCloud)} points against Opus, ${gapOf(c.vsSonnet)} against Sonnet and ${gapOf(c.vsHaiku)} against Haiku. Even Sonnet against Opus is too close to call on ${n(c.sonnetOpus, "pairs")} tasks, so the coding row will grow toward about 150. The break-even verdict keeps its own column, as the answer to whether moving work to local pays.`,
+      ja: `Haiku 5.5 が実際に使った額で計算すると、損益分岐線はローカルにキューの ${pct(n(c.vsHaiku, "breakeven_rate"))} の解決を求めていました。これはローカルの能力よりも、クラウドの価格を測っています。そこで各層とローカルを同じタスクで比べ、解決率の差とその 95% 区間を見ることにしました。区間全体が ${points(n(c.vsCloud, "margin"))} ポイント未満に収まれば、ローカルは追いついたと言えます。この幅は新しい計測の前に固定し、越えたときも新しく掘り出したタスクで確かめてから載せます。いまのローカルはどの層にも遅れていて、その差は Opus に対して ${gapOf(c.vsCloud)} ポイント、Sonnet に対して ${gapOf(c.vsSonnet)} ポイント、Haiku に対して ${gapOf(c.vsHaiku)} ポイントです。${n(c.sonnetOpus, "pairs")} タスクでは Sonnet と Opus の差さえ判定できないので、コーディングの行は約 150 タスクまで増やします。損益分岐の判定は、ローカルに移すと得かどうかへの答えとして、別の列に残します。`,
+    },
+    receipts: [
+      { label: { en: "Decision record", ja: "決定の記録" }, href: blob("brain/decisions/2026-11-08-caught-up-by-capability.md") },
+      report(4, S4CAP),
+    ],
+  },
   {
     id: "2026-11-08-every-tier",
     date: "2026-11-08",

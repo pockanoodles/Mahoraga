@@ -5,7 +5,7 @@
 // content/log.ts, and a footnote or a source link names the artifact it came from.
 import type { Dict, Locale } from "@/content/copy";
 import { STANDING } from "@/content/log";
-import { blob, cfg, claim, data, num, pct } from "@/lib/data";
+import { blob, cfg, claim, data, num, pct, points } from "@/lib/data";
 import { pagePath } from "@/lib/routes";
 import { Log } from "./Log";
 import { MapTable } from "./MapTable";
@@ -95,7 +95,7 @@ export function Research({ t, locale }: { t: Dict; locale: Locale }) {
             <h2 id="map-title" className="h2 center">
               {t.map.title}
             </h2>
-            <p className="lede center">{t.map.lead}</p>
+            <p className="lede center">{t.map.lead(points(num(claim("report_2026_11_laptop_vs_cloud"), "margin")))}</p>
           </Reveal>
           <Reveal delay={80}>
             <MapTable t={t.map} />

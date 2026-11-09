@@ -16,8 +16,8 @@ export interface Dict {
   // same tasks. Its numbers arrive as arguments from the claims, as everywhere.
   map: {
     title: string;
-    lead: string;
-    head: { work: string; local: string; cloud: string; caught: string };
+    lead: (margin: number) => string;
+    head: { work: string; local: string; cloud: string; caught: string; price: string };
     work47: (n: number) => string;
     workAfter: (n: number) => string;
     work92: (n: number) => string;
@@ -30,9 +30,14 @@ export interface Dict {
     agent: (line: string) => string;
     tierCount: (model: string, k: number, n: number) => string;
     notRun: string;
-    no: string;
-    needsTiers: (opus: string, sonnet: string, haiku: string) => string;
-    needsAssumed: (rate: string, price: string) => string;
+    // A line per tier: how many points the cloud's resolve rate sits above
+    // local's on the same tasks, and that gap's 95% interval.
+    behind: (model: string, gap: number, lo: number, hi: number) => string;
+    open: (model: string, gap: number, lo: number, hi: number) => string;
+    noCloud: string;
+    stayTiers: (opus: string, sonnet: string, haiku: string) => string;
+    stayAssumed: (rate: string, price: string) => string;
+    notPriced: string;
     runningTitle: string;
     running: string[];
     rule: string;
@@ -208,8 +213,8 @@ const en: Dict = {
   },
   map: {
     title: "One row for each kind of work, with both sides on the same tasks.",
-    lead: "Local has caught up on a row when even the low end of its 95% interval clears the break-even line, and no row has crossed yet.",
-    head: { work: "Work", local: "Local, best measured", cloud: "Cloud, same tasks", caught: "Caught up?" },
+    lead: (margin) => `Local has caught up with a cloud tier when the cloud's lead on the same tasks stays under ${margin} points across its whole 95% interval. No row has crossed yet.`,
+    head: { work: "Work", local: "Local, best measured", cloud: "Cloud, same tasks", caught: "Caught up?", price: "At today's prices" },
     work47: (n) => `Real commits from attrs and more-itertools (${n} tasks)`,
     workAfter: (n) => `The ${n} of those committed after June 2026, past Opus 5.5's stated training cutoff`,
     work92: (n) => `Real commits from attrs, more-itertools and click (${n} tasks)`,
@@ -220,9 +225,12 @@ const en: Dict = {
     agent: (line) => `Claude Code and ${line}`,
     tierCount: (model, k, n) => `${model}: ${k} of ${n}`,
     notRun: "Not run yet",
-    no: "No",
-    needsTiers: (opus, sonnet, haiku) => `No, against any tier. At what each tier spent, local needs ${opus} against Opus, ${sonnet} against Sonnet and ${haiku} against Haiku.`,
-    needsAssumed: (rate, price) => `No. Local needs ${rate} at an assumed ${price} a cloud task.`,
+    behind: (model, gap, lo, hi) => `${model}: behind by ${gap} points (${lo} to ${hi})`,
+    open: (model, gap, lo, hi) => `${model}: too close to call at ${gap} points (${lo} to ${hi})`,
+    noCloud: "No standing until a cloud tier runs these tasks",
+    stayTiers: (opus, sonnet, haiku) => `Stay on the cloud. To break even at what each tier spent, local needs ${opus} against Opus, ${sonnet} against Sonnet and ${haiku} against Haiku.`,
+    stayAssumed: (rate, price) => `Stay on the cloud. Local needs ${rate} at an assumed ${price} a cloud task.`,
+    notPriced: "Not priced on its own",
     runningTitle: "Being measured now",
     running: [
       "Claude Code driving qwen3.5 on the Mac Studio, so both sides use the same agent and whatever gap remains belongs to the model.",
@@ -477,8 +485,8 @@ const ja: Dict = {
   },
   map: {
     title: "仕事の種類ごとに 1 行、両者を同じタスクで測っています。",
-    lead: "ローカルが追いついたと言えるのは、95% 区間の下端でさえ損益分岐線を越えたときで、まだ越えた行はありません。",
-    head: { work: "仕事", local: "ローカル（最良の計測）", cloud: "クラウド（同じタスク）", caught: "追いついたか" },
+    lead: (margin) => `同じタスクでのクラウドのリードが、95% 区間全体で ${margin} ポイント未満に収まれば、ローカルはその層に追いついたと言えます。まだ越えた行はありません。`,
+    head: { work: "仕事", local: "ローカル（最良の計測）", cloud: "クラウド（同じタスク）", caught: "追いついたか", price: "いまの価格では" },
     work47: (n) => `attrs と more-itertools の実際のコミット（${n} タスク）`,
     workAfter: (n) => `そのうち 2026 年 6 月より後にコミットされた ${n} タスク（Opus 5.5 が公表している学習データの期限より後）`,
     work92: (n) => `attrs、more-itertools、click の実際のコミット（${n} タスク）`,
@@ -489,9 +497,12 @@ const ja: Dict = {
     agent: (line) => `Claude Code と ${line}`,
     tierCount: (model, k, n) => `${model}：${n} 件中 ${k} 件`,
     notRun: "まだ測っていません",
-    no: "いいえ",
-    needsTiers: (opus, sonnet, haiku) => `いいえ、どの層に対しても。各層が実際に使った額では、ローカルに Opus に対して ${opus}、Sonnet に対して ${sonnet}、Haiku に対して ${haiku} が必要です。`,
-    needsAssumed: (rate, price) => `いいえ。クラウドのタスクを 1 件 ${price} と仮定すると、ローカルに ${rate} が必要です。`,
+    behind: (model, gap, lo, hi) => `${model}：${gap} ポイントの遅れ（${lo}〜${hi}）`,
+    open: (model, gap, lo, hi) => `${model}：差は ${gap} ポイントで、まだ判定できません（${lo}〜${hi}）`,
+    noCloud: "クラウドの層がこのタスクを走らせるまで、判定はありません",
+    stayTiers: (opus, sonnet, haiku) => `クラウドのままで問題ありません。各層が実際に使った額で損益分岐に達するには、ローカルに Opus に対して ${opus}、Sonnet に対して ${sonnet}、Haiku に対して ${haiku} が必要です。`,
+    stayAssumed: (rate, price) => `クラウドのままで問題ありません。クラウドのタスクを 1 件 ${price} と仮定すると、ローカルに ${rate} が必要です。`,
+    notPriced: "単独では計算していません",
     runningTitle: "いま測っているもの",
     running: [
       "Mac Studio で Claude Code に qwen3.5 を動かさせ、両側のエージェントをそろえます。それでも残る差は、モデルの差です。",

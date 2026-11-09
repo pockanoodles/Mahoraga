@@ -51,17 +51,17 @@ export function MapTable({ t }: { t: Dict["map"] }) {
       price: t.stayTiers(...(tiers.map((x) => pct(n(x.vs, "breakeven_rate"))) as [string, string, string])),
     },
     {
-      work: t.workSame(n(same, "tasks")),
-      local: t.studioSame(n(same, "resolved"), n(same, "tasks"), pct(n(same, "rate")), pct(n(same, "rate_lo")), pct(n(same, "rate_hi"))),
-      cloud: tiers.map((x) => t.tierCount(x.model, n(x.same, "versus_resolved"), n(x.same, "pairs"))),
-      caught: tiers.map((x) => standingLine(t, x.model, x.same)),
-      price: t.notPriced,
-    },
-    {
       work: t.workAfter(n(after, "pairs")),
       local: t.count(n(after, "pair_resolved"), n(after, "pairs")),
       cloud: tiers.map((x) => t.tierCount(x.model, n(x.after, "versus_resolved"), n(x.after, "pairs"))),
       caught: tiers.map((x) => standingLine(t, x.model, x.after)),
+      price: t.notPriced,
+    },
+    {
+      work: t.workSame(n(same, "tasks")),
+      local: t.studioSame(n(same, "resolved"), n(same, "tasks"), pct(n(same, "rate")), pct(n(same, "rate_lo")), pct(n(same, "rate_hi"))),
+      cloud: tiers.map((x) => t.tierCount(x.model, n(x.same, "versus_resolved"), n(x.same, "pairs"))),
+      caught: tiers.map((x) => standingLine(t, x.model, x.same)),
       price: t.notPriced,
     },
     {

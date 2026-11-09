@@ -1559,3 +1559,35 @@ and pass-to-pass sets, so no attempt's grade and no published figure changes. cl
 mined for the first time under the new gates (20 kept, 5 dropped) and queued as a mine-only
 follow job (01:00–06:00, five gate runs, fetching first). Log entry `2026-11-07-gold-check`,
 report §3.
+
+## Era 41 — every cloud tier solves the tasks, and the cheapest one moves the line furthest (2026-11-08)
+
+After the map reframe (ADR `2026-11-08-the-map.md`, fact 4), Claude Code ran the same 47
+tasks on claude-sonnet-5-5 and claude-haiku-5-5 on the OptiPlex, with the Opus run's agent
+(2.1.318), flags, 90-minute limit and proxy (`night/2026-11-08-cloud-tiers.sh`, ledger
+`experiments/agentbench/optiplex-2026-11-tiers.jsonl`).
+
+| Tier | Resolved | Median attempt | Cost per task (list) |
+| --- | --- | --- | --- |
+| Opus 5.5 (11-05) | 47 of 47 | 38 s | $0.21 |
+| Sonnet 5.5 | 43 of 47 (80%–97%) | 19 s | $0.07 |
+| Haiku 5.5 | **47 of 47** (92%–100%) | 36 s | **$0.01** |
+
+- **The cheapest tier is as capable here as the best one.** Sonnet's 4 misses (attrs
+  4b5b295, 862696a, cbaef3f; more-itertools 52cfcfe, which also broke 714 tests) each ended
+  within 30 seconds with some target tests passing, so Sonnet stopped early. Sonnet vs Opus is
+  4-0, p = 0.125, so 47 tasks can't separate them. attrs cbaef3f is the only task of the 47
+  that the laptop solved and a cloud tier missed.
+- **Against the laptop:** Sonnet 27-1 (p ≈ 2e-7), Haiku 30-0 (p ≈ 2e-9). After June 2026:
+  Sonnet 18 of 19, Haiku 19 of 19, laptop 3.
+- **A cheaper tier makes local's case harder.** Each task the laptop solved cost Haiku $0.007
+  on average. The net per month barely moves (−$77 Opus, −$79 Sonnet, −$80 Haiku), since the
+  developer's time on local's failures dominates at every tier, but the break-even rate goes
+  95% → 98% → **100%**. Under the map's line, catching up with Haiku means solving nearly
+  every task, so against cheap tiers the line measures price as much as capability.
+- **Haiku tried to leave the sandbox.** It ran `pip install` to get test dependencies: the
+  proxy refused 217 connections to pypi.org and 1 to api.github.com, and Haiku solved the
+  tasks without them. Opus and Sonnet asked for nothing beyond api.anthropic.com.
+- Haiku sent more tokens than Opus (15.7M vs 9.6M, mostly cache reads) and still cost a
+  twentieth. Report §4 ("Every cloud tier"), claims `report_2026_11_*sonnet55*` and
+  `*haiku55*`, log entry `2026-11-08-every-tier`.

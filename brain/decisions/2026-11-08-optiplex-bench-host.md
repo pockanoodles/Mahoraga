@@ -3,8 +3,10 @@
 ## Status
 Parts 1 and 2 accepted (2026-11-08, PR #101). Part 3 declined by Kaito the same day: the box
 does not drive the Studio. The split-host record stays, for any machine that serves a model
-to another (a reader's home server, or the laptop for a smoke). Cloud tiers below Opus stay
-out of the monthly pass (also declined 11-08).
+to another (a reader's home server, or the laptop for a smoke). Cloud tiers below Opus were
+declined for the monthly pass the same morning, then brought back that evening after the
+map reframe ("bring back the tests", ADR `2026-11-08-the-map.md`): `monthly-cloud.sh` runs
+all three tiers, and Sonnet and Haiku ran the published 47 on 2026-11-08 (findings Era 41).
 
 **Builds on:** `2026-11-07-gold-check-and-task-factory.md` (the box mines every night) and
 `2026-10-29-long-term-study.md` (the study keeps measuring as new models meet new work).

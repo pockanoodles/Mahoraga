@@ -630,6 +630,16 @@ _CLAUDE_MODEL_ROLES = ("ANTHROPIC_MODEL", "ANTHROPIC_DEFAULT_OPUS_MODEL",
                        "ANTHROPIC_DEFAULT_SONNET_MODEL", "ANTHROPIC_DEFAULT_HAIKU_MODEL",
                        "ANTHROPIC_SMALL_FAST_MODEL", "CLAUDE_CODE_SUBAGENT_MODEL")
 
+# The output cap Claude Code itself gives a model it has no entry for (its
+# fallback in 2.1.318), so a local arm gets the CLI's own behaviour, as the
+# cloud arm does (128k on Opus 5.5). Aider's 8192 here made the CLI end the
+# session on any long reply: 7 attempts of the 2026-11-07 Studio night.
+CLAUDE_LOCAL_NUM_PREDICT = 32000
+
+# How the CLI says a reply ran past the cap. The model ran away, so it's an
+# outcome, scored on whatever the checkout holds, never a crash retried.
+_CAPPED_TEXT = re.compile(r"exceeded the \d+ output token maximum", re.IGNORECASE)
+
 
 class ClaudeCodeAgent:
     """Claude Code (`claude -p`). On a Claude model it's the cloud arm: a
@@ -678,7 +688,8 @@ class ClaudeCodeAgent:
     vendor = "Anthropic"
     hosts = CLAUDE_HOSTS
 
-    def __init__(self, model: str, *, num_ctx: int | None = None, num_predict: int = 8192,
+    def __init__(self, model: str, *, num_ctx: int | None = None,
+                 num_predict: int = CLAUDE_LOCAL_NUM_PREDICT,
                  home: Path | None = None, token_file: Path | None = None) -> None:
         self.local = self.local_model(model)
         if self.local:
@@ -850,7 +861,9 @@ def parse_claude_events(out: str) -> AgentRun:
 
     An error result (a refused login, a usage limit) is the harness failing,
     not the model, so it's a crash: the attempt is retried, not scored. So is
-    a run that ends without a result, unless the limit cut it off.
+    a run that ends without a result, unless the limit cut it off. A reply
+    past the output cap is the exception: that's the model, as a capped call
+    is for aider, so the attempt is scored and counted as capped.
 
     Each model call's limit check comes as a `rate_limit_event`. One the
     account's limit `rejected`, in a run that then failed, makes the run
@@ -913,6 +926,9 @@ def parse_claude_events(out: str) -> AgentRun:
     run.cost_usd = float(cost) if isinstance(cost, (int, float)) else None
     if result.get("is_error"):
         why = str(result.get("result") or result.get("subtype") or "error")
+        if _CAPPED_TEXT.search(why):
+            run.extra["capped_calls"] = 1
+            return run
         run.crashed = f"claude: {why.splitlines()[0][:200] if why else 'error'}"
         return _limited(run, rejected, why)
     return run

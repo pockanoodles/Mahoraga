@@ -115,11 +115,11 @@ async function research(page, loc, vp, tag) {
   // The question is the h1, in its own panel, and the dated answer follows it.
   check((await page.locator(".hero__question h1").count()) === 1, `${tag}: the question is the h1, in its own panel`);
   check((await page.textContent(".hero__answer .hero__statement"))?.trim() === loc.answer, `${tag}: the answer follows the question`);
-  // The map: one row per kind of work, each with a work label and three cells.
+  // The map: one row per kind of work, each with a work label and four cells.
   const mapRows = await page.locator("#map .map__table tbody tr").count();
   check(mapRows === loc.mapRows, `${tag}: the map has ${loc.mapRows} rows (${mapRows})`);
   const mapCells = await page.locator("#map .map__table tbody td").count();
-  check(mapCells === 3 * mapRows, `${tag}: every map row has its local, cloud and caught-up cells`);
+  check(mapCells === 4 * mapRows, `${tag}: every map row has its local, cloud, caught-up and price cells`);
 
   // The hero chart: measured rows draw an interval and a rate, and the run still
   // under way shows no rate at all, since a number read mid-run would be peeking.

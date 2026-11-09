@@ -106,7 +106,9 @@ export function MapTable({ t }: { t: Dict["map"] }) {
               <td data-label={t.head.caught} className="map__caught">
                 {lines(r.caught)}
               </td>
-              <td data-label={t.head.price}>{r.price}</td>
+              <td data-label={t.head.price} className="map__price">
+                {r.price}
+              </td>
             </tr>
           ))}
         </tbody>

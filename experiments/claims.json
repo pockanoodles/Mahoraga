@@ -797,6 +797,217 @@
         "pair_resolved": { "value": 3, "decimals": 0 },
         "versus_resolved": { "value": 19, "decimals": 0 }
       }
+    },
+    {
+      "id": "report_2026_11_cloud_sonnet55",
+      "kind": "agentbench",
+      "description": "§4 and the map: Claude Code on Sonnet 5.5, on the laptop's 47 tasks, blind",
+      "artifact": "experiments/agentbench/optiplex-2026-11-tiers.jsonl",
+      "select": {
+        "arm": "claude:claude-sonnet-5-5",
+        "cond": "blind"
+      },
+      "config": {
+        "machine": "Dell OptiPlex 7070, i7-9700, 16 GB (Debian 13), no model runs on it",
+        "agent": "Claude Code 2.1.318, headless, with its own file tools and Bash, web tools off, an empty HOME each attempt",
+        "model": "claude-sonnet-5-5",
+        "egress": "one allowlisting proxy, api.anthropic.com:443 only: 141 tunnels over 47 attempts, none refused",
+        "cost": "the CLI's total_cost_usd, at API list prices; the run used a Claude seat, which bills no per-task price",
+        "harness": "1aec6507c (main after #101)",
+        "dates": "2026-11-08",
+        "limit": "90 minutes"
+      },
+      "published_in": ["README.md", "docs/report/2026-10-local-coding-ai.md"],
+      "metrics": {
+        "tasks": { "value": 47, "decimals": 0 },
+        "resolved": { "value": 43, "decimals": 0 },
+        "rate": { "value": 0.91, "decimals": 2 },
+        "rate_lo": { "value": 0.80, "decimals": 2 },
+        "rate_hi": { "value": 0.97, "decimals": 2 },
+        "minutes": { "value": 0.31, "decimals": 2 },
+        "timed_out": { "value": 0, "decimals": 0 }
+      }
+    },
+    {
+      "id": "report_2026_11_cloud_haiku55",
+      "kind": "agentbench",
+      "description": "§4 and the map: Claude Code on Haiku 5.5, on the laptop's 47 tasks, blind",
+      "artifact": "experiments/agentbench/optiplex-2026-11-tiers.jsonl",
+      "select": {
+        "arm": "claude:claude-haiku-5-5",
+        "cond": "blind"
+      },
+      "config": {
+        "machine": "Dell OptiPlex 7070, i7-9700, 16 GB (Debian 13), no model runs on it",
+        "agent": "Claude Code 2.1.318, headless, with its own file tools and Bash, web tools off, an empty HOME each attempt",
+        "model": "claude-haiku-5-5",
+        "egress": "one allowlisting proxy, api.anthropic.com:443 only: 141 tunnels over 47 attempts; it refused 218 more (217 to pypi.org from pip installs the agent tried, 1 to api.github.com)",
+        "cost": "the CLI's total_cost_usd, at API list prices; the run used a Claude seat, which bills no per-task price",
+        "harness": "1aec6507c (main after #101)",
+        "dates": "2026-11-08",
+        "limit": "90 minutes"
+      },
+      "published_in": ["README.md", "docs/report/2026-10-local-coding-ai.md"],
+      "metrics": {
+        "tasks": { "value": 47, "decimals": 0 },
+        "resolved": { "value": 47, "decimals": 0 },
+        "rate_lo": { "value": 0.92, "decimals": 2 },
+        "minutes": { "value": 0.60, "decimals": 2 },
+        "timed_out": { "value": 0, "decimals": 0 }
+      }
+    },
+    {
+      "id": "report_2026_11_laptop_vs_sonnet55",
+      "kind": "agentbench",
+      "description": "§4 and the map: the laptop's 131k run against Sonnet 5.5 on the same 47 tasks, and the verdict priced by what Sonnet spent",
+      "artifact": "experiments/agentbench/laptop-2026-10-131k.jsonl",
+      "select": {
+        "arm": "aider:qwen3.5:latest@ctx=131072",
+        "cond": "blind"
+      },
+      "versus": {
+        "artifact": "experiments/agentbench/optiplex-2026-11-tiers.jsonl",
+        "select": {"arm": "claude:claude-sonnet-5-5", "cond": "blind"}
+      },
+      "config": {
+        "local": "the laptop's 131k run (report_2026_10_laptop_131k)",
+        "cloud": "report_2026_11_cloud_sonnet55"
+      },
+      "published_in": ["README.md", "docs/report/2026-10-local-coding-ai.md"],
+      "verdict": {
+        "tasks_per_month": 200,
+        "api_spend": 150,
+        "cloud": "versus"
+      },
+      "metrics": {
+        "pairs": { "value": 47, "decimals": 0 },
+        "pair_resolved": { "value": 17, "decimals": 0 },
+        "versus_resolved": { "value": 43, "decimals": 0 },
+        "only_this": { "value": 1, "decimals": 0 },
+        "only_versus": { "value": 27, "decimals": 0 },
+        "mcnemar_p": { "value": 2e-07, "decimals": 7 },
+        "cloud_usd_per_task": { "value": 0.07, "decimals": 2 },
+        "cloud_usd_saved": { "value": 0.05, "decimals": 2 },
+        "call": { "value": "stay" },
+        "confident": { "value": "yes" },
+        "net": { "value": -79, "decimals": 0 },
+        "net_lo": { "value": -95, "decimals": 0 },
+        "net_hi": { "value": -61, "decimals": 0 },
+        "breakeven_rate": { "value": 0.98, "decimals": 2 }
+      }
+    },
+    {
+      "id": "report_2026_11_laptop_vs_haiku55",
+      "kind": "agentbench",
+      "description": "§4 and the map: the laptop's 131k run against Haiku 5.5 on the same 47 tasks, and the verdict priced by what Haiku spent",
+      "artifact": "experiments/agentbench/laptop-2026-10-131k.jsonl",
+      "select": {
+        "arm": "aider:qwen3.5:latest@ctx=131072",
+        "cond": "blind"
+      },
+      "versus": {
+        "artifact": "experiments/agentbench/optiplex-2026-11-tiers.jsonl",
+        "select": {"arm": "claude:claude-haiku-5-5", "cond": "blind"}
+      },
+      "config": {
+        "local": "the laptop's 131k run (report_2026_10_laptop_131k)",
+        "cloud": "report_2026_11_cloud_haiku55"
+      },
+      "published_in": ["README.md", "docs/report/2026-10-local-coding-ai.md"],
+      "verdict": {
+        "tasks_per_month": 200,
+        "api_spend": 150,
+        "cloud": "versus"
+      },
+      "metrics": {
+        "pairs": { "value": 47, "decimals": 0 },
+        "pair_resolved": { "value": 17, "decimals": 0 },
+        "versus_resolved": { "value": 47, "decimals": 0 },
+        "only_this": { "value": 0, "decimals": 0 },
+        "only_versus": { "value": 30, "decimals": 0 },
+        "mcnemar_p": { "value": 2e-09, "decimals": 9 },
+        "cloud_usd_per_task": { "value": 0.010, "decimals": 3 },
+        "cloud_usd_saved": { "value": 0.007, "decimals": 3 },
+        "call": { "value": "stay" },
+        "confident": { "value": "yes" },
+        "net": { "value": -80, "decimals": 0 },
+        "net_lo": { "value": -95, "decimals": 0 },
+        "net_hi": { "value": -62, "decimals": 0 },
+        "breakeven_rate": { "value": 1.00, "decimals": 2 }
+      }
+    },
+    {
+      "id": "report_2026_11_laptop_vs_sonnet55_after_june",
+      "kind": "agentbench",
+      "description": "§4 and the map: the laptop against Sonnet 5.5 on the 19 tasks committed after June 2026",
+      "artifact": "experiments/agentbench/laptop-2026-10-131k.jsonl",
+      "select": {
+        "arm": "aider:qwen3.5:latest@ctx=131072",
+        "cond": "blind",
+        "committed_from": "2026-07-01"
+      },
+      "versus": {
+        "artifact": "experiments/agentbench/optiplex-2026-11-tiers.jsonl",
+        "select": {"arm": "claude:claude-sonnet-5-5", "cond": "blind", "committed_from": "2026-07-01"}
+      },
+      "config": {
+        "split": "commit date on or after 2026-07-01"
+      },
+      "published_in": ["README.md", "docs/report/2026-10-local-coding-ai.md"],
+      "metrics": {
+        "pairs": { "value": 19, "decimals": 0 },
+        "pair_resolved": { "value": 3, "decimals": 0 },
+        "versus_resolved": { "value": 18, "decimals": 0 }
+      }
+    },
+    {
+      "id": "report_2026_11_laptop_vs_haiku55_after_june",
+      "kind": "agentbench",
+      "description": "§4 and the map: the laptop against Haiku 5.5 on the 19 tasks committed after June 2026",
+      "artifact": "experiments/agentbench/laptop-2026-10-131k.jsonl",
+      "select": {
+        "arm": "aider:qwen3.5:latest@ctx=131072",
+        "cond": "blind",
+        "committed_from": "2026-07-01"
+      },
+      "versus": {
+        "artifact": "experiments/agentbench/optiplex-2026-11-tiers.jsonl",
+        "select": {"arm": "claude:claude-haiku-5-5", "cond": "blind", "committed_from": "2026-07-01"}
+      },
+      "config": {
+        "split": "commit date on or after 2026-07-01"
+      },
+      "published_in": ["README.md", "docs/report/2026-10-local-coding-ai.md"],
+      "metrics": {
+        "pairs": { "value": 19, "decimals": 0 },
+        "pair_resolved": { "value": 3, "decimals": 0 },
+        "versus_resolved": { "value": 19, "decimals": 0 }
+      }
+    },
+    {
+      "id": "report_2026_11_sonnet55_vs_opus55",
+      "kind": "agentbench",
+      "description": "§4: Sonnet 5.5 against Opus 5.5 on the same 47 tasks, under the same agent",
+      "artifact": "experiments/agentbench/optiplex-2026-11-tiers.jsonl",
+      "select": {
+        "arm": "claude:claude-sonnet-5-5",
+        "cond": "blind"
+      },
+      "versus": {
+        "artifact": "experiments/agentbench/optiplex-2026-11-cloud.jsonl",
+        "select": {"arm": "claude:claude-opus-5-5", "cond": "blind"}
+      },
+      "config": {
+        "this": "report_2026_11_cloud_sonnet55",
+        "versus": "report_2026_11_cloud_opus55"
+      },
+      "published_in": ["docs/report/2026-10-local-coding-ai.md"],
+      "metrics": {
+        "pairs": { "value": 47, "decimals": 0 },
+        "only_this": { "value": 0, "decimals": 0 },
+        "only_versus": { "value": 4, "decimals": 0 },
+        "mcnemar_p": { "value": 0.125, "decimals": 3 }
+      }
     }
   ]
 }

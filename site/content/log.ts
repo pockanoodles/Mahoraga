@@ -48,6 +48,7 @@ const artifact = (c: Claim): Receipt => {
 const S3 = "3-local-agents-on-real-repositories";
 const S4 = "4-when-local-pays";
 const S4CLOUD = "the-cloud-side-measured";
+const S4TIERS = "every-cloud-tier";
 const S5 = "5-the-hardware-question";
 const S6 = "6-what-we-got-wrong-along-the-way";
 const S1 = "1-the-local-tier-stopped-getting-new-models";
@@ -74,6 +75,10 @@ const c = {
   cloud: claim("report_2026_11_cloud_opus55"),
   vsCloud: claim("report_2026_11_laptop_vs_cloud"),
   cloudAfter: claim("report_2026_11_laptop_vs_cloud_after_june"),
+  sonnet: claim("report_2026_11_cloud_sonnet55"),
+  haiku: claim("report_2026_11_cloud_haiku55"),
+  vsSonnet: claim("report_2026_11_laptop_vs_sonnet55"),
+  vsHaiku: claim("report_2026_11_laptop_vs_haiku55"),
 };
 const n = (x: Claim, key: string) => num(x, key);
 const m = (x: Claim, key: string) => metric(x, key);
@@ -95,6 +100,21 @@ const below = (p: number) => `< 10${[...String(Math.ceil(Math.log10(p)))].map((d
 const cents = (x: Claim, key: string) => `$${n(x, key).toFixed(2)}`;
 
 export const LOG: Entry[] = [
+  {
+    id: "2026-11-08-every-tier",
+    date: "2026-11-08",
+    kind: "finding",
+    claims: [c.sonnet.id, c.haiku.id, c.vsSonnet.id, c.vsHaiku.id],
+    title: {
+      en: "The cheapest cloud tier solved every task as well.",
+      ja: "いちばん安いクラウドの層も、すべてのタスクを解きました。",
+    },
+    body: {
+      en: `Claude Code ran the laptop's ${n(c.haiku, "tasks")} tasks again on Sonnet 5.5 and Haiku 5.5. Haiku resolved all ${n(c.haiku, "resolved")} at about ${cents(c.vsHaiku, "cloud_usd_per_task")} a task, and Sonnet resolved ${n(c.sonnet, "resolved")} at ${cents(c.vsSonnet, "cloud_usd_per_task")}. A cheaper tier makes local's case harder, since each task local takes off Haiku's bill saves less than a cent. Priced at what each tier spent, local would need ${pct(n(c.vsCloud, "breakeven_rate"))} against Opus, ${pct(n(c.vsSonnet, "breakeven_rate"))} against Sonnet and ${pct(n(c.vsHaiku, "breakeven_rate"))} against Haiku.`,
+      ja: `Claude Code で、ノートの ${n(c.haiku, "tasks")} タスクを Sonnet 5.5 と Haiku 5.5 でも解かせました。Haiku は 1 タスク約 ${cents(c.vsHaiku, "cloud_usd_per_task")} で ${n(c.haiku, "resolved")} 件すべてを解決し、Sonnet は 1 タスク ${cents(c.vsSonnet, "cloud_usd_per_task")} で ${n(c.sonnet, "resolved")} 件を解決しました。ローカルが Haiku から引き受けたタスク 1 件で浮く額は 1 セント未満なので、安い層ほどローカルには不利です。各層が実際に使った額で見ると、ローカルに必要な解決率は Opus に対して ${pct(n(c.vsCloud, "breakeven_rate"))}、Sonnet に対して ${pct(n(c.vsSonnet, "breakeven_rate"))}、Haiku に対して ${pct(n(c.vsHaiku, "breakeven_rate"))} です。`,
+    },
+    receipts: [report(4, S4TIERS), artifact(c.haiku)],
+  },
   {
     id: "2026-11-08-the-map",
     date: "2026-11-08",

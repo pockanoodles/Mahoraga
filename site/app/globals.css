@@ -2924,6 +2924,15 @@ html[data-vt="in"]::view-transition-new(vt-name) {
   color: var(--mh-ink);
 }
 
+/* One cloud tier per line inside a cell. */
+.map__line {
+  display: block;
+}
+
+.map__line + .map__line {
+  margin-top: var(--mh-s-1);
+}
+
 .map__running {
   margin-top: var(--mh-s-8);
 }

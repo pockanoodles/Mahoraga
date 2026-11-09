@@ -389,10 +389,16 @@ Two parts of the run differ from the cloud's. Thirty-one cells ran at commit
 cap crashed 9 attempts on the first night. The other 16 cells ran at
 `0fa2d94` (#100), which gives a local model the CLI's own cap of 32,000. They
 are the cells left over from the first night and every cell the 8192 cap had
-touched, so no kept attempt ran into the old cap. The laptop's own run under
-Claude Code is still to come. Its first night finished 3 cells and solved 1,
-with the machine short of memory at a 131k context, and the run stopped
-before a second night. It waits on #100.
+touched, so no kept attempt ran into the old cap.
+
+The laptop's own run under Claude Code stops at its first night. That night
+finished 3 cells and solved 1. The cells took 25, 90 and 26 minutes, against
+about 5 a cell on the Studio, and the machine ran short of memory at a 131k
+context. Under aider the same model file solved 17 of the 47 on the laptop
+and 18 on the Studio (section 5). The machine changes how long a task takes,
+not whether it gets solved. Run to the end, the laptop would mostly measure
+its own timeouts, which count as failures. It would also add no tasks to the
+paired test, so the nights go to new tasks instead.
 
 ## 5. The hardware question
 

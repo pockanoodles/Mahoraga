@@ -8,8 +8,17 @@ entries). The laptop's checkout is on the merge and both launchd jobs were resta
 Retargeting #105 from #104's branch to `main` didn't start CI, because CI doesn't run on a PR
 edit, so the PR was closed and reopened to run it.
 
-**Open:** the laptop's own same-agent run (Kaito's call), growing the coding row toward 150
-tasks, the speech-to-text row, the cloud arm on click's tasks, and build-essential on the
+**The laptop's own same-agent run is skipped** (Kaito, 11-09). It would rerun the Studio's 47
+on the same model file, and under aider the laptop and the Studio already agreed (17 and 18 of
+47, p = 1.00), so it would measure the laptop's timeouts and add no tasks. Its one night stays
+in the report as the 16 GB limit: 25, 90 and 26 minutes a cell.
+
+**Next: grow the coding row.** The OptiPlex holds 243 mined tasks, 196 beyond the published 47
+and 130 of them committed after June (click 59, more-itertools 63, tomlkit 48, attrs 43,
+werkzeug 30, packaging 0). Each batch needs Claude Code + qwen3.5 on the local side and every
+tier on the OptiPlex.
+
+**Open:** the speech-to-text row, the cloud arm on click's tasks, and build-essential on the
 OptiPlex.
 
 ## 2026-11-09 (night): the same agent on both sides
@@ -24,8 +33,8 @@ cells). **Claude Code + qwen3.5 (the laptop's model file) resolved 34 of 47**, c
 GitHub's latency (a 504 after 11 s), now stubbed in `verify.mjs`.
 
 **Open:** ~~merge #104 and the stacked PR (#105), and #100 (the output cap; its Studio cells
-are in this ledger)~~, all merged 11-09 morning, see above. The laptop's own same-agent run (it
-needs a plan that fits 16 GB: jetsam at 131k on the first night).
+are in this ledger)~~, all merged 11-09 morning, see above. ~~The laptop's own same-agent run
+(it needs a plan that fits 16 GB: jetsam at 131k on the first night)~~: skipped, see above.
 
 ## 2026-11-08 (late): caught up is the gap on the same tasks
 

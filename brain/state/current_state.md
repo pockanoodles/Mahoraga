@@ -1,4 +1,32 @@
-# Current State — 2026-11-07
+# Current State — 2026-11-08
+
+## 2026-11-08: the map, and every cloud tier on it
+
+**The reframe shipped** (ADR `2026-11-08-the-map.md`). Mahoraga is a dated map of where local
+AI has caught up with cloud AI, by capability. #95 (the general pass) and #102 (README leads
+with the map, the app moves to `docs/app.md`, the site's Research page leads with the map) are
+merged, and the site was deployed the same evening. #101 (split-host runs) is merged too.
+
+**Every cloud tier is measured** (findings Era 41, report §4 "Every cloud tier"). On the 47
+tasks, Haiku 5.5 resolved 47 at $0.01 a task, Sonnet 5.5 43 at $0.07, and Opus 5.5 47 at
+$0.21. Local trails every tier, and the break-even line at what each tier spent is 95%, 98%
+and 100%. Haiku tried `pip install` inside the sandbox, and the proxy refused all 218
+connections.
+
+**The factory** mines six repositories nightly on the OptiPlex. werkzeug's first mine hung on
+its dev-server tests, and the re-mine with `-m "not dev_server"` kept 12 of 25 and queued
+follow job e4840b. packaging kept 0 of 25 (every candidate failed gate B). tomlkit kept 24.
+
+**Open:**
+- The same-agent run's last 11 more-itertools tasks on the Studio, on #100's output cap (#100
+  not merged), then its commit-date split and a map row.
+- The cloud arm on click's tasks, for the 92-task row's cloud column.
+- A positive control outside coding (speech to text graded by word error rate).
+- Whether the map's line should stay price-based now that a cloud task can cost a cent (see
+  Era 41). This is Kaito's call.
+- The repo split, as its own decision later.
+- `sudo apt install -y build-essential` on the OptiPlex, so hnswlib builds and the full
+  suite runs there.
 
 ## 2026-11-07 (night): Claude Code on qwen3.5, so the agent holds still
 

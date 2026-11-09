@@ -4,7 +4,8 @@
 `orch bench verify` recomputes each one from that artifact. The laptop's own
 131k run, which sections 3 to 5 report, ran night by night from 2026-10-28 to
 2026-11-01, and the cloud agent that section 4 measures on the same tasks ran
-on 2026-11-05, so this edition is dated November.
+on 2026-11-05 (Opus 5.5) and 2026-11-08 (Sonnet 5.5 and Haiku 5.5), so this
+edition is dated November.
 
 ## The question
 
@@ -43,7 +44,10 @@ resolved all 47 of the laptop's tasks, with a median attempt under 40 seconds,
 and at API list prices each task cost $0.21 on average. That price is about a
 twentieth of the $4.43 at which the laptop's own run starts to pay, so on
 these repositories the cloud solves as many tasks as the report's verdicts
-assume, at under a third of the price they assume.
+assume, at under a third of the price they assume. The two cheaper tiers ran
+the same tasks on 2026-11-08. Claude Haiku 5.5 also resolved all 47, at about
+a cent a task, and Claude Sonnet 5.5 resolved 43 at $0.07, so local trails
+every tier.
 
 ## 1. The local tier stopped getting new models
 
@@ -255,6 +259,47 @@ these did. Even so, the $4.43 at which local pays is about twenty times what
 these tasks cost. `mahoraga audit verdict --cloud-arm` prices a reader's
 verdict the same way once the cloud arm has run on their tasks
 ([claims](../../experiments/claims.json), `report_2026_11_*`).
+
+### Every cloud tier
+
+Opus 5.5 is the most expensive model Claude Code runs, so measuring the cloud
+with it alone could set the bar higher than most cloud work does. Claude
+Sonnet 5.5 and Claude Haiku 5.5 attempted the same 47 tasks on 2026-11-08,
+with the same agent, flags, machine, limit and proxy as the Opus run.
+
+| Agent and model | Resolved | Median attempt | Cost per task |
+| --- | --- | --- | --- |
+| Claude Code, Claude Opus 5.5 | 47 of 47, 100% [92%–100%] | under 40 seconds | $0.21 at list prices |
+| Claude Code, Claude Sonnet 5.5 | 43 of 47, 91% [80%–97%] | about 19 seconds | $0.07 at list prices |
+| Claude Code, Claude Haiku 5.5 | 47 of 47, 100% [92%–100%] | about 36 seconds | $0.01 at list prices |
+| aider, qwen3.5 at 131k (the laptop) | 17 of 47, 36% [24%–50%] | 28 minutes | the electricity |
+
+The cheapest tier did as well as the most expensive one, since Haiku 5.5
+resolved all 47 tasks. Sonnet 5.5 missed 4, and each of those attempts ended
+within 30 seconds with some of the target tests passing, so Sonnet stopped
+early rather than running out of time. Sonnet against Opus is a split of 4 to
+0. Two equally good agents would split that way about one time in eight
+(exact McNemar test, p = 0.125), so these 47 tasks can't tell them apart.
+One of Sonnet's misses (attrs `cbaef3f`) is a task the laptop solved, and it
+is the only one of the 47 that local solved and a cloud tier missed.
+Against the laptop, Sonnet's split is 27 to 1 (p = 2 × 10⁻⁷) and Haiku's is 30
+to 0, the same as Opus's. On the 19 tasks committed after June 2026, Sonnet
+solved 18 and Haiku all 19, compared to the laptop's 3.
+
+A cheaper tier makes local's case harder. Haiku 5.5 solves as many of these
+tasks as Opus does. The tasks the laptop solved cost Haiku less than a cent
+each on average ($0.007), so local saves almost nothing on the work it can do.
+The net per month barely moves across tiers (−$77 against Opus, −$79 against
+Sonnet and −$80 against Haiku). This is because the developer's time spent on
+local's failures outweighs the cloud price at every tier. What moves is the
+break-even rate. Local needs to resolve 95% of the queue at what Opus spent, 98% at what
+Sonnet spent and 100% at what Haiku spent.
+
+Haiku 5.5 was the only tier that tried to reach anything besides the model.
+It tried to install packages so it could run the tests, which made 217
+connections to pypi.org and one to api.github.com, and the proxy refused all
+of them. It then solved the tasks without those packages. Opus and Sonnet
+connected to api.anthropic.com alone.
 
 ## 5. The hardware question
 

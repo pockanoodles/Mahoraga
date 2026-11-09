@@ -19,10 +19,12 @@ export interface Dict {
     lead: (margin: number) => string;
     head: { work: string; local: string; cloud: string; caught: string; price: string };
     work47: (n: number) => string;
+    workSame: (n: number) => string;
     workAfter: (n: number) => string;
     work92: (n: number) => string;
     laptop: (k: number, n: number, rate: string, lo: string, hi: string) => string;
     studio35: (k: number, n: number, rate: string, lo: string, hi: string) => string;
+    studioSame: (k: number, n: number, rate: string, lo: string, hi: string) => string;
     count: (k: number, n: number) => string;
     // One line per cloud tier, each tier's model named by MapTable; the agent
     // is named once, on the first line.
@@ -216,24 +218,25 @@ const en: Dict = {
     lead: (margin) => `Local has caught up with a cloud tier when the cloud's lead on the same tasks stays under ${margin} points across its whole 95% interval. No row has crossed yet.`,
     head: { work: "Work", local: "Local, best measured", cloud: "Cloud, same tasks", caught: "Caught up?", price: "At today's prices" },
     work47: (n) => `Real commits from attrs and more-itertools (${n} tasks)`,
+    workSame: (n) => `The same ${n}, with Claude Code driving the local model too`,
     workAfter: (n) => `The ${n} of those committed after June 2026, past Opus 5.5's stated training cutoff`,
     work92: (n) => `Real commits from attrs, more-itertools and click (${n} tasks)`,
     laptop: (k, n, rate, lo, hi) => `aider and qwen3.5 (9.7B) on a 16 GB MacBook: ${k} of ${n}, ${rate} (95% interval ${lo} to ${hi})`,
     studio35: (k, n, rate, lo, hi) => `aider and qwen3.6 (35B) on a 64 GB Mac Studio: ${k} of ${n}, ${rate} (95% interval ${lo} to ${hi})`,
+    studioSame: (k, n, rate, lo, hi) => `Claude Code and qwen3.5 (9.7B, the laptop's model file) on a 64 GB Mac Studio: ${k} of ${n}, ${rate} (95% interval ${lo} to ${hi})`,
     count: (k, n) => `${k} of ${n}`,
     tier: (model, k, n, usd) => `${model}: ${k} of ${n}, at ${usd} a task`,
     agent: (line) => `Claude Code and ${line}`,
     tierCount: (model, k, n) => `${model}: ${k} of ${n}`,
     notRun: "Not run yet",
     behind: (model, gap, lo, hi) => `${model}: behind by ${gap} points (${lo} to ${hi})`,
-    open: (model, gap, lo, hi) => `${model}: too close to call at ${gap} points (${lo} to ${hi})`,
+    open: (model, gap, lo, hi) => `${model}: not settled at ${gap} points (${lo} to ${hi})`,
     noCloud: "No standing until a cloud tier runs these tasks",
     stayTiers: (opus, sonnet, haiku) => `Stay on the cloud. To break even at what each tier spent, local needs ${opus} against Opus, ${sonnet} against Sonnet and ${haiku} against Haiku.`,
     stayAssumed: (rate, price) => `Stay on the cloud. Local needs ${rate} at an assumed ${price} a cloud task.`,
     notPriced: "Not priced on its own",
     runningTitle: "Being measured now",
     running: [
-      "Claude Code driving qwen3.5 on the Mac Studio, so both sides use the same agent and whatever gap remains belongs to the model.",
       "New commits mined every night, so each new model meets work made after its release.",
     ],
     rule: "Coding comes first because a commit grades itself with its tests. Another kind of work joins the map only when it has a check just as mechanical, and real tasks behind it.",
@@ -488,24 +491,25 @@ const ja: Dict = {
     lead: (margin) => `同じタスクでのクラウドのリードが、95% 区間全体で ${margin} ポイント未満に収まれば、ローカルはその層に追いついたと言えます。まだ越えた行はありません。`,
     head: { work: "仕事", local: "ローカル（最良の計測）", cloud: "クラウド（同じタスク）", caught: "追いついたか", price: "いまの価格では" },
     work47: (n) => `attrs と more-itertools の実際のコミット（${n} タスク）`,
+    workSame: (n) => `同じ ${n} タスクを、ローカルのモデルも Claude Code に動かさせたもの`,
     workAfter: (n) => `そのうち 2026 年 6 月より後にコミットされた ${n} タスク（Opus 5.5 が公表している学習データの期限より後）`,
     work92: (n) => `attrs、more-itertools、click の実際のコミット（${n} タスク）`,
     laptop: (k, n, rate, lo, hi) => `16 GB の MacBook で aider と qwen3.5（9.7B）：${n} 件中 ${k} 件、${rate}（95% 区間 ${lo}〜${hi}）`,
     studio35: (k, n, rate, lo, hi) => `64 GB の Mac Studio で aider と qwen3.6（35B）：${n} 件中 ${k} 件、${rate}（95% 区間 ${lo}〜${hi}）`,
+    studioSame: (k, n, rate, lo, hi) => `64 GB の Mac Studio で Claude Code と qwen3.5（9.7B、ノートと同じモデルファイル）：${n} 件中 ${k} 件、${rate}（95% 区間 ${lo}〜${hi}）`,
     count: (k, n) => `${n} 件中 ${k} 件`,
     tier: (model, k, n, usd) => `${model}：${n} 件中 ${k} 件、1 タスク ${usd}`,
     agent: (line) => `Claude Code と ${line}`,
     tierCount: (model, k, n) => `${model}：${n} 件中 ${k} 件`,
     notRun: "まだ測っていません",
     behind: (model, gap, lo, hi) => `${model}：${gap} ポイントの遅れ（${lo}〜${hi}）`,
-    open: (model, gap, lo, hi) => `${model}：差は ${gap} ポイントで、まだ判定できません（${lo}〜${hi}）`,
+    open: (model, gap, lo, hi) => `${model}：差は ${gap} ポイントで、まだ決まっていません（${lo}〜${hi}）`,
     noCloud: "クラウドの層がこのタスクを走らせるまで、判定はありません",
     stayTiers: (opus, sonnet, haiku) => `クラウドのままで問題ありません。各層が実際に使った額で損益分岐に達するには、ローカルに Opus に対して ${opus}、Sonnet に対して ${sonnet}、Haiku に対して ${haiku} が必要です。`,
     stayAssumed: (rate, price) => `クラウドのままで問題ありません。クラウドのタスクを 1 件 ${price} と仮定すると、ローカルに ${rate} が必要です。`,
     notPriced: "単独では計算していません",
     runningTitle: "いま測っているもの",
     running: [
-      "Mac Studio で Claude Code に qwen3.5 を動かさせ、両側のエージェントをそろえます。それでも残る差は、モデルの差です。",
       "新しいコミットを毎晩掘り出し、新しいモデルがリリース後の仕事にも出会うようにします。",
     ],
     rule: "コーディングから始めるのは、コミットが自分のテストで採点できるからです。ほかの種類の仕事は、同じくらい機械的な確認方法と実際のタスクがそろったときにだけ、この表に加わります。",

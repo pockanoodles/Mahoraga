@@ -29,13 +29,14 @@ export function MapTable({ t }: { t: Dict["map"] }) {
   const vs = claim("report_2026_11_laptop_vs_cloud");
   const after = claim("report_2026_11_laptop_vs_cloud_after_june");
   const big = claim("report_2026_10_studio_qwen36_outside");
+  const same = claim("report_2026_11_studio_claude_qwen35"); // Claude Code on the local model too
   const n = num;
   // Each cloud tier against the laptop on the same tasks, all of them and the
   // ones committed after June 2026.
   const tiers = [
-    { model: "Opus 5.5", vs, after },
-    { model: "Sonnet 5.5", vs: claim("report_2026_11_laptop_vs_sonnet55"), after: claim("report_2026_11_laptop_vs_sonnet55_after_june") },
-    { model: "Haiku 5.5", vs: claim("report_2026_11_laptop_vs_haiku55"), after: claim("report_2026_11_laptop_vs_haiku55_after_june") },
+    { model: "Opus 5.5", vs, after, same: claim("report_2026_11_same_agent_vs_opus55") },
+    { model: "Sonnet 5.5", vs: claim("report_2026_11_laptop_vs_sonnet55"), after: claim("report_2026_11_laptop_vs_sonnet55_after_june"), same: claim("report_2026_11_same_agent_vs_sonnet55") },
+    { model: "Haiku 5.5", vs: claim("report_2026_11_laptop_vs_haiku55"), after: claim("report_2026_11_laptop_vs_haiku55_after_june"), same: claim("report_2026_11_same_agent_vs_haiku55") },
   ];
   type Cell = string | string[];
   const rows: { work: string; local: string; cloud: Cell; caught: Cell; price: string }[] = [
@@ -57,6 +58,13 @@ export function MapTable({ t }: { t: Dict["map"] }) {
       price: t.notPriced,
     },
     {
+      work: t.workSame(n(same, "tasks")),
+      local: t.studioSame(n(same, "resolved"), n(same, "tasks"), pct(n(same, "rate")), pct(n(same, "rate_lo")), pct(n(same, "rate_hi"))),
+      cloud: tiers.map((x) => t.tierCount(x.model, n(x.same, "versus_resolved"), n(x.same, "pairs"))),
+      caught: tiers.map((x) => standingLine(t, x.model, x.same)),
+      price: t.notPriced,
+    },
+    {
       work: t.work92(n(big, "tasks")),
       local: t.studio35(n(big, "resolved"), n(big, "tasks"), pct(n(big, "rate")), pct(n(big, "rate_lo")), pct(n(big, "rate_hi"))),
       cloud: t.notRun,
@@ -70,7 +78,8 @@ export function MapTable({ t }: { t: Dict["map"] }) {
   for (const x of tiers) {
     if (n(laptop, "tasks") !== n(x.vs, "pairs")) throw new Error(`the map pairs the laptop's run with ${x.model} on different tasks`);
     if (n(after, "pairs") !== n(x.after, "pairs")) throw new Error(`the map's after-June row pairs ${x.model} on different tasks`);
-    for (const c of [x.vs, x.after]) {
+    if (n(same, "tasks") !== n(x.same, "pairs")) throw new Error(`the map's same-agent row pairs ${x.model} on different tasks`);
+    for (const c of [x.vs, x.after, x.same]) {
       if (num(c, "margin") !== num(vs, "margin")) throw new Error(`${c.id} reads its gap against another margin`);
     }
     if (metric(x.vs, "call") !== "stay") throw new Error(`${x.vs.id}'s verdict is no longer stay; the price column says it is`);

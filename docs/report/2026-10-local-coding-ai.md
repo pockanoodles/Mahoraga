@@ -316,7 +316,7 @@ The gap comes with a 95% interval (Tango's score interval for paired results),
 and it is read against a margin of 10 points that was fixed before any new
 run. Local has caught up with a tier when the whole interval sits below 10
 points, and it is behind when the whole interval sits above. An interval that
-straddles the margin is too close to call. Ten points is about how close the
+straddles the margin is open, which means not settled. Ten points is about how close the
 cloud's own tiers are on these tasks, since Sonnet trails Opus by 8.5.
 
 | Tier | Gap on all 47 tasks (cloud minus local) | Gap on the 19 committed after June 2026 | Standing |
@@ -342,6 +342,57 @@ training cutoff can't read "behind" on their own, and the crossing has to
 hold after the next batch of newly mined tasks is added. The map tests every
 tier again each month, and enough repeated tests would eventually cross by
 chance.
+
+### The same agent on both sides
+
+The cloud ran under Claude Code and the laptop under aider, so the gaps above
+measure the agent as well as the model. Claude Code can find a repository's
+tests and run them through its shell even in the blind condition, which aider
+can't. To hold the agent fixed, Claude Code 2.1.318 drove qwen3.5 through
+Ollama on 2026-11-07 and 2026-11-08, with the cloud run's flags, prompt, empty
+home directory and sandbox, on the Mac Studio. The model was the laptop's own
+file at the same 131k context. The Studio stands in for the laptop's answers
+rather than its speed, since under aider the two machines solved 17 and 18 of
+these 47 (section 5).
+
+| Agent and model, same 47 tasks | Resolved | Median attempt |
+| --- | --- | --- |
+| Claude Code, qwen3.5 at 131k (the Studio) | 34 of 47, 72% [58%–83%] | about 5 minutes |
+| aider, qwen3.5 at 131k (the Studio) | 18 of 47 | |
+| aider, qwen3.5 at 131k (the laptop) | 17 of 47, 36% [24%–50%] | 28 minutes |
+
+The agent moved the result more than any setting this study has measured,
+since the wider context added about 20 points (section 3). On the same
+machine with the same model file, Claude Code solved 17 tasks that aider
+missed and aider solved 1 that Claude Code missed (exact McNemar test, p =
+0.0001). By repository, local solved 26 of 28 more-itertools tasks and 8 of 19
+attrs tasks, so the small, self-contained functions came close while the class
+machinery did not.
+
+| Tier | Cloud's lead on all 47 tasks | Standing | Lead on the 19 committed after June 2026 | Standing |
+| --- | --- | --- | --- | --- |
+| Claude Opus 5.5 | 28 points (17 to 42) | behind | 11 points (−8 to 31) | open |
+| Claude Sonnet 5.5 | 19 points (5 to 34) | open | 5 points (−12 to 25) | open |
+| Claude Haiku 5.5 | 28 points (17 to 42) | behind | 11 points (−8 to 31) | open |
+
+Holding the agent fixed cuts the cloud's lead by more than half, from 64
+points to 28 against Opus and Haiku. Against Sonnet the lead of 19 points is
+not settled, which is the first standing on the map that isn't "behind". An
+open standing is not a crossing. Its interval still reaches 34 points, and
+only more tasks can narrow it. On the tasks committed after June 2026, local
+solved 17 of 19, so the after-cutoff slice does not read "behind" against any
+tier. That slice is mostly more-itertools, the repository local does best on,
+so it isn't evidence that local does better on newer work.
+
+Two parts of the run differ from the cloud's. Thirty-one cells ran at commit
+`4ec7beb` with Claude Code's output capped at 8192 tokens a reply, and that
+cap crashed 9 attempts on the first night. The other 16 cells ran at
+`0fa2d94` (#100), which gives a local model the CLI's own cap of 32,000. They
+are the cells left over from the first night and every cell the 8192 cap had
+touched, so no kept attempt ran into the old cap. The laptop's own run under
+Claude Code is still to come. Its first night finished 3 cells and solved 1,
+with the machine short of memory at a 131k context, and the run stopped
+before a second night. It waits on #100.
 
 ## 5. The hardware question
 

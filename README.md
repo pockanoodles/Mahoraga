@@ -13,7 +13,8 @@ commits from real repositories, has a model running on hardware people own attem
 and grades every attempt with that repository's own tests. The cloud runs the same tasks, and
 every result carries its date, because the line is expected to move. So far local hasn't
 caught up on any coding work measured, since on the same 47 tasks a 16 GB laptop solved 17
-and Claude Code solved all 47, on Opus 5.5 and on Haiku 5.5 at about a cent a task.
+and Claude Code solved all 47, on Opus 5.5 and on Haiku 5.5 at about a cent a task. With
+Claude Code driving the local model as well, local solved 34.
 </p>
 
 <p align="center">
@@ -42,6 +43,7 @@ spent.
 | --- | --- | --- | --- | --- | --- |
 | Real commits from attrs and more-itertools (47 tasks) | aider and qwen3.5 (9.7B) on a 16 GB MacBook: 17 of 47 (36%, interval 24% to 50%) | Claude Code on Opus 5.5: 47 of 47 at $0.21 a task. On Sonnet 5.5: 43 of 47 at $0.07. On Haiku 5.5: 47 of 47 at $0.01 | No, behind every tier. The cloud leads by 64 points against Opus (50 to 76), 55 against Sonnet (38 to 69) and 64 against Haiku (50 to 76) | Stay. To break even, local needs 95% against Opus, 98% against Sonnet and 100% against Haiku | Oct to Nov 2026 |
 | The same 47, only the 19 commits made after June 2026 (after Opus 5.5's stated training cutoff) | 3 of 19 | Opus 19, Sonnet 18 and Haiku 19, each of 19 | No, behind every tier, by 84 points against Opus (53 to 94), 79 against Sonnet (49 to 91) and 84 against Haiku (53 to 94) | Not priced on its own | Oct to Nov 2026 |
+| The same 47, with Claude Code driving the local model too | Claude Code and qwen3.5 (9.7B, the laptop's model file) on a 64 GB Mac Studio: 34 of 47 (72%, interval 58% to 83%) | Opus 47, Sonnet 43 and Haiku 47, each of 47 | No. Behind Opus by 28 points (17 to 42) and Haiku by 28 (17 to 42). Against Sonnet the lead of 19 points (5 to 34) is not settled | Not priced on its own | Nov 2026 |
 | Real commits from attrs, more-itertools and click (92 tasks) | aider and qwen3.6 (35B) on a 64 GB Mac Studio: 31 of 92 (34%, interval 25% to 44%) | Not run yet | No standing until a cloud tier runs these tasks | Stay. Break-even is 77% at an assumed $0.75 a cloud task | Oct 2026 |
 
 The cheapest tier is no easier to catch. Haiku 5.5 solved all 47 tasks, and at a cent a task
@@ -53,13 +55,18 @@ close to call, so the coding row will grow toward about 150 tasks.
 [Section 4 of the report](docs/report/2026-10-local-coding-ai.md#caught-up-by-capability) has
 the test and the three tiers side by side.
 
-Two measurements are running now, and each adds to the table once it finishes.
+The agent accounts for much of the gap. Under aider the local model solved 18 of the 47 on the
+Mac Studio, and under Claude Code it solved 34 on the same machine with the same model file.
+The cloud still leads every tier, but against Sonnet that lead is no longer settled
+([the same agent on both sides](docs/report/2026-10-local-coding-ai.md#the-same-agent-on-both-sides)).
 
-- **The same agent on both sides.** Claude Code driving qwen3.5 on the Mac Studio holds the
-  agent fixed, so whatever gap remains belongs to the model. It waits on its last tasks and
-  on a split by commit date, since a small model may remember a popular library.
+One measurement is running now, and it adds to the table as it grows.
+
 - **New commits every night.** An always-on box mines attrs, more-itertools, click, tomlkit
   and werkzeug for new commits, so each new model also meets work made after its release.
+
+The laptop's own run under Claude Code comes next, so the same-agent row can say what 16 GB
+gets in practice.
 
 Coding comes first because a commit grades itself with its tests. Another kind of work joins
 the map only when it has a check that is just as mechanical, and real tasks behind it. That

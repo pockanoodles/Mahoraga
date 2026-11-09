@@ -1591,3 +1591,38 @@ tasks on claude-sonnet-5-5 and claude-haiku-5-5 on the OptiPlex, with the Opus r
 - Haiku sent more tokens than Opus (15.7M vs 9.6M, mostly cache reads) and still cost a
   twentieth. Report §4 ("Every cloud tier"), claims `report_2026_11_*sonnet55*` and
   `*haiku55*`, log entry `2026-11-08-every-tier`.
+
+## Era 42 — the same agent on both sides cuts the cloud's lead by more than half (2026-11-09)
+
+Claude Code 2.1.318 drove qwen3.5 (`qwen3.5:laptop-dec52a4`, the laptop's GGUF) at 131k
+through Ollama on the Studio, with the cloud arm's flags, prompt, empty home and sandbox, on
+the 47 tasks, blind, 90-minute limit (`night/2026-11-07-studio-claude.sh` and
+`2026-11-08-studio-claude.sh` on the Studio, ledger
+`experiments/agentbench/studio-2026-11-claude-local.jsonl`). 31 cells ran at 4ec7beb and 16 at
+0fa2d94 (#100, output cap 32000): the 11 more-itertools cells left at 07:30 on 11-08, 6e3786c
+(degraded after three 8192-cap crashes) and the 4 cells whose kept attempt followed a cap
+crash, which moved to `attempts/superseded-8192cap/`.
+
+| Agent, qwen3.5 at 131k | Resolved | Median attempt |
+| --- | --- | --- |
+| Claude Code, Studio | **34 of 47** (58%–83%) | 4.9 min (longest 43.7) |
+| aider, Studio (10-13) | 18 of 47 | |
+| aider, laptop (10-28 to 11-01) | 17 of 47 | 28 min |
+
+- **The agent is the biggest lever measured.** Same machine, model file and context: Claude
+  Code 17 tasks only, aider 1 only (attrs e048efc), p = 0.0001. The 131k context had added
+  about 20 points (Era 37); the agent adds 34.
+- **By repository:** more-itertools 26 of 28 (misses 18c57c7, dc2664b), attrs 8 of 19. The
+  small, self-contained functions came close, and the class machinery did not.
+- **Capability standings (ADR `2026-11-08-caught-up-by-capability.md`):** Opus and Haiku lead
+  by 28 points (17 to 42), behind. **Sonnet leads by 19 (5 to 34), open**, the first standing
+  that isn't behind; local solved 2 tasks Sonnet missed (attrs cbaef3f, more-itertools
+  52cfcfe) and Sonnet 11 that local missed. After June 2026 local solved 17 of 19, and every
+  tier's lead there is open (Opus and Haiku 11, −8 to 31; Sonnet 5, −12 to 25). That slice is
+  16 more-itertools and 3 attrs tasks, so it says more about the repository than about dates.
+- **No timeouts.** Every attempt finished inside the limit on the Studio. The laptop's own
+  same-agent run finished 3 cells on its first night (11-07) with jetsam at 131k on 16 GB,
+  then stopped; it waits on #100 and a plan that fits 16 GB.
+- Report §4 ("The same agent on both sides"), claims `report_2026_11_studio_claude_qwen35`,
+  `report_2026_11_claude_vs_aider_studio` and `report_2026_11_same_agent_vs_*`, log entry
+  `2026-11-09-same-agent`.

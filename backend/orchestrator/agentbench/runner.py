@@ -75,6 +75,10 @@ class Attempt:
     request_errors: int | None = None
     # A cloud arm's cost at its vendor's API prices; None for a local arm.
     cost_usd: float | None = None
+    # A try the account's usage limit ended: when the limit resets (epoch
+    # seconds; 0 = the agent didn't say) and which window ran out.
+    limited_until: float | None = None
+    limit_window: str = ""
 
     @property
     def no_edit(self) -> bool:
@@ -169,10 +173,34 @@ def _reset(clone: Path, base: str) -> None:
 
 HARNESS_CRASH = "agent crashed"
 HARNESS_UNREADABLE = "agent couldn't read the reply"
+USAGE_LIMIT = "usage limit"
+
+# How long a run waits for a cloud account's usage limit to reset: a
+# five-hour window and some slack. A weekly limit ends the run instead.
+MAX_LIMIT_WAIT = 6 * 3600
+LIMIT_SLACK = 60  # the reset is the vendor's clock, not this machine's
+MAX_LIMITED_TRIES = 3  # a limit back after every reset ends the run
+_sleep = time.sleep
 
 
 def is_harness_failure(reason: str) -> bool:
     return reason.startswith((HARNESS_CRASH, HARNESS_UNREADABLE))
+
+
+def describe_limit(window: str, until: float) -> str:
+    who = f"the {window} window" if window else "the account"
+    if not until:
+        return f"{who} is out of usage, and the agent didn't say until when"
+    return f"{who} is out of usage until {time.strftime('%a %H:%M', time.localtime(until))}"
+
+
+class UsageLimited(Exception):
+    """A cloud account out of usage for longer than the run can wait. `done`
+    holds the attempts the run counted before it, so they're still reported."""
+
+    def __init__(self, arm: str, window: str, until: float, done: list["Attempt"]) -> None:
+        super().__init__(f"{arm}: {describe_limit(window, until)}")
+        self.arm, self.window, self.until, self.done = arm, window, until, done
 
 
 def _harness_failures(run: AgentRun, edited: bool) -> list[str]:
@@ -195,6 +223,9 @@ def _degraded(watch: Watch | None, run: AgentRun, edited: bool) -> list[str]:
     if watch and watch.slow and (run.timed_out or run.request_errors):
         how = "timed out" if run.timed_out else f"had {run.request_errors} failed requests"
         out.append(f"{watch.slow}, and the attempt {how}")
+    if run.limited_until is not None:
+        # The account ran out, not the agent: no harness failure to count.
+        return out + [f"{USAGE_LIMIT}: {describe_limit(run.limit_window, run.limited_until)}"]
     return out + _harness_failures(run, edited)
 
 
@@ -280,7 +311,7 @@ def run_attempt(bench: Bench, config: SuiteConfig, task: Task, agent: Agent,
         degraded=_degraded(watch, run, edited=bool(set(edited) - set(touched_tests))),
         conditions=watch.conditions if watch else {},
         tier=g.tier, run_id=run_id, request_errors=run.request_errors,
-        cost_usd=run.cost_usd,
+        cost_usd=run.cost_usd, limited_until=run.limited_until, limit_window=run.limit_window,
     )
     if attempt.degraded:
         attempt.conditions["at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
@@ -320,6 +351,20 @@ def load_degraded(bench: Bench) -> list[Attempt]:
         if d.exists() else []
 
 
+def _wait_out(a: Attempt, limited: int, deadline: float | None,
+              note: Callable[[str], None], done: list[Attempt]) -> None:
+    """Sleep until a usage limit resets, or raise `UsageLimited` when the run
+    can't: no reset given, past the deadline or `MAX_LIMIT_WAIT` away, or the
+    same cell limited `MAX_LIMITED_TRIES` times."""
+    until, now = a.limited_until or 0.0, time.time()
+    resume = max(until, now) + LIMIT_SLACK
+    if (not until or limited >= MAX_LIMITED_TRIES or resume - now > MAX_LIMIT_WAIT
+            or (deadline is not None and resume >= deadline)):
+        raise UsageLimited(a.arm, a.limit_window, until, done)
+    note(f"{a.arm}: {describe_limit(a.limit_window, until)}; waiting for it")
+    _sleep(resume - now)
+
+
 def run_matrix(bench: Bench, agents: Iterable[Agent], conds: Iterable[str],
                only: set[str] | None = None, timeout: float = DEFAULT_TIMEOUT,
                repeats: int = 1, guard: Guard | None = None,
@@ -327,6 +372,7 @@ def run_matrix(bench: Bench, agents: Iterable[Agent], conds: Iterable[str],
                run_id: str = "", max_harness_failures: int = 3,
                progress: Callable[[Attempt], None] = lambda a: None,
                dropped: Callable[[str, str], None] = lambda arm, why: None,
+               note: Callable[[str], None] = lambda msg: None,
                ) -> list[Attempt]:
     """Every (repeat, agent, condition, task) without a recorded attempt.
 
@@ -346,6 +392,13 @@ def run_matrix(bench: Bench, agents: Iterable[Agent], conds: Iterable[str],
     dropped from the rest of the run and reported through `dropped`. Left in,
     it fills a night with attempts that can't count: ornith under aider, and
     aider on the Studio's broken scipy, would both have.
+
+    A try a cloud account's usage limit ended is neither a retry spent nor a
+    harness failure: the run waits for the reset (saying so through `note`)
+    and tries the cell again. When it can't wait, because the reset is
+    unknown, past the deadline or over `MAX_LIMIT_WAIT` away, it raises
+    `UsageLimited` with the attempts counted so far. Rerun after the reset:
+    filled cells are skipped.
     """
     config = bench.load_config()
     tasks = [t for t in bench.load_tasks() if not only or t.sha in only]
@@ -362,7 +415,8 @@ def run_matrix(bench: Bench, agents: Iterable[Agent], conds: Iterable[str],
                     if _artifact(bench, arm, cond, task.sha, rep, "json").exists():
                         continue
                     attempt = None
-                    for _ in range(max_degraded + 1):
+                    tries = limited = 0
+                    while tries <= max_degraded:
                         if guard and not guard.wait_ready(agent, deadline):
                             return done
                         if deadline is not None and time.time() >= deadline:
@@ -373,6 +427,11 @@ def run_matrix(bench: Bench, agents: Iterable[Agent], conds: Iterable[str],
                         if not attempt.degraded:
                             done.append(attempt)
                             break
+                        if attempt.limited_until is None:
+                            tries += 1
+                        else:
+                            limited += 1
+                            _wait_out(attempt, limited, deadline, note, done)
                     failed = [r for r in attempt.degraded if is_harness_failure(r)]
                     streak[arm] = streak.get(arm, 0) + 1 if failed else 0
                     if streak[arm] == max_harness_failures:

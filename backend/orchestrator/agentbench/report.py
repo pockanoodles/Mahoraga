@@ -6,6 +6,7 @@ from collections import Counter, defaultdict
 from dataclasses import dataclass
 
 from .bank import Task
+from .manifest import served_by
 from .runner import Attempt
 from .stats import Plan, Rate, plan, task_rate, time_bound
 
@@ -182,7 +183,7 @@ def _setup(m: dict, arm: str) -> str:
     return (f"{model} @ {digest.split(':')[-1][:12]}, {agent} {version}, "
             f"ollama {m.get('models', {}).get('ollama', '?')}, "
             f"mahoraga {h.get('version', '?')} {commit}{' (dirty)' if h.get('dirty') else ''}, "
-            f"{hw.get('model', '?')} {hw.get('memory_gb', '?')} GB, "
+            f"{hw.get('model', '?')} {hw.get('memory_gb', '?')} GB{served_by(m)}, "
             + (f"{limit / 60:.0f}-min limit, " if limit else "")
             + f"prompts {str(t.get('prompts_sha256', '?'))[:12]}")
 

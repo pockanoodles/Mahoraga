@@ -36,13 +36,18 @@ run, sends anything out (below).
   `git fetch` in your repository to pick up new commits and leaves the checkout alone.
 - **Agents run in an operating-system sandbox.** On macOS it is `sandbox-exec`, and on
   Linux it is bubblewrap (`apt install bubblewrap`). The agent can write only to its own
-  copy, its own home folder and a temporary folder, and nothing it runs can reach past
-  this machine. On Linux a local agent gets its own private network with no route out,
-  its own `/tmp` and its own `/run`, and reaches only Ollama, so it can't reach other
-  programs' sockets either. On macOS a local agent can open a connection to any program
-  listening on this machine, which includes Ollama, and to nothing beyond it. On both, the
-  cloud arm can reach only its proxy. A request anywhere else is refused by the operating
-  system.
+  copy, its own home folder and a temporary folder. It can open network connections only
+  to the local ports Mahoraga gives it, which are Ollama's for a local arm and the
+  cloud arm's proxy for the cloud arm. A request anywhere else is refused by the
+  operating system. On Linux the agent gets its own private network with no route out,
+  its own `/tmp` and its own `/run`, so it can't reach other programs' sockets either.
+- **A local arm's attempts to leave are recorded, and none get through.** A local agent
+  also gets a proxy (`agentbench/egress.py`) that allows no host. Anything that follows
+  the standard `HTTPS_PROXY` setting asks it first, and it refuses each request and
+  records which host was asked for, in the attempt's log and as its `egress_refused`
+  count. For example, aider asks GitHub for litellm's price list each time it starts. A
+  program that ignores the setting is refused by the sandbox as before, but its
+  destination isn't named.
 - **Agents can't read your credentials.** The folders under your home that hold keys and
   logins (`.ssh`, `.config`, `.claude`, `.codex`, `.aws` and the like) are hidden from
   every agent.
@@ -53,7 +58,11 @@ run, sends anything out (below).
   aider, `--no-check-update --no-analytics`), but nothing stops it opening a connection.
   The cloud arm refuses to start even then.
 - **The model runs on your machine.** Ollama answers at `http://127.0.0.1:11434` unless
-  you point `OLLAMA_BASE_URL` somewhere else.
+  you point `OLLAMA_BASE_URL` somewhere else. If you do, task prompts and the code the agent
+  reads go to that machine, and each run's manifest records where (`inference`). A tunnel
+  hides that behind a loopback address, so name the machine in
+  `MAHORAGA_INFERENCE_MACHINE`; a verdict then reports the two machines together and never
+  pools them with a run that kept the model at home.
 - **Results stay local.** Tasks, attempts, run manifests and verdicts are files under
   `~/.mahoraga-v2/`, and nothing uploads them.
 

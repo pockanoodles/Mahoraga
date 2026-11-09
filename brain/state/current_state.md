@@ -1,5 +1,26 @@
 # Current State — 2026-11-07
 
+## 2026-11-07 (night): Claude Code on qwen3.5, so the agent holds still
+
+The 30-0 compares aider + qwen3.5 with Claude Code + Opus 5.5, so agent and model change
+together. **#96 (`feat/claude-local-arm`)** adds `claude:<ollama model>[@ctx=N]`: Claude Code on
+a local model through Ollama's Anthropic endpoint. It uses the cloud arm's CLI, flags, prompt,
+empty home and sandbox, and only Ollama's port is open. It also fixes the macOS sandbox, which
+refused the CLI's `/tmp/claude-<uid>`; `CLAUDE_CODE_TMPDIR` now points into the attempt's home.
+
+Running tonight, both on 4ec7beb with Claude Code 2.1.318 (the cloud run's version):
+- **Studio:** `claude:qwen3.5:laptop-dec52a4@ctx=131072` on the 47, blind, 90-min limit.
+  - Script `~/.mahoraga-v2/night/2026-11-07-studio-claude.sh`, which logs power with macmon
+    (`~/.local/bin`, no sudo).
+  - Small model only, by Kaito's word (the electricity bill). The queue worker stays off, so
+    its four qwen3.6-35B follow jobs stay parked.
+  - First cell: attrs 5aa76a4 resolved in 2.6 min; aider had failed it on the laptop.
+- **Laptop:** `claude:qwen3.5:latest@ctx=131072` on the same 47 in `agentbench-131k`.
+  - Script `~/.mahoraga-v2/night/2026-11-07-claude-local.sh`: machine.json terms, nights until
+    47/47, four at most.
+- **OptiPlex:** the factory's first window, 01:00–06:00 (attrs, more-itertools and click,
+  mine-only, gate runs 5).
+
 ## 2026-11-07 (later): the published tasks pass the gold check, and a general pass
 
 **The screen is done.** All 47 published tasks came out the same under the gold check with

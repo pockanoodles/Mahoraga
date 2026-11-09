@@ -71,6 +71,20 @@ def test_calculate_cost_prefix_match_prefers_longest_prefix():
     assert cost == pytest.approx(1.00, abs=1e-6)
 
 
+def test_the_5_5_models_price_at_their_own_rows(caplog):
+    import logging as _logging
+    with caplog.at_level(_logging.WARNING, logger="backend.orchestrator.tracking.pricing"):
+        opus = calculate_cost("claude-opus-5-5", input_tokens=1_000_000, output_tokens=1_000_000)
+        sonnet = calculate_cost("claude-sonnet-5-5", input_tokens=1_000_000, output_tokens=0)
+        haiku = calculate_cost("claude-haiku-5-5", input_tokens=1_000_000, output_tokens=0)
+    assert opus == pytest.approx(24.00)  # not sonnet-4-6's 18.00, the unknown-model fallback
+    assert sonnet == pytest.approx(2.00)  # not claude-sonnet-5's 3.00, its longest prefix
+    assert haiku == pytest.approx(0.10)
+    assert not any("unknown model" in r.message for r in caplog.records)
+    # A dated Sonnet 5 still resolves to claude-sonnet-5, not to the 5.5 row.
+    assert calculate_cost("claude-sonnet-5-20260203", 1_000_000, 0) == pytest.approx(3.00)
+
+
 def test_calculate_cost_unknown_model_warns(caplog):
     import logging as _logging
     with caplog.at_level(_logging.WARNING, logger="backend.orchestrator.tracking.pricing"):

@@ -508,7 +508,7 @@ def run_cmd(
                   "wait_quiet": wait_quiet, "allow_cloud": allow_cloud,
                   "min_speed_ratio": ratio, "forced": force},
         started=lambda run_id: typer.echo(f"run {run_id} (manifest: {manifest.path(bench, run_id)})"),
-        dropped=lambda arm, why: typer.echo(f"dropped {arm}: {why}"))
+        dropped=lambda arm, why: typer.echo(f"dropped {arm}: {why}"), note=typer.echo)
     typer.echo(f"{len(done)} attempts run ({stopped})")
 
 

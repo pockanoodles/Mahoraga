@@ -132,7 +132,8 @@ def run_job(queue: Queue, job: Job, deadline: float | None, *,
                       **terms.record(), "guarded": True},
             progress=progress, started=started,
             dropped=lambda arm, why: (dropped.append(f"{arm}: {why}"),
-                                      log(f"dropped {arm}: {why}")))
+                                      log(f"dropped {arm}: {why}")),
+            note=lambda msg: log(f"job {job.id}: {msg}"))
     except BaseException:
         queue.update(job.id, why="interrupted; resumes when the worker restarts")
         raise

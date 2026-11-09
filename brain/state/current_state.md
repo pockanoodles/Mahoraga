@@ -16,7 +16,9 @@ in the report as the 16 GB limit: 25, 90 and 26 minutes a cell.
 **Next: grow the coding row.** The OptiPlex holds 243 mined tasks, 196 beyond the published 47
 and 130 of them committed after June (click 59, more-itertools 63, tomlkit 48, attrs 43,
 werkzeug 30, packaging 0). Each batch needs Claude Code + qwen3.5 on the local side and every
-tier on the OptiPlex.
+tier on the OptiPlex. **On hold (Kaito, 11-09):** where the local side runs is undecided. The
+laptop runs it about 10 times slower than the Studio, and the 11-08 ADR keeps the OptiPlex from
+driving the Studio. Mining goes on, and the row stays at 47 until he decides.
 
 **Open:** the speech-to-text row, the cloud arm on click's tasks, and build-essential on the
 OptiPlex.

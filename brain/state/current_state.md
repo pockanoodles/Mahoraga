@@ -1,5 +1,20 @@
 # Current State — 2026-11-09
 
+## 2026-11-09 (night): the same agent on both sides
+
+The Studio's same-agent run finished on 11-08 at 16:05 (#100's output cap for the last 16
+cells). **Claude Code + qwen3.5 (the laptop's model file) resolved 34 of 47**, compared to
+18 for aider on the same machine (p = 0.0001), so the agent accounts for much of the 30-0
+(findings Era 42). Capability standings: Opus and Haiku lead by 28 points (behind), and
+**Sonnet's lead of 19 (5 to 34) is open**, the first standing that isn't behind. PR
+`docs/same-agent-studio` (stacked on #104) adds the ledger, 8 claims (41/41), report §4
+"The same agent on both sides", a map row and a log entry. #104's site check flaked on
+GitHub's latency (a 504 after 11 s), now stubbed in `verify.mjs`.
+
+**Open:** merge #104 and the stacked PR (Kaito), #100 (the output cap; its Studio cells are in
+this ledger), the laptop's own same-agent run (it needs a plan that fits 16 GB: jetsam at 131k
+on the first night).
+
 ## 2026-11-08 (late): caught up is the gap on the same tasks
 
 **#103 merged and deployed** (every cloud tier on the map). Kaito then asked for a planning

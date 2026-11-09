@@ -65,9 +65,6 @@ One measurement is running now, and it adds to the table as it grows.
 - **New commits every night.** An always-on box mines attrs, more-itertools, click, tomlkit
   and werkzeug for new commits, so each new model also meets work made after its release.
 
-The laptop's own run under Claude Code comes next, so the same-agent row can say what 16 GB
-gets in practice.
-
 Coding comes first because a commit grades itself with its tests. Another kind of work joins
 the map only when it has a check that is just as mechanical, and real tasks behind it. That
 way no model ever grades another model's answer. HumanEval+ stays off the map because it is a

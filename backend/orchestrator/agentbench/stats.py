@@ -78,6 +78,53 @@ def mcnemar_exact(only_a: int, only_b: int) -> float:
     return min(1.0, 2 * sum(math.comb(n, i) for i in range(k + 1)) / 2 ** n)
 
 
+def _tango_z(only_a: int, only_b: int, n: int, d: float) -> float:
+    """Tango's score statistic for the paired difference p_a - p_b = d. The
+    variance comes from the constrained maximum-likelihood estimate of the
+    chance that only b solves a task, given that the difference is d."""
+    big_a = 2 * n
+    big_b = -only_a - only_b + (2 * n - only_a + only_b) * d
+    big_c = -only_b * d * (1 - d)
+    q = (math.sqrt(max(big_b * big_b - 4 * big_a * big_c, 0.0)) - big_b) / (2 * big_a)
+    num = only_a - only_b - n * d
+    var = n * (2 * q + d * (1 - d))
+    if var <= 0:
+        return 0.0 if num == 0 else math.copysign(math.inf, num)
+    return num / math.sqrt(var)
+
+
+def paired_difference(only_a: int, only_b: int, n: int,
+                      z: float = Z95) -> tuple[float, float, float]:
+    """How far arm a's resolve rate sits above arm b's on n tasks both ran, one
+    attempt a side, with its 95% interval: (difference, low, high).
+
+    Only the tasks one arm solved and the other missed move the difference; the
+    rest set how sure it is. The interval is Tango's (1998) score interval,
+    the score test inverted: every difference the test wouldn't reject at this
+    level. It stays inside [-1, 1] and behaves at 0 or n disagreements, where
+    the plain normal interval collapses."""
+    if n <= 0:
+        return 0.0, -1.0, 1.0
+    if only_a < 0 or only_b < 0 or only_a + only_b > n:
+        raise ValueError(f"{only_a} and {only_b} tasks solved by one arm only don't fit in {n}")
+    est = (only_a - only_b) / n
+
+    def edge(inside: float, outside: float, bound: float) -> float:
+        # The statistic falls as d rises; bisect to where it reaches `bound`.
+        for _ in range(100):
+            mid = (inside + outside) / 2
+            stat = _tango_z(only_a, only_b, n, mid)
+            if (stat > bound) == (outside < inside):
+                outside = mid
+            else:
+                inside = mid
+        return (inside + outside) / 2
+
+    lo = -1.0 if _tango_z(only_a, only_b, n, -1.0) <= z else edge(est, -1.0, z)
+    hi = 1.0 if _tango_z(only_a, only_b, n, 1.0) >= -z else edge(est, 1.0, -z)
+    return est, lo, hi
+
+
 def tasks_needed(p: float, half_width: float, z: float = Z95, cap: int = 10_000) -> int:
     """Fewest tasks whose Wilson interval at rate `p` is no wider than ±half_width."""
     if not 0 < half_width < 0.5:

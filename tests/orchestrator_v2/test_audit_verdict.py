@@ -523,6 +523,38 @@ def test_a_paired_claim_counts_the_tasks_only_one_side_solved():
         metrics(laptop, claim, versus_rows=studio + [_row("h", True, arm="x:big")])
 
 
+def test_the_standing_reads_the_gap_against_the_margin():
+    from backend.orchestrator.audit.capability import MARGIN, standing
+
+    assert MARGIN == 0.10  # ADR 2026-11-08-caught-up-by-capability; a change needs a new one
+    assert standing(0.50, 0.76) == "behind"
+    assert standing(0.003, 0.199) == "open"
+    assert standing(0.08, 0.30) == "open"  # straddling counts as open, even far above
+    assert standing(-0.04, 0.07) == "caught up"
+    assert standing(-0.20, -0.01) == "ahead"
+    assert standing(0.10, 0.20) == "open"  # an end on the margin itself hasn't cleared it
+
+
+def test_a_capability_claim_reads_the_versus_slice_as_the_cloud():
+    from backend.orchestrator.audit.claims import metrics
+
+    local = [_row(s, s in "ab") for s in "abcdefghij"]
+    cloud = [_row(s, s != "a", arm="x:big", machine="Mac17,14, 64 GB") for s in "abcdefghij"]
+    claim = {"select": {"arm": "x:m", "cond": "blind"},
+             "versus": {"select": {"arm": "x:big", "cond": "blind"}}, "capability": "versus"}
+    got = metrics(local, claim, versus_rows=cloud)
+    assert (got["only_this"], got["only_versus"]) == (1, 8)
+    assert got["gap"] == pytest.approx(0.7)  # cloud 9 of 10, local 2
+    assert got["gap_lo"] < 0.7 < got["gap_hi"]
+    assert (got["margin"], got["standing"]) == (0.10, "behind")
+    with pytest.raises(ValueError, match="takes \"versus\""):
+        metrics(local, {**claim, "capability": "this"}, versus_rows=cloud)
+    with pytest.raises(ValueError, match="needs a versus slice"):
+        metrics(local, {k: v for k, v in claim.items() if k != "versus"})
+    assert "standing" not in metrics(local, {k: v for k, v in claim.items() if k != "capability"},
+                                     versus_rows=cloud)
+
+
 def test_pairing_follows_a_sha_that_lengthened_and_refuses_an_ambiguous_one():
     from backend.orchestrator.audit.claims import metrics
 
